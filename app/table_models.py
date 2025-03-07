@@ -28,6 +28,7 @@ class User(Base):
     created_at = Column(DateTime, default=datetime.utcnow)
     age = Column(Integer)
     country = Column(String(255))
+    location = Column(String(255))
     
     ratings = relationship('Rating', back_populates='user')
 

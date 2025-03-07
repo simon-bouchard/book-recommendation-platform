@@ -15,6 +15,8 @@
         <p><strong>Year:</strong> {{ book.year }}</p>
         <p><strong>Publisher:</strong> {{ book.publisher }}</p>
         <p><strong>Average Rating:</strong> {{ book.average_rating }}</p>
+        <p id=userRating style='display: none'><strong>User Rating:</strong> {{ user_rating.rating }}</p>
+        <p id=userComment style='display: none'><strong>User Comment:</strong> {{ user_rating.comment }}</p>
 
         <h3>Comments</h3>
         <button id="commentsButton">View Comments</button>
@@ -30,11 +32,20 @@
     </div>
 
     <script>
-        let user_rating = '{{ user_rating }}';
-        if (user_rating !== 'None') {
-            document.getElementById('userRating').style.display = 'block';
-        }
-    </script>
+
+		let userRatingElement = document.getElementById('userRating');
+		let userCommentElement = document.getElementById('userComment');
+		let user_rating = {{ user_rating | tojson if user_rating else 'null' }};  
+
+		if (user_rating && user_rating.rating !== null && user_rating.rating !== "") {
+	    	userRatingElement.style.display = 'block';
+		}
+
+		if (user_rating && user_rating.comment !== null && user_rating.comment.trim() !== "") {
+		    userCommentElement.style.display = 'block';
+		}
+
+	</script>
 
     <script>
         document.getElementById('commentsButton').onclick = async function() {

@@ -18,3 +18,6 @@ tqdm
 sqlalchemy
 requests
 pymysql
+fuzzywuzzy
+python-Levenshtein
+pycountry

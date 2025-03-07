@@ -9,6 +9,9 @@ from app.table_models import Book, User, Rating
 from app.database import get_db, SessionLocal
 from sqlalchemy.orm import Session
 from fastapi import Depends
+from sqlalchemy.orm import Session
+from app.database import SessionLocal, get_db
+from app.table_models import Book, Rating
 
 user_book_matrix = None
 sparse_matrix = None
@@ -16,41 +19,42 @@ book_model = None
 isbn_to_index = None
 
 load_dotenv()
-client = AsyncIOMotorClient(os.getenv('MONGO_URI'))
-db = client['book-recommendation']
-books = db['Books']
-ratings = db['ratings']
 
 async def reload_model():
     print('Model reload...')
     global user_book_matrix, sparse_matrix, book_model, isbn_to_index
 
-    ratings_cursor = ratings.find()
-    ratings_list = await ratings_cursor.to_list(None)
-    df_ratings = pd.DataFrame(ratings_list)
+    db = SessionLocal()
 
-    if df_ratings.empty:
-        return
+    try:
+        ratings_query = db.query(Rating.user_id, Rating.book_isbn, Rating.rating).all()
+        df_ratings = pd.DataFrame(ratings_query, columns=['user_id', 'isbn', 'rating'])
 
-    user_count = df_ratings['user_id'].value_counts()
-    valid_users = user_count[user_count >= 200].index
+        if df_ratings.empty:
+            return
 
-    book_count = df_ratings['isbn'].value_counts()
-    valid_books = book_count[book_count >= 100].index
+        user_count = df_ratings['user_id'].value_counts()
+        valid_users = user_count[user_count >= 200].index
 
-    df_ratings = df_ratings[(df_ratings['user_id'].isin(valid_users)) & (df_ratings['isbn'].isin(valid_books))]
+        book_count = df_ratings['isbn'].value_counts()
+        valid_books = book_count[book_count >= 100].index
 
-    df_ratings['rating'] = df_ratings['rating'].astype(int)
+        df_ratings = df_ratings[(df_ratings['user_id'].isin(valid_users)) & (df_ratings['isbn'].isin(valid_books))]
 
-    user_book_matrix = df_ratings.pivot(index='isbn', columns='user_id', values='rating').fillna(0)
-    sparse_matrix = csr_matrix(user_book_matrix.values)
+        df_ratings['rating'] = df_ratings['rating'].astype(int)
 
-    book_model = NearestNeighbors(metric='cosine', algorithm='brute')
-    book_model.fit(sparse_matrix)
+        user_book_matrix = df_ratings.pivot(index='isbn', columns='user_id', values='rating').fillna(0)
+        sparse_matrix = csr_matrix(user_book_matrix.values)
 
-    isbn_to_index = {isbn: idx for idx, isbn in enumerate(user_book_matrix.index)}
+        book_model = NearestNeighbors(metric='cosine', algorithm='brute')
+        book_model.fit(sparse_matrix)
 
-    print('Model reloaded')
+        isbn_to_index = {isbn: idx for idx, isbn in enumerate(user_book_matrix.index)}
+
+        print('Model reloaded')
+
+    finally:
+        db.close()
 
 async def get_recommendations(book: str, isbn: bool = True, db: Session = None):
 
@@ -60,7 +64,7 @@ async def get_recommendations(book: str, isbn: bool = True, db: Session = None):
     if isbn:
         book_isbn = book.strip()
     else:
-        book_entry = db.query(Book).filter(Book.title == book).first() #await books.find_one({'title': book})
+        book_entry = db.query(Book).filter(Book.title == book).first() 
         book_isbn = book_entry.isbn
 
     if not book_isbn:
@@ -83,7 +87,7 @@ async def get_recommendations(book: str, isbn: bool = True, db: Session = None):
 
     for idx, dist in zip(indices[0][-1:0:-1], distances[0][-1:0:-1]):
         neighbor_isbn = user_book_matrix.index[idx]
-        book_result = db.query(Book).filter(Book.isbn == neighbor_isbn).first() #await books.find_one({'isbn': neighbor_isbn})
+        book_result = db.query(Book).filter(Book.isbn == neighbor_isbn).first()
         if book_result: 
             recommendations.append({'title': book_result.title, 'similarity': round(float(dist), 2)})
         

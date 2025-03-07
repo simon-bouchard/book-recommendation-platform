@@ -8,17 +8,15 @@ from motor.motor_asyncio import AsyncIOMotorClient
 from app.models import UserSignup, UserLogin, hash_password, verify_password
 import os
 from dotenv import load_dotenv
-from pymongo import MongoClient
 from motor.motor_asyncio import AsyncIOMotorClient
 from datetime import datetime
+from sqlalchemy.orm import Session
+from app.database import SessionLocal, get_db
+from app.table_models import User
 
 load_dotenv()
 
 router = APIRouter()
-
-client = AsyncIOMotorClient(os.getenv('MONGO_URI'))
-db = client['book-recommendation']
-users = db['users']
 
 SECRET_KEY = os.getenv('SECRET_KEY')
 ALGORITHM = 'HS256'
@@ -33,14 +31,14 @@ async def create_access_token(data: dict, expires_delta: timedelta = None):
     to_encode.update({'exp': expire})
     return jwt.encode(to_encode, SECRET_KEY, algorithm=ALGORITHM)
 
-async def get_current_user(access_token: str = Cookie(None)):
+async def get_current_user(access_token: str = Cookie(None), db: Session = Depends(get_db)):
     if not access_token:
         return None  
 
     try:
         payload = jwt.decode(access_token, SECRET_KEY, algorithms=[ALGORITHM])
         username = payload.get("sub")
-        user = await users.find_one({"username": username})
+        user = db.query(User).filter(User.username == username).first()
         if user:
             return user
     except jwt.ExpiredSignatureError:
@@ -51,16 +49,18 @@ async def get_current_user(access_token: str = Cookie(None)):
     return None
 
 @router.post('/auth/signup')
-async def signup(request: Request, username: str = Form(...), email: str = Form(...), password: str = Form(...)):
-    existing_user = await users.find_one({'username': username})
+async def signup(request: Request, username: str = Form(...), email: str = Form(...), password: str = Form(...), age: int = Form(...), location: str = Form(...), db: Session=Depends(get_db)):
+    existing_user = db.query(User).filter(User.username == username).first() #await users.find_one({'username': username})
 
     if existing_user:
         raise HTTPException(status_code=400, detail='Username already taken')
 
     hashed_password = hash_password(password)
-    new_user = {'username': username, 'email': email, 'password': hashed_password, 'created_at': datetime.utcnow()}
+    new_user = User(username=username, email=email, password=hashed_password, age=age, location=location)
 
-    user = await users.insert_one(new_user)
+    db.add(new_user)
+    db.commit()
+    db.close()
 
     access_token = await create_access_token({'sub': username})
 
@@ -69,13 +69,13 @@ async def signup(request: Request, username: str = Form(...), email: str = Form(
     return response
 
 @router.post('/auth/login', response_class=HTMLResponse)
-async def login(request: Request, username: str = Form(...), password: str = Form(...)):
+async def login(request: Request, username: str = Form(...), password: str = Form(...), db: Session=Depends(get_db)):
 
-    db_user = await users.find_one({'username': username})
+    db_user = db.query(User).filter(User.username == username).first()
 
     if not db_user:
         raise HTTPException(status_code=401, detail='Invalid username')
-    if not verify_password(password, db_user['password']):
+    if not verify_password(password, db_user.password):
         raise HTTPException(status_code=401, detail='Invalid password')
 
     access_token = await create_access_token({'sub': username})

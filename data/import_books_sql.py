@@ -1,38 +1,36 @@
 import pandas as pd
-import numpy as np
+from pymongo import MongoClient
 import os
 import sys
 from dotenv import load_dotenv
 from datetime import datetime
-from sqlalchemy import create_engine
-from sqlalchemy.orm import sessionmaker
 
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
 
-from app.database import DATABASE_URL
-from app.models import Book
+#from app.models import Books
+
+load_dotenv()
+
+client = MongoClient(os.getenv('MONGO_URI'))
+
+db = client['book-recommendation']
+
+books = db['Books']
+
+file_path = os.path.join(os.getcwd(), 'BX-Books.csv')
 
 df = pd.read_csv('BX-Books.csv', encoding='ISO-8859-1', sep=';', quotechar='"', engine='python', on_bad_lines='skip')
-df = df.replace({np.nan: None})
 
-engine = create_engine(DATABASE_URL)
-SessionLocal = sessionmaker(bind=engine)
-db = SessionLocal()
+df.rename(columns={
+    'Book-Title': 'title',
+    'ISBN': 'isbn',
+    'Book-Author': 'author',
+    'Year-Of-Publication': 'year',
+    'Publisher': 'publisher'
+}, inplace=True)
 
-for _, row in df.iterrows():
-    book = Book(
-        isbn=row["ISBN"],
-        title=row["Book-Title"],
-        author=row["Book-Author"],
-        year=int(row["Year-Of-Publication"]),
-        publisher=row["Publisher"],
-        image_url_s=row["Image-URL-S"],
-        image_url_m=row["Image-URL-M"],
-        image_url_l=row["Image-URL-L"],
-    )
-    db.merge(book)
+data = df.to_dict(orient='records')
 
-db.commit()
-db.close()
+#validated_ratings = [Rating(**rating).dict(by_alias=True) for rating in data]
 
-print("Books imported successfully!")
+books.insert_many(data)

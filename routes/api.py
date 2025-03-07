@@ -3,7 +3,6 @@ from fastapi import APIRouter, HTTPException, Form, Request, FastAPI, Depends, s
 from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
 from fastapi.templating import Jinja2Templates
 from motor.motor_asyncio import AsyncIOMotorClient
-from pymongo import MongoClient
 import os
 from dotenv import load_dotenv
 import jwt
@@ -13,6 +12,7 @@ from bson import ObjectId
 from models.book_model import reload_model, get_recommendations
 from models.user_model import reload_user_model, get_user_recommendations
 from datetime import datetime
+from sqlalchemy import func
 from sqlalchemy.orm import Session
 from app.database import SessionLocal, get_db
 from app.table_models import Book, User, Rating
@@ -21,11 +21,6 @@ router = APIRouter()
 templates = Jinja2Templates(directory="templates")
 
 load_dotenv()
-client = MongoClient(os.getenv('MONGO_URI'))
-db = client['book-recommendation']
-ratings = db['ratings']
-books = db['Books']
-users = db['users']
 
 @router.get('/login', response_class=HTMLResponse)
 def signup_page(request: Request):
@@ -35,49 +30,53 @@ def signup_page(request: Request):
 def profile_page(request: Request, current_user: dict = Depends(get_current_user)):
     if not current_user:
         return RedirectResponse(url='/login', status_code=status.HTTP_303_SEE_OTHER)
-    return templates.TemplateResponse('profile.html', {'request': request, 'user': current_user})
+
+    user_data = {
+        "id": current_user.id,
+        "username": current_user.username,
+        "email": current_user.email,
+        "age": current_user.age,
+        "location": current_user.location,
+    }
+
+    return templates.TemplateResponse('profile.html', {'request': request, 'user': user_data})
 
 @router.post('/rating')
-async def new_rating(current_user = Depends(get_current_user), data: dict = Body(...), background_tasks = Depends(BackgroundTasks)):
+async def new_rating(current_user = Depends(get_current_user), data: dict = Body(...), db: Session = Depends(get_db)):
 
     if not current_user:
         return RedirectResponse(url='/login', status_code=status.HTTP_303_SEE_OTHER)
 
     isbn = data.get('isbn')
     rating = data.get('rating')
-    comment = data.get('comment')
 
     if not isbn or not rating:
         raise HTTPException(status_code=400, detail='Missing required fields')
 
-    ratings.update_one(
-        {'user_id': current_user['_id'], 'isbn': isbn}, 
-        {"$set": {'rating': rating, 'comment': comment, 'created_at': datetime.utcnow()}},
-        upsert=True
+    new_rating = Rating(
+        user_id=current_user.id,
+        book_isbn=isbn,
+        rating=rating,
+        comment = data.get('comment'),
     )
 
-    background_tasks.add_task(reload_model)
+    db.merge(new_rating)
+    db.commit()
+    db.close()
 
     return {'message': f'Rating successfully submitted/updated!'}
 
 @router.get('/book/{isbn}', response_class=HTMLResponse)
 async def book_recommendation(request: Request, isbn: str, current_user: dict = Depends(get_current_user), db: Session = Depends(get_db)): 
-#    book = books_data.get(isbn)
 
-    #book = books.find_one({'isbn': isbn})
     book = db.query(Book).filter(Book.isbn == isbn).first()
     if not book:
         raise HTTPException(status_code=404, detail='Book not found')
 
-    pipeline = [
-        {"$match": {"isbn": isbn}},
-        {"$group": {"_id": "$isbn", "avg_rating": {"$avg": "$rating"}}}
-    ]
-
-    average = list(ratings.aggregate(pipeline))
+    average = db.query(func.avg(Rating.rating)).filter(Rating.book_isbn == isbn).scalar()
 
     if average: 
-        average = round(average[0]['avg_rating'], 2)
+        average = round(average, 2)
 
     if not book: 
         raise HTTPException(status_code=404, detail='Book not found')
@@ -95,25 +94,37 @@ async def book_recommendation(request: Request, isbn: str, current_user: dict = 
     user_rating = None
 
     if current_user: 
-        user_rating = ratings.find_one({'user_id': current_user['_id'], 'isbn': isbn})
+        user_rating_obj = db.query(Rating).filter(Rating.user_id == current_user.id, Rating.book_isbn == book['isbn']).first()
+
+        if user_rating_obj:
+            user_rating={
+                'rating': user_rating_obj.rating,
+                'comment': user_rating_obj.comment
+            }
 
     return templates.TemplateResponse('book.html', {"request": request, "book": book, 'user_rating': user_rating})
 
 @router.get('/comments')
 async def get_comments(book: str = Query(...), isbn: bool = True, limit: int = 5, db: Session = Depends(get_db)):
     if not isbn:
-        db_book = db.query(Book).filter(Book.title == book).first() #await books.find_one({'title': book})
+        db_book = db.query(Book).filter(Book.title == book).first() 
         if db_book:
-            book = db_book.isbn
+            book = db_book.book_isbn
         else:
             return {'error': 'Book not found'}
         
-    comments = list(ratings.find({'isbn': book, 'comment': {'$ne': '', '$exists': True}}).limit(limit))
+    comment_query = (
+        db.query(Rating.comment, Rating.user_id, User.username)
+        .join(User, User.id == Rating.user_id)
+        .filter(Rating.book_isbn == book, Rating.comment.isnot(None), Rating.comment != '')
+        .limit(limit)
+        .all()
+    )
 
-    for comment in comments:
-        comment['username'] = users.find_one({'_id': comment['user_id']})['username']
-        comment['_id'] = str(comment['_id'])
-        comment['user_id'] = str(comment['user_id'])
+    comments = [
+            {'comment': comment.comment, 'user_id': comment.user_id, 'username': comment.username}
+            for comment in comment_query
+    ]
 
     if not comments:
         raise HTTPException(status_code=404, detail='No comments have been submitted for this book yet')
