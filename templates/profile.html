@@ -14,7 +14,7 @@
         <div class="profile-info">
             <h3>Profile Information</h3>
             <p><strong>Username:</strong> {{ user.username }}</p>
-            <p><strong>User ID:</strong> {{ user._id }}</p>
+            <p><strong>User ID:</strong> {{ user.id }}</p>
             <p><strong>Email:</strong> {{ user.email }}</p>
             <p><strong>Age:</strong> {{ user.age }}</p>
             <p><strong>Location:</strong> {{ user.location }}</p>
@@ -46,14 +46,14 @@
 
     <script>
         document.getElementById('recommendButton').onclick = async function () {
-            let user_id = '{{ user._id }}'.trim();
+            let user_id = '{{ user.id }}'.trim();
 
             let response = await fetch(`/profile/recommend?user=${encodeURIComponent(user_id)}`);
             let data = await response.json();
 
             if (response.ok) {
                 let recommendations = data.map(rec =>
-                    `<li><strong>${rec.title}</strong> (${rec.isbn}) - <strong>Score:</strong> ${rec.score}</li>`
+							`<li><strong>${rec.title}</strong> (${rec.isbn}) - ${rec.author}</li>`
                 ).join("");
 
                 document.getElementById('recommendations').innerHTML = `<ul>${recommendations}</ul>`;

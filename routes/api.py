@@ -16,6 +16,9 @@ from sqlalchemy import func
 from sqlalchemy.orm import Session
 from app.database import SessionLocal, get_db
 from app.table_models import Book, User, Rating
+import logging
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter()
 templates = Jinja2Templates(directory="templates")
@@ -142,19 +145,20 @@ async def recommend_books(book: str = Query(...), isbn: bool = True):
         raise HTTPException(status_code=404, detail="Book not found (books with less than 100 ratings can't have recommendations.)")
 
 @router.get('/profile/recommend')
-async def user_recommendation(user: str, _id: bool = True, n: int = 5):
-    if _id:
-        if not ObjectId.is_valid(user):
-            raise HTTPException(status_code=404, detail='Invalid BSON object format')
-        user = ObjectId(user)
-    recommendations = await get_user_recommendations(user, _id, n)
+async def user_recommendation(user: str = Query(...), _id: bool = True, top_n: int = 5):
 
-    if 'error' in recommendations:
-        raise HTTPException(status_code=404, detail=recommendations['error'])
-    if recommendations:
-        return recommendations
-    else:
-        raise HTTPException(status_code=404, detail='Unexpected error retrieving recommendations')
+    try:
+        recommendations = await get_user_recommendations(user, _id, top_n)
+
+    except ValueError:  
+        raise HTTPException(status_code=200, detail="User doesn't have recommendations.")
+    except HTTPException as e:  
+        raise e
+    except Exception as e:
+        logger.error(f"Unexpected error in /profile/recommend: {str(e)}")
+        raise HTTPException(status_code=500, detail="An internal error occurred. Please try again later.")
+
+    return recommendations
 
 @router.get('/logout')
 async def logout():

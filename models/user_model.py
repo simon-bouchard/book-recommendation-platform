@@ -1,99 +1,129 @@
 import pandas as pd
 import numpy as np
-from scipy.sparse import csr_matrix
-from sklearn.neighbors import NearestNeighbors
-from motor.motor_asyncio import AsyncIOMotorClient
+import torch
+import torch.nn as nn
+from torch.nn import Module, Embedding
+from fastapi import HTTPException
+from fastai.data.core import DataLoaders
+from fastai.layers import sigmoid_range
 import os
+import sys
 from dotenv import load_dotenv
-from bson import ObjectId
+import asyncio
+import pickle
 
-book_user_matrix = None
-user_sparse_matrix = None
-user_model = None
-userid_to_index = None
+sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
 
-load_dotenv()
-client = AsyncIOMotorClient(os.getenv('MONGO_URI'))
-db = client['book-recommendation']
-books = db['Books']
-ratings = db['ratings']
-users = db['users']
+from app.database import SessionLocal
+from app.table_models import User, Book, Rating
 
-async def reload_user_model():
+script_dir = os.path.dirname(os.path.abspath(__file__))  # Get the script's directory
+model_file_path = os.path.join(script_dir, "user_model_20.pth")
+dls_path = os.path.join(script_dir, 'dls.pkl')
+
+model = None
+
+with open(dls_path, 'rb') as f:
+    dls = pickle.load(f)
+
+def reload_user_model():
     print('Model reload...')
-    global book_user_matrix, user_sparse_matrix, user_model, userid_to_index
 
-    ratings_cursor = ratings.find()
-    ratings_list = await ratings_cursor.to_list(None)
-    df_ratings = pd.DataFrame(ratings_list)
+    global model
 
-    if df_ratings.empty:
-        return
+    class CollabNN(Module):
+        def __init__(self, user_sz, item_sz, y_range=(1,10.5), n_act=100, dropout=0.2):
+            super().__init__()
+            self.user_factors = Embedding(*user_sz)
+            self.item_factors = Embedding(*item_sz)
+            self.layers = nn.Sequential(
+                nn.Linear(user_sz[1]+item_sz[1], n_act),
+                nn.ReLU(),
+                nn.Dropout(dropout),
+                nn.Linear(n_act, n_act // 2),
+                nn.ReLU(),
+                nn.Dropout(dropout),
+                nn.Linear(n_act // 2, n_act // 4),
+                nn.ReLU(),
+                nn.Dropout(dropout),
+                nn.Linear(n_act // 4, n_act // 8),
+                nn.ReLU(),
+                nn.Dropout(dropout),
+                nn.Linear(n_act // 8, n_act // 16),
+                nn.ReLU(),
+                nn.Dropout(dropout),
+                nn.Linear(n_act // 16, 1))
+            self.y_range = y_range
+    
+        def forward(self, x):
+            embs = self.user_factors(x[:,0]),self.item_factors(x[:,1])
+            x = self.layers(torch.cat(embs, dim=1))
+            return sigmoid_range(x, *self.y_range)
 
-    df_ratings['user_id'] = df_ratings['user_id'].apply(lambda x: ObjectId(x) if isinstance(x, str) else x)
-
-    user_count = df_ratings['user_id'].value_counts()
-    valid_users = user_count[user_count >= 20].index
-
-    book_count = df_ratings['isbn'].value_counts()
-    valid_books = book_count[book_count >= 100].index
-
-    df_ratings = df_ratings[(df_ratings['user_id'].isin(valid_users)) & (df_ratings['isbn'].isin(valid_books))]
-
-    df_ratings['rating'] = df_ratings['rating'].astype(int)
-
-    book_user_matrix = df_ratings.pivot(index='user_id', columns='isbn', values='rating').fillna(0)
-    user_sparse_matrix = csr_matrix(book_user_matrix.values)
-
-    user_model = NearestNeighbors(metric='cosine', algorithm='brute')
-    user_model.fit(user_sparse_matrix)
-
-    userid_to_index = {user: idx for idx, user in enumerate(book_user_matrix.index)}
+    model = CollabNN((7512, 300), (674, 300), n_act=300)
+    model.load_state_dict(torch.load(model_file_path))
+    model.eval()
 
     print('Model reloaded')
 
-async def get_user_recommendations(user, _id: bool = True, n: int = 5):
+async def get_user_recommendations(user, _id: bool = True, top_n: int = 5):
+
+    if model is None:
+        reload_user_model()
+ 
+    db = SessionLocal()
 
     if _id:
-        user_id = ObjectId(user)
+        user_id = int(user)
     else:
-        user_entry = await users.find_one({'username': user})
+        user_entry = db.query(User).filter(User.username == user).first()
         if not user_entry:
             return {'error': 'User not found'}
-        user_id = user_entry.get('_id')
+        user_id = user_entry.id
+   
+    books_query = db.query(Book.isbn, Book.title, Book.author).all()
+    books = pd.DataFrame(books_query, columns=['isbn', 'title', 'author'])
 
-    if user_model is None or book_user_matrix is None or userid_to_index is None:
-        await reload_user_model()
-    
-    if user_id not in userid_to_index:
-        return { 'error': "User not found (users with less than 20 ratings can't get recommendations)"}
+    all_book_titles = list(dls.classes['title'].o2i.keys())
 
-    query_index = userid_to_index[user_id]
+    book_indices = torch.tensor(list(dls.classes['title'].o2i.values()), dtype=torch.int64)
 
-    distances, indices = user_model.kneighbors(user_sparse_matrix[query_index], n_neighbors=50)
-    similarities = 1 - distances
+    try:
+        user_tensor = torch.full((len(book_indices),), int(user_id), dtype=torch.int64)
+        batch = torch.stack([user_tensor, book_indices], dim=1)
 
-    similar_users = book_user_matrix.iloc[indices.flatten()]
-    weighted_ratings = similar_users.multiply(similarities.T,axis=0)
-    sum_similarity = similarities.sum(axis=1)
-    
-    if sum_similarity[0] == 0:
-        return {'error': 'No recommendations could be generated.'}
+        model.eval()
+        with torch.no_grad():
+            predictions = model(batch)
 
-    book_scores = weighted_ratings.sum() / sum_similarity[0]
-    top_books = book_scores.nlargest(len(book_scores))
+        predictions = predictions.squeeze().numpy()
 
-    user_ratings = await ratings.find({'user_id': user_id}).to_list(None)
-    rated_books = {rating['isbn'] for rating in user_ratings}
+    except IndexError:
+        raise ValueError("User index out of range. The user_id might not exist in the model.")
+    except ValueError as ve:
+        raise ve  
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Unexpected error during recommendation: {str(e)}")
 
-    book_details = []
-    for isbn, score in top_books.items():
-        if isbn not in rated_books:
-            book = await books.find_one({'isbn': isbn})
-            if book:
-                book_details.append({'isbn': isbn, 'title': book['title'], 'score': round(score, 2)})
-        if len(book_details) >= n:
-            break
 
-    return book_details
+    recommendations = pd.DataFrame({
+        'title': all_book_titles,
+        'predicted_rating': predictions
+    })
+
+    recommendations = recommendations.merge(books, on='title', how='left')
+
+    rated_books = db.query(Rating.book_isbn).filter(Rating.user_id == user_id).all()
+    rated_books = {isbn for (isbn,) in rated_books}
+           
+    recommendations = recommendations[~recommendations['title'].isin(rated_books)]
+
+    recommendations = recommendations.sort_values(by='predicted_rating', ascending=False)
+
+    print(recommendations)
+    return recommendations[['title', 'isbn', 'author', 'predicted_rating']].head(top_n).to_dict(orient='records')
+
+async def test():
+    result = await get_user_recommendations(314)
+    print(result)
 

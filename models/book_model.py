@@ -69,11 +69,9 @@ async def get_recommendations(book: str, isbn: bool = True, db: Session = None):
 
     if not book_isbn:
         return { 'error': "Book not found"}
-    print(f"Processed book_isbn: {book_isbn}")
 
     if book_model is None or user_book_matrix is None or isbn_to_index is None:
         await reload_model()
-    print(list(isbn_to_index.keys())[:5])
     
     if str(book_isbn) not in isbn_to_index:
         print(f"ISBN {book_isbn} not found in isbn_to_index. Available ISBNs: {list(isbn_to_index.keys())[:5]}")

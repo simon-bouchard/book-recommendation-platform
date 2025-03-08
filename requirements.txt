@@ -21,3 +21,5 @@ pymysql
 fuzzywuzzy
 python-Levenshtein
 pycountry
+torch
+fastai
