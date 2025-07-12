@@ -5,13 +5,10 @@ from sklearn.neighbors import NearestNeighbors
 from motor.motor_asyncio import AsyncIOMotorClient
 import os
 from dotenv import load_dotenv
-from app.table_models import Book, User, Rating
+from app.table_models import Book, User, Interaction
 from app.database import get_db, SessionLocal
 from sqlalchemy.orm import Session
 from fastapi import Depends
-from sqlalchemy.orm import Session
-from app.database import SessionLocal, get_db
-from app.table_models import Book, Rating
 
 user_book_matrix = None
 sparse_matrix = None

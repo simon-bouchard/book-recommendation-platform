@@ -15,7 +15,7 @@ import pickle
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
 
 from app.database import SessionLocal
-from app.table_models import User, Book, Rating
+from app.table_models import User, Book, Interaction
 
 script_dir = os.path.dirname(os.path.abspath(__file__))  # Get the script's directory
 model_file_path = os.path.join(script_dir, "user_model_20.pth")

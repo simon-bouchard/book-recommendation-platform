@@ -9,13 +9,13 @@ import jwt
 from datetime import datetime, timedelta
 from app.auth import get_current_user
 from bson import ObjectId
-from models.book_model import reload_model, get_recommendations
-from models.user_model import reload_user_model, get_user_recommendations
+#from models.book_model import reload_model, get_recommendations
+#from models.user_model import reload_user_model, get_user_recommendations
 from datetime import datetime
 from sqlalchemy import func
 from sqlalchemy.orm import Session
 from app.database import SessionLocal, get_db
-from app.table_models import Book, User, Rating
+from app.table_models import Book, User, Interaction
 import logging
 
 logger = logging.getLogger(__name__)
@@ -51,61 +51,87 @@ async def new_rating(current_user = Depends(get_current_user), data: dict = Body
         return RedirectResponse(url='/login', status_code=status.HTTP_303_SEE_OTHER)
 
     isbn = data.get('isbn')
-    rating = data.get('rating')
+    rating = data.get('rating')  # Can be None for 'read'
+    comment = data.get('comment')
 
-    if not isbn or not rating:
-        raise HTTPException(status_code=400, detail='Missing required fields')
-
-    new_rating = Rating(
-        user_id=current_user.id,
-        book_isbn=isbn,
-        rating=rating,
-        comment = data.get('comment'),
-    )
-
-    db.merge(new_rating)
-    db.commit()
-    db.close()
-
-    return {'message': f'Rating successfully submitted/updated!'}
-
-@router.get('/book/{isbn}', response_class=HTMLResponse)
-async def book_recommendation(request: Request, isbn: str, current_user: dict = Depends(get_current_user), db: Session = Depends(get_db)): 
+    if not isbn:
+        raise HTTPException(status_code=400, detail='Missing ISBN')
 
     book = db.query(Book).filter(Book.isbn == isbn).first()
     if not book:
         raise HTTPException(status_code=404, detail='Book not found')
 
-    average = db.query(func.avg(Rating.rating)).filter(Rating.book_isbn == isbn).scalar()
+    interaction_type = 'rated' if rating is not None else 'read'
+    now = datetime.utcnow()
 
-    if average: 
-        average = round(average, 2)
+    interaction = db.query(Interaction).filter(
+        Interaction.user_id == current_user.user_id,
+        Interaction.work_id == book.work_id
+    ).first()
 
-    if not book: 
+    if interaction:
+        interaction.rating = rating
+        interaction.comment = comment
+        interaction.type = interaction_type
+        interaction.timestamp = now
+    else:
+        interaction = Interaction(
+            user_id=current_user.user_id,
+            work_id=book.work_id,
+            rating=rating,
+            comment=comment,
+            type=interaction_type,
+            timestamp=now
+        )
+        db.add(interaction)
+
+    db.commit()
+    db.close()
+
+    return {'message': 'Interaction recorded successfully'}
+
+@router.get('/book/{isbn}', response_class=HTMLResponse)
+async def book_recommendation(request: Request, isbn: str, current_user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+
+    # Lookup book by ISBN
+    book = db.query(Book).filter(Book.isbn == isbn).first()
+    if not book:
         raise HTTPException(status_code=404, detail='Book not found')
 
-    book = {
-            'isbn': isbn,
-            'title': book.title,
-            'author': book.author,
-            'genre': book.genre,
-            'year': book.year,
-            'publisher': book.publisher,
-            'average_rating': average
+    # Calculate average rating for this book
+    average = db.query(func.avg(Interaction.rating)).filter(
+        Interaction.work_id == book.work_id,
+        Interaction.rating.isnot(None)
+    ).scalar()
+
+    book_info = {
+        'isbn': isbn,
+        'title': book.title,
+        'author': book.author.name if book.author else None,
+        'year': book.year,
+        'description': book.description,
+        'average_rating': round(average, 2) if average else None
     }
 
+    # Find current user's interaction
     user_rating = None
+    if current_user:
+        interaction = db.query(Interaction).filter(
+            Interaction.user_id == current_user.user_id,
+            Interaction.work_id == book.work_id
+        ).first()
 
-    if current_user: 
-        user_rating_obj = db.query(Rating).filter(Rating.user_id == current_user.id, Rating.book_isbn == book['isbn']).first()
-
-        if user_rating_obj:
-            user_rating={
-                'rating': user_rating_obj.rating,
-                'comment': user_rating_obj.comment
+        if interaction and (interaction.rating is not None or interaction.comment):
+            user_rating = {
+                'rating': interaction.rating,
+                'comment': interaction.comment
             }
 
-    return templates.TemplateResponse('book.html', {"request": request, "book": book, 'user_rating': user_rating})
+    return templates.TemplateResponse('book.html', {
+        "request": request,
+        "book": book_info,
+        "user_rating": user_rating
+    })
 
 @router.get('/comments')
 async def get_comments(book: str = Query(...), isbn: bool = True, limit: int = 5, db: Session = Depends(get_db)):
