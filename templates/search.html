@@ -1,0 +1,39 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Search Books</title>
+    <link rel="stylesheet" href="{{ url_for('static', path='css/styles.css') }}">
+</head>
+<body>
+    <div class="container">
+        <h1>Search Books</h1>
+        <form method="get" action="/search">
+            <label for="query">Book Title:</label>
+            <input type="text" id="query" name="query" value="{{ query or '' }}" placeholder="Search by title..." required>
+            <button type="submit">Search</button>
+        </form>
+
+        {% if results %}
+            <h2>Results</h2>
+            <ul>
+            {% for book in results %}
+                <li>
+                    <a href="/book/{{ book.work_id }}"><strong>{{ book.title }}</strong></a>
+                    {% if book.author %} — {{ book.author.name }}{% endif %}
+                    {% if book.year %} ({{ book.year }}){% endif %}
+                </li>
+            {% endfor %}
+            </ul>
+        {% elif query %}
+            <p>No results found for <strong>{{ query }}</strong>.</p>
+        {% endif %}
+
+        <div class="links">
+            <a href="/">Home</a>
+            <a href="/profile">Profile</a>
+        </div>
+    </div>
+</body>
+</html>

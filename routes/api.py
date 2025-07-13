@@ -204,6 +204,24 @@ async def user_recommendation(user: str = Query(...), _id: bool = True, top_n: i
 
     return recommendations
 
+@router.get('/search', response_class=HTMLResponse)
+def search_books(request: Request, query: str = Query(None), db: Session = Depends(get_db)):
+    results = []
+
+    if query:
+        results = (
+            db.query(Book)
+            .filter(Book.title.ilike(f"%{query}%"))
+            .limit(20)
+            .all()
+        )
+
+    return templates.TemplateResponse('search.html', {
+        'request': request,
+        'query': query,
+        'results': results,
+    })
+
 @router.get('/logout')
 async def logout():
     response = RedirectResponse(url='/login', status_code=status.HTTP_303_SEE_OTHER)
