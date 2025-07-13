@@ -1,61 +1,63 @@
+import os
+import sys
 import pandas as pd
+import json
+import ast
+from sqlalchemy import text
 
-# === STEP 1: Load and clean books.csv ===
-df_books = pd.read_csv("data/books.csv")
+sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
 
-# Replace invalid work_id values like 'False' or NaN with None
-df_books["work_id"] = df_books["work_id"].replace("False", pd.NA)
+from app.database import SessionLocal
+from app.table_models import Author
 
-# Create a consistent work_id per ISBN
-# - For books with valid work_id: keep as-is
-# - For books with missing work_id: assign 'unmapped_<isbn>'
-df_books["work_id"] = df_books.apply(
-    lambda row: row["work_id"]
-    if pd.notna(row["work_id"])
-    else f"unmapped_{row['isbn']}",
-    axis=1
-)
+def load_and_insert_authors():
+    path = "data/authors.csv"
+    if not os.path.exists(path):
+        print("❌ File not found:", path)
+        return
 
-# Enforce: one work_id per ISBN
-isbn_to_work_id = df_books.drop_duplicates("isbn").set_index("isbn")["work_id"].to_dict()
+    df = pd.read_csv(path)
+    df = df.where(pd.notnull(df), None)
 
-# Reassign all work_id values consistently per ISBN
-df_books["work_id"] = df_books["isbn"].map(isbn_to_work_id)
+    authors = []
+    for _, row in df.iterrows():
+        alt_names = None
+        try:
+            parsed = ast.literal_eval(row["alternate_names"])
+            if isinstance(parsed, list):
+                alt_names = json.dumps(parsed)
+        except Exception as e:
+            print(f"⚠️ Failed to parse alternate_names: {row['alternate_names'][:80]} → {e}")
 
-# Drop duplicate work_id rows
-df_books = df_books.drop_duplicates(subset="work_id")
+        authors.append(Author(
+            author_id=row["author_id"],
+            name=row["name"],
+            birth_date=str(row["birth_date"]) if row["birth_date"] else None,
+            death_date=str(row["death_date"]) if row["death_date"] else None,
+            bio=row["bio"] if row["bio"] else None,
+            alternate_names=alt_names
+        ))
 
-# Save updated books.csv
-df_books.to_csv("data/books.csv", index=False)
+    if not authors:
+        print("❌ No authors parsed. Check your CSV.")
+        return
 
-# === STEP 2: Build old→new work_id map for ratings/interactions ===
-# You may have inconsistent original work_id usage (like unmapped_)
-# So find all work_id→isbn → new work_id mappings
-df_books_clean = pd.read_csv("data/books.csv")
-isbn_to_work_id_clean = df_books_clean.set_index("isbn")["work_id"].to_dict()
+    db = SessionLocal()
+    try:
+        #db.execute(text("DELETE FROM authors"))
+        db.add_all(authors)
+        db.commit()
+        print(f"✅ Inserted {len(authors)} authors.")
 
-# Reverse map: build old_work_id → new_work_id based on ISBN
-df_original = pd.read_csv("data/books.csv")
-old_to_new_work_id = dict()
-for _, row in df_original.iterrows():
-    isbn = row["isbn"]
-    old_work_id = row["work_id"]
-    new_work_id = isbn_to_work_id_clean.get(isbn)
-    if pd.notna(isbn) and old_work_id != new_work_id:
-        old_to_new_work_id[old_work_id] = new_work_id
+        sample = db.query(Author).first()
+        print("Sample from DB:", sample.author_id, "-", sample.name)
 
-# === STEP 3: Update ratings.csv ===
-df_ratings = pd.read_csv("data/ratings.csv")
-df_ratings["work_id"] = df_ratings["work_id"].replace(old_to_new_work_id)
-df_ratings.to_csv("data/ratings.csv", index=False)
+    except Exception as e:
+        db.rollback()
+        print("❌ Error inserting authors:", e)
 
-# === STEP 4: Update interactions.csv ===
-try:
-    df_inter = pd.read_csv("data/interactions.csv")
-    df_inter["work_id"] = df_inter["work_id"].replace(old_to_new_work_id)
-    df_inter.to_csv("data/interactions.csv", index=False)
-    print("✅ interactions.csv updated")
-except FileNotFoundError:
-    print("ℹ️ interactions.csv not found — skipping")
+    finally:
+        db.close()
 
-print("✅ All files cleaned and aligned by consistent work_id")
+if __name__ == "__main__":
+    load_and_insert_authors()

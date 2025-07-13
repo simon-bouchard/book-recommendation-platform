@@ -10,10 +10,10 @@
     <div class="container">
         <h1>FastAPI Machine Learning Project</h1>
         <h2>Book Recommendation</h2>
-        <p>Example usage: 0446672211 (Where the Heart Is (Oprah's Book Club (Paperback)))</p>
+        <p>Example usage: OL1888129W (Where the Heart Is (Oprah's Book Club (Paperback)))</p>
 
         <form id="bookForm">
-            <label for="book">Book ISBN:</label>
+            <label for="book">Book Work ID:</label>
             <input type="text" id="book" name="book" placeholder="0446672211" required>
             <button type="submit">Submit</button>
         </form>
@@ -29,7 +29,7 @@
 
             let book = document.getElementById('book').value.trim();
             if (!book) {
-                alert('Please enter a valid ISBN!');
+                alert('Please enter a valid Work ID!');
                 return;
             }
 

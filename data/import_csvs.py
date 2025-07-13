@@ -4,6 +4,7 @@ import sys
 import pandas as pd
 from sqlalchemy import text
 import json
+import ast
 
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
 
@@ -32,22 +33,17 @@ def import_users():
 
 def import_authors():
     df = pd.read_csv("data/authors.csv")
-
-    # 🔐 Safely convert all NaN to None
     df = df.where(pd.notnull(df), None)
 
     authors = []
     for _, row in df.iterrows():
-        # Handle alternate_names (stringified list)
         alt_names = None
-        if row["alternate_names"] and row["alternate_names"].strip() not in ("", "[]"):
-            try:
-                # Replace single quotes and parse
-                parsed = json.loads(row["alternate_names"].replace("'", '"'))
-                if isinstance(parsed, list):
-                    alt_names = json.dumps(parsed)
-            except Exception:
-                alt_names = None
+        try:
+            parsed = ast.literal_eval(row["alternate_names"])
+            if isinstance(parsed, list):
+                alt_names = json.dumps(parsed)
+        except Exception as e:
+            print(f"⚠️ Skipping bad alternate_names: {row['alternate_names'][:80]} → {e}")
 
         authors.append(Author(
             author_id=row["author_id"],
@@ -58,6 +54,7 @@ def import_authors():
             alternate_names=alt_names
         ))
 
+    print(f"✅ Parsed {len(authors)} authors")
     return authors
 
 def import_books():
@@ -133,9 +130,13 @@ def main():
         # --- Step 2: Import new data ---
         db.bulk_save_objects(import_users())
 
-        for author in import_authors():
-            db.merge(author)
-        db.flush()
+        authors = import_authors()
+        db.add_all(authors)
+        db.commit()
+
+        print(f"✅ Inserted {len(authors)} authors into the database.")
+        sample = db.query(Author).first()
+        print("Sample author from DB:", sample.author_id, "-", sample.name if sample else "❌ None found")
 
         db.bulk_save_objects(import_books())
         

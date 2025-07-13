@@ -49,9 +49,9 @@
 
     <script>
         document.getElementById('commentsButton').onclick = async function() {
-            let bookIsbn = '{{ book.isbn }}';
+            let bookid = '{{ book.work_id }}';
 
-            let response = await fetch(`/comments?book=${encodeURIComponent(bookIsbn)}`);
+            let response = await fetch(`/comments?book=${encodeURIComponent(bookid)}`);
             let data = await response.json();
 
             if (response.ok) {
@@ -71,9 +71,9 @@
 
     <script>
         document.getElementById('recommendButton').onclick = async function() {
-            let bookIsbn = '{{ book.isbn }}';
+            let bookId = '{{ book.work_id }}';
 
-            let response = await fetch(`/recommend?book=${encodeURIComponent(bookIsbn)}`);
+            let response = await fetch(`/recommend?book=${encodeURIComponent(bookId)}`);
             let data = await response.json();
 
             if (response.ok) {

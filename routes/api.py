@@ -17,6 +17,7 @@ from sqlalchemy.orm import Session
 from app.database import SessionLocal, get_db
 from app.table_models import Book, User, Interaction
 import logging
+import pycountry
 
 logger = logging.getLogger(__name__)
 
@@ -27,7 +28,11 @@ load_dotenv()
 
 @router.get('/login', response_class=HTMLResponse)
 def signup_page(request: Request):
-    return templates.TemplateResponse('login.html', {'request': request})
+    countries = sorted([c.name for c in pycountry.countries])
+    return templates.TemplateResponse('login.html', {
+        'request': request,
+        'countries': countries
+    })
 
 @router.get('/profile')
 def profile_page(request: Request, current_user: dict = Depends(get_current_user)):
@@ -35,11 +40,11 @@ def profile_page(request: Request, current_user: dict = Depends(get_current_user
         return RedirectResponse(url='/login', status_code=status.HTTP_303_SEE_OTHER)
 
     user_data = {
-        "id": current_user.id,
+        "id": current_user.user_id,
         "username": current_user.username,
         "email": current_user.email,
         "age": current_user.age,
-        "location": current_user.location,
+        "country": current_user.country,
     }
 
     return templates.TemplateResponse('profile.html', {'request': request, 'user': user_data})
@@ -90,11 +95,11 @@ async def new_rating(current_user = Depends(get_current_user), data: dict = Body
 
     return {'message': 'Interaction recorded successfully'}
 
-@router.get('/book/{isbn}', response_class=HTMLResponse)
-async def book_recommendation(request: Request, isbn: str, current_user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+@router.get('/book/{work_id}', response_class=HTMLResponse)
+async def book_recommendation(request: Request, work_id: str, current_user: User = Depends(get_current_user), db: Session = Depends(get_db)):
 
     # Lookup book by ISBN
-    book = db.query(Book).filter(Book.isbn == isbn).first()
+    book = db.query(Book).filter(Book.work_id == work_id).first()   
     if not book:
         raise HTTPException(status_code=404, detail='Book not found')
 
@@ -105,9 +110,10 @@ async def book_recommendation(request: Request, isbn: str, current_user: User = 
     ).scalar()
 
     book_info = {
-        'isbn': isbn,
+        'isbn': book.isbn,
+        'work_id': book.work_id,
         'title': book.title,
-        'author': book.author.name if book.author else None,
+        'author': book.author.name if book.author else 'Unknown',
         'year': book.year,
         'description': book.description,
         'average_rating': round(average, 2) if average else None
@@ -134,30 +140,42 @@ async def book_recommendation(request: Request, isbn: str, current_user: User = 
     })
 
 @router.get('/comments')
-async def get_comments(book: str = Query(...), isbn: bool = True, limit: int = 5, db: Session = Depends(get_db)):
-    if not isbn:
-        db_book = db.query(Book).filter(Book.title == book).first() 
-        if db_book:
-            book = db_book.book_isbn
-        else:
-            return {'error': 'Book not found'}
-        
+async def get_comments(book: str = Query(...), isbn: bool = False, limit: int = 5, db: Session = Depends(get_db)):
+    # Resolve work_id
+    if isbn:
+        db_book = db.query(Book).filter(Book.isbn == book).first()
+        if not db_book:
+            raise HTTPException(status_code=404, detail='Book not found')
+        work_id = db_book.work_id
+    else:
+        work_id = book
+
+    # Query interactions with comments
     comment_query = (
-        db.query(Rating.comment, Rating.user_id, User.username)
-        .join(User, User.id == Rating.user_id)
-        .filter(Rating.book_isbn == book, Rating.comment.isnot(None), Rating.comment != '')
+        db.query(Interaction.comment, Interaction.user_id, User.username, Interaction.rating)
+        .join(User, User.user_id == Interaction.user_id)
+        .filter(
+            Interaction.work_id == work_id,
+            Interaction.comment.isnot(None),
+            Interaction.comment != ''
+        )
         .limit(limit)
         .all()
     )
 
-    comments = [
-            {'comment': comment.comment, 'user_id': comment.user_id, 'username': comment.username}
-            for comment in comment_query
+    if not comment_query:
+        raise HTTPException(status_code=404, detail='No comments have been submitted for this book yet')
+
+    return [
+        {
+            'comment': row.comment,
+            'user_id': row.user_id,
+            'username': row.username,
+            'rating': row.rating
+        }
+        for row in comment_query
     ]
 
-    if not comments:
-        raise HTTPException(status_code=404, detail='No comments have been submitted for this book yet')
-    return comments
 
 @router.get('/recommend')
 async def recommend_books(book: str = Query(...), isbn: bool = True):

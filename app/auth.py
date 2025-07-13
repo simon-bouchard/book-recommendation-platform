@@ -13,6 +13,8 @@ from datetime import datetime
 from sqlalchemy.orm import Session
 from app.database import SessionLocal, get_db
 from app.table_models import User
+import pycountry
+import pandas as pd
 
 load_dotenv()
 
@@ -23,7 +25,10 @@ ALGORITHM = 'HS256'
 ACCESS_TOKEN_EXPIRE_MINUTES = 60
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl='token')
 
-templates = Jinja2Templates(directory='../templates')
+allowed_countries = {country.name for country in pycountry.countries}
+allowed_countries.add("Unknown")
+
+templates = Jinja2Templates(directory='templates')
 
 async def create_access_token(data: dict, expires_delta: timedelta = None):
     to_encode = data.copy()
@@ -49,24 +54,54 @@ async def get_current_user(access_token: str = Cookie(None), db: Session = Depen
     return None
 
 @router.post('/auth/signup')
-async def signup(request: Request, username: str = Form(...), email: str = Form(...), password: str = Form(...), age: int = Form(...), location: str = Form(...), db: Session=Depends(get_db)):
-    existing_user = db.query(User).filter(User.username == username).first() #await users.find_one({'username': username})
+async def signup(request: Request,
+                 username: str = Form(...),
+                 email: str = Form(...),
+                 password: str = Form(...),
+                 age: int = Form(...),
+                 country: str = Form(...),
+                 db: Session = Depends(get_db)):
 
+    # Check if username already exists
+    existing_user = db.query(User).filter(User.username == username).first()
     if existing_user:
-        raise HTTPException(status_code=400, detail='Username already taken')
+        return templates.TemplateResponse("login.html", {
+            "request": request,
+            "error": "Username already exists. Please choose another."
+        })
 
-    hashed_password = hash_password(password)
-    new_user = User(username=username, email=email, password=hashed_password, age=age, location=location)
+    # Validate country with pycountry
+    try:
+        country_name = pycountry.countries.lookup(country).name
+    except LookupError:
+        return templates.TemplateResponse("signup.html", {
+            "request": request,
+            "error": "Invalid country name.",
+        })
+
+    # Compute age_group
+    age_group = assign_age_group(age)
+
+    hashed_pw = hash_password(password)
+
+    # DO NOT touch working logic
+    new_user = User(
+        username=username,
+        email=email,
+        password=hashed_pw,
+        age=age,
+        age_group=age_group,
+        filled_age=age is not None,
+        country=country_name
+    )
 
     db.add(new_user)
     db.commit()
-    db.close()
 
-    access_token = await create_access_token({'sub': username})
-
-    response = RedirectResponse(url="/profile", status_code=status.HTTP_303_SEE_OTHER)
-    response.set_cookie(key="access_token", value=access_token, httponly=True)
-    return response
+    return templates.TemplateResponse("login.html", {
+        "request": request,
+        "message": "Signup successful. Please log in."
+    })
 
 @router.post('/auth/login', response_class=HTMLResponse)
 async def login(request: Request, username: str = Form(...), password: str = Form(...), db: Session=Depends(get_db)):
@@ -84,3 +119,21 @@ async def login(request: Request, username: str = Form(...), password: str = For
     response.set_cookie(key="access_token", value=access_token, httponly=True, max_age=3600)
 
     return response
+
+def assign_age_group(age):
+    if pd.isna(age):
+        return "unknown_age"
+    elif age <= 12:
+        return "child"
+    elif age <= 17:
+        return "teen"
+    elif age <= 24:
+        return "young_adult"
+    elif age <= 34:
+        return "early_adult"
+    elif age <= 49:
+        return "mid_adult"
+    elif age <= 64:
+        return "late_adult"
+    else:
+        return "senior"

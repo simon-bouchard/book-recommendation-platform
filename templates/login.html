@@ -23,9 +23,14 @@
 
             <label for="age">Age:</label>
             <input type="text" id="age" name="age" required>
-
-            <label for="location">Location:</label>
-            <input type="text" id="location" name="location" required>
+            
+            <label for="country">Country:</label>
+            <select name="country" required>
+                <option value="">-- Select your country --</option>
+                {% for country in countries %}
+                    <option value="{{ country }}">{{ country }}</option>
+                {% endfor %}
+            </select>
 
             <label for="email">Email:</label>
             <input type="email" id="email" name="email" required>
