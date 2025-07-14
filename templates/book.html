@@ -9,14 +9,72 @@
 <body>
     <div class="container">
         <h2>Book Details</h2>
-        <p><strong>Title:</strong> {{ book.title }}</p>
-        <p><strong>ISBN:</strong> {{ book.isbn }}</p>
-        <p><strong>Author:</strong> {{ book.author }}</p>
-        <p><strong>Year:</strong> {{ book.year }}</p>
-        <p><strong>Publisher:</strong> {{ book.publisher }}</p>
-        <p><strong>Average Rating:</strong> {{ book.average_rating }}</p>
-        <p id=userRating style='display: none'><strong>User Rating:</strong> {{ user_rating.rating }}</p>
-        <p id=userComment style='display: none'><strong>User Comment:</strong> {{ user_rating.comment }}</p>
+
+            {% if book.cover_id %}
+                <div class="cover-container">
+                    <img src="https://covers.openlibrary.org/b/id/{{ book.cover_id }}-L.jpg" alt="Book Cover">
+                </div>
+            {% endif %}
+
+            <p><strong>Title:</strong> {{ book.title }}</p>
+            <p><strong>Author:</strong> {{ book.author }}</p>
+            <p><strong>ISBN:</strong> {{ book.isbn }}</p>
+            <p><strong>Year:</strong> {{ book.year }}</p>
+            <p><strong>Average Rating:</strong> {{ book.average_rating }}</p>
+            <p><strong>Ratings Count:</strong> {{ book.rating_count }}</p>
+
+            {% if book.subjects %}
+                <p><strong>Subjects:</strong></p>
+                <div class="subject-list">
+                    {% for subj in book.subjects %}
+                        <span class="subject-pill">{{ subj }}</span>
+                    {% endfor %}
+                </div>
+            {% endif %}
+
+            {% if user_rating %}
+                {% if user_rating.rating %}
+                    <p><strong>You rated this book:</strong> {{ user_rating.rating }}/10</p>
+                {% else %}
+                    <p><strong>You’ve marked this book as read.</strong></p>
+                {% endif %}
+                {% if user_rating.comment %}
+                    <p><strong>Your comment:</strong> {{ user_rating.comment }}</p>
+                {% endif %}
+            {% endif %}
+
+        {% if user_rating %}
+            <h3>Edit Your Rating / Mark as Read</h3>
+        {% else %}
+            <h3>Rate or Mark as Read</h3>
+        {% endif %}
+
+        <form id="ratingForm">
+            <input type="hidden" id="work_id" name="work_id" value="{{ book.work_id }}">
+            <div class="radio-group">
+                <label class="radio-label">
+                    <input type="radio" name="interaction_type" value="read"
+                        {% if not user_rating or user_rating.rating is none %}checked{% endif %}>
+                    I've read this book
+                </label>
+                <label class="radio-label">
+                    <input type="radio" name="interaction_type" value="rated"
+                        {% if user_rating and user_rating.rating is not none %}checked{% endif %}>
+                    I want to rate it
+                </label>
+            </div>
+
+            <div id="ratingSection">
+                <label for="rating">Rating (1–10):</label>
+                <input type="number" id="rating" name="rating" min="1" max="10" step="1"
+                    value="{{ user_rating.rating if user_rating and user_rating.rating is not none else '' }}">
+            </div>
+
+            <label for="comment">Comment (optional):</label>
+            <textarea id="comment" name="comment" rows="3">{{ user_rating.comment if user_rating else '' }}</textarea>
+
+            <button type="submit">Submit</button>
+        </form>
 
         <h3>Comments</h3>
         <button id="commentsButton">View Comments</button>
@@ -90,5 +148,59 @@
             }
         }
     </script>
+
+    <script>
+        document.getElementById("ratingForm").onsubmit = async function (event) {
+            event.preventDefault();
+
+            let data = {
+                work_id: document.getElementById("work_id").value,
+                rating: document.querySelector('input[name="rating"]').value || null,
+                comment: document.getElementById("comment").value
+            };
+
+            let response = await fetch("/rating", {
+                method: "POST",
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(data)
+            });
+
+            if (response.status === 401) {
+                alert("You must be logged in to rate this book.");
+                window.location.href = "/login";
+                return;
+            }
+
+            let result = await response.json();
+            if (response.ok) {
+                alert(result.message);
+                window.location.reload();
+            } else {
+                alert("Error: " + result.detail);
+            }
+        };
+
+    </script>
+
+    <script>
+        function toggleRatingSection() {
+            const interactionType = document.querySelector('input[name="interaction_type"]:checked').value;
+            const ratingSection = document.getElementById("ratingSection");
+            if (interactionType === "rated") {
+                ratingSection.style.display = "block";
+            } else {
+                ratingSection.style.display = "none";
+                document.getElementById("rating").value = "";
+            }
+        }
+
+        document.querySelectorAll('input[name="interaction_type"]').forEach(input => {
+            input.addEventListener("change", toggleRatingSection);
+        });
+
+        // Run on page load
+        toggleRatingSection();
+    </script>
+
 </body>
 </html>

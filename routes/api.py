@@ -12,12 +12,14 @@ from bson import ObjectId
 #from models.book_model import reload_model, get_recommendations
 #from models.user_model import reload_user_model, get_user_recommendations
 from datetime import datetime
-from sqlalchemy import func
+from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 from app.database import SessionLocal, get_db
-from app.table_models import Book, User, Interaction
+from app.table_models import Book, User, Interaction, BookSubject
+from app.models import get_cached_subject_suggestions
 import logging
 import pycountry
+from typing import List
 
 logger = logging.getLogger(__name__)
 
@@ -53,16 +55,13 @@ def profile_page(request: Request, current_user: dict = Depends(get_current_user
 async def new_rating(current_user = Depends(get_current_user), data: dict = Body(...), db: Session = Depends(get_db)):
 
     if not current_user:
-        return RedirectResponse(url='/login', status_code=status.HTTP_303_SEE_OTHER)
+        raise HTTPException(status_code=401, detail="Not authenticated")
 
-    isbn = data.get('isbn')
+    work_id = data.get('work_id')
     rating = data.get('rating')  # Can be None for 'read'
     comment = data.get('comment')
 
-    if not isbn:
-        raise HTTPException(status_code=400, detail='Missing ISBN')
-
-    book = db.query(Book).filter(Book.isbn == isbn).first()
+    book = db.query(Book).filter(Book.work_id == work_id).first()
     if not book:
         raise HTTPException(status_code=404, detail='Book not found')
 
@@ -98,16 +97,24 @@ async def new_rating(current_user = Depends(get_current_user), data: dict = Body
 @router.get('/book/{work_id}', response_class=HTMLResponse)
 async def book_recommendation(request: Request, work_id: str, current_user: User = Depends(get_current_user), db: Session = Depends(get_db)):
 
-    # Lookup book by ISBN
     book = db.query(Book).filter(Book.work_id == work_id).first()   
     if not book:
         raise HTTPException(status_code=404, detail='Book not found')
 
-    # Calculate average rating for this book
+    # Average rating
     average = db.query(func.avg(Interaction.rating)).filter(
         Interaction.work_id == book.work_id,
         Interaction.rating.isnot(None)
     ).scalar()
+
+    # Count of ratings
+    rating_count = db.query(Interaction).filter(
+        Interaction.work_id == book.work_id,
+        Interaction.rating.isnot(None)
+    ).count()
+
+    # Subjects list
+    subjects = [s.subject for s in book.subjects]
 
     book_info = {
         'isbn': book.isbn,
@@ -116,17 +123,18 @@ async def book_recommendation(request: Request, work_id: str, current_user: User
         'author': book.author.name if book.author else 'Unknown',
         'year': book.year,
         'description': book.description,
-        'average_rating': round(average, 2) if average else None
+        'cover_id': book.cover_id,
+        'average_rating': round(average, 2) if average else None,
+        'rating_count': rating_count,
+        'subjects': subjects
     }
 
-    # Find current user's interaction
     user_rating = None
     if current_user:
         interaction = db.query(Interaction).filter(
             Interaction.user_id == current_user.user_id,
             Interaction.work_id == book.work_id
         ).first()
-
         if interaction and (interaction.rating is not None or interaction.comment):
             user_rating = {
                 'rating': interaction.rating,
@@ -205,21 +213,40 @@ async def user_recommendation(user: str = Query(...), _id: bool = True, top_n: i
     return recommendations
 
 @router.get('/search', response_class=HTMLResponse)
-def search_books(request: Request, query: str = Query(None), db: Session = Depends(get_db)):
+def search_books(
+    request: Request,
+    query: str = Query(None),
+    subjects: List[str] = Query([]),
+    db: Session = Depends(get_db)
+):
+    subjects = [s.strip() for s in subjects if s.strip()]
+    subjects = list(dict.fromkeys(subjects))[:3]
+
+    subject_suggestions = get_cached_subject_suggestions(db)
     results = []
 
     if query:
-        results = (
-            db.query(Book)
-            .filter(Book.title.ilike(f"%{query}%"))
-            .limit(20)
-            .all()
-        )
+        if subjects:
+            q = (
+                db.query(Book)
+                .join(BookSubject)
+                .filter(Book.title.ilike(f"%{query}%"))
+                .filter(BookSubject.subject.in_(subjects))
+                .group_by(Book.work_id)
+                .having(func.count(BookSubject.subject) >= len(subjects))
+            )
+        else:
+            q = db.query(Book).filter(Book.title.ilike(f"%{query}%"))
+
+        results = q.limit(50).all()
+
 
     return templates.TemplateResponse('search.html', {
         'request': request,
         'query': query,
-        'results': results,
+        'subjects': subjects,
+        'subject_suggestions': subject_suggestions,
+        'results': results
     })
 
 @router.get('/logout')

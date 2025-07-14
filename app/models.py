@@ -2,6 +2,15 @@ from pydantic import BaseModel, Field, EmailStr
 from datetime import datetime
 from typing import Optional
 from passlib.context import CryptContext
+from sqlalchemy.orm import Session
+from sqlalchemy import func
+from app.table_models import BookSubject
+import time
+
+_cached_subjects = []
+_last_subject_fetch = 0
+SUBJECT_TTL_SECONDS = 1000 
+
 
 pwd_context = CryptContext(schemes=['bcrypt'], deprecated='auto')
 
@@ -31,3 +40,24 @@ class Rating(BaseModel):
 class Book(BaseModel):
     id: str = Field(..., alias='_id')
 
+def get_cached_subject_suggestions(db):
+    global _cached_subjects, _last_subject_fetch
+
+    now = time.time()
+    if now - _last_subject_fetch > SUBJECT_TTL_SECONDS:
+        subq = (
+            db.query(
+                BookSubject.subject,
+                func.count().label("freq")
+            )
+            .filter(BookSubject.subject.isnot(None))
+            .filter(BookSubject.subject != "")
+            .group_by(BookSubject.subject)
+            .order_by(func.count().desc())
+            .limit(100)
+            .subquery()
+        )
+        _cached_subjects = [row.subject for row in db.query(subq.c.subject).all()]
+        _last_subject_fetch = now
+
+    return _cached_subjects
