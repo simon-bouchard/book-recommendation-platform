@@ -15,11 +15,11 @@ from datetime import datetime
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 from app.database import SessionLocal, get_db
-from app.table_models import Book, User, Interaction, BookSubject
+from app.table_models import Book, User, Interaction, BookSubject, Subject, UserFavSubject
 from app.models import get_cached_subject_suggestions
 import logging
 import pycountry
-from typing import List
+from typing import List, Optional
 
 logger = logging.getLogger(__name__)
 
@@ -57,11 +57,11 @@ async def new_rating(current_user = Depends(get_current_user), data: dict = Body
     if not current_user:
         raise HTTPException(status_code=401, detail="Not authenticated")
 
-    work_id = data.get('work_id')
+    item_idx = data.get('item_idx')
     rating = data.get('rating')  # Can be None for 'read'
     comment = data.get('comment')
 
-    book = db.query(Book).filter(Book.work_id == work_id).first()
+    book = db.query(Book).filter(Book.item_idx == item_idx).first()
     if not book:
         raise HTTPException(status_code=404, detail='Book not found')
 
@@ -70,7 +70,7 @@ async def new_rating(current_user = Depends(get_current_user), data: dict = Body
 
     interaction = db.query(Interaction).filter(
         Interaction.user_id == current_user.user_id,
-        Interaction.work_id == book.work_id
+        Interaction.item_idx == book.item_idx
     ).first()
 
     if interaction:
@@ -81,7 +81,7 @@ async def new_rating(current_user = Depends(get_current_user), data: dict = Body
     else:
         interaction = Interaction(
             user_id=current_user.user_id,
-            work_id=book.work_id,
+            item_idx=book.item_idx,
             rating=rating,
             comment=comment,
             type=interaction_type,
@@ -94,31 +94,33 @@ async def new_rating(current_user = Depends(get_current_user), data: dict = Body
 
     return {'message': 'Interaction recorded successfully'}
 
-@router.get('/book/{work_id}', response_class=HTMLResponse)
-async def book_recommendation(request: Request, work_id: str, current_user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+@router.get('/book/{item_idx}', response_class=HTMLResponse)
+async def book_recommendation(request: Request, item_idx: int, current_user: User = Depends(get_current_user), db: Session = Depends(get_db)):
 
-    book = db.query(Book).filter(Book.work_id == work_id).first()   
+    book = db.query(Book).filter(Book.item_idx == item_idx).first()   
     if not book:
         raise HTTPException(status_code=404, detail='Book not found')
 
     # Average rating
     average = db.query(func.avg(Interaction.rating)).filter(
-        Interaction.work_id == book.work_id,
+        Interaction.item_idx == book.item_idx,
         Interaction.rating.isnot(None)
     ).scalar()
 
     # Count of ratings
     rating_count = db.query(Interaction).filter(
-        Interaction.work_id == book.work_id,
+        Interaction.item_idx == book.item_idx,
         Interaction.rating.isnot(None)
     ).count()
 
     # Subjects list
-    subjects = [s.subject for s in book.subjects]
+    subject_ids = [s.subject_idx for s in book.subjects]
+    subject_names = db.query(Subject.subject).filter(Subject.subject_idx.in_(subject_ids)).all()
+    subjects = [s.subject for s in subject_names]
 
     book_info = {
         'isbn': book.isbn,
-        'work_id': book.work_id,
+        'item_idx': book.item_idx,
         'title': book.title,
         'author': book.author.name if book.author else 'Unknown',
         'year': book.year,
@@ -133,7 +135,7 @@ async def book_recommendation(request: Request, work_id: str, current_user: User
     if current_user:
         interaction = db.query(Interaction).filter(
             Interaction.user_id == current_user.user_id,
-            Interaction.work_id == book.work_id
+            Interaction.item_idx == book.item_idx
         ).first()
         if interaction and (interaction.rating is not None or interaction.comment):
             user_rating = {
@@ -154,16 +156,16 @@ async def get_comments(book: str = Query(...), isbn: bool = False, limit: int = 
         db_book = db.query(Book).filter(Book.isbn == book).first()
         if not db_book:
             raise HTTPException(status_code=404, detail='Book not found')
-        work_id = db_book.work_id
+        item_idx = db_book.item_idx
     else:
-        work_id = book
+        item_idx = book
 
     # Query interactions with comments
     comment_query = (
         db.query(Interaction.comment, Interaction.user_id, User.username, Interaction.rating)
         .join(User, User.user_id == Interaction.user_id)
         .filter(
-            Interaction.work_id == work_id,
+            Interaction.item_idx == item_idx,
             Interaction.comment.isnot(None),
             Interaction.comment != ''
         )
@@ -212,41 +214,36 @@ async def user_recommendation(user: str = Query(...), _id: bool = True, top_n: i
 
     return recommendations
 
-@router.get('/search', response_class=HTMLResponse)
-def search_books(
-    request: Request,
-    query: str = Query(None),
-    subjects: List[str] = Query([]),
-    db: Session = Depends(get_db)
-):
-    subjects = [s.strip() for s in subjects if s.strip()]
-    subjects = list(dict.fromkeys(subjects))[:3]
+@router.get("/search")
+def search_books(request: Request, query: str = "", subjects: Optional[List[str]] = Query(default=None), db: Session = Depends(get_db)):
+    subject_idxs = []
+    if subjects:
+        print("Requested subject names:", subjects)
+        subject_rows = db.query(Subject).filter(Subject.subject.in_(subjects)).all()
+        print("Matched subjects:", [s.subject for s in subject_rows])
+        subject_idxs = [s.subject_idx for s in subject_rows]
+
+    q = db.query(Book).join(BookSubject, Book.item_idx == BookSubject.item_idx).filter(Book.title.ilike(f"%{query}%"))
+
+    if subject_idxs:
+        q = (
+            q.filter(BookSubject.subject_idx.in_(subject_idxs))
+            .group_by(Book.item_idx)
+            .having(func.count(func.distinct(BookSubject.subject_idx)) == len(subject_idxs))
+        )
+    else:
+        q = q.group_by(Book.item_idx)
+
+    results = q.limit(100).all()
 
     subject_suggestions = get_cached_subject_suggestions(db)
-    results = []
 
-    if query:
-        if subjects:
-            q = (
-                db.query(Book)
-                .join(BookSubject)
-                .filter(Book.title.ilike(f"%{query}%"))
-                .filter(BookSubject.subject.in_(subjects))
-                .group_by(Book.work_id)
-                .having(func.count(BookSubject.subject) >= len(subjects))
-            )
-        else:
-            q = db.query(Book).filter(Book.title.ilike(f"%{query}%"))
-
-        results = q.limit(50).all()
-
-
-    return templates.TemplateResponse('search.html', {
-        'request': request,
-        'query': query,
-        'subjects': subjects,
-        'subject_suggestions': subject_suggestions,
-        'results': results
+    return templates.TemplateResponse("search.html", {
+        "request": request,
+        "results": results,
+        "query": query,
+        "subjects": subjects or [],
+        "subject_suggestions": subject_suggestions,
     })
 
 @router.get('/logout')

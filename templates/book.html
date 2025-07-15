@@ -23,6 +23,23 @@
             <p><strong>Average Rating:</strong> {{ book.average_rating }}</p>
             <p><strong>Ratings Count:</strong> {{ book.rating_count }}</p>
 
+            {% if book.description %}
+                <p><strong>Description:</strong></p>
+                <div id="descriptionContainer">
+                    <span id="shortDescription">
+                        {{ book.description[:300] }}{% if book.description|length > 300 %}...
+                            <span id="toggleShowMore" class="toggle-link">Show more</span>
+                        {% endif %}
+                    </span>
+                    {% if book.description|length > 300 %}
+                        <span id="fullDescription" style="display:none">
+                            {{ book.description }}
+                            <span id="toggleShowLess" class="toggle-link"> Show less</span>
+                        </span>
+                    {% endif %}
+                </div>
+            {% endif %}
+
             {% if book.subjects %}
                 <p><strong>Subjects:</strong></p>
                 <div class="subject-list">
@@ -42,12 +59,14 @@
                     <p><strong>Your comment:</strong> {{ user_rating.comment }}</p>
                 {% endif %}
             {% endif %}
+            
 
         {% if user_rating %}
-            <h3>Edit Your Rating / Mark as Read</h3>
+            <h3>Edit Your Rating</h3>
         {% else %}
             <h3>Rate or Mark as Read</h3>
         {% endif %}
+
 
         <form id="ratingForm">
             <input type="hidden" id="work_id" name="work_id" value="{{ book.work_id }}">
@@ -201,6 +220,26 @@
         // Run on page load
         toggleRatingSection();
     </script>
+
+<script>
+    const showMoreBtn = document.getElementById("toggleShowMore");
+    const showLessBtn = document.getElementById("toggleShowLess");
+    const shortDesc = document.getElementById("shortDescription");
+    const fullDesc = document.getElementById("fullDescription");
+
+    if (showMoreBtn && showLessBtn) {
+        showMoreBtn.onclick = () => {
+            shortDesc.style.display = "none";
+            fullDesc.style.display = "inline";
+        };
+
+        showLessBtn.onclick = () => {
+            fullDesc.style.display = "none";
+            shortDesc.style.display = "inline";
+        };
+    }
+</script>
+
 
 </body>
 </html>

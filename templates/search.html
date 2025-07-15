@@ -98,10 +98,8 @@
                     {% endfor %}
                 </datalist>
 
-                <!-- Display current selected subjects -->
                 <div id="selectedSubjects">
                     {% for subj in subjects %}
-                        <input type="hidden" name="subjects" value="{{ subj }}">
                         <span class="subject-pill">{{ subj }}</span>
                     {% endfor %}
                 </div>
@@ -113,7 +111,7 @@
             <h2>Results</h2>
             <div class="book-grid">
             {% for book in results %}
-                <a href="/book/{{ book.work_id }}">
+                <a href="/book/{{ book.item_idx }}">
                     <div class="book-card">
                         {% if book.cover_id %}
                             <img src="https://covers.openlibrary.org/b/id/{{ book.cover_id }}-M.jpg" alt="Cover for {{ book.title }}">

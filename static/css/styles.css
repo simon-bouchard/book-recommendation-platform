@@ -237,6 +237,24 @@ button:hover {
     white-space: normal;
 }
 
+.toggle-link {
+    display: inline-block;
+    padding: 1px 2px;
+    /*margin-left: 4px;*/
+    color: #007bff;
+    font-size: 0.85em;
+    font-weight: normal;
+    text-decoration: underline;
+    cursor: pointer;
+    user-select: none;
+    line-height: 1.2;
+}
+
+.toggle-link:hover {
+    color: #0056b3;
+    text-decoration: none;
+}
+
 /* Centering Recommendations and Ratings */
 .recommendation-section, .rating-section {
     max-width: 600px;
