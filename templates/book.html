@@ -69,7 +69,7 @@
 
 
         <form id="ratingForm">
-            <input type="hidden" id="work_id" name="work_id" value="{{ book.work_id }}">
+            <input type="hidden" id="item_idx" name="item_idx" value="{{ book.item_idx }}">
             <div class="radio-group">
                 <label class="radio-label">
                     <input type="radio" name="interaction_type" value="read"
@@ -126,9 +126,9 @@
 
     <script>
         document.getElementById('commentsButton').onclick = async function() {
-            let bookid = '{{ book.work_id }}';
+            let item_idx = '{{ book.item_idx }}';
 
-            let response = await fetch(`/comments?book=${encodeURIComponent(bookid)}`);
+            let response = await fetch(`/comments?book=${encodeURIComponent(item_idx)}`);
             let data = await response.json();
 
             if (response.ok) {
@@ -147,25 +147,38 @@
     </script>
 
     <script>
-        document.getElementById('recommendButton').onclick = async function() {
-            let bookId = '{{ book.work_id }}';
+    document.getElementById('recommendButton').onclick = async function () {
+        let item_idx = '{{ book.item_idx }}';
+        let response = await fetch(`/book/${item_idx}/similar`);
+        let data = await response.json();
 
-            let response = await fetch(`/recommend?book=${encodeURIComponent(bookId)}`);
-            let data = await response.json();
-
-            if (response.ok) {
-                let recommendations = data.map(rec =>
-                    `<li>${rec.title} (Similarity: ${rec.similarity})</li>`
-                ).join("");
-
-                document.getElementById('recommendations').innerHTML = `<ul>${recommendations}</ul>`;
-                document.getElementById('recommendations').style.display = 'block';
-                document.getElementById('recommendButton').style.display = 'none';
+        if (response.ok) {
+            if (!Array.isArray(data) || data.length === 0) {
+                document.getElementById('recommendations').innerHTML = `<p>No similar books found.</p>`;
             } else {
-                document.getElementById('recommendations').innerHTML = `<p style='color: red;'>Error: ${data.detail}</p>`;
-                document.getElementById('recommendations').style.display = 'block';
+                let recommendations = data.map(book => `
+                    <a href="/book/${book.item_idx}">
+                        <div class="book-card">
+                            <img src="${book.cover_id ? `https://covers.openlibrary.org/b/id/${book.cover_id}-M.jpg` : 'https://via.placeholder.com/150x220?text=No+Cover'}" alt="Cover for ${book.title}">
+                            <h3>${book.title}</h3>
+                            ${book.author ? `<p><strong>Author:</strong> ${book.author}</p>` : ''}
+                            ${book.year ? `<p><strong>Year:</strong> ${book.year}</p>` : ''}
+                            ${book.isbn ? `<p><strong>ISBN:</strong> ${book.isbn}</p>` : ''}
+                            <p><strong>Similarity:</strong> ${book.score !== undefined ? book.score.toFixed(3) : 'N/A'}</p>
+                        </div>
+                    </a>
+                `).join("");
+
+                document.getElementById('recommendations').innerHTML = `<div class="book-grid">${recommendations}</div>`;
             }
+
+            document.getElementById('recommendations').style.display = 'block';
+            document.getElementById('recommendButton').style.display = 'none';
+        } else {
+            document.getElementById('recommendations').innerHTML = `<p style='color: red;'>Error: ${data.detail}</p>`;
+            document.getElementById('recommendations').style.display = 'block';
         }
+    };
     </script>
 
     <script>
@@ -173,7 +186,7 @@
             event.preventDefault();
 
             let data = {
-                work_id: document.getElementById("work_id").value,
+                item_idx: document.getElementById("item_idx").value,
                 rating: document.querySelector('input[name="rating"]').value || null,
                 comment: document.getElementById("comment").value
             };

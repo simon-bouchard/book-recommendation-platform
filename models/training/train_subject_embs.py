@@ -11,6 +11,7 @@ from fastai.callback.schedule import fit_one_cycle
 from fastai.data.core import DataLoaders
 from fastai.losses import MSELossFlat
 from fastai.optimizer import Adam
+from fastai.callback.core import Callback, CancelBatchException
 
 from collections import defaultdict
 from sqlalchemy.orm import joinedload
@@ -89,24 +90,47 @@ def fetch_training_data(pad_to=10):
     for row in db.query(BookSubject.item_idx, BookSubject.subject_idx):
         book_to_subj[row.item_idx].append(row.subject_idx)
 
+    # Count ratings per user
+    user_rating_counts = defaultdict(int)
+    for row in db.query(Interaction.user_id).filter(Interaction.rating != None):
+        user_rating_counts[row.user_id] += 1
+
     # Get interactions
     rows = []
     for row in db.query(Interaction.user_id, Interaction.item_idx, Interaction.rating).filter(Interaction.rating != None):
+        # Filter: Only keep warm users
+        if user_rating_counts[row.user_id] < 10:
+            continue
+
         book_subjs = book_to_subj.get(row.item_idx, [])
         user_subjs = user_to_subj.get(row.user_id, [])
+
         if not book_subjs or not user_subjs:
-            continue  # skip missing
+            continue
+
         rows.append({
             'user_idx': row.user_id,
             'item_idx': row.item_idx,
             'rating': float(row.rating),
-            'book_subjects': book_subjs[:pad_to] + [PAD_IDX] * (pad_to - len(book_subjs[:pad_to])),
-            'fav_subjects': user_subjs + [PAD_IDX] * (3 - len(user_subjs)) if len(user_subjs) < 5 else user_subjs[:5],
+            'book_subjects': book_subjs,
+            'fav_subjects': user_subjs[:5] + [PAD_IDX] * max(0, 5 - len(user_subjs))  # still pad favs
         })
 
     db.close()
     return rows
 
+class GradientAccumulation(Callback):
+    def __init__(self, n_acc=4): self.n_acc = n_acc
+    def before_fit(self): self.acc_count = 0
+    def before_backward(self): self.learn.loss_grad /= self.n_acc
+    def after_backward(self):
+        self.acc_count += 1
+        if self.acc_count % self.n_acc == 0:
+            self.learn.opt.step()
+            self.learn.opt.zero_grad()
+        else:
+            raise CancelBatchException()
+    def after_fit(self): self.learn.opt.zero_grad()
 
 # ---------------------
 # Train and save
@@ -119,6 +143,12 @@ def main():
 
     print(f"✅ Loaded {len(rows)} training samples")
     
+    max_len = max(len(r['book_subjects']) for r in rows)
+
+    for r in rows:
+        padded = r['book_subjects'] + [PAD_IDX] * (max_len - len(r['book_subjects']))
+        r['book_subjects'] = padded
+
     # Create dataset and dataloaders
     ds = SubjectDataset(rows)
     cut = int(0.9 * len(ds))
@@ -138,7 +168,8 @@ def main():
         loss_func=MSELossFlat(),
         metrics=[rmse],
         wd=0.05,
-        opt_func=Adam
+        opt_func=Adam,
+        #cbs=[GradientAccumulation(n_acc=4)]
     )
 
     print("🚀 Starting training...")

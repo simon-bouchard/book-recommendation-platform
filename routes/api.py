@@ -7,16 +7,19 @@ import os
 from dotenv import load_dotenv
 import jwt
 from datetime import datetime, timedelta
-from app.auth import get_current_user
 from bson import ObjectId
-#from models.book_model import reload_model, get_recommendations
-#from models.user_model import reload_user_model, get_user_recommendations
+
 from datetime import datetime
 from sqlalchemy import func, select
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, joinedload
+
+
+from app.auth import get_current_user
 from app.database import SessionLocal, get_db
 from app.table_models import Book, User, Interaction, BookSubject, Subject, UserFavSubject
 from app.models import get_cached_subject_suggestions
+from models.knn_index import get_similar_books, set_book_meta
+
 import logging
 import pycountry
 from typing import List, Optional
@@ -187,16 +190,42 @@ async def get_comments(book: str = Query(...), isbn: bool = False, limit: int = 
     ]
 
 
-@router.get('/recommend')
-async def recommend_books(book: str = Query(...), isbn: bool = True):
-    recommendations = await get_recommendations(book, isbn)
+@router.get("/book/{item_idx}/similar")
+def get_similar(item_idx: int, db: Session = Depends(get_db)):
+    # Get top-k similar item_idxs
+    results = get_similar_books(item_idx, top_k=10, method="faiss")  # metadata-free
 
-    if 'error' in recommendations:
-        raise HTTPException(status_code=404, detail=recommendations['error'])
-    if recommendations:
-        return recommendations
-    else:
-        raise HTTPException(status_code=404, detail="Book not found (books with less than 100 ratings can't have recommendations.)")
+    similar_ids = [r["item_idx"] for r in results]
+
+    # Fetch metadata for just those books
+    books = (
+        db.query(Book)
+        .filter(Book.item_idx.in_(similar_ids))
+        .options(joinedload(Book.subjects).joinedload(BookSubject.subject))
+        .all()
+    )
+
+    meta = {
+        b.item_idx: {
+            "title": b.title,
+            "cover_id": b.cover_id,
+            "author": b.author.name if b.author else None,
+            "year": b.year,
+            "isbn": b.isbn,
+        }
+        for b in books
+    }
+
+    # Attach metadata to results
+    for r in results:
+        m = meta.get(r["item_idx"], {})
+        r["title"] = m.get("title", "[Unknown]")
+        r["cover_id"] = m.get("cover_id")
+        r["author"] = m.get("author")
+        r["year"] = m.get("year")
+        r["isbn"] = m.get("isbn")
+
+    return results
 
 @router.get('/profile/recommend')
 async def user_recommendation(user: str = Query(...), _id: bool = True, top_n: int = 5):

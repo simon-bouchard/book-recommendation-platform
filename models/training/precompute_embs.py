@@ -15,7 +15,6 @@ from app.database import SessionLocal
 from app.table_models import Book, BookSubject
 
 PAD_IDX = 0
-PAD_TO = 10
 DEVICE = 'cuda' if torch.cuda.is_available() else 'cpu'
 
 # ----------------------------
@@ -42,7 +41,7 @@ attn_bias = state["attn_bias"].to(DEVICE)
 # ----------------------------
 def attention_pool(indices_list):
     max_len = max((len(lst) for lst in indices_list), default=1)
-    padded = [lst[:PAD_TO] + [PAD_IDX] * max(0, PAD_TO - len(lst)) for lst in indices_list]
+    padded = [lst + [PAD_IDX] * (max_len - len(lst)) for lst in indices_list]
     idx_tensor = torch.tensor(padded, dtype=torch.long, device=DEVICE)
 
     with torch.no_grad():
@@ -56,6 +55,14 @@ def attention_pool(indices_list):
         pooled = (weights.unsqueeze(-1) * emb).sum(dim=1)
 
     return pooled.cpu().numpy()
+
+def batched_attention_pool(indices_list, batch_size=1024):
+    all_outputs = []
+    for i in range(0, len(indices_list), batch_size):
+        batch = indices_list[i:i+batch_size]
+        pooled = attention_pool(batch)
+        all_outputs.append(pooled)
+    return np.concatenate(all_outputs, axis=0)
 
 # ----------------------------
 # Load books + subjects from SQL
@@ -89,7 +96,7 @@ print(f"✅ Books with valid subjects: {len(book_ids)}")
 # Compute pooled embeddings
 # ----------------------------
 print("🧠 Computing pooled subject embeddings...")
-pooled_embs = attention_pool(subject_lists)
+pooled_embs = batched_attention_pool(subject_lists, batch_size=512)
 print(f"📐 Shape: {pooled_embs.shape}")
 
 # ----------------------------
