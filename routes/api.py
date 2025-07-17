@@ -13,12 +13,11 @@ from datetime import datetime
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session, joinedload
 
-
 from app.auth import get_current_user
 from app.database import SessionLocal, get_db
 from app.table_models import Book, User, Interaction, BookSubject, Subject, UserFavSubject
 from app.models import get_cached_subject_suggestions
-from models.knn_index import get_similar_books, set_book_meta
+from models.knn_utils import get_similar_books, set_book_meta
 
 import logging
 import pycountry
@@ -247,9 +246,7 @@ async def user_recommendation(user: str = Query(...), _id: bool = True, top_n: i
 def search_books(request: Request, query: str = "", subjects: Optional[List[str]] = Query(default=None), db: Session = Depends(get_db)):
     subject_idxs = []
     if subjects:
-        print("Requested subject names:", subjects)
         subject_rows = db.query(Subject).filter(Subject.subject.in_(subjects)).all()
-        print("Matched subjects:", [s.subject for s in subject_rows])
         subject_idxs = [s.subject_idx for s in subject_rows]
 
     q = db.query(Book).join(BookSubject, Book.item_idx == BookSubject.item_idx).filter(Book.title.ilike(f"%{query}%"))

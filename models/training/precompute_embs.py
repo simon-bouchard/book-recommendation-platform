@@ -13,56 +13,16 @@ sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "../..")
 
 from app.database import SessionLocal
 from app.table_models import Book, BookSubject
+from models.shared_utils import load_attention_components, attention_pool, batched_attention_pool, PAD_IDX
 
-PAD_IDX = 0
 DEVICE = 'cuda' if torch.cuda.is_available() else 'cpu'
 
-# ----------------------------
 # Load trained embedding + attention weights
-# ----------------------------
-state_path = "models/subject_attention_components.pth"
-print(f"📦 Loading: {state_path}")
-state = torch.load(state_path, map_location=DEVICE)
-
-# Subject embedding layer
-emb_weight = state["subject_embs"]["weight"]
-num_embeddings, emb_dim = emb_weight.shape
-subject_emb = nn.Embedding(num_embeddings, emb_dim, padding_idx=PAD_IDX)
-subject_emb.load_state_dict({"weight": emb_weight})
-subject_emb.to(DEVICE)
-subject_emb.weight.requires_grad_(False)
-
-# Attention components
-attn_weight = state["attn_weight"].to(DEVICE)
-attn_bias = state["attn_bias"].to(DEVICE)
-
-# ----------------------------
-# Attention pooling
-# ----------------------------
-def attention_pool(indices_list):
-    max_len = max((len(lst) for lst in indices_list), default=1)
-    padded = [lst + [PAD_IDX] * (max_len - len(lst)) for lst in indices_list]
-    idx_tensor = torch.tensor(padded, dtype=torch.long, device=DEVICE)
-
-    with torch.no_grad():
-        emb = subject_emb(idx_tensor)
-        mask = (idx_tensor != PAD_IDX)
-
-        logits = (emb @ attn_weight.T).squeeze(-1) + attn_bias
-        logits[~mask] = float('-inf')
-
-        weights = torch.softmax(logits, dim=1)
-        pooled = (weights.unsqueeze(-1) * emb).sum(dim=1)
-
-    return pooled.cpu().numpy()
-
-def batched_attention_pool(indices_list, batch_size=1024):
-    all_outputs = []
-    for i in range(0, len(indices_list), batch_size):
-        batch = indices_list[i:i+batch_size]
-        pooled = attention_pool(batch)
-        all_outputs.append(pooled)
-    return np.concatenate(all_outputs, axis=0)
+print("📦 Loading subject embedding and attention components...")
+subject_emb, attn_weight, attn_bias = load_attention_components("models/subject_attention_components.pth")
+subject_emb = subject_emb.to(DEVICE)
+attn_weight = attn_weight.to(DEVICE)
+attn_bias = attn_bias.to(DEVICE)
 
 # ----------------------------
 # Load books + subjects from SQL
@@ -96,7 +56,7 @@ print(f"✅ Books with valid subjects: {len(book_ids)}")
 # Compute pooled embeddings
 # ----------------------------
 print("🧠 Computing pooled subject embeddings...")
-pooled_embs = batched_attention_pool(subject_lists, batch_size=512)
+pooled_embs = batched_attention_pool(subject_lists, subject_emb, attn_weight, attn_bias, batch_size=512)
 print(f"📐 Shape: {pooled_embs.shape}")
 
 # ----------------------------

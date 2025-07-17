@@ -1,7 +1,7 @@
 #import os, sys
 #sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), ".")))
 
-from knn_index import get_similar_books, set_book_meta
+from models.knn_utils import get_similar_books, set_book_meta
 
 # Fake metadata for testing
 book_meta = {

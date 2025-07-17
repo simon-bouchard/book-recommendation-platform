@@ -17,8 +17,7 @@ from collections import defaultdict
 from sqlalchemy.orm import joinedload
 from app.database import SessionLocal
 from app.table_models import Interaction, BookSubject, UserFavSubject
-
-PAD_IDX = 0
+from models.shared_utils import PAD_IDX
 device = 'cuda' if torch.cuda.is_available() else 'cpu'
 
 # ---------------------
