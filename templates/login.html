@@ -5,7 +5,6 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Login | Book Recommendation</title>
     <link rel="stylesheet" href="{{ url_for('static', path='css/styles.css') }}">
-    <link rel="stylesheet" href="{{ url_for('static', path='css/signup_extras.css') }}">
 </head>
 <body>
     <div class="login-container">
@@ -25,14 +24,7 @@
 
             <label for="email">Email:</label>
             <input type="email" name="email" required>
-
-            <label for="password">Password:</label>
-            <input type="password" name="password" id="password" required>
-
-            <label for="repeat_password">Repeat Password:</label>
-            <input type="password" name="repeat_password" id="repeat_password" required>
-            <div id="password-error" class="form-error"></div>
-
+            
             <label for="age">Age:</label>
             <input type="number" name="age" id="age" min="5" required>
             <div id="age-error" class="form-error"></div>
@@ -52,6 +44,13 @@
             </div>
             <div id="subject-pills" class="pill-container"></div>
             <input type="hidden" name="fav_subjects" id="fav_subjects-hidden">
+
+            <label for="password">Password:</label>
+            <input type="password" name="password" id="password" required>
+
+            <label for="repeat_password">Repeat Password:</label>
+            <input type="password" name="repeat_password" id="repeat_password" required>
+            <div id="password-error" class="form-error"></div>
 
             <button type="submit">Sign Up</button>
         </form>

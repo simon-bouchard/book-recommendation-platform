@@ -5,12 +5,11 @@ from passlib.context import CryptContext
 from sqlalchemy.orm import Session
 from sqlalchemy import func
 from app.table_models import BookSubject, Subject
-import time
+from time import time
 
-_cached_subjects = []
+_subject_cache = []
 _last_subject_fetch = 0
-SUBJECT_TTL_SECONDS = 1000 
-
+SUBJECT_CACHE_TTL = 1000 
 
 pwd_context = CryptContext(schemes=['bcrypt'], deprecated='auto')
 
@@ -40,15 +39,25 @@ class Rating(BaseModel):
 class Book(BaseModel):
     id: str = Field(..., alias='_id')
 
-def get_cached_subject_suggestions(db: Session):
-    # Join BookSubject → Subject, count frequency of each subject string
+def get_all_subject_counts(db: Session):
+    global _subject_cache, _last_subject_fetch
+
+    now = time()
+    if _subject_cache and (now - _last_subject_fetch) < SUBJECT_CACHE_TTL:
+        return _subject_cache
+
     subject_counts = (
-        db.query(Subject.subject, func.count(Subject.subject_idx).label("count"))
+        db.query(Subject.subject, func.count(BookSubject.subject_idx).label("count"))
         .join(BookSubject, Subject.subject_idx == BookSubject.subject_idx)
         .group_by(Subject.subject)
-        .order_by(func.count(Subject.subject_idx).desc())
-        .limit(20)
+        .order_by(func.count(BookSubject.subject_idx).desc())
         .all()
     )
 
-    return [s.subject for s in subject_counts]
+    _subject_cache = [
+        {"subject": subject, "count": count}
+        for subject, count in subject_counts
+        if subject != "[NO_SUBJECT]"
+    ]
+    _last_subject_fetch = now
+    return _subject_cache

@@ -298,15 +298,31 @@ button:hover {
     max-height: 150px;
     overflow-y: auto;
     z-index: 10;
+    display: none;
 }
 
 .suggestion {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
     padding: 10px;
     cursor: pointer;
 }
 
 .suggestion:hover {
     background-color: #f0f0f0;
+}
+
+.subject-name {
+    flex: 1;
+    font-size: 1rem;
+}
+
+.subject-count {
+    font-size: 0.85rem;
+    color: #888;
+    margin-left: 10px;
+    white-space: nowrap;
 }
 
 /* Pills for selection (signup/search) */

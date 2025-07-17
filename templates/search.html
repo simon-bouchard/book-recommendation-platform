@@ -19,7 +19,7 @@
                     <div id="subject-suggestions" class="suggestions-box"></div>
                 </div>
                 <div id="subject-pills" class="pill-container"></div>
-                <input type="hidden" name="subjects" id="fav_subjects-hidden" value="{{ subjects|join(',') }}">
+                <input type="hidden" name="subjects" id="fav_subjects-hidden" value="{{ subjects if subjects is string else subjects|join(',') }}">
 
                 <button type="submit">Search</button>
             </form>

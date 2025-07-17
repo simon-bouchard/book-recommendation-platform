@@ -16,7 +16,7 @@ from sqlalchemy.orm import Session, joinedload
 from app.auth import get_current_user
 from app.database import SessionLocal, get_db
 from app.table_models import Book, User, Interaction, BookSubject, Subject, UserFavSubject
-from app.models import get_cached_subject_suggestions
+from app.models import get_all_subject_counts
 from models.knn_utils import get_similar_books, set_book_meta
 
 import logging
@@ -243,10 +243,11 @@ async def user_recommendation(user: str = Query(...), _id: bool = True, top_n: i
     return recommendations
 
 @router.get("/search")
-def search_books(request: Request, query: str = "", subjects: Optional[List[str]] = Query(default=None), db: Session = Depends(get_db)):
+def search_books(request: Request, query: str = "", subjects: Optional[str] = Query(default=None), db: Session = Depends(get_db)):
     subject_idxs = []
     if subjects:
-        subject_rows = db.query(Subject).filter(Subject.subject.in_(subjects)).all()
+        subject_list = [s.strip() for s in subjects.split(",") if s.strip()]
+        subject_rows = db.query(Subject).filter(Subject.subject.in_(subject_list)).all()
         subject_idxs = [s.subject_idx for s in subject_rows]
 
     q = db.query(Book).join(BookSubject, Book.item_idx == BookSubject.item_idx).filter(Book.title.ilike(f"%{query}%"))
@@ -262,15 +263,31 @@ def search_books(request: Request, query: str = "", subjects: Optional[List[str]
 
     results = q.limit(100).all()
 
-    subject_suggestions = get_cached_subject_suggestions(db)
+    subject_suggestions = get_all_subject_counts(db)
 
     return templates.TemplateResponse("search.html", {
         "request": request,
         "results": results,
         "query": query,
         "subjects": subjects or [],
-        "subject_suggestions": subject_suggestions,
+        "subject_suggestions": subject_suggestions[:20],
     })
+
+@router.get("/subjects/suggestions")
+def subject_suggestions(q: Optional[str] = Query(default=None), db: Session = Depends(get_db)):
+    """
+    Return subject suggestions:
+    - If q is None → return top 20 subjects
+    - If q is provided → return subjects that contain q (case-insensitive), sorted by count
+    """
+    all_subjects = get_all_subject_counts(db)
+
+    if q:
+        q_lower = q.lower()
+        filtered = [s for s in all_subjects if q_lower in s["subject"].lower()]
+        return {"subjects": filtered[:20]}
+    else:
+        return {"subjects": all_subjects[:20]}
 
 @router.get('/logout')
 async def logout():
