@@ -32,6 +32,7 @@ class Book(Base):
     filled_num_pages = Column(Boolean)
     author_idx = Column(Integer, ForeignKey('authors.author_idx'), nullable=True)
     isbn = Column(String(20), index=True)
+    main_subject = Column(String(255), nullable=True)
 
     interactions = relationship('Interaction', back_populates='book')
     subjects = relationship('BookSubject', back_populates='book')

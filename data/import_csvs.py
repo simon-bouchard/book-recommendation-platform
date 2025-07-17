@@ -5,6 +5,7 @@ import json
 import ast
 from tqdm import tqdm
 from sqlalchemy import text
+from collections import Counter
 
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
 
@@ -91,9 +92,25 @@ def main():
         work_to_item_idx = dict(zip(book_df["work_id"], book_df["item_idx"]))
         books = []
 
+        # Count global subject frequency
+        excluded_subjects = {"Fiction", "General"}
+        subject_counts = Counter(
+            s for s in book_sub_df["subjects"] if s not in excluded_subjects
+        )
+
         for _, row in book_df.iterrows():
             external_author_id = str(row["author_id"]).strip()
             author_idx = author_map.get(external_author_id)
+
+            # Lookup subject list for this book
+            book_subjs = book_sub_df.loc[book_sub_df["work_id"] == row["work_id"], "subjects"].tolist()
+            excluded_subjects = {"Fiction", "General"}
+            filtered_subjs = [s for s in book_subjs if s not in excluded_subjects]
+
+            if not filtered_subjs:
+                main_subject = "[NO_SUBJECT]"
+            else:
+                main_subject = max(filtered_subjs, key=lambda s: subject_counts.get(s, 0))
 
             book = Book(
                 work_id=row["work_id"],
@@ -107,7 +124,8 @@ def main():
                 num_pages=row["num_pages"],
                 filled_num_pages=row["filled_num_pages"],
                 author_idx=author_idx,
-                isbn=row["isbn"]
+                isbn=row["isbn"],
+                main_subject=main_subject  # ✅ add here
             )
 
             books.append(book)
