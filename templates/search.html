@@ -13,26 +13,13 @@
                 <label for="query">Book Title:</label>
                 <input type="text" id="query" name="query" value="{{ query or '' }}" placeholder="Search by title..." required>
 
-                <label for="subject1">Subject 1:</label>
-                <input list="subjectSuggestions" name="subjects" id="subject1" placeholder="Optional" value="{{ subjects[0] if subjects|length > 0 else '' }}">
-
-                <label for="subject2">Subject 2:</label>
-                <input list="subjectSuggestions" name="subjects" id="subject2" placeholder="Optional" value="{{ subjects[1] if subjects|length > 1 else '' }}">
-
-                <label for="subject3">Subject 3:</label>
-                <input list="subjectSuggestions" name="subjects" id="subject3" placeholder="Optional" value="{{ subjects[2] if subjects|length > 2 else '' }}">
-
-                <datalist id="subjectSuggestions">
-                    {% for s in subject_suggestions %}
-                        <option value="{{ s }}">
-                    {% endfor %}
-                </datalist>
-
-                <div id="selectedSubjects">
-                    {% for subj in subjects %}
-                        <span class="subject-pill">{{ subj }}</span>
-                    {% endfor %}
+                <label for="subjects">Subjects (up to 3):</label>
+                <div id="subject-input-container">
+                    <input type="text" id="subject-input" placeholder="Start typing a subject..." autocomplete="off">
+                    <div id="subject-suggestions" class="suggestions-box"></div>
                 </div>
+                <div id="subject-pills" class="pill-container"></div>
+                <input type="hidden" name="subjects" id="fav_subjects-hidden" value="{{ subjects|join(',') }}">
 
                 <button type="submit">Search</button>
             </form>
@@ -72,5 +59,17 @@
             <a href="/profile">Profile</a>
         </div>
     </div>
+    
+    <script type="module">
+        import { initSubjectPicker } from "/static/js/subject_picker.js";
+    
+        initSubjectPicker({
+            inputId: "subject-input",
+            suggestionsBoxId: "subject-suggestions",
+            pillsContainerId: "subject-pills",
+            hiddenInputId: "fav_subjects-hidden",
+            maxSubjects: 3
+        });
+    </script>
 </body>
 </html>

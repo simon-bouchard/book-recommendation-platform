@@ -5,10 +5,12 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Login | Book Recommendation</title>
     <link rel="stylesheet" href="{{ url_for('static', path='css/styles.css') }}">
+    <link rel="stylesheet" href="{{ url_for('static', path='css/signup_extras.css') }}">
 </head>
 <body>
     <div class="login-container">
         <h1>Book Recommendation</h1>
+
         <h2>Log in</h2>
         <form id="login" method="post" action="/auth/login">
             <input type="text" name="username" placeholder="Username" required>
@@ -17,13 +19,24 @@
         </form>
 
         <h2>Sign up</h2>
-        <form id="signup" method="post" action="/auth/signup">
+        <form id="signup" method="post" action="/auth/signup" onsubmit="return validateSignupForm()">
             <label for="username">Username:</label>
-            <input type="text" id="username" name="username" required>
+            <input type="text" name="username" required>
+
+            <label for="email">Email:</label>
+            <input type="email" name="email" required>
+
+            <label for="password">Password:</label>
+            <input type="password" name="password" id="password" required>
+
+            <label for="repeat_password">Repeat Password:</label>
+            <input type="password" name="repeat_password" id="repeat_password" required>
+            <div id="password-error" class="form-error"></div>
 
             <label for="age">Age:</label>
-            <input type="text" id="age" name="age" required>
-            
+            <input type="number" name="age" id="age" min="5" required>
+            <div id="age-error" class="form-error"></div>
+
             <label for="country">Country:</label>
             <select name="country" required>
                 <option value="">-- Select your country --</option>
@@ -32,17 +45,58 @@
                 {% endfor %}
             </select>
 
-            <label for="email">Email:</label>
-            <input type="email" id="email" name="email" required>
-
-            <label for="password">Password:</label>
-            <input type="password" id="password" name="password" required>
-
-            <label for="repeat_password">Repeat Password:</label>
-            <input type="password" id="repeat_password" name="repeat_password" required>
+            <label for="fav_subjects">Favorite Subjects (1–5):</label>
+            <div id="subject-input-container">
+                <input type="text" id="subject-input" placeholder="Start typing a subject..." autocomplete="off">
+                <div id="subject-suggestions" class="suggestions-box"></div>
+            </div>
+            <div id="subject-pills" class="pill-container"></div>
+            <input type="hidden" name="fav_subjects" id="fav_subjects-hidden">
 
             <button type="submit">Sign Up</button>
         </form>
     </div>
+
+    <script type="module">
+        import { initSubjectPicker } from "/static/js/subject_picker.js";
+
+        initSubjectPicker({
+            inputId: "subject-input",
+            suggestionsBoxId: "subject-suggestions",
+            pillsContainerId: "subject-pills",
+            hiddenInputId: "fav_subjects-hidden",
+            maxSubjects: 5
+        });
+    </script>
+
+    <script>
+        function validateSignupForm() {
+            let valid = true;
+
+            const pw = document.getElementById("password").value;
+            const repeat = document.getElementById("repeat_password").value;
+            const age = parseInt(document.getElementById("age").value);
+
+            document.getElementById("password-error").textContent = "";
+            document.getElementById("age-error").textContent = "";
+
+            if (pw !== repeat) {
+                document.getElementById("password-error").textContent = "Passwords do not match.";
+                valid = false;
+            }
+
+            if (isNaN(age) || age < 5) {
+                document.getElementById("age-error").textContent = "Please enter a valid age (5 or older).";
+                valid = false;
+            }
+
+            if (selectedSubjects.length < 1 || selectedSubjects.length > 5) {
+                alert("Please select between 1 and 5 favorite subjects.");
+                valid = false;
+            }
+
+            return valid;
+        }
+    </script>
 </body>
 </html>

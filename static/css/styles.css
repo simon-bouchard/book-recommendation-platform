@@ -90,6 +90,17 @@ form input {
     margin-bottom: 15px; /* Larger bottom margin to separate from the next element */
 }
 
+form select {
+    width: 100%;
+    padding: 12px;
+    border: 1px solid #ccc;
+    border-radius: 5px;
+    font-size: 1rem;
+    margin-bottom: 15px;
+    background-color: white;
+    appearance: none;
+}
+
 /* Buttons */
 button {
     background: #007bff;
@@ -253,6 +264,75 @@ button:hover {
 .toggle-link:hover {
     color: #0056b3;
     text-decoration: none;
+}
+
+/* Error messages */
+.form-error {
+    color: red;
+    font-size: 0.85rem;
+    margin-bottom: 10px;
+}
+
+/* Subject input suggestions + pills (interactive) */
+#subject-input-container {
+    position: relative;
+    width: 100%;
+}
+
+#subject-input {
+    width: 100%;
+    padding: 12px;
+    border: 1px solid #ccc;
+    border-radius: 5px;
+    font-size: 1rem;
+    margin-bottom: 8px;
+}
+
+.suggestions-box {
+    position: absolute;
+    top: 100%;
+    left: 0;
+    right: 0;
+    background: white;
+    border: 1px solid #ccc;
+    max-height: 150px;
+    overflow-y: auto;
+    z-index: 10;
+}
+
+.suggestion {
+    padding: 10px;
+    cursor: pointer;
+}
+
+.suggestion:hover {
+    background-color: #f0f0f0;
+}
+
+/* Pills for selection (signup/search) */
+.pill-container {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    margin-bottom: 15px;
+}
+
+.pill {
+    background: #007bff;
+    color: white;
+    padding: 5px 10px;
+    border-radius: 20px;
+    font-size: 0.85rem;
+    display: inline-flex;
+    align-items: center;
+}
+
+.pill-remove {
+    margin-left: 8px;
+    cursor: pointer;
+    font-weight: bold;
+    font-size: 1rem;
+    user-select: none;
 }
 
 /* Centering Recommendations and Ratings */
