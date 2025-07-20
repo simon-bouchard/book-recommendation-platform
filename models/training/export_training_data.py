@@ -1,52 +1,67 @@
 import pandas as pd
-from app.database import SessionLocal
-from app.table_models import Interaction, User, Book, BookSubject, UserFavSubject
-
 from pathlib import Path
+import os, sys
+sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "../..")))
 
-OUTPUT_DIR = Path("models/training/exported_data")
+from app.database import SessionLocal
+from app.table_models import (
+    Interaction, User, Book, Author,
+    BookSubject, UserFavSubject, Subject
+)
+
+OUTPUT_DIR = Path(__file__).parent / "data"
 OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
-
-def export_table_to_csv(query_result, columns, filename):
-    df = pd.DataFrame(query_result, columns=columns)
-    df.to_csv(OUTPUT_DIR / filename, index=False)
-    print(f"✅ Exported: {filename}")
 
 def main():
     db = SessionLocal()
-    try:
-        print("🔄 Connecting to DB...")
 
-        # Export interactions (filtered to only include rated ones)
+    try:
+        print("🔄 Exporting interactions...")
         interactions = pd.read_sql(
-            "SELECT user_id, item_idx, rating FROM interactions WHERE rating IS NOT NULL",
+            "SELECT user_id, item_idx, rating FROM interactions",
             db.bind
         )
-        interactions.to_csv(OUTPUT_DIR / "interactions.csv", index=False)
-        print("✅ Exported: interactions.csv")
+        interactions.to_pickle(OUTPUT_DIR / "interactions.pkl")
 
-        # Export users and books
-        users = pd.read_sql("SELECT * FROM users", db.bind)
-        users.to_csv(OUTPUT_DIR / "users.csv", index=False)
-        print("✅ Exported: users.csv")
+        print("👤 Exporting users...")
+        users = pd.read_sql(
+            "SELECT user_id, age, age_group, filled_age, country FROM users",
+            db.bind
+        )
+        users.to_pickle(OUTPUT_DIR / "users.pkl")
 
+        print("📚 Exporting books with author name...")
         books = pd.read_sql("SELECT * FROM books", db.bind)
-        books.to_csv(OUTPUT_DIR / "books.csv", index=False)
-        print("✅ Exported: books.csv")
+        authors = pd.read_sql("SELECT author_idx, name FROM authors", db.bind)
 
-        # Export user favorite subjects
-        user_fav_query = db.query(UserFavSubject.user_id, UserFavSubject.subject_idx).all()
-        export_table_to_csv(user_fav_query, ["user_id", "subject_idx"], "user_fav_subjects.csv")
+        books = books.merge(authors, how="left", on="author_idx")
+        books = books.drop(columns=["author_idx"])
+        books = books.rename(columns={"name": "author_name"})
+        books.to_pickle(OUTPUT_DIR / "books.pkl")
 
-        # Export book subjects
-        book_subj_query = db.query(BookSubject.item_idx, BookSubject.subject_idx).all()
-        export_table_to_csv(book_subj_query, ["item_idx", "subject_idx"], "book_subjects.csv")
+        print("📘 Exporting book_subjects...")
+        book_subjects = pd.read_sql(
+            "SELECT item_idx, subject_idx FROM book_subjects",
+            db.bind
+        )
+        book_subjects.to_pickle(OUTPUT_DIR / "book_subjects.pkl")
 
-        print("🎉 All exports completed.")
+        print("🌟 Exporting user_fav_subjects...")
+        user_fav_subjects = pd.read_sql(
+            "SELECT user_id, subject_idx FROM user_fav_subjects",
+            db.bind
+        )
+        user_fav_subjects.to_pickle(OUTPUT_DIR / "user_fav_subjects.pkl")
 
-    except Exception as e:
-        print(f"❌ Error during export: {e}")
-        db.rollback()
+        print("🏷️ Exporting subjects...")
+        subjects = pd.read_sql(
+            "SELECT subject_idx, subject FROM subjects",
+            db.bind
+        )
+        subjects.to_pickle(OUTPUT_DIR / "subjects.pkl")
+
+        print("✅ All data exported to:", OUTPUT_DIR)
+
     finally:
         db.close()
 
