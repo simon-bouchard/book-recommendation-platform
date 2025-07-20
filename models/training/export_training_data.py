@@ -37,6 +37,12 @@ def main():
         books = books.merge(authors, how="left", on="author_idx")
         books = books.drop(columns=["author_idx"])
         books = books.rename(columns={"name": "author_name"})
+
+        rated = interactions[interactions["rating"].notnull()].copy()
+        book_stats = rated.groupby("item_idx")["rating"].agg(["count"]).reset_index()
+        book_stats.rename(columns={"count": "book_num_ratings"}, inplace=True)
+        books = books.merge(book_stats, how="left", on="item_idx")
+
         books.to_pickle(OUTPUT_DIR / "books.pkl")
 
         print("📘 Exporting book_subjects...")
