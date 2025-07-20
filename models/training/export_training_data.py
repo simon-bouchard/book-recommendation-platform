@@ -39,9 +39,24 @@ def main():
         books = books.rename(columns={"name": "author_name"})
 
         rated = interactions[interactions["rating"].notnull()].copy()
-        book_stats = rated.groupby("item_idx")["rating"].agg(["count"]).reset_index()
-        book_stats.rename(columns={"count": "book_num_ratings"}, inplace=True)
+
+        # Book-level aggregates
+        book_stats = rated.groupby("item_idx")["rating"].agg(
+            book_num_ratings="count",
+            book_avg_rating="mean",
+            book_rating_std="std"
+        ).reset_index()
+
         books = books.merge(book_stats, how="left", on="item_idx")
+
+        # User-level aggregates
+        user_stats = rated.groupby("user_id")["rating"].agg(
+            user_num_ratings="count",
+            user_avg_rating="mean",
+            user_rating_std="std"
+        ).reset_index()
+
+        users = users.merge(user_stats, how="left", on="user_id")
 
         books.to_pickle(OUTPUT_DIR / "books.pkl")
 
