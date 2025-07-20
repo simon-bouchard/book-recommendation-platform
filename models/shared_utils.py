@@ -71,5 +71,5 @@ def compute_subject_overlap(fav_subjects, book_subjects):
     return len(set(fav_subjects) & set(book_subjects))
 
 def decompose_embeddings(tensor, prefix):
-    arr = tensor.detach().cpu().numpy()
+    arr = tensor.detach().cpu().numpy().flatten()
     return {f"{prefix}_{i}": arr[i] for i in range(arr.shape[0])}
