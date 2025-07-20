@@ -4,6 +4,7 @@ import numpy as np
 import pandas as pd
 import pickle
 from collections import defaultdict
+from pathlib import Path
 
 from sklearn.preprocessing import StandardScaler
 from lightgbm import LGBMRegressor
@@ -11,8 +12,6 @@ from lightgbm import early_stopping, log_evaluation
 
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "../..")))
 
-from app.database import SessionLocal
-from app.table_models import Book, User, Interaction, BookSubject, Subject, UserFavSubject
 from models.shared_utils import (
     load_attention_components,
     attention_pool,
@@ -26,34 +25,29 @@ from models.shared_utils import (
 import torch
 DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
 
-def fetch_data_from_sql():
-    db = SessionLocal()
-    try:
-        print("🔄 Connecting to DB and loading interactions...")
-        interactions = pd.read_sql("SELECT user_id, item_idx, rating FROM interactions WHERE rating IS NOT NULL", db.bind)
-        users = pd.read_sql("SELECT * FROM users", db.bind)
-        books = pd.read_sql("SELECT * FROM books", db.bind)
+DATA_DIR = Path(__file__).parent / "data"
 
-        print("📦 Loaded metadata from DB")
+def load_data_from_pickle():
+    print("📦 Loading .pkl data from:", DATA_DIR)
+    interactions = pd.read_pickle(DATA_DIR / "interactions.pkl")
+    users = pd.read_pickle(DATA_DIR / "users.pkl")
+    books = pd.read_pickle(DATA_DIR / "books.pkl")
 
-        user_fav = defaultdict(list)
-        for row in db.query(UserFavSubject.user_id, UserFavSubject.subject_idx):
-            user_fav[row.user_id].append(row.subject_idx)
+    user_fav_df = pd.read_pickle(DATA_DIR / "user_fav_subjects.pkl")
+    book_subj_df = pd.read_pickle(DATA_DIR / "book_subjects.pkl")
 
-        book_subj = defaultdict(list)
-        for row in db.query(BookSubject.item_idx, BookSubject.subject_idx):
-            book_subj[row.item_idx].append(row.subject_idx)
+    user_fav = defaultdict(list)
+    for row in user_fav_df.itertuples(index=False):
+        user_fav[row.user_id].append(row.subject_idx)
 
-        db.close()
-        return interactions, users, books, user_fav, book_subj
+    book_subj = defaultdict(list)
+    for row in book_subj_df.itertuples(index=False):
+        book_subj[row.item_idx].append(row.subject_idx)
 
-    except Exception as e:
-        db.rollback()
-        db.close()
-        raise e
+    return interactions, users, books, user_fav, book_subj
 
 def main():
-    interactions, users, books, user_fav, book_subj = fetch_data_from_sql()
+    interactions, users, books, user_fav, book_subj = load_data_from_pickle()
 
     print("🧠 Loading subject attention components and book embeddings...")
     subject_emb, attn_weight, attn_bias = load_attention_components()
@@ -90,13 +84,16 @@ def main():
         })
 
     df = pd.DataFrame(full_rows)
+    emb_cols = [c for c in df.columns if c.startswith("user_emb_") or c.startswith("book_emb_")]
+    df[emb_cols] = df[emb_cols].astype(np.float32)
+
     df = df.merge(users, on="user_id", how="left")
     df = df.merge(
         books[["item_idx", "main_subject", "year", "filled_year", "language", "num_pages", "filled_num_pages"]],
         on="item_idx", how="left"
     )
 
-    cat_cols = ["country", "filled_year", "filled_age", "main_subject", "year_bucket", "age_group", "language"]
+    cat_cols = ["country", "filled_year", "filled_age", "main_subject", "age_group", "language"]
     for col in cat_cols:
         df[col] = df[col].astype("category")
 
@@ -114,8 +111,11 @@ def main():
     y_val = val["rating"]
 
     scaler = StandardScaler()
-    X_train.loc[:, cont_cols] = scaler.fit_transform(X_train[cont_cols])
-    X_val.loc[:, cont_cols] = scaler.transform(X_val[cont_cols])
+    X_train_scaled = scaler.fit_transform(X_train[cont_cols])
+    X_val_scaled = scaler.transform(X_val[cont_cols])
+
+    X_train[cont_cols] = X_train_scaled.astype(np.float32)
+    X_val[cont_cols] = X_val_scaled.astype(np.float32)
 
     print("🚀 Training LightGBM model...")
     model = LGBMRegressor(
@@ -143,3 +143,4 @@ def main():
 
 if __name__ == "__main__":
     main()
+
