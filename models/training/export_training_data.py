@@ -16,21 +16,21 @@ def main():
     db = SessionLocal()
 
     try:
-        print("🔄 Exporting interactions...")
+        print("Exporting interactions...")
         interactions = pd.read_sql(
             "SELECT user_id, item_idx, rating FROM interactions",
             db.bind
         )
         interactions.to_pickle(OUTPUT_DIR / "interactions.pkl")
 
-        print("👤 Exporting users...")
+        print("Exporting users...")
         users = pd.read_sql(
             "SELECT user_id, age, age_group, filled_age, country FROM users",
             db.bind
         )
         users.to_pickle(OUTPUT_DIR / "users.pkl")
 
-        print("📚 Exporting books with author name...")
+        print(" Exporting books with author name...")
         books = pd.read_sql("SELECT * FROM books", db.bind)
         authors = pd.read_sql("SELECT author_idx, name FROM authors", db.bind)
 
@@ -60,21 +60,21 @@ def main():
 
         books.to_pickle(OUTPUT_DIR / "books.pkl")
 
-        print("📘 Exporting book_subjects...")
+        print("Exporting book_subjects...")
         book_subjects = pd.read_sql(
             "SELECT item_idx, subject_idx FROM book_subjects",
             db.bind
         )
         book_subjects.to_pickle(OUTPUT_DIR / "book_subjects.pkl")
 
-        print("🌟 Exporting user_fav_subjects...")
+        print("Exporting user_fav_subjects...")
         user_fav_subjects = pd.read_sql(
             "SELECT user_id, subject_idx FROM user_fav_subjects",
             db.bind
         )
         user_fav_subjects.to_pickle(OUTPUT_DIR / "user_fav_subjects.pkl")
 
-        print("🏷️ Exporting subjects...")
+        print("Exporting subjects...")
         subjects = pd.read_sql(
             "SELECT subject_idx, subject FROM subjects",
             db.bind
