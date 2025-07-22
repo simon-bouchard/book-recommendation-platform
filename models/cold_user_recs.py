@@ -137,7 +137,8 @@ def recommend_books_for_cold_user(user_id: int, top_k: int = 10):
 
         top_books = candidate_books.sort_values("score", ascending=False).head(top_k)
 
-        cols = ["item_idx", "title", "score", "book_avg_rating", "book_num_ratings"]
+        cols = ["item_idx", "title", "score", "book_avg_rating", "book_num_ratings",
+                "cover_id", "author_name", "year", "isbn"]
         df = top_books[cols].copy()
 
         def clean_row(row):
