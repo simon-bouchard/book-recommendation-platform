@@ -29,9 +29,9 @@ def attention_pool(indices_list, emb_layer, weight, bias):
     max_len = max((len(lst) for lst in indices_list), default=1)
 
     padded = [lst + [0] * (max_len - len(lst)) if len(lst) > 0 else [0]*max_len for lst in indices_list]
-    mask = torch.tensor([[1] * len(lst) + [0] * (max_len - len(lst)) if len(lst) > 0 else [0]*max_len for lst in indices_list], device=device)
-
     idx_tensor = torch.tensor(padded, device=device)
+    mask = (idx_tensor != PAD_IDX).long()
+
     embs = emb_layer(idx_tensor)
 
     scores = (embs @ weight.T) + bias
