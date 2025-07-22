@@ -55,8 +55,19 @@ class SubjectDotModel(nn.Module):
     def attention_pool(self, indices):
         embs = self.shared_subj_emb(indices)
         scores = self.subject_attn(embs).squeeze(-1)
-        scores = scores.masked_fill(indices == PAD_IDX, float('-inf'))
+
+        mask = (indices != PAD_IDX) 
+        has_real_subjects = mask.any(dim=1)  
+
+        # Create safe_mask that un-masks one PAD if all are PADs
+        safe_mask = mask.clone()
+        for i in range(len(safe_mask)):
+            if not has_real_subjects[i]:
+                safe_mask[i, 0] = True 
+
+        scores = scores.masked_fill(~safe_mask, float('-inf'))
         weights = torch.softmax(scores, dim=1)
+
         pooled = (embs * weights.unsqueeze(-1)).sum(dim=1)
         return self.drop(pooled)
 

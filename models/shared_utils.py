@@ -30,17 +30,23 @@ def attention_pool(indices_list, emb_layer, weight, bias):
 
     padded = [lst + [0] * (max_len - len(lst)) if len(lst) > 0 else [0]*max_len for lst in indices_list]
     idx_tensor = torch.tensor(padded, device=device)
-    mask = (idx_tensor != PAD_IDX).long()
+    mask = (idx_tensor != PAD_IDX)
+
+    # Safety fix: unmask 1st position if all are PADs
+    has_real_subjects = mask.any(dim=1)
+    for i in range(len(mask)):
+        if not has_real_subjects[i]:
+            mask[i, 0] = True
 
     embs = emb_layer(idx_tensor)
-
     scores = (embs @ weight.T) + bias
-    scores = scores.squeeze(-1).masked_fill(mask == 0, float("-inf"))
+    scores = scores.squeeze(-1).masked_fill(~mask, float("-inf"))
     attn = F.softmax(scores, dim=-1).unsqueeze(-1)
 
     pooled = (embs * attn).sum(dim=1)
     pooled = pooled.nan_to_num(0.0)
     return pooled
+
 
 def batched_attention_pool(indices_list, emb_layer, weight, bias, batch_size=1024):
     all_outputs = []
