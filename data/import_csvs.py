@@ -125,7 +125,7 @@ def main():
                 filled_num_pages=row["filled_num_pages"],
                 author_idx=author_idx,
                 isbn=row["isbn"],
-                main_subject=main_subject  # ✅ add here
+                main_subject=main_subject  
             )
 
             books.append(book)
