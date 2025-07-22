@@ -50,7 +50,7 @@ def main():
 
         users.to_pickle(OUTPUT_DIR / "users.pkl")
 
-        print(" Exporting books with author name...")
+        print("Exporting books with author name...")
         books = pd.read_sql("SELECT * FROM books", db.bind)
         authors = pd.read_sql("SELECT author_idx, name FROM authors", db.bind)
 
@@ -70,7 +70,7 @@ def main():
         books["book_num_ratings"] = books["book_num_ratings"].fillna(0).astype(int)
         books["book_rating_std"] = books["book_rating_std"].fillna(0.0)
         books["book_avg_rating"] = books["book_avg_rating"].fillna(global_avg_rating)
-        
+
         books.to_pickle(OUTPUT_DIR / "books.pkl")
 
         print("Exporting book_subjects...")
