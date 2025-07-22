@@ -171,7 +171,7 @@ def main():
     ds = SubjectDataset(rows)
     cut = int(0.9 * len(ds))
     train_ds, valid_ds = torch.utils.data.random_split(ds, [cut, len(ds)-cut])
-    dls = DataLoaders.from_dsets(train_ds, valid_ds, bs=128, device=device)
+    dls = DataLoaders.from_dsets(train_ds, valid_ds, bs=512, device=device)
 
     # Count ranges
     n_users = max(r['user_idx'] for r in rows) + 1

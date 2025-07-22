@@ -56,7 +56,7 @@ def main():
 
         books = books.merge(authors, how="left", on="author_idx")
         books = books.drop(columns=["author_idx"])
-        books = books.rename(columns={"name": "author_name"})
+        books = books.rename(columns={"name": "author"})
 
         # Book-level aggregates
         book_stats = rated.groupby("item_idx")["rating"].agg(
