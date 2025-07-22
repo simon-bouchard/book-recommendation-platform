@@ -12,7 +12,7 @@ from motor.motor_asyncio import AsyncIOMotorClient
 from datetime import datetime
 from sqlalchemy.orm import Session
 from app.database import SessionLocal, get_db
-from app.table_models import User
+from app.table_models import User, Subject, UserFavSubject
 import pycountry
 import pandas as pd
 
@@ -54,15 +54,16 @@ async def get_current_user(access_token: str = Cookie(None), db: Session = Depen
     return None
 
 @router.post('/auth/signup')
-async def signup(request: Request,
-                 username: str = Form(...),
-                 email: str = Form(...),
-                 password: str = Form(...),
-                 age: int = Form(...),
-                 country: str = Form(...),
-                 db: Session = Depends(get_db)):
-
-    # Check if username already exists
+async def signup(
+    request: Request,
+    username: str = Form(...),
+    email: str = Form(...),
+    password: str = Form(...),
+    age: int = Form(None),
+    country: str = Form(...),
+    fav_subjects: str = Form(""),
+    db: Session = Depends(get_db)
+):
     existing_user = db.query(User).filter(User.username == username).first()
     if existing_user:
         return templates.TemplateResponse("login.html", {
@@ -70,32 +71,51 @@ async def signup(request: Request,
             "error": "Username already exists. Please choose another."
         })
 
-    # Validate country with pycountry
     try:
         country_name = pycountry.countries.lookup(country).name
     except LookupError:
         return templates.TemplateResponse("signup.html", {
             "request": request,
-            "error": "Invalid country name.",
+            "error": "Invalid country name."
         })
 
-    # Compute age_group
-    age_group = assign_age_group(age)
+    # Correct age handling logic
+    if age is None:
+        final_age = GLOBAL_AVG_AGE
+        filled_age = True
+    else:
+        final_age = age
+        filled_age = False
 
+    age_group = assign_age_group(final_age)
     hashed_pw = hash_password(password)
 
-    # DO NOT touch working logic
     new_user = User(
         username=username,
         email=email,
         password=hashed_pw,
-        age=age,
+        age=final_age,
         age_group=age_group,
-        filled_age=age is not None,
+        filled_age=filled_age,
         country=country_name
     )
-
     db.add(new_user)
+    db.commit()
+    db.refresh(new_user)
+
+    subject_list = [s.strip() for s in fav_subjects.split(",") if s.strip()]
+    if not subject_list:
+        subject_list = ["[NO_SUBJECT]"]
+
+    for subject_name in subject_list:
+        subject = db.query(Subject).filter(Subject.subject == subject_name).first()
+        if not subject:
+            subject = Subject(subject=subject_name)
+            db.add(subject)
+            db.commit()
+            db.refresh(subject)
+        db.add(UserFavSubject(user_id=new_user.user_id, subject_idx=subject.subject_idx))
+
     db.commit()
 
     return templates.TemplateResponse("login.html", {
