@@ -23,55 +23,58 @@
         <h3>User-Based Recommendations</h3>
         <button id="recommendButton">Get Recommendations</button>
         <div id="recommendations" style="display: none"></div>
-
-        <h3>Post a New Rating</h3>
-        <form id="ratingForm">
-            <label for="isbn">Book ISBN:</label>
-            <input type="text" id="isbn" name="isbn" required>
-
-            <label for="rating">Rating:</label>
-            <input type="text" id="rating" name="rating" required>
-
-            <label for="comment">Comment:</label>
-            <input type="text" id="comment" name="comment">
-
-            <button type="submit">Submit</button>
-        </form>
-
-        <div class="links">
-            <a href="/">Home</a>
-            <a href="/logout">Logout</a>
+        <div style="text-align: center; margin-top: 10px;">
+            <button id="prevButton" style="display: none; width: auto;">Previous</button>
+            <button id="nextButton" style="display: none; width: auto;">Next</button>
         </div>
     </div>
 
     <script>
-        document.getElementById('recommendButton').onclick = async function () {
-            let user_id = '{{ user.id }}'.trim();
+        let allRecommendations = [];
+        let offset = 0;
+        const limit = 30;
 
-            let response = await fetch(`/profile/recommend?user=${encodeURIComponent(user_id)}`);
-            let data = await response.json();
+        function renderPage() {
+            const pageRecs = allRecommendations.slice(offset, offset + limit);
+
+            if (pageRecs.length === 0) return;
+
+            const html = pageRecs.map(book => `
+                <a href="/book/${book.item_idx}">
+                    <div class="book-card">
+                        <img src="${book.cover_id 
+                            ? `https://covers.openlibrary.org/b/id/${book.cover_id}-M.jpg`
+                            : 'https://via.placeholder.com/150x220?text=No+Cover'}"
+                            alt="Cover for ${book.title}">
+                        <h3>${book.title}</h3>
+                        ${book.author ? `<p><strong>Author:</strong> ${book.author}</p>` : ''}
+                        ${book.year ? `<p><strong>Year:</strong> ${book.year}</p>` : ''}
+                        ${book.isbn ? `<p><strong>ISBN:</strong> ${book.isbn}</p>` : ''}
+                    </div>
+                </a>
+            `).join("");
+
+            const container = document.getElementById('recommendations');
+            container.innerHTML = `<div class="book-grid">${html}</div>`;
+            container.style.display = 'block';
+
+            // Button logic
+            document.getElementById('prevButton').style.display = offset > 0 ? 'inline-block' : 'none';
+            document.getElementById('nextButton').style.display = (offset + limit < allRecommendations.length) ? 'inline-block' : 'none';
+
+            // Scroll to top of recommendation section
+            container.scrollIntoView({ behavior: 'smooth' });
+        }
+
+        document.getElementById('recommendButton').onclick = async () => {
+            offset = 0;
+            let user_id = '{{ user.id }}'.trim();
+            const response = await fetch(`/profile/recommend?user=${encodeURIComponent(user_id)}&top_n=100`);
+            const data = await response.json();
 
             if (response.ok) {
-                let recommendations = data.map(book => `
-                    <a href="/book/${book.item_idx}">
-                        <div class="book-card">
-                            <img src="${book.cover_id 
-                                ? `https://covers.openlibrary.org/b/id/${book.cover_id}-M.jpg`
-                                : 'https://via.placeholder.com/150x220?text=No+Cover'}" 
-                                alt="Cover for ${book.title}">
-                            <h3>${book.title}</h3>
-                            ${book.author ? `<p><strong>Author:</strong> ${book.author_name}</p>` : ''}
-                            ${book.year ? `<p><strong>Year:</strong> ${book.year}</p>` : ''}
-                            ${book.isbn ? `<p><strong>ISBN:</strong> ${book.isbn}</p>` : ''}
-                        </div>
-                    </a>
-                `).join("");
-
-                document.getElementById('recommendations').innerHTML = `
-                    <h4>Recommended Books</h4>
-                    <div class="book-grid">${recommendations}</div>`;
-                    
-                document.getElementById('recommendations').style.display = 'block';
+                allRecommendations = data;
+                renderPage();
                 document.getElementById('recommendButton').style.display = 'none';
             } else {
                 document.getElementById('recommendations').innerHTML = `<p style='color: red;'>Error: ${data.detail}</p>`;
@@ -79,29 +82,16 @@
             }
         };
 
-        document.getElementById("ratingForm").onsubmit = async function (event) {
-            event.preventDefault();
+        document.getElementById('nextButton').onclick = () => {
+            offset += limit;
+            renderPage();
+        };
 
-            let data = {
-                isbn: document.getElementById("isbn").value,
-                rating: document.getElementById("rating").value,
-                comment: document.getElementById("comment").value
-            };
-
-            let response = await fetch("/rating", {
-                method: "POST",
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify(data),
-                redirect: 'manual'
-            });
-
-            if (response.redirected) {
-                window.location.href = response.url;
-            } else {
-                let result = await response.json();
-                alert(result.message);
-            }
+        document.getElementById('prevButton').onclick = () => {
+            offset = Math.max(0, offset - limit);
+            renderPage();
         };
     </script>
+
 </body>
 </html>
