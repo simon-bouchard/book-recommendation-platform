@@ -8,6 +8,7 @@ from dotenv import load_dotenv
 import jwt
 from datetime import datetime, timedelta
 from bson import ObjectId
+import pickle
 
 from datetime import datetime
 from sqlalchemy import func, select
@@ -17,7 +18,8 @@ from app.auth import get_current_user
 from app.database import SessionLocal, get_db
 from app.table_models import Book, User, Interaction, BookSubject, Subject, UserFavSubject
 from app.models import get_all_subject_counts
-from models.knn_utils import get_similar_books, set_book_meta
+#from models.knn_utils import get_similar_books, set_book_meta
+from models.cold_user_recs import recommend_books_for_cold_user
 
 import logging
 import pycountry
@@ -227,20 +229,38 @@ def get_similar(item_idx: int, db: Session = Depends(get_db)):
     return results
 
 @router.get('/profile/recommend')
-async def user_recommendation(user: str = Query(...), _id: bool = True, top_n: int = 5):
-
+async def recommend_for_user(
+    user: str = Query(...),
+    _id: bool = True,
+    top_n: int = 100,
+    db: Session = Depends(get_db)
+):
     try:
-        recommendations = await get_user_recommendations(user, _id, top_n)
+        # Resolve user_id
+        if _id:
+            user_id = int(user)
+        else:
+            user_obj = db.query(User).filter(User.username == user).first()
+            if not user_obj:
+                raise HTTPException(status_code=404, detail="User not found")
+            user_id = user_obj.user_id
 
-    except ValueError:  
-        raise HTTPException(status_code=200, detail="User doesn't have recommendations.")
-    except HTTPException as e:  
-        raise e
+        # Count valid ratings
+        num_ratings = db.query(Interaction).filter(
+            Interaction.user_id == user_id,
+            Interaction.rating.isnot(None)
+        ).count()
+
+        # Cold-start logic
+        if num_ratings < 10:
+            return recommend_books_for_cold_user(user_id=user_id, top_k=top_n)
+
+        # Warm-start fallback (not implemented here)
+        raise HTTPException(status_code=501, detail="Warm-start not implemented yet")
+
     except Exception as e:
-        logger.error(f"Unexpected error in /profile/recommend: {str(e)}")
-        raise HTTPException(status_code=500, detail="An internal error occurred. Please try again later.")
-
-    return recommendations
+        logger.error(f"Error in /profile/recommend: {str(e)}")
+        raise HTTPException(status_code=500, detail="Internal server error")
 
 @router.get("/search")
 def search_books(request: Request, query: str = "", subjects: Optional[str] = Query(default=None), db: Session = Depends(get_db)):
