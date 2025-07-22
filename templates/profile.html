@@ -18,6 +18,15 @@
             <p><strong>Email:</strong> {{ user.email }}</p>
             <p><strong>Age:</strong> {{ user.age }}</p>
             <p><strong>Country:</strong> {{ user.country }}</p>
+            {% if user.favorite_subjects %}
+            <h4>Your Favorite Subjects</h4>
+            <div class="subject-list">
+                {% for subj in user.favorite_subjects %}
+                    <div class="subject-pill">{{ subj }}</div>
+                {% endfor %}
+            </div>
+            {% endif %}
+
         </div>
 
         <h3>User-Based Recommendations</h3>

@@ -51,6 +51,7 @@ def profile_page(request: Request, current_user: dict = Depends(get_current_user
         "email": current_user.email,
         "age": current_user.age,
         "country": current_user.country,
+        "favorite_subjects": [s.subject.subject for s in current_user.favorite_subjects if s.subject]
     }
 
     return templates.TemplateResponse('profile.html', {'request': request, 'user': user_data})
