@@ -4,7 +4,7 @@ import torch.nn as nn
 import torch.nn.functional as F
 import numpy as np
 
-PAD_IDX = 0
+PAD_IDX = 3520
 
 def load_attention_components(path="models/subject_attention_components.pth"):
     """Load subject embedding weights + attention weights"""
