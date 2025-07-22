@@ -52,11 +52,25 @@
             let data = await response.json();
 
             if (response.ok) {
-                let recommendations = data.map(rec =>
-							`<li><strong>${rec.title}</strong> (${rec.isbn}) - ${rec.author}</li>`
-                ).join("");
+                let recommendations = data.map(book => `
+                    <a href="/book/${book.item_idx}">
+                        <div class="book-card">
+                            <img src="${book.cover_id 
+                                ? `https://covers.openlibrary.org/b/id/${book.cover_id}-M.jpg`
+                                : 'https://via.placeholder.com/150x220?text=No+Cover'}" 
+                                alt="Cover for ${book.title}">
+                            <h3>${book.title}</h3>
+                            ${book.author ? `<p><strong>Author:</strong> ${book.author}</p>` : ''}
+                            ${book.year ? `<p><strong>Year:</strong> ${book.year}</p>` : ''}
+                            ${book.isbn ? `<p><strong>ISBN:</strong> ${book.isbn}</p>` : ''}
+                        </div>
+                    </a>
+                `).join("");
 
-                document.getElementById('recommendations').innerHTML = `<ul>${recommendations}</ul>`;
+                document.getElementById('recommendations').innerHTML = `
+                    <h4>Recommended Books</h4>
+                    <div class="book-grid">${recommendations}</div>`;
+                    
                 document.getElementById('recommendations').style.display = 'block';
                 document.getElementById('recommendButton').style.display = 'none';
             } else {
