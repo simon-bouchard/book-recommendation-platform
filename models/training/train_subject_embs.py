@@ -1,5 +1,7 @@
 import os
 import sys
+from pathlib import Path
+import pandas as pd
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "../../")))
 
 import torch
@@ -87,46 +89,52 @@ class SubjectDotModel(nn.Module):
 # ---------------------
 # Data loading from SQL
 # ---------------------
-def fetch_training_data(pad_to=10):
-    db = SessionLocal()
+DATA_DIR = Path(__file__).parent / "data"
 
-    # Get user → subjects
-    user_to_subj = defaultdict(list)
-    for row in db.query(UserFavSubject.user_id, UserFavSubject.subject_idx):
-        user_to_subj[row.user_id].append(row.subject_idx)
+def load_training_data_from_pickle(pad_to=5):
+    print("📦 Loading .pkl data from:", DATA_DIR)
 
-    # Get book → subjects
-    book_to_subj = defaultdict(list)
-    for row in db.query(BookSubject.item_idx, BookSubject.subject_idx):
-        book_to_subj[row.item_idx].append(row.subject_idx)
+    interactions = pd.read_pickle(DATA_DIR / "interactions.pkl")
+    user_fav_df = pd.read_pickle(DATA_DIR / "user_fav_subjects.pkl")
+    book_subj_df = pd.read_pickle(DATA_DIR / "book_subjects.pkl")
 
-    # Count ratings per user
-    user_rating_counts = defaultdict(int)
-    for row in db.query(Interaction.user_id).filter(Interaction.rating != None):
-        user_rating_counts[row.user_id] += 1
+    interactions = interactions[interactions["rating"].notnull()].copy()
+    rating_counts = interactions["user_id"].value_counts()
+    interactions["is_warm"] = interactions["user_id"].map(lambda uid: rating_counts.get(uid, 0) >= 10)
 
-    # Get interactions
+    user_fav = defaultdict(list)
+    for row in user_fav_df.itertuples(index=False):
+        user_fav[row.user_id].append(row.subject_idx)
+
+    book_subj = defaultdict(list)
+    for row in book_subj_df.itertuples(index=False):
+        book_subj[row.item_idx].append(row.subject_idx)
+
     rows = []
-    for row in db.query(Interaction.user_id, Interaction.item_idx, Interaction.rating).filter(Interaction.rating != None):
-        # Filter: Only keep warm users
-        if user_rating_counts[row.user_id] < 10:
+    for row in interactions.itertuples(index=False):
+        if not row.is_warm:
+            continue
+        if row.item_idx not in book_subj:
             continue
 
-        book_subjs = book_to_subj.get(row.item_idx, [])
-        user_subjs = user_to_subj.get(row.user_id, [])
-
-        if not book_subjs or not user_subjs:
+        fav_subjs = user_fav.get(row.user_id, [])
+        book_subjs = book_subj[row.item_idx]
+        if not book_subjs:
             continue
+
+        if not fav_subjs:
+            fav_subjs_padded = [PAD_IDX] * pad_to
+        else:
+            fav_subjs_padded = fav_subjs[:pad_to] + [PAD_IDX] * max(0, pad_to - len(fav_subjs))
 
         rows.append({
-            'user_idx': row.user_id,
-            'item_idx': row.item_idx,
-            'rating': float(row.rating),
-            'book_subjects': book_subjs,
-            'fav_subjects': user_subjs[:5] + [PAD_IDX] * max(0, 5 - len(user_subjs))  # still pad favs
+            "user_idx": row.user_id,
+            "item_idx": row.item_idx,
+            "rating": float(row.rating),
+            "fav_subjects": fav_subjs_padded,
+            "book_subjects": book_subjs
         })
 
-    db.close()
     return rows
 
 class GradientAccumulation(Callback):
@@ -146,7 +154,7 @@ class GradientAccumulation(Callback):
 # Train and save
 # ---------------------
 def main():
-    rows = fetch_training_data()
+    rows = load_training_data_from_pickle()
     if not rows:
         print("❌ No valid training data found.")
         return
