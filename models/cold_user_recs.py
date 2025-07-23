@@ -13,6 +13,7 @@ from models.shared_utils import (
     get_item_idx_to_row,
     decompose_embeddings,
     compute_subject_overlap,
+    get_read_books,
     PAD_IDX
 )
 
@@ -96,6 +97,10 @@ def recommend_books_for_cold_user(user_id: int, top_k: int = 10):
         candidate_books = BOOK_META.loc[BOOK_META.index.intersection(candidate_ids)].copy()
         candidate_books = candidate_books.reset_index()
 
+        # Filter out already seen books
+        read_books = get_read_books(user.user_id, db)
+        candidate_books = candidate_books[~candidate_books["item_idx"].isin(read_books)]
+
         # Merge in book embeddings using item_idx → row mapping
         dim = book_embs.shape[1]
         book_emb_data = []
@@ -131,8 +136,7 @@ def recommend_books_for_cold_user(user_id: int, top_k: int = 10):
         cont_cols = ["age", "year", "num_pages", "subject_overlap", "book_num_ratings"]
         emb_cols = [c for c in candidate_books.columns if c.startswith("user_emb_") or c.startswith("book_emb_")]
         features = emb_cols + cont_cols + cat_cols 
-        print(candidate_books[emb_cols].head(10))
-        print(candidate_books[cont_cols + cat_cols].head(10))
+        
         candidate_books["score"] = gbt_model.predict(candidate_books[features])
 
         top_books = candidate_books.sort_values("score", ascending=False).head(top_k)

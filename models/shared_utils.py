@@ -3,6 +3,8 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 import numpy as np
+from app.table_models import Interaction
+from sqlalchemy.orm import Session
 
 PAD_IDX = 3520
 
@@ -79,3 +81,11 @@ def compute_subject_overlap(fav_subjects, book_subjects):
 def decompose_embeddings(tensor, prefix):
     arr = tensor.detach().cpu().numpy().flatten()
     return {f"{prefix}_{i}": arr[i] for i in range(arr.shape[0])}
+
+def get_read_books(user_id: int, db: Session):
+    """Returns a set of item_idx the user has already read/rated."""
+    return {
+        row.item_idx for row in db.query(Interaction.item_idx).filter(
+            Interaction.user_id == user_id
+        ).all()
+    }
