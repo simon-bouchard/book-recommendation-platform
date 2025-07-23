@@ -60,7 +60,7 @@ def get_user_embedding(fav_subjects_idxs):
 
     return emb, is_fallback
 
-def get_tiered_candidates(user_emb, use_only_bayesian=False, top_k_bayes=100, top_k_sim=0, top_k_mixed=0, scale_sim=10.0, w=0.2):
+def get_tiered_candidates(user_emb, use_only_bayesian=False, top_k_bayes=200, top_k_sim=50, top_k_mixed=150, scale_sim=10.0, w=0.2):
     if use_only_bayesian:
         idx_bayes = torch.topk(torch.tensor(bayesian_tensor), top_k_bayes).indices
         print('bayesian fallback')
@@ -138,7 +138,7 @@ def recommend_books_for_cold_user(user_id: int, top_k: int = 10):
         top_books = candidate_books.sort_values("score", ascending=False).head(top_k)
 
         cols = ["item_idx", "title", "score", "book_avg_rating", "book_num_ratings",
-                "cover_id", "author_name", "year", "isbn"]
+                "cover_id", "author", "year", "isbn"]
         df = top_books[cols].copy()
 
         def clean_row(row):
