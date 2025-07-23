@@ -1,10 +1,16 @@
-import json
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
 import numpy as np
 from app.table_models import Interaction
 from sqlalchemy.orm import Session
+
+import pandas as pd
+import pickle
+import json
+from collections import defaultdict
+import sys, os
+sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "../../")))
 
 PAD_IDX = 3520
 
@@ -67,13 +73,13 @@ def load_book_embeddings(emb_path="models/book_embs.npy", id_path="models/book_i
     assert embs.shape[0] == len(book_ids), "Mismatch between book embs and IDs"
     return embs, book_ids
 
-def normalize_embeddings(embs):
-    """L2 normalize embeddings along last axis"""
-    return embs / np.linalg.norm(embs, axis=1, keepdims=True)
-
 def get_item_idx_to_row(book_ids):
     """Returns: item_idx → row index map"""
     return {idx: i for i, idx in enumerate(book_ids)}
+
+def normalize_embeddings(embs):
+    """L2 normalize embeddings along last axis"""
+    return embs / np.linalg.norm(embs, axis=1, keepdims=True)
 
 def compute_subject_overlap(fav_subjects, book_subjects):
     return len(set(fav_subjects) & set(book_subjects))
@@ -89,3 +95,27 @@ def get_read_books(user_id: int, db: Session):
             Interaction.user_id == user_id
         ).all()
     }
+
+# -----------------------
+# Loaded Static Components
+# -----------------------
+subject_emb, attn_weight, attn_bias = load_attention_components("models/subject_attention_components.pth")
+subject_emb = subject_emb.to("cpu")
+attn_weight = attn_weight.to("cpu")
+attn_bias = attn_bias.to("cpu")
+
+book_embs, book_ids = load_book_embeddings("models/book_embs.npy", "models/book_ids.json")
+item_idx_to_row = get_item_idx_to_row(book_ids)
+
+bayesian_tensor = np.load("models/bayesian_tensor.npy")
+BOOK_META = pd.read_pickle("models/training/data/books.pkl").set_index("item_idx")
+
+BOOK_SUBJ_PATH = "models/training/data/book_subjects.pkl"
+BOOK_TO_SUBJ = defaultdict(list)
+if os.path.exists(BOOK_SUBJ_PATH):
+    book_subj_df = pd.read_pickle(BOOK_SUBJ_PATH)
+    for row in book_subj_df.itertuples(index=False):
+        BOOK_TO_SUBJ[row.item_idx].append(row.subject_idx)
+
+with open("models/gbt_cold.pickle", "rb") as f:
+    gbt_model = pickle.load(f)

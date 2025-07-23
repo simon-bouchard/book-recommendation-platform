@@ -7,44 +7,15 @@ import os
 import math
 
 from models.shared_utils import (
-    load_attention_components,
-    attention_pool,
-    load_book_embeddings,
-    get_item_idx_to_row,
-    decompose_embeddings,
-    compute_subject_overlap,
-    get_read_books,
-    PAD_IDX
+    PAD_IDX, attention_pool, decompose_embeddings,
+    compute_subject_overlap, get_read_books,
+    subject_emb, attn_weight, attn_bias, gbt_model,
+    book_embs, book_ids, item_idx_to_row,
+    bayesian_tensor, BOOK_META, BOOK_TO_SUBJ
 )
 
 from app.database import SessionLocal
 from app.table_models import User, UserFavSubject, BookSubject, Book
-
-# ----------------------------
-# Load static model components
-# ----------------------------
-subject_emb, attn_weight, attn_bias = load_attention_components("models/subject_attention_components.pth")
-subject_emb = subject_emb.to("cpu")
-attn_weight = attn_weight.to("cpu")
-attn_bias = attn_bias.to("cpu")
-
-book_embs, book_ids = load_book_embeddings("models/book_embs.npy", "models/book_ids.json")
-item_idx_to_row = get_item_idx_to_row(book_ids)
-
-bayesian_tensor = np.load("models/bayesian_tensor.npy")
-
-with open("models/gbt_cold.pickle", "rb") as f:
-    gbt_model = pickle.load(f)
-
-BOOK_META = pd.read_pickle("models/training/data/books.pkl").set_index("item_idx")
-
-# Load book → subjects mapping
-BOOK_SUBJ_PATH = "models/training/data/book_subjects.pkl"
-BOOK_TO_SUBJ = defaultdict(list)
-if os.path.exists(BOOK_SUBJ_PATH):
-    book_subj_df = pd.read_pickle(BOOK_SUBJ_PATH)
-    for row in book_subj_df.itertuples(index=False):
-        BOOK_TO_SUBJ[row.item_idx].append(row.subject_idx)
 
 # ----------------------------
 # Main functions
