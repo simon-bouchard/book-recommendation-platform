@@ -18,8 +18,8 @@ from app.auth import get_current_user
 from app.database import SessionLocal, get_db
 from app.table_models import Book, User, Interaction, BookSubject, Subject, UserFavSubject
 from app.models import get_all_subject_counts
-#from models.knn_utils import get_similar_books, set_book_meta
-from models.cold_user_recs import recommend_books_for_cold_user
+from models.knn_utils import get_similar_books
+#from models.cold_user_recs import recommend_books_for_cold_user
 
 import logging
 import pycountry
@@ -198,39 +198,7 @@ async def get_comments(book: str = Query(...), isbn: bool = False, limit: int = 
 @router.get("/book/{item_idx}/similar")
 def get_similar(item_idx: int, db: Session = Depends(get_db)):
     # Get top-k similar item_idxs
-    results = get_similar_books(item_idx, top_k=10, method="faiss")  # metadata-free
-
-    similar_ids = [r["item_idx"] for r in results]
-
-    # Fetch metadata for just those books
-    books = (
-        db.query(Book)
-        .filter(Book.item_idx.in_(similar_ids))
-        .options(joinedload(Book.subjects).joinedload(BookSubject.subject))
-        .all()
-    )
-
-    meta = {
-        b.item_idx: {
-            "title": b.title,
-            "cover_id": b.cover_id,
-            "author": b.author.name if b.author else None,
-            "year": b.year,
-            "isbn": b.isbn,
-        }
-        for b in books
-    }
-
-    # Attach metadata to results
-    for r in results:
-        m = meta.get(r["item_idx"], {})
-        r["title"] = m.get("title", "[Unknown]")
-        r["cover_id"] = m.get("cover_id")
-        r["author"] = m.get("author")
-        r["year"] = m.get("year")
-        r["isbn"] = m.get("isbn")
-
-    return results
+    return  get_similar_books(item_idx, top_k=10, method="faiss")
 
 @router.get('/profile/recommend')
 async def recommend_for_user(
