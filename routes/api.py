@@ -16,8 +16,8 @@ from app.auth import get_current_user
 from app.database import SessionLocal, get_db
 from app.table_models import Book, User, Interaction, BookSubject, Subject, UserFavSubject
 from app.models import get_all_subject_counts
-from models.knn_utils import get_similar_books
-#from models.cold_user_recs import recommend_books_for_cold_user
+#from models.knn_utils import get_similar_books
+from models.cold_user_recs import recommend_books_for_cold_user
 from models.shared_utils import BOOK_META, bayesian_tensor, book_ids
 
 import logging
@@ -197,7 +197,7 @@ async def get_comments(book: str = Query(...), isbn: bool = False, limit: int = 
 @router.get("/book/{item_idx}/similar")
 def get_similar(item_idx: int, db: Session = Depends(get_db)):
     # Get top-k similar item_idxs
-    return  get_similar_books(item_idx, top_k=10, method="faiss")
+    return  get_similar_books(item_idx, top_k=100, method="faiss")
 
 @router.get('/profile/recommend')
 async def recommend_for_user(
@@ -245,7 +245,7 @@ def search_books(request: Request, query: str = "", subjects: Optional[str] = Qu
 
     if query.strip() == "":
         # No title query → Use bayesian top books
-        topk_idx = torch.topk(torch.tensor(bayesian_tensor), 100).indices.tolist()
+        topk_idx = torch.topk(torch.tensor(bayesian_tensor), 200).indices.tolist()
         topk_item_idxs = [book_ids[i] for i in topk_idx]
 
         filtered_meta = BOOK_META

@@ -26,32 +26,24 @@
 
         {% if results %}
             <h2>Results</h2>
-            <div class="book-grid">
-            {% for book in results %}
-                <a href="/book/{{ book.item_idx }}">
-                    <div class="book-card">
-                        {% if book.cover_id %}
-                            <img src="https://covers.openlibrary.org/b/id/{{ book.cover_id }}-M.jpg" alt="Cover for {{ book.title }}">
-                        {% else %}
-                            <img src="https://via.placeholder.com/150x220?text=No+Cover" alt="No cover available">
-                        {% endif %}
-                        
-                        <h3>{{ book.title }}</h3>
-                        {% if book.author %}
-                        <p><strong>Author:</strong> {{ book.author.name }}</p>
-                        {% endif %}
-                        {% if book.year %}
-                        <p><strong>Year:</strong> {{ book.year }}</p>
-                        {% endif %}
-                        {% if book.isbn %}
-                        <p><strong>ISBN:</strong> {{ book.isbn }}</p>
-                        {% endif %}
-                    </div>
-                </a>
-            {% endfor %}
+            <div id="search-results" style="display: none;"></div>
+            <div style="text-align: center; margin-top: 10px;">
+                <button id="prevButton" style="display: none;">Previous</button>
+                <button id="nextButton" style="display: none;">Next</button>
             </div>
-        {% elif query %}
-            <p>No results found for <strong>{{ query }}</strong>.</p>
+
+            <script type="module">
+                import { setupPaginatedBookDisplay } from "/static/js/paginated_books.js";
+
+                const books = {{ results | tojson }};
+                setupPaginatedBookDisplay({
+                    books,
+                    containerId: "search-results",
+                    prevButtonId: "prevButton",
+                    nextButtonId: "nextButton",
+                    limit: 60,
+                });
+            </script>
         {% endif %}
 
         <div class="links">

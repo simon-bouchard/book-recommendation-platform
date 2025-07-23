@@ -31,7 +31,7 @@
 
         </div>
 
-        <h3>User-Based Recommendations</h3>
+        <h3>Personalised Recommendations</h3>
         <button id="recommendButton">Get Recommendations</button>
         <div id="recommendations" style="display: none"></div>
         <div style="text-align: center; margin-top: 10px;">
@@ -40,67 +40,27 @@
         </div>
     </div>
 
-    <script>
-        let allRecommendations = [];
-        let offset = 0;
-        const limit = 30;
-
-        function renderPage() {
-            const pageRecs = allRecommendations.slice(offset, offset + limit);
-
-            if (pageRecs.length === 0) return;
-
-            const html = pageRecs.map(book => `
-                <a href="/book/${book.item_idx}">
-                    <div class="book-card">
-                        <img src="${book.cover_id 
-                            ? `https://covers.openlibrary.org/b/id/${book.cover_id}-M.jpg`
-                            : 'https://via.placeholder.com/150x220?text=No+Cover'}"
-                            alt="Cover for ${book.title}">
-                        <h3>${book.title}</h3>
-                        ${book.author ? `<p><strong>Author:</strong> ${book.author}</p>` : ''}
-                        ${book.year ? `<p><strong>Year:</strong> ${book.year}</p>` : ''}
-                        ${book.isbn ? `<p><strong>ISBN:</strong> ${book.isbn}</p>` : ''}
-                    </div>
-                </a>
-            `).join("");
-
-            const container = document.getElementById('recommendations');
-            container.innerHTML = `<div class="book-grid">${html}</div>`;
-            container.style.display = 'block';
-
-            // Button logic
-            document.getElementById('prevButton').style.display = offset > 0 ? 'inline-block' : 'none';
-            document.getElementById('nextButton').style.display = (offset + limit < allRecommendations.length) ? 'inline-block' : 'none';
-
-            // Scroll to top of recommendation section
-            container.scrollIntoView({ behavior: 'smooth' });
-        }
+    <script type="module">
+        import { setupPaginatedBookDisplay } from "/static/js/paginated_books.js";
 
         document.getElementById('recommendButton').onclick = async () => {
-            offset = 0;
-            let user_id = '{{ user.id }}'.trim();
-            const response = await fetch(`/profile/recommend?user=${encodeURIComponent(user_id)}&top_n=100`);
-            const data = await response.json();
+            const res = await fetch(`/profile/recommend?user={{ user.id }}&top_n=100`);
+            const data = await res.json();
 
-            if (response.ok) {
-                allRecommendations = data;
-                renderPage();
-                document.getElementById('recommendButton').style.display = 'none';
+            if (res.ok) {
+                setupPaginatedBookDisplay({
+                    books: data,
+                    containerId: "recommendations",
+                    prevButtonId: "prevButton",
+                    nextButtonId: "nextButton",
+                    scrollOnFirstRender: true,
+                    limit: 30,
+                });
+                document.getElementById("recommendButton").style.display = "none";
             } else {
-                document.getElementById('recommendations').innerHTML = `<p style='color: red;'>Error: ${data.detail}</p>`;
-                document.getElementById('recommendations').style.display = 'block';
+                document.getElementById("recommendations").innerHTML = `<p style="color:red">Error: ${data.detail}</p>`;
+                document.getElementById("recommendations").style.display = "block";
             }
-        };
-
-        document.getElementById('nextButton').onclick = () => {
-            offset += limit;
-            renderPage();
-        };
-
-        document.getElementById('prevButton').onclick = () => {
-            offset = Math.max(0, offset - limit);
-            renderPage();
         };
     </script>
 

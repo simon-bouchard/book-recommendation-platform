@@ -99,9 +99,14 @@
         <button id="commentsButton">View Comments</button>
         <div id="comments" style="display:none"></div>
 
-        <h3>Recommended Books</h3>
+        <h3>See Similar Books</h3>
         <button id="recommendButton">Get Recommendations</button>
         <div id="recommendations" style="display: none"></div>
+        <div style="text-align: center; margin-top: 10px;">
+            <button id="prevButton" style="display: none;">Previous</button>
+            <button id="nextButton" style="display: none;">Next</button>
+        </div>
+
 
         <div class="links">
             <a href="/">Go Back</a>
@@ -146,39 +151,38 @@
         }
     </script>
 
-    <script>
-    document.getElementById('recommendButton').onclick = async function () {
-        let item_idx = '{{ book.item_idx }}';
-        let response = await fetch(`/book/${item_idx}/similar`);
-        let data = await response.json();
+    <script type="module">
+        import { setupPaginatedBookDisplay } from "/static/js/paginated_books.js";
 
-        if (response.ok) {
-            if (!Array.isArray(data) || data.length === 0) {
-                document.getElementById('recommendations').innerHTML = `<p>No similar books found.</p>`;
+        document.getElementById('recommendButton').onclick = async function () {
+            let item_idx = '{{ book.item_idx }}';
+            let response = await fetch(`/book/${item_idx}/similar`);
+            let data = await response.json();
+
+            const container = document.getElementById("recommendations");
+
+            if (response.ok) {
+                if (!Array.isArray(data) || data.length === 0) {
+                    container.innerHTML = `<p>No similar books found.</p>`;
+                } else {
+                    setupPaginatedBookDisplay({
+                        books: data,
+                        containerId: "recommendations",
+                        prevButtonId: "prevButton",
+                        nextButtonId: "nextButton",
+                        limit: 30,
+                        showSimilarity: true,
+                        scrollOnFirstRender: true
+                    });
+                }
+
+                container.style.display = "block";
+                document.getElementById('recommendButton').style.display = 'none';
             } else {
-                let recommendations = data.map(book => `
-                    <a href="/book/${book.item_idx}">
-                        <div class="book-card">
-                            <img src="${book.cover_id ? `https://covers.openlibrary.org/b/id/${book.cover_id}-M.jpg` : 'https://via.placeholder.com/150x220?text=No+Cover'}" alt="Cover for ${book.title}">
-                            <h3>${book.title}</h3>
-                            ${book.author ? `<p><strong>Author:</strong> ${book.author}</p>` : ''}
-                            ${book.year ? `<p><strong>Year:</strong> ${book.year}</p>` : ''}
-                            ${book.isbn ? `<p><strong>ISBN:</strong> ${book.isbn}</p>` : ''}
-                            <p><strong>Similarity:</strong> ${book.score !== undefined ? book.score.toFixed(3) : 'N/A'}</p>
-                        </div>
-                    </a>
-                `).join("");
-
-                document.getElementById('recommendations').innerHTML = `<div class="book-grid">${recommendations}</div>`;
+                container.innerHTML = `<p style='color: red;'>Error: ${data.detail}</p>`;
+                container.style.display = 'block';
             }
-
-            document.getElementById('recommendations').style.display = 'block';
-            document.getElementById('recommendButton').style.display = 'none';
-        } else {
-            document.getElementById('recommendations').innerHTML = `<p style='color: red;'>Error: ${data.detail}</p>`;
-            document.getElementById('recommendations').style.display = 'block';
-        }
-    };
+        };
     </script>
 
     <script>
