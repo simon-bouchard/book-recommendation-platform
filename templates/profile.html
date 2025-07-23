@@ -11,14 +11,14 @@
         <h1>Book Recommendation API</h1>
         <h2 style='text-align:center'>Welcome, {{ user.username }}</h2>
 
-        <div class="profile-info">
+        <div id="profileDisplay">
             <h3>Profile Information</h3>
             <p><strong>Username:</strong> {{ user.username }}</p>
             <p><strong>User ID:</strong> {{ user.id }}</p>
             <p><strong>Email:</strong> {{ user.email }}</p>
             <p><strong>Age:</strong> {{ user.age }}</p>
             <p><strong>Country:</strong> {{ user.country }}</p>
-            <h4>Your Favorite Subjects</h3>
+            <h4>Your Favorite Subjects</h4>
             {% if user.favorite_subjects %}
                 <div class="subject-list">
                     {% for subj in user.favorite_subjects %}
@@ -28,7 +28,37 @@
             {% else %}
                 <p style="color: #555; font-style: italic;">You haven't selected any favorite subjects yet.</p>
             {% endif %}
+            <button id="editProfileBtn">Edit Profile</button>
+        </div>
 
+        <div id="profileEditForm" style="display: none;">
+            <h3>Edit Profile</h3>
+            <form id="profileForm">
+                <label>Username:
+                    <input type="text" name="username" value="{{ user.username }}">
+                </label>
+                <label>Email:
+                    <input type="email" name="email" value="{{ user.email }}">
+                </label>
+                <label>Age:
+                    <input type="number" name="age" value="{{ user.age }}">
+                </label>
+                <label>Country:
+                    <input type="text" name="country" value="{{ user.country }}">
+                </label>
+
+                <label>Favorite Subjects (up to 3):</label>
+                <div id="subject-input-container">
+                    <input type="text" id="subject-input" placeholder="Start typing a subject..." autocomplete="off">
+                    <div id="subject-suggestions" class="suggestions-box"></div>
+                </div>
+                <div id="subject-pills" class="pill-container"></div>
+                <input type="hidden" name="favorite_subjects" id="fav_subjects-hidden">
+
+                <button type="submit">Save</button>
+                <button type="button" id="cancelEditBtn">Cancel</button>
+            </form>
+            <p id="profileMessage" style="color: green; display: none;"></p>
         </div>
 
         <h3>Personalised Recommendations</h3>
@@ -62,6 +92,66 @@
                 document.getElementById("recommendations").style.display = "block";
             }
         };
+    </script>
+
+    <script type="module">
+        import { initSubjectPicker } from "/static/js/subject_picker.js";
+
+        // Toggle edit mode
+        document.getElementById("editProfileBtn").onclick = () => {
+            document.getElementById("profileDisplay").style.display = "none";
+            document.getElementById("profileEditForm").style.display = "block";
+        };
+
+        // Subject picker setup
+        initSubjectPicker({
+            inputId: "subject-input",
+            suggestionsBoxId: "subject-suggestions",
+            pillsContainerId: "subject-pills",
+            hiddenInputId: "fav_subjects-hidden",
+            maxSubjects: 3,
+            prefill: {{ user.favorite_subjects | tojson }}
+        });
+
+        // Form submit
+        document.getElementById("profileForm").onsubmit = async function (e) {
+            e.preventDefault();
+
+            const form = e.target;
+            const data = {
+                username: form.username.value.trim(),
+                email: form.email.value.trim(),
+                age: parseInt(form.age.value),
+                country: form.country.value.trim(),
+                favorite_subjects: form["favorite_subjects"].value.split(",").map(s => s.trim()).filter(Boolean)
+            };
+
+            const res = await fetch("/profile/update", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify(data)
+            });
+
+            const msg = document.getElementById("profileMessage");
+
+            if (res.ok) {
+                msg.textContent = "Profile updated successfully!";
+                msg.style.display = "block";
+                setTimeout(() => location.reload(), 1000);
+            } else {
+                const err = await res.json();
+                msg.textContent = "Error: " + err.detail;
+                msg.style.color = "red";
+                msg.style.display = "block";
+            }
+        };
+
+        document.getElementById("cancelEditBtn").onclick = () => {
+            document.getElementById("profileForm").reset();
+            document.getElementById("profileEditForm").style.display = "none";
+            document.getElementById("profileDisplay").style.display = "block";
+        };
+
     </script>
 
 </body>

@@ -58,6 +58,36 @@ def profile_page(request: Request, current_user: dict = Depends(get_current_user
 
     return templates.TemplateResponse('profile.html', {'request': request, 'user': user_data})
 
+@router.post("/profile/update")
+async def update_profile(
+    current_user: User = Depends(get_current_user),
+    data: dict = Body(...),
+    db: Session = Depends(get_db)
+):
+    if not current_user:
+        raise HTTPException(status_code=401, detail="Not authenticated")
+
+    user = db.query(User).filter(User.user_id == current_user.user_id).first()
+    if not user:
+        raise HTTPException(status_code=404, detail="User not found")
+
+    user.username = data.get("username", user.username)
+    user.email = data.get("email", user.email)
+    user.age = data.get("age", user.age)
+    user.country = data.get("country", user.country)
+
+    # Update favorite subjects
+    new_subjects = data.get("favorite_subjects", [])
+    if isinstance(new_subjects, list):
+        db.query(UserFavSubject).filter(UserFavSubject.user_id == user.user_id).delete()
+        for subject in new_subjects:
+            subj_obj = db.query(Subject).filter(Subject.subject == subject).first()
+            if subj_obj:
+                db.add(UserFavSubject(user_id=user.user_id, subject_idx=subj_obj.subject_idx))
+
+    db.commit()
+    return {"message": "Profile updated"}
+
 @router.post('/rating')
 async def new_rating(current_user = Depends(get_current_user), data: dict = Body(...), db: Session = Depends(get_db)):
 
