@@ -18,13 +18,15 @@
             <p><strong>Email:</strong> {{ user.email }}</p>
             <p><strong>Age:</strong> {{ user.age }}</p>
             <p><strong>Country:</strong> {{ user.country }}</p>
+            <h4>Your Favorite Subjects</h3>
             {% if user.favorite_subjects %}
-            <h4>Your Favorite Subjects</h4>
-            <div class="subject-list">
-                {% for subj in user.favorite_subjects %}
-                    <div class="subject-pill">{{ subj }}</div>
-                {% endfor %}
-            </div>
+                <div class="subject-list">
+                    {% for subj in user.favorite_subjects %}
+                        <div class="subject-pill">{{ subj }}</div>
+                    {% endfor %}
+                </div>
+            {% else %}
+                <p style="color: #555; font-style: italic;">You haven't selected any favorite subjects yet.</p>
             {% endif %}
 
         </div>
