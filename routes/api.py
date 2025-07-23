@@ -2,13 +2,11 @@ import pandas as pd
 from fastapi import APIRouter, HTTPException, Form, Request, FastAPI, Depends, status, Body, Query, BackgroundTasks
 from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
 from fastapi.templating import Jinja2Templates
-from motor.motor_asyncio import AsyncIOMotorClient
 import os
 from dotenv import load_dotenv
-import jwt
 from datetime import datetime, timedelta
 from bson import ObjectId
-import pickle
+import torch
 
 from datetime import datetime
 from sqlalchemy import func, select
@@ -20,6 +18,7 @@ from app.table_models import Book, User, Interaction, BookSubject, Subject, User
 from app.models import get_all_subject_counts
 from models.knn_utils import get_similar_books
 #from models.cold_user_recs import recommend_books_for_cold_user
+from models.shared_utils import BOOK_META, bayesian_tensor, book_ids
 
 import logging
 import pycountry
@@ -242,18 +241,54 @@ def search_books(request: Request, query: str = "", subjects: Optional[str] = Qu
         subject_rows = db.query(Subject).filter(Subject.subject.in_(subject_list)).all()
         subject_idxs = [s.subject_idx for s in subject_rows]
 
-    q = db.query(Book).join(BookSubject, Book.item_idx == BookSubject.item_idx).filter(Book.title.ilike(f"%{query}%"))
+    results = []
 
-    if subject_idxs:
-        q = (
-            q.filter(BookSubject.subject_idx.in_(subject_idxs))
-            .group_by(Book.item_idx)
-            .having(func.count(func.distinct(BookSubject.subject_idx)) == len(subject_idxs))
-        )
+    if query.strip() == "":
+        # No title query → Use bayesian top books
+        topk_idx = torch.topk(torch.tensor(bayesian_tensor), 100).indices.tolist()
+        topk_item_idxs = [book_ids[i] for i in topk_idx]
+
+        filtered_meta = BOOK_META
+
+        # Optional: filter by subjects
+        if subject_idxs:
+            valid_books = db.query(BookSubject.item_idx).filter(
+                BookSubject.subject_idx.in_(subject_idxs)
+            ).group_by(BookSubject.item_idx).having(
+                func.count(func.distinct(BookSubject.subject_idx)) == len(subject_idxs)
+            ).all()
+            valid_ids = set(b.item_idx for b in valid_books)
+            filtered_meta = BOOK_META.loc[BOOK_META.index.intersection(valid_ids)]
+
+        # Keep only topk bayes-ranked books
+        filtered_meta = filtered_meta.loc[filtered_meta.index.intersection(topk_item_idxs)]
+        results = filtered_meta.reset_index().to_dict(orient="records")
     else:
-        q = q.group_by(Book.item_idx)
+        # Title-based query
+        q = db.query(Book).join(BookSubject, Book.item_idx == BookSubject.item_idx).filter(Book.title.ilike(f"%{query}%"))
+        if subject_idxs:
+            q = (
+                q.filter(BookSubject.subject_idx.in_(subject_idxs))
+                .group_by(Book.item_idx)
+                .having(func.count(func.distinct(BookSubject.subject_idx)) == len(subject_idxs))
+            )
+        else:
+            q = q.group_by(Book.item_idx)
 
-    results = q.limit(100).all()
+        books = q.limit(100).all()
+
+        for book in books:
+            meta = BOOK_META.loc[book.item_idx] if book.item_idx in BOOK_META.index else {}
+            meta_dict = meta.to_dict() if hasattr(meta, "to_dict") else {}
+            results.append({
+                "item_idx": book.item_idx,
+                "title": book.title,
+                "author": book.author.name if book.author else "Unknown",
+                "year": book.year,
+                "cover_id": book.cover_id,
+                "bayes_score": float(bayesian_tensor[book.item_idx]) if book.item_idx < len(bayesian_tensor) else None,
+                **meta_dict,
+            })
 
     subject_suggestions = get_all_subject_counts(db)
 
