@@ -99,12 +99,12 @@ def get_read_books(user_id: int, db: Session):
 # -----------------------
 # Loaded Static Components
 # -----------------------
-subject_emb, attn_weight, attn_bias = load_attention_components("models/subject_attention_components.pth")
+subject_emb, attn_weight, attn_bias = load_attention_components("models/data/subject_attention_components.pth")
 subject_emb = subject_emb.to("cpu")
 attn_weight = attn_weight.to("cpu")
 attn_bias = attn_bias.to("cpu")
 
-book_embs, book_ids = load_book_embeddings("models/book_embs.npy", "models/book_ids.json")
+book_embs, book_ids = load_book_embeddings("models/data/book_embs.npy", "models/data/book_ids.json")
 item_idx_to_row = get_item_idx_to_row(book_ids)
 
 bayesian_tensor = np.load("models/bayesian_tensor.npy")
@@ -117,5 +117,5 @@ if os.path.exists(BOOK_SUBJ_PATH):
     for row in book_subj_df.itertuples(index=False):
         BOOK_TO_SUBJ[row.item_idx].append(row.subject_idx)
 
-with open("models/gbt_cold.pickle", "rb") as f:
+with open("models/data/gbt_cold.pickle", "rb") as f:
     gbt_model = pickle.load(f)
