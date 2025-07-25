@@ -4,18 +4,9 @@ from fastapi.staticfiles import StaticFiles
 from fastapi.responses import HTMLResponse
 from routes.api import router 
 from app.auth import router as auth_router
-#from models.book_model import reload_model
-#from models.user_model import reload_user_model
 from app.database import get_db
 
 app = FastAPI()
-
-"""
-@app.on_event('startup')
-async def startup_event():
-    reload_model()
-    reload_user_model()
-"""
 
 app.mount('/static', StaticFiles(directory='static'), name='static')
 

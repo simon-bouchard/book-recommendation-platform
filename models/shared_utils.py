@@ -107,7 +107,7 @@ attn_bias = attn_bias.to("cpu")
 book_embs, book_ids = load_book_embeddings("models/data/book_embs.npy", "models/data/book_ids.json")
 item_idx_to_row = get_item_idx_to_row(book_ids)
 
-bayesian_tensor = np.load("models/bayesian_tensor.npy")
+bayesian_tensor = np.load("models/data/bayesian_tensor.npy")
 BOOK_META = pd.read_pickle("models/training/data/books.pkl").set_index("item_idx")
 
 BOOK_SUBJ_PATH = "models/training/data/book_subjects.pkl"
