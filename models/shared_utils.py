@@ -2,8 +2,14 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 import numpy as np
-from app.table_models import Interaction
-from sqlalchemy.orm import Session
+
+try:
+    from app.table_models import Interaction
+    from sqlalchemy.orm import Session
+except Exception:
+    Interaction = None
+    SessionLocal = None
+    Session = None
 
 import pandas as pd
 import pickle
