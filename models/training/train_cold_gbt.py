@@ -15,6 +15,7 @@ sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "../..")
 from models.shared_utils import (
     load_attention_components,
     attention_pool,
+    batched_attention_pool,
     load_book_embeddings,
     get_item_idx_to_row,
     compute_subject_overlap,
@@ -51,42 +52,42 @@ def main():
 
     print("🧠 Loading subject attention components and book embeddings...")
     subject_emb, attn_weight, attn_bias = load_attention_components()
+    subject_emb, attn_weight, attn_bias = subject_emb.to(DEVICE), attn_weight.to(DEVICE), attn_bias.to(DEVICE)
+
     book_embs, book_ids = load_book_embeddings()
     item_idx_to_row = get_item_idx_to_row(book_ids)
-    book_emb_map = {item_idx: book_embs[item_idx_to_row[item_idx]] for item_idx in book_ids}
 
+    print("🧹 Filtering valid interactions...")
     interactions = interactions[interactions["rating"].notnull()].copy()
     rating_counts = interactions["user_id"].value_counts()
     interactions["is_warm"] = interactions["user_id"].map(lambda uid: rating_counts.get(uid, 0) >= 10)
 
-    full_rows = []
-    for row in interactions.itertuples(index=False):
-        uid, iid, rating, is_warm = row
-        if uid not in user_fav or iid not in book_subj:
-            continue
-        if iid not in book_emb_map:
-            continue
+    valid_user_ids = set(user_fav)
+    valid_item_ids = set(book_subj) & set(item_idx_to_row)
 
-        fav_subjs = user_fav[uid]
-        book_subjs = book_subj[iid]
+    interactions = interactions[
+        interactions["user_id"].isin(valid_user_ids) &
+        interactions["item_idx"].isin(valid_item_ids)
+    ].copy()
 
-        user_emb = attention_pool([fav_subjs], subject_emb, attn_weight, attn_bias)[0]
-        book_emb = book_emb_map[iid]
-        subject_overlap = compute_subject_overlap(fav_subjs, book_subjs)
+    print("📚 Mapping book embeddings...")
+    interactions["book_emb_row"] = interactions["item_idx"].map(item_idx_to_row)
+    book_emb_matrix = book_embs[interactions["book_emb_row"].values]
+    book_emb_df = pd.DataFrame(book_emb_matrix, columns=[f"book_emb_{i}" for i in range(book_emb_matrix.shape[1])])
 
-        full_rows.append({
-            "user_id": uid,
-            "item_idx": iid,
-            "rating": rating,
-            "is_warm": is_warm,
-            "subject_overlap": subject_overlap,
-            **decompose_embeddings(user_emb.unsqueeze(0), "user_emb"),
-            **{f"book_emb_{i}": book_emb[i] for i in range(len(book_emb))}
-        })
+    print("🧠 Computing user embeddings...")
+    fav_subjects_list = [user_fav[uid] for uid in interactions["user_id"]]
+    user_emb_matrix = batched_attention_pool(fav_subjects_list, subject_emb, attn_weight, attn_bias, batch_size=2048)
+    user_emb_df = pd.DataFrame(user_emb_matrix, columns=[f"user_emb_{i}" for i in range(user_emb_matrix.shape[1])])
 
-    df = pd.DataFrame(full_rows)
-    emb_cols = [c for c in df.columns if c.startswith("user_emb_") or c.startswith("book_emb_")]
-    df[emb_cols] = df[emb_cols].astype(np.float32)
+    print("🔗 Computing subject overlap...")
+    interactions["subject_overlap"] = [
+        compute_subject_overlap(user_fav[uid], book_subj[iid])
+        for uid, iid in zip(interactions["user_id"], interactions["item_idx"])
+    ]
+
+    print("🧱 Merging everything into final dataset...")
+    df = pd.concat([interactions.reset_index(drop=True), user_emb_df, book_emb_df], axis=1)
 
     df = df.merge(users, on="user_id", how="left")
     df = df.merge(
@@ -105,15 +106,12 @@ def main():
     train = df[df["is_warm"] == True]
     val = df[df["is_warm"] == False]
 
-    X_train = train[features].copy()
-    X_val = val[features].copy()
+    X_train, X_val = train[features].copy(), val[features].copy()
+    y_train, y_val = train["rating"], val["rating"]
 
-    y_train = train["rating"]
-    y_val = val["rating"]
-    
     X_train[cont_cols] = X_train[cont_cols].astype(np.float32)
     X_val[cont_cols] = X_val[cont_cols].astype(np.float32)
-   
+
     print("🚀 Training LightGBM model...")
     model = LGBMRegressor(
         objective="regression",
@@ -133,10 +131,10 @@ def main():
     )
 
     os.makedirs("models", exist_ok=True)
-    with open("models/gbt_cold.pickle", "wb") as f:
+    with open("models/data/gbt_cold.pickle", "wb") as f:
         pickle.dump(model, f)
 
-    print("✅ Saved: models/gbt_cold.pickle")
+    print("✅ Saved: models/data/gbt_cold.pickle")
 
 if __name__ == "__main__":
     main()
