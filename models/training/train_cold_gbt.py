@@ -111,18 +111,14 @@ def main():
     y_train = train["rating"]
     y_val = val["rating"]
     
-    scaler = StandardScaler()
-    X_train_scaled = scaler.fit_transform(X_train[cont_cols])
-    X_val_scaled = scaler.transform(X_val[cont_cols])
-
-    X_train[cont_cols] = X_train_scaled.astype(np.float32)
-    X_val[cont_cols] = X_val_scaled.astype(np.float32)
+    X_train[cont_cols] = X_train[cont_cols].astype(np.float32)
+    X_val[cont_cols] = X_val[cont_cols].astype(np.float32)
    
     print("🚀 Training LightGBM model...")
     model = LGBMRegressor(
         objective="regression",
         metric="rmse",
-        n_estimators=2000,
+        n_estimators=200,
         learning_rate=0.03,
         max_depth=6,
         subsample=0.9,
