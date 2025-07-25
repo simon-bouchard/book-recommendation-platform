@@ -20,7 +20,7 @@ sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "../../"
 
 PAD_IDX = 3520
 
-def load_attention_components(path="models/subject_attention_components.pth"):
+def load_attention_components(path="models/data/subject_attention_components.pth"):
     """Load subject embedding weights + attention weights"""
     state = torch.load(path, map_location="cpu")
 
@@ -70,7 +70,7 @@ def batched_attention_pool(indices_list, emb_layer, weight, bias, batch_size=102
         all_outputs.append(pooled.detach().cpu().numpy())
     return np.concatenate(all_outputs, axis=0)
 
-def load_book_embeddings(emb_path="models/book_embs.npy", id_path="models/book_ids.json"):
+def load_book_embeddings(emb_path="models/data/book_embs.npy", id_path="models/data/book_ids.json"):
     """Load precomputed book embeddings and item_idx list"""
     embs = np.load(emb_path)
     with open(id_path, "r") as f:
