@@ -18,7 +18,7 @@ DEVICE = 'cuda' if torch.cuda.is_available() else 'cpu'
 
 # Load trained embedding + attention weights
 print("📦 Loading subject embedding and attention components...")
-subject_emb, attn_weight, attn_bias = load_attention_components("models/subject_attention_components.pth")
+subject_emb, attn_weight, attn_bias = load_attention_components("models/data/subject_attention_components.pth")
 subject_emb = subject_emb.to(DEVICE)
 attn_weight = attn_weight.to(DEVICE)
 attn_bias = attn_bias.to(DEVICE)

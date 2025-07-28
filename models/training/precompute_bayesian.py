@@ -6,7 +6,7 @@ from pathlib import Path
 # Config
 INTERACTIONS_PATH = Path("models/training/data/interactions.pkl")
 BOOKS_PATH = Path("models/training/data/books.pkl")
-BOOK_IDS_PATH = Path("models/book_ids.json")
+BOOK_IDS_PATH = Path("models/data/book_ids.json")
 OUTPUT_PATH = Path("models/data/bayesian_tensor.npy")
 
 # Smoothing parameter
