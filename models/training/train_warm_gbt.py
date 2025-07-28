@@ -103,6 +103,13 @@ book_stats = train_inter.groupby("item_idx")["rating"].agg(
     book_rating_std="std"
 ).reset_index()
 
+global_avg = train_inter["rating"].mean()
+book_stats["book_avg_rating"] = np.where(
+    book_stats["book_num_ratings"] < 15,
+    global_avg,
+    book_stats["book_avg_rating"]
+)
+
 users = users.merge(user_stats, on="user_id", how="left")
 books = books.merge(book_stats, on="item_idx", how="left")
 
@@ -165,7 +172,7 @@ def build_rows(inter_df):
     return inter_df[[
         "user_id", "item_idx", "rating",
         "main_subject", "year", "filled_year", "language", "num_pages", "filled_num_pages",
-        "book_num_ratings", "book_avg_rating", "book_rating_std",
+        "book_num_ratings", "book_avg_rating", "book_rating_std", 
         "country", "age", "filled_age",
         "user_num_ratings", "user_avg_rating", "user_rating_std"
     ] + list(user_emb_df.columns) + list(book_emb_df.columns)]
@@ -183,8 +190,8 @@ for col in cat_cols:
     val_df[col] = val_df[col].astype("category")
 
 cont_cols = [
-    "age", 'year', 'num_pages',
-    "book_num_ratings", "book_rating_std",# "book_avg_rating", 
+    "age", 'year', 'num_pages', 
+    "book_num_ratings", "book_rating_std", #"book_avg_rating", 
     "user_num_ratings", "user_rating_std", "user_avg_rating" 
 ]
 emb_cols = [c for c in train_df.columns if c.startswith("user_emb_") or c.startswith("book_emb_")]
