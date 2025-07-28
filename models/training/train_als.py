@@ -7,7 +7,7 @@ from collections import Counter
 from implicit.als import AlternatingLeastSquares
 
 DATA_DIR = "models/training/data"
-MODEL_DIR = "models"
+MODEL_DIR = "models/data"
 os.makedirs(MODEL_DIR, exist_ok=True)
 
 ALPHA = 40

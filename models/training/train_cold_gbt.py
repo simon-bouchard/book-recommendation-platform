@@ -127,6 +127,7 @@ def main():
     model.fit(
         X_train, y_train,
         eval_set=[(X_val, y_val)],
+        eval_metric=['rmse', 'mae'],
         callbacks=[early_stopping(50), log_evaluation(50)]
     )
 
