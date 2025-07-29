@@ -115,6 +115,7 @@ item_idx_to_row = get_item_idx_to_row(book_ids)
 
 bayesian_tensor = np.load("models/data/bayesian_tensor.npy")
 BOOK_META = pd.read_pickle("models/training/data/books.pkl").set_index("item_idx")
+USER_META = pd.read_pickle("models/training/data/users.pkl").set_index("user_id")
 
 BOOK_SUBJ_PATH = "models/training/data/book_subjects.pkl"
 BOOK_TO_SUBJ = defaultdict(list)
@@ -125,6 +126,8 @@ if os.path.exists(BOOK_SUBJ_PATH):
 
 with open("models/data/gbt_cold.pickle", "rb") as f:
     cold_gbt_model = pickle.load(f)
+with open("models/data/gbt_warm.pickle", "rb") as f:
+    warm_gbt_model = pickle.load(f)
 
 with open("models/data/user_als_ids.json") as f:
     als_user_ids = json.load(f)
