@@ -5,15 +5,19 @@ import pandas as pd
 from app.database import SessionLocal
 from app.table_models import User, UserFavSubject
 from models.shared_utils import (
-    BOOK_META, USER_META,
-    book_embs, item_idx_to_row,
-    subject_emb, attn_weight, attn_bias, PAD_IDX,
-    attention_pool, decompose_embeddings,
-    get_read_books,
-    warm_gbt_model,
-    user_als_embs, book_als_embs,
-    user_id_to_als_row, book_row_to_item_idx
+    PAD_IDX, attention_pool, decompose_embeddings,
+    get_read_books, ModelStore
 )
+
+store = ModelStore()
+
+BOOK_META = store.get_book_meta()
+USER_META = store.get_user_meta()
+book_embs, _ = store.get_book_embeddings()
+item_idx_to_row = store.get_item_idx_to_row()
+subject_emb, attn_weight, attn_bias = store.get_attention_components()
+warm_gbt_model = store.get_warm_gbt_model()
+user_als_embs, book_als_embs, user_id_to_als_row, book_row_to_item_idx = store.get_als_embeddings()
 
 def get_als_candidates(user_id, top_k=100):
     if user_id not in user_id_to_als_row:

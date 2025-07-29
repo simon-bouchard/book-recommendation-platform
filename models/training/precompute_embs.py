@@ -10,9 +10,7 @@ from collections import defaultdict
 import sys
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "../..")))
 
-from app.database import SessionLocal
-from app.table_models import Book, BookSubject
-from models.shared_utils import load_attention_components, attention_pool, batched_attention_pool, PAD_IDX
+from models.shared_utils import load_attention_components, batched_attention_pool, PAD_IDX
 
 DEVICE = 'cuda' if torch.cuda.is_available() else 'cpu'
 

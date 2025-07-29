@@ -4,9 +4,7 @@ from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
 from fastapi.templating import Jinja2Templates
 import os
 from dotenv import load_dotenv
-from datetime import datetime, timedelta
-from bson import ObjectId
-import torch
+from datetime import datetime
 
 from datetime import datetime
 from sqlalchemy import func, select
@@ -16,10 +14,10 @@ from app.auth import get_current_user
 from app.database import SessionLocal, get_db
 from app.table_models import Book, User, Interaction, BookSubject, Subject, UserFavSubject
 from app.models import get_all_subject_counts
-from models.shared_utils import BOOK_META, bayesian_tensor, book_ids
-#from models.knn_utils import get_similar_books
-from models.cold_user_recs import recommend_books_for_cold_user
-from models.warm_user_recs import recommend_books_for_warm_user
+from app.search_engine import get_search_results
+from models.knn_utils import get_similar_books
+#from models.cold_user_recs import recommend_books_for_cold_user
+#from models.warm_user_recs import recommend_books_for_warm_user
 
 import logging
 import pycountry
@@ -264,67 +262,20 @@ async def recommend_for_user(
         raise HTTPException(status_code=500, detail="Internal server error")
 
 @router.get("/search")
-def search_books(request: Request, query: str = "", subjects: Optional[str] = Query(default=None), db: Session = Depends(get_db)):
+def search_books(
+    request: Request,
+    query: str = "",
+    subjects: Optional[str] = Query(default=None),
+    page: int = Query(default=0),
+    db: Session = Depends(get_db)
+):
     subject_idxs = []
     if subjects:
         subject_list = [s.strip() for s in subjects.split(",") if s.strip()]
         subject_rows = db.query(Subject).filter(Subject.subject.in_(subject_list)).all()
         subject_idxs = [s.subject_idx for s in subject_rows]
 
-    results = []
-
-    if query.strip() == "":
-        # Get top-k bayesian item_idxs
-        topk_idx = torch.topk(torch.tensor(bayesian_tensor), 200).indices.tolist()
-        topk_item_idxs = [book_ids[i] for i in topk_idx]
-
-        filtered_meta = BOOK_META
-
-        # Step 1: Filter by subjects (if any)
-        if subject_idxs:
-            valid_books = db.query(BookSubject.item_idx).filter(
-                BookSubject.subject_idx.in_(subject_idxs)
-            ).group_by(BookSubject.item_idx).having(
-                func.count(func.distinct(BookSubject.subject_idx)) == len(subject_idxs)
-            ).all()
-            valid_ids = set(b.item_idx for b in valid_books)
-            filtered_meta = filtered_meta.loc[filtered_meta.index.intersection(valid_ids)]
-
-        # Step 2: Filter to top-k bayes within the subject-filtered books
-        filtered_meta = filtered_meta.loc[filtered_meta.index.intersection(topk_item_idxs)]
-
-        # Step 3: Sort to preserve bayes order
-        filtered_meta["__sort_idx__"] = filtered_meta.index.map(lambda i: topk_item_idxs.index(i) if i in topk_item_idxs else 1e9)
-        filtered_meta = filtered_meta.sort_values("__sort_idx__").drop(columns="__sort_idx__")
-
-        results = filtered_meta.reset_index().to_dict(orient="records")
-    else:
-        # Title-based query
-        q = db.query(Book).join(BookSubject, Book.item_idx == BookSubject.item_idx).filter(Book.title.ilike(f"%{query}%"))
-        if subject_idxs:
-            q = (
-                q.filter(BookSubject.subject_idx.in_(subject_idxs))
-                .group_by(Book.item_idx)
-                .having(func.count(func.distinct(BookSubject.subject_idx)) == len(subject_idxs))
-            )
-        else:
-            q = q.group_by(Book.item_idx)
-
-        books = q.limit(100).all()
-
-        for book in books:
-            meta = BOOK_META.loc[book.item_idx] if book.item_idx in BOOK_META.index else {}
-            meta_dict = meta.to_dict() if hasattr(meta, "to_dict") else {}
-            results.append({
-                "item_idx": book.item_idx,
-                "title": book.title,
-                "author": book.author.name if book.author else "Unknown",
-                "year": book.year,
-                "cover_id": book.cover_id,
-                "bayes_score": float(bayesian_tensor[book.item_idx]) if book.item_idx < len(bayesian_tensor) else None,
-                **meta_dict,
-            })
-
+    results = get_search_results(query, subject_idxs, page, 60, db)
     subject_suggestions = get_all_subject_counts(db)
 
     return templates.TemplateResponse("search.html", {
@@ -334,6 +285,22 @@ def search_books(request: Request, query: str = "", subjects: Optional[str] = Qu
         "subjects": subjects or [],
         "subject_suggestions": subject_suggestions[:20],
     })
+
+@router.get("/search/json")
+def search_books_json(
+    query: str = "",
+    subjects: Optional[str] = Query(default=None),
+    page: int = Query(default=0),
+    db: Session = Depends(get_db)
+):
+    subject_idxs = []
+    if subjects:
+        subject_list = [s.strip() for s in subjects.split(",") if s.strip()]
+        subject_rows = db.query(Subject).filter(Subject.subject.in_(subject_list)).all()
+        subject_idxs = [s.subject_idx for s in subject_rows]
+
+    results = get_search_results(query, subject_idxs, page, 60, db)
+    return {"results": results}
 
 @router.get("/subjects/suggestions")
 def subject_suggestions(q: Optional[str] = Query(default=None), db: Session = Depends(get_db)):

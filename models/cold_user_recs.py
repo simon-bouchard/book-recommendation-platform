@@ -6,16 +6,22 @@ from collections import defaultdict
 import os
 import math
 
-from models.shared_utils import (
-    PAD_IDX, attention_pool, decompose_embeddings,
-    compute_subject_overlap, get_read_books,
-    subject_emb, attn_weight, attn_bias, cold_gbt_model,
-    book_embs, book_ids, item_idx_to_row,
-    bayesian_tensor, BOOK_META, BOOK_TO_SUBJ
-)
-
 from app.database import SessionLocal
 from app.table_models import User, UserFavSubject, BookSubject, Book
+from models.shared_utils import (
+    PAD_IDX, attention_pool, decompose_embeddings,
+    compute_subject_overlap, get_read_books, ModelStore
+)
+
+store = ModelStore()
+
+subject_emb, attn_weight, attn_bias = store.get_attention_components()
+cold_gbt_model = store.get_cold_gbt_model()
+book_embs, book_ids = store.get_book_embeddings()
+item_idx_to_row = store.get_item_idx_to_row()
+bayesian_tensor = store.get_bayesian_tensor()
+BOOK_META = store.get_book_meta()
+BOOK_TO_SUBJ = store.get_book_to_subj()
 
 # ----------------------------
 # Main functions

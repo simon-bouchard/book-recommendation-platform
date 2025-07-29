@@ -14,7 +14,6 @@ sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "../..")
 
 from models.shared_utils import (
     load_attention_components,
-    attention_pool,
     batched_attention_pool,
     load_book_embeddings,
     get_item_idx_to_row,

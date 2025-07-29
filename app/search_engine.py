@@ -1,7 +1,13 @@
 import torch
 from sqlalchemy import func
-from models.shared_utils import BOOK_META, bayesian_tensor, book_ids
 from app.table_models import Book, BookSubject, Subject
+from models.shared_utils import ModelStore
+
+store = ModelStore()
+
+BOOK_META = store.get_book_meta()
+bayesian_tensor = store.get_bayesian_tensor()
+_, book_ids = store.get_book_embeddings()
 
 def get_search_results(query, subject_idxs, page, per_page, db):
     offset = page * per_page

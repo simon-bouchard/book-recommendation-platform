@@ -35,14 +35,75 @@
             <script type="module">
                 import { setupPaginatedBookDisplay } from "/static/js/paginated_books.js";
 
-                const books = {{ results | tojson }};
-                setupPaginatedBookDisplay({
-                    books,
-                    containerId: "search-results",
-                    prevButtonId: "prevButton",
-                    nextButtonId: "nextButton",
-                    limit: 60,
-                });
+                const containerId = "search-results";
+                const prevButtonId = "prevButton";
+                const nextButtonId = "nextButton";
+
+                const booksContainer = document.getElementById(containerId);
+                const prevBtn = document.getElementById(prevButtonId);
+                const nextBtn = document.getElementById(nextButtonId);
+
+                const baseParams = new URLSearchParams(window.location.search);
+
+                let currentPage = 0;
+
+                function getCurrentPageFromURL() {
+                    const urlParams = new URLSearchParams(window.location.search);
+                    return parseInt(urlParams.get("page") || "0");
+                }
+                
+                function updateURLParam(key, value) {
+                    const params = new URLSearchParams(window.location.search);
+                    params.set(key, value);
+                    const newUrl = `${window.location.pathname}?${params.toString()}`;
+                    window.history.replaceState({}, "", newUrl);
+                }
+                
+                async function fetchPage(page = 0) {
+                    currentPage = page;
+                    const params = new URLSearchParams(baseParams);
+                    params.set("page", page);
+
+                    const response = await fetch(`/search/json?${params}`);
+                    const data = await response.json();
+                    const books = data.results;
+
+                    if (books.length === 0) {
+                        booksContainer.innerHTML = "<p>No results to display.</p>";
+                        booksContainer.style.display = "block";
+                        prevBtn.style.display = "none";
+                        nextBtn.style.display = "none";
+                        return;
+                    }
+
+                    setupPaginatedBookDisplay({
+                        books,
+                        containerId,
+                        prevButtonId,
+                        nextButtonId,
+                        limit: 60,
+                        scrollOnFirstRender: true,
+                        manualPagination: true
+                    });
+
+                    booksContainer.style.display = "block";
+                    prevBtn.style.display = page > 0 ? "inline-block" : "none";
+                    nextBtn.style.display = "inline-block";
+
+                }
+
+
+                prevBtn.onclick = () => {
+                    if (currentPage > 0) {
+                        fetchPage(currentPage - 1);
+                    }
+                };
+
+                nextBtn.onclick = () => {
+                    fetchPage(currentPage + 1);
+                };
+                // Always fetch on page load
+                fetchPage(0);
             </script>
         {% endif %}
 

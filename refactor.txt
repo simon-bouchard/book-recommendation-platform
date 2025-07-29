@@ -1,0 +1,7 @@
+| Area                        | Pattern to Add     | Benefit                                |
+| --------------------------- | ------------------ | -------------------------------------- |
+| Recommender dispatch        | Factory + Strategy | Cleaner switching logic (warm vs cold) |
+| Candidate generation tiers  | Strategy or Chain  | More modular fallback logic            |
+| Data/model loading          | Singleton + Facade | Lazy loading, shared access            |
+| Cold-user metadata creation | Builder            | Less duplication, easier to update     |
+| Model training / evaluation | Template / Command | Unify training code, reduce copy/paste |

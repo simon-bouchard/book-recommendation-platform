@@ -8,10 +8,12 @@ from sklearn.neighbors import NearestNeighbors
 import sys, os
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 
-from models.shared_utils import (
-    normalize_embeddings, book_embs,
-    book_ids, item_idx_to_row, BOOK_META
-)
+from models.shared_utils import normalize_embeddings, ModelStore
+
+store = ModelStore()
+book_embs, book_ids = store.get_book_embeddings()
+item_idx_to_row = store.get_item_idx_to_row()
+BOOK_META = store.get_book_meta()
 
 # Load precomputed embeddings
 print("📦 Using preloaded book embeddings from shared_utils...")

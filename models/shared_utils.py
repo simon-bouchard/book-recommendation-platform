@@ -102,40 +102,104 @@ def get_read_books(user_id: int, db: Session):
         ).all()
     }
 
-# -----------------------
-# Loaded Static Components
-# -----------------------
-subject_emb, attn_weight, attn_bias = load_attention_components("models/data/subject_attention_components.pth")
-subject_emb = subject_emb.to("cpu")
-attn_weight = attn_weight.to("cpu")
-attn_bias = attn_bias.to("cpu")
+# -------------------------------
+# Singleton Model Loader
+# -------------------------------
+class ModelStore:
+    _instance = None
 
-book_embs, book_ids = load_book_embeddings("models/data/book_embs.npy", "models/data/book_ids.json")
-item_idx_to_row = get_item_idx_to_row(book_ids)
+    def __new__(cls):
+        if cls._instance is None:
+            cls._instance = super(ModelStore, cls).__new__(cls)
+            cls._instance._init_once()
+        return cls._instance
 
-bayesian_tensor = np.load("models/data/bayesian_tensor.npy")
-BOOK_META = pd.read_pickle("models/training/data/books.pkl").set_index("item_idx")
-USER_META = pd.read_pickle("models/training/data/users.pkl").set_index("user_id")
+    def _init_once(self):
+        self._subject_emb = None
+        self._attn_weight = None
+        self._attn_bias = None
+        self._book_embs = None
+        self._book_ids = None
+        self._item_idx_to_row = None
+        self._bayesian_tensor = None
+        self._book_meta = None
+        self._user_meta = None
+        self._book_to_subj = None
+        self._cold_gbt = None
+        self._warm_gbt = None
+        self._user_als_embs = None
+        self._book_als_embs = None
+        self._user_id_to_als_row = None
+        self._book_row_to_item_idx = None
 
-BOOK_SUBJ_PATH = "models/training/data/book_subjects.pkl"
-BOOK_TO_SUBJ = defaultdict(list)
-if os.path.exists(BOOK_SUBJ_PATH):
-    book_subj_df = pd.read_pickle(BOOK_SUBJ_PATH)
-    for row in book_subj_df.itertuples(index=False):
-        BOOK_TO_SUBJ[row.item_idx].append(row.subject_idx)
+    def get_attention_components(self):
+        if self._subject_emb is None:
+            self._subject_emb, self._attn_weight, self._attn_bias = load_attention_components()
+            self._subject_emb = self._subject_emb.to("cpu")
+            self._attn_weight = self._attn_weight.to("cpu")
+            self._attn_bias = self._attn_bias.to("cpu")
+        return self._subject_emb, self._attn_weight, self._attn_bias
 
-with open("models/data/gbt_cold.pickle", "rb") as f:
-    cold_gbt_model = pickle.load(f)
-with open("models/data/gbt_warm.pickle", "rb") as f:
-    warm_gbt_model = pickle.load(f)
+    def get_book_embeddings(self):
+        if self._book_embs is None:
+            self._book_embs, self._book_ids = load_book_embeddings()
+            self._item_idx_to_row = get_item_idx_to_row(self._book_ids)
+        return self._book_embs, self._book_ids
 
-with open("models/data/user_als_ids.json") as f:
-    als_user_ids = json.load(f)
-with open("models/data/book_als_ids.json") as f:
-    als_book_ids = json.load(f)
+    def get_item_idx_to_row(self):
+        if self._item_idx_to_row is None:
+            self.get_book_embeddings()
+        return self._item_idx_to_row
 
-user_als_embs = np.load("models/data/user_als_emb.npy")
-book_als_embs = np.load("models/data/book_als_emb.npy")
+    def get_bayesian_tensor(self):
+        if self._bayesian_tensor is None:
+            self._bayesian_tensor = np.load("models/data/bayesian_tensor.npy")
+        return self._bayesian_tensor
 
-user_id_to_als_row = {uid: i for i, uid in enumerate(als_user_ids)}
-book_row_to_item_idx = {i: iid for i, iid in enumerate(als_book_ids)}
+    def get_book_meta(self):
+        if self._book_meta is None:
+            self._book_meta = pd.read_pickle("models/training/data/books.pkl").set_index("item_idx")
+        return self._book_meta
+
+    def get_user_meta(self):
+        if self._user_meta is None:
+            self._user_meta = pd.read_pickle("models/training/data/users.pkl").set_index("user_id")
+        return self._user_meta
+
+    def get_book_to_subj(self):
+        if self._book_to_subj is None:
+            self._book_to_subj = defaultdict(list)
+            path = "models/training/data/book_subjects.pkl"
+            if os.path.exists(path):
+                df = pd.read_pickle(path)
+                for row in df.itertuples(index=False):
+                    self._book_to_subj[row.item_idx].append(row.subject_idx)
+        return self._book_to_subj
+
+    def get_cold_gbt_model(self):
+        if self._cold_gbt is None:
+            with open("models/data/gbt_cold.pickle", "rb") as f:
+                self._cold_gbt = pickle.load(f)
+        return self._cold_gbt
+
+    def get_warm_gbt_model(self):
+        if self._warm_gbt is None:
+            with open("models/data/gbt_warm.pickle", "rb") as f:
+                self._warm_gbt = pickle.load(f)
+        return self._warm_gbt
+
+    def get_als_embeddings(self):
+        if self._user_als_embs is None:
+            with open("models/data/user_als_ids.json") as f:
+                als_user_ids = json.load(f)
+            with open("models/data/book_als_ids.json") as f:
+                als_book_ids = json.load(f)
+
+            self._user_als_embs = np.load("models/data/user_als_emb.npy")
+            self._book_als_embs = np.load("models/data/book_als_emb.npy")
+
+            self._user_id_to_als_row = {uid: i for i, uid in enumerate(als_user_ids)}
+            self._book_row_to_item_idx = {i: iid for i, iid in enumerate(als_book_ids)}
+
+        return (self._user_als_embs, self._book_als_embs,
+                self._user_id_to_als_row, self._book_row_to_item_idx)

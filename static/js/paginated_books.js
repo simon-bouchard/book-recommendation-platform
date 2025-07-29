@@ -16,7 +16,8 @@ export function setupPaginatedBookDisplay({
     nextButtonId,
     limit = 30,
     showSimilarity = false,
-    scrollOnFirstRender = false
+    scrollOnFirstRender = false,
+    manualPagination = false
 }) {
     let offset = 0;
     let isFirstRender = true;
@@ -26,7 +27,7 @@ export function setupPaginatedBookDisplay({
     const nextBtn = document.getElementById(nextButtonId);
 
     function renderPage() {
-        const page = books.slice(offset, offset + limit);
+        const page = manualPagination ? books : books.slice(offset, offset + limit);
         if (page.length === 0) {
             container.innerHTML = "<p>No results to display.</p>";
             return;
@@ -53,24 +54,28 @@ export function setupPaginatedBookDisplay({
         container.innerHTML = `<div class="book-grid">${html}</div>`;
         container.style.display = "block";
 
-        prevBtn.style.display = offset > 0 ? "inline-block" : "none";
-        nextBtn.style.display = offset + limit < books.length ? "inline-block" : "none";
-
+        if (!manualPagination) {
+            prevBtn.style.display = offset > 0 ? "inline-block" : "none";
+            nextBtn.style.display = offset + limit < books.length ? "inline-block" : "none";
+        }
+        
         if (!isFirstRender || scrollOnFirstRender) {
             container.scrollIntoView({ behavior: "smooth" });
         }
         isFirstRender = false;
     }
 
-    prevBtn.onclick = () => {
-        offset = Math.max(0, offset - limit);
-        renderPage();
-    };
+    if (!manualPagination) {
+        prevBtn.onclick = () => {
+            offset = Math.max(0, offset - limit);
+            renderPage();
+        };
 
-    nextBtn.onclick = () => {
-        offset += limit;
-        renderPage();
-    };
+        nextBtn.onclick = () => {
+            offset += limit;
+            renderPage();
+        };
+    }
 
     renderPage();
 }
