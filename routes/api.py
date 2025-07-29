@@ -16,9 +16,10 @@ from app.auth import get_current_user
 from app.database import SessionLocal, get_db
 from app.table_models import Book, User, Interaction, BookSubject, Subject, UserFavSubject
 from app.models import get_all_subject_counts
+from models.shared_utils import BOOK_META, bayesian_tensor, book_ids
 #from models.knn_utils import get_similar_books
 from models.cold_user_recs import recommend_books_for_cold_user
-from models.shared_utils import BOOK_META, bayesian_tensor, book_ids
+from models.warm_user_recs import recommend_books_for_warm_user
 
 import logging
 import pycountry
@@ -256,9 +257,8 @@ async def recommend_for_user(
         if num_ratings < 10:
             return recommend_books_for_cold_user(user_id=user_id, top_k=top_n)
 
-        # Warm-start fallback (not implemented here)
-        raise HTTPException(status_code=501, detail="Warm-start not implemented yet")
-
+        print(f"Recommending for warm user {user_id} with {num_ratings} ratings")
+        return recommend_books_for_warm_user(user_id=user_id, top_k=top_n)
     except Exception as e:
         logger.error(f"Error in /profile/recommend: {str(e)}")
         raise HTTPException(status_code=500, detail="Internal server error")
