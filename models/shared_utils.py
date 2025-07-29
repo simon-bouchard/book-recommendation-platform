@@ -124,4 +124,15 @@ if os.path.exists(BOOK_SUBJ_PATH):
         BOOK_TO_SUBJ[row.item_idx].append(row.subject_idx)
 
 with open("models/data/gbt_cold.pickle", "rb") as f:
-    gbt_model = pickle.load(f)
+    cold_gbt_model = pickle.load(f)
+
+with open("models/data/user_als_ids.json") as f:
+    als_user_ids = json.load(f)
+with open("models/data/book_als_ids.json") as f:
+    als_book_ids = json.load(f)
+
+user_als_embs = np.load("models/data/user_als_emb.npy")
+book_als_embs = np.load("models/data/book_als_emb.npy")
+
+user_id_to_als_row = {uid: i for i, uid in enumerate(als_user_ids)}
+book_row_to_item_idx = {i: iid for i, iid in enumerate(als_book_ids)}

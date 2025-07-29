@@ -9,7 +9,7 @@ import math
 from models.shared_utils import (
     PAD_IDX, attention_pool, decompose_embeddings,
     compute_subject_overlap, get_read_books,
-    subject_emb, attn_weight, attn_bias, gbt_model,
+    subject_emb, attn_weight, attn_bias, cold_gbt_model,
     book_embs, book_ids, item_idx_to_row,
     bayesian_tensor, BOOK_META, BOOK_TO_SUBJ
 )
@@ -32,7 +32,7 @@ def get_user_embedding(fav_subjects_idxs):
 
     return emb, is_fallback
 
-def get_tiered_candidates(user_emb, use_only_bayesian=False, top_k_bayes=200, top_k_sim=50, top_k_mixed=150, scale_sim=10.0, w=0.2):
+def get_tiered_candidates(user_emb, use_only_bayesian=False, top_k_bayes=0, top_k_sim=50, top_k_mixed=150, scale_sim=10.0, w=0.2):
     if use_only_bayesian:
         idx_bayes = torch.topk(torch.tensor(bayesian_tensor), top_k_bayes).indices
         print('bayesian fallback')
@@ -108,7 +108,7 @@ def recommend_books_for_cold_user(user_id: int, top_k: int = 10):
         emb_cols = [c for c in candidate_books.columns if c.startswith("user_emb_") or c.startswith("book_emb_")]
         features = emb_cols + cont_cols + cat_cols 
         
-        candidate_books["score"] = gbt_model.predict(candidate_books[features])
+        candidate_books["score"] = cold_gbt_model.predict(candidate_books[features])
 
         top_books = candidate_books.sort_values("score", ascending=False).head(top_k)
 
