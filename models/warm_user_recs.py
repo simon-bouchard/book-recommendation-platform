@@ -25,15 +25,18 @@ def recommend_books_for_warm_user(user_id: int, top_k: int = 10):
     try:
         user = db.query(User).filter(User.user_id == user_id).first()
         if not user:
+            print('no user')
             return []
 
         candidate_ids = get_als_candidates(user.user_id, top_k=200)
         if not candidate_ids:
+            print('no candidates from ALS')
             return []
 
         read_books = get_read_books(user.user_id, db)
         candidate_ids = [bid for bid in candidate_ids if bid not in read_books]
         if not candidate_ids:
+            print('no candidates after filtering read books')
             return []
 
         candidate_books = BOOK_META.loc[BOOK_META.index.intersection(candidate_ids)].copy()
