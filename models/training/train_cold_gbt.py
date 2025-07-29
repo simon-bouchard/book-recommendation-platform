@@ -100,7 +100,7 @@ def main():
         df[col] = df[col].astype("category")
 
     cont_cols = ["age", "year", "num_pages", "subject_overlap", "book_num_ratings"]
-    emb_cols = [c for c in df.columns if c.startswith("user_emb_") or c.startswith("book_emb_")]
+    emb_cols = [c for c in df.columns if (c.startswith("user_emb_") or c.startswith("book_emb_")) and c != 'book_emb_row']
     features = emb_cols + cont_cols + cat_cols
 
     train = df[df["is_warm"] == True]
@@ -111,6 +111,7 @@ def main():
 
     X_train[cont_cols] = X_train[cont_cols].astype(np.float32)
     X_val[cont_cols] = X_val[cont_cols].astype(np.float32)
+    print(X_train.columns)
 
     print("🚀 Training LightGBM model...")
     model = LGBMRegressor(
@@ -127,6 +128,7 @@ def main():
     model.fit(
         X_train, y_train,
         eval_set=[(X_val, y_val)],
+        eval_metric=['rmse', 'mae'],
         callbacks=[early_stopping(50), log_evaluation(50)]
     )
 

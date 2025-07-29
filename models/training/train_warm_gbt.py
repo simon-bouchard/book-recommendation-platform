@@ -45,8 +45,24 @@ attn_bias = attn_bias.to("cpu")
 # -------------------------------
 # Filter warm users and split
 # -------------------------------
-print("🧹 Filtering warm users...")
 interactions = interactions[interactions["rating"].notnull()].copy()
+
+valid_users = set(users["user_id"])
+valid_items = set(books["item_idx"]) & set(item_idx_to_row)
+
+interactions = interactions[
+    interactions["user_id"].isin(valid_users) &
+    interactions["item_idx"].isin(valid_items)
+]
+
+# Remove interactions with books that don't have pretrained embeddings
+valid_item_idx_set = set(item_idx_to_row)
+before = len(interactions)
+interactions = interactions[interactions["item_idx"].isin(valid_item_idx_set)]
+after = len(interactions)
+print(f"✅ Filtered invalid item_idx: {before - after} rows removed (now {after})")
+
+print("🧹 Filtering warm users...")
 rating_counts = interactions["user_id"].value_counts()
 warm_user_ids = rating_counts[rating_counts >= 10].index
 interactions = interactions[interactions["user_id"].isin(warm_user_ids)]
@@ -87,6 +103,13 @@ book_stats = train_inter.groupby("item_idx")["rating"].agg(
     book_rating_std="std"
 ).reset_index()
 
+global_avg = train_inter["rating"].mean()
+book_stats["book_avg_rating"] = np.where(
+    book_stats["book_num_ratings"] < 15,
+    global_avg,
+    book_stats["book_avg_rating"]
+)
+
 users = users.merge(user_stats, on="user_id", how="left")
 books = books.merge(book_stats, on="item_idx", how="left")
 
@@ -115,21 +138,10 @@ for row in user_fav_df.itertuples(index=False):
 from models.shared_utils import batched_attention_pool
 
 def build_rows(inter_df):
-    print("🔍 Merging metadata...")
-
-    # Only keep valid user_id and item_idx
-    valid_users = set(users.index)
-    valid_books = set(books.index).intersection(item_idx_to_row.keys())
-    inter_df = inter_df[
-        inter_df["user_id"].isin(valid_users) &
-        inter_df["item_idx"].isin(valid_books)
-    ].copy()
-
     # Merge metadata
     inter_df = inter_df.merge(users, on="user_id", how="left")
     inter_df = inter_df.merge(books, on="item_idx", how="left")
 
-    print("📚 Preparing book embeddings...")
     # Map item_idx → row in book_embs
     inter_df["book_emb_row"] = inter_df["item_idx"].map(item_idx_to_row)
     book_emb_matrix = book_embs[inter_df["book_emb_row"].values]
@@ -140,7 +152,6 @@ def build_rows(inter_df):
     )
     inter_df = pd.concat([inter_df.reset_index(drop=True), book_emb_df], axis=1)
 
-    print("🧠 Computing user embeddings with batching...")
     # Build list of favorite subject indices
     fav_subjects_list = [user_fav.get(uid, [PAD_IDX]) for uid in inter_df["user_id"]]
 
@@ -149,7 +160,7 @@ def build_rows(inter_df):
         subject_emb,
         attn_weight,
         attn_bias,
-        batch_size=2048  # adjustable based on RAM
+        batch_size=2048  
     )
 
     user_emb_df = pd.DataFrame(
@@ -157,12 +168,11 @@ def build_rows(inter_df):
         columns=[f"user_emb_{i}" for i in range(user_emb_matrix.shape[1])]
     )
     inter_df = pd.concat([inter_df.reset_index(drop=True), user_emb_df], axis=1)
-
-    print("✅ Feature matrix complete.")
+    
     return inter_df[[
         "user_id", "item_idx", "rating",
         "main_subject", "year", "filled_year", "language", "num_pages", "filled_num_pages",
-        "book_num_ratings", "book_avg_rating", "book_rating_std",
+        "book_num_ratings", "book_avg_rating", "book_rating_std", 
         "country", "age", "filled_age",
         "user_num_ratings", "user_avg_rating", "user_rating_std"
     ] + list(user_emb_df.columns) + list(book_emb_df.columns)]
@@ -174,21 +184,22 @@ val_df = build_rows(val_inter)
 # -------------------------------
 # Prepare Features and Train
 # -------------------------------
-cat_cols = ["country", 'language', 'main_subject', 'filled_year']
+cat_cols = ["country"]
 for col in cat_cols:
     train_df[col] = train_df[col].astype("category")
     val_df[col] = val_df[col].astype("category")
 
 cont_cols = [
-    "age", "year", "num_pages", 
-    #"book_num_ratings", "book_avg_rating", "book_rating_std",
-    #"user_num_ratings", "user_avg_rating", "user_rating_std"
+    "age", 'year', 'num_pages', 
+    "book_num_ratings", "book_rating_std", #"book_avg_rating", 
+    "user_num_ratings", "user_rating_std", "user_avg_rating" 
 ]
 emb_cols = [c for c in train_df.columns if c.startswith("user_emb_") or c.startswith("book_emb_")]
-features = cont_cols + cat_cols + emb_cols
+features = cont_cols + cat_cols + emb_cols 
 
-X_train, y_train = train_df[features], train_df["rating"]
+X_train, y_train = train_df[features], train_df['rating']
 X_val, y_val = val_df[features], val_df["rating"]
+print(X_train.columns)
 
 print("🚀 Training GBT model...")
 model = LGBMRegressor(
@@ -204,6 +215,7 @@ model = LGBMRegressor(
 model.fit(
     X_train, y_train,
     eval_set=[(X_val, y_val)],
+    eval_metric=['rmse', 'mae'],
     callbacks=[
         early_stopping(50),
         log_evaluation(50)

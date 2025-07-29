@@ -200,9 +200,9 @@ def main():
         'attn_bias': model.subject_attn.bias.detach().cpu(),
     }
 
-    os.makedirs("models", exist_ok=True)
-    torch.save(state, "models/subject_attention_components.pth")
-    print("✅ Saved to models/subject_attention_components.pth")
+    os.makedirs("models/data", exist_ok=True)
+    torch.save(state, "models/data/subject_attention_components.pth")
+    print("✅ Saved to models/data/subject_attention_components.pth")
 
 
 if __name__ == "__main__":
