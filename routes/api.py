@@ -274,13 +274,13 @@ def search_books(request: Request, query: str = "", subjects: Optional[str] = Qu
     results = []
 
     if query.strip() == "":
-        # No title query → Use bayesian top books
+        # Get top-k bayesian item_idxs
         topk_idx = torch.topk(torch.tensor(bayesian_tensor), 200).indices.tolist()
         topk_item_idxs = [book_ids[i] for i in topk_idx]
 
         filtered_meta = BOOK_META
 
-        # Optional: filter by subjects
+        # Step 1: Filter by subjects (if any)
         if subject_idxs:
             valid_books = db.query(BookSubject.item_idx).filter(
                 BookSubject.subject_idx.in_(subject_idxs)
@@ -288,10 +288,15 @@ def search_books(request: Request, query: str = "", subjects: Optional[str] = Qu
                 func.count(func.distinct(BookSubject.subject_idx)) == len(subject_idxs)
             ).all()
             valid_ids = set(b.item_idx for b in valid_books)
-            filtered_meta = BOOK_META.loc[BOOK_META.index.intersection(valid_ids)]
+            filtered_meta = filtered_meta.loc[filtered_meta.index.intersection(valid_ids)]
 
-        # Keep only topk bayes-ranked books
+        # Step 2: Filter to top-k bayes within the subject-filtered books
         filtered_meta = filtered_meta.loc[filtered_meta.index.intersection(topk_item_idxs)]
+
+        # Step 3: Sort to preserve bayes order
+        filtered_meta["__sort_idx__"] = filtered_meta.index.map(lambda i: topk_item_idxs.index(i) if i in topk_item_idxs else 1e9)
+        filtered_meta = filtered_meta.sort_values("__sort_idx__").drop(columns="__sort_idx__")
+
         results = filtered_meta.reset_index().to_dict(orient="records")
     else:
         # Title-based query
