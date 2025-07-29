@@ -199,6 +199,7 @@ features = cont_cols + cat_cols + emb_cols
 
 X_train, y_train = train_df[features], train_df['rating']
 X_val, y_val = val_df[features], val_df["rating"]
+print(X_train.columns)
 
 print("🚀 Training GBT model...")
 model = LGBMRegressor(
