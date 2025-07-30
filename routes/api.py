@@ -17,7 +17,7 @@ from app.models import get_all_subject_counts
 from app.search_engine import get_search_results
 from models.book_similarity_engine import get_similarity_strategy
 from models.recommender_strategy import RecommenderStrategy
-from models.shared_utils import PAD_IDX
+from models.shared_utils import PAD_IDX, ModelStore
 
 import logging
 import pycountry
@@ -248,13 +248,12 @@ async def recommend_for_user(
 
         user_obj.fav_subjects_idxs = [s.subject_idx for s in user_obj.favorite_subjects] or [PAD_IDX]
 
-        # Count ratings
-        num_ratings = db.query(Interaction).filter(
-            Interaction.user_id == user_obj.user_id,
-            Interaction.rating.isnot(None)
-        ).count()
-
+        user_meta = ModelStore().get_user_meta()
+        row = user_meta.loc.get(user_obj.user_id)
+        num_ratings = int(row["user_num_ratings"]) if row is not None else 0
+       
         strategy = RecommenderStrategy.get_strategy(num_ratings)
+
         return strategy.recommend(user_obj, db=db)[:top_n]
 
     except Exception as e:
