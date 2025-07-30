@@ -249,7 +249,7 @@ async def recommend_for_user(
         user_obj.fav_subjects_idxs = [s.subject_idx for s in user_obj.favorite_subjects] or [PAD_IDX]
 
         user_meta = ModelStore().get_user_meta()
-        row = user_meta.loc.get(user_obj.user_id)
+        row = user_meta.loc[user_obj.user_id] if user_obj.user_id in user_meta.index else None
         num_ratings = int(row["user_num_ratings"]) if row is not None else 0
        
         strategy = RecommenderStrategy.get_strategy(num_ratings)
