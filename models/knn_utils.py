@@ -16,19 +16,15 @@ item_idx_to_row = store.get_item_idx_to_row()
 BOOK_META = store.get_book_meta()
 
 # Load precomputed embeddings
-print("📦 Using preloaded book embeddings from shared_utils...")
-
 norm_embs = normalize_embeddings(book_embs)
 book_ids_array = np.array(book_ids)
 
 # ------------------------------
 # Build Sklearn KNN index and FAISS
 # ------------------------------
-print("🔧 Building Sklearn KNN index...")
 knn_model = NearestNeighbors(n_neighbors=11, metric='cosine')
 knn_model.fit(norm_embs)
 
-print("🚀 Building FAISS index...")
 faiss_index = faiss.IndexFlatIP(norm_embs.shape[1])
 faiss_index.add(norm_embs.astype(np.float32))
 

@@ -28,7 +28,7 @@ class ColdHybridCandidateGenerator(CandidateGenerator):
         top_k_sim=50,
         top_k_mixed=150,
         scale_sim=10.0,
-        w=0.2,
+        w=0.5,
         db: Session = None
     ) -> list[int]:
         if use_only_bayesian:

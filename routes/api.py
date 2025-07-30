@@ -15,7 +15,7 @@ from app.database import SessionLocal, get_db
 from app.table_models import Book, User, Interaction, BookSubject, Subject, UserFavSubject
 from app.models import get_all_subject_counts
 from app.search_engine import get_search_results
-from models.knn_utils import get_similar_books
+from models.book_similarity_engine import get_similarity_strategy
 from models.recommender_strategy import RecommenderStrategy
 from models.shared_utils import PAD_IDX
 
@@ -224,8 +224,9 @@ async def get_comments(book: str = Query(...), isbn: bool = False, limit: int = 
 
 
 @router.get("/book/{item_idx}/similar")
-def get_similar(item_idx: int, db: Session = Depends(get_db)):
-    return  get_similar_books(item_idx, top_k=100, method="faiss")
+def get_similar(item_idx: int, mode: str = "subject", alpha: float = 0.6):
+    strategy = get_similarity_strategy(mode=mode, alpha=alpha)
+    return strategy.get_similar_books(item_idx, top_k=100)
 
 @router.get('/profile/recommend')
 async def recommend_for_user(

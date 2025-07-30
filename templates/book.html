@@ -100,6 +100,12 @@
         <div id="comments" style="display:none"></div>
 
         <h3>See Similar Books</h3>
+        <h3>Similarity Mode</h3>
+        <div class="toggle-group" id="simModeSelector">
+            <div class="toggle-option selected" data-mode="subject">Subject</div>
+            <div class="toggle-option" data-mode="als">Behavioral</div>
+            <div class="toggle-option" data-mode="hybrid">Hybrid</div>
+        </div>
         <button id="recommendButton">Get Recommendations</button>
         <div id="recommendations" style="display: none"></div>
         <div style="text-align: center; margin-top: 10px;">
@@ -155,34 +161,48 @@
         import { setupPaginatedBookDisplay } from "/static/js/paginated_books.js";
 
         document.getElementById('recommendButton').onclick = async function () {
-            let item_idx = '{{ book.item_idx }}';
-            let response = await fetch(`/book/${item_idx}/similar`);
-            let data = await response.json();
+        let item_idx = '{{ book.item_idx }}';
 
-            const container = document.getElementById("recommendations");
+        // Get selected similarity mode
+        let selectedMode = document.querySelector('.toggle-option.selected').getAttribute('data-mode');
 
-            if (response.ok) {
-                if (!Array.isArray(data) || data.length === 0) {
-                    container.innerHTML = `<p>No similar books found.</p>`;
-                } else {
-                    setupPaginatedBookDisplay({
-                        books: data,
-                        containerId: "recommendations",
-                        prevButtonId: "prevButton",
-                        nextButtonId: "nextButton",
-                        limit: 30,
-                        showSimilarity: true,
-                        scrollOnFirstRender: true
-                    });
-                }
+        let alpha = 0.6;  // default hybrid weight
+        let response = await fetch(`/book/${item_idx}/similar?mode=${selectedMode}&alpha=${alpha}`);
+        let data = await response.json();
 
-                container.style.display = "block";
-                document.getElementById('recommendButton').style.display = 'none';
+        const container = document.getElementById("recommendations");
+
+        if (response.ok) {
+            if (!Array.isArray(data) || data.length === 0) {
+                container.innerHTML = `<p>No similar books found.</p>`;
             } else {
-                container.innerHTML = `<p style='color: red;'>Error: ${data.detail}</p>`;
-                container.style.display = 'block';
+                setupPaginatedBookDisplay({
+                    books: data,
+                    containerId: "recommendations",
+                    prevButtonId: "prevButton",
+                    nextButtonId: "nextButton",
+                    limit: 30,
+                    showSimilarity: true,
+                    scrollOnFirstRender: true
+                });
             }
-        };
+
+            container.style.display = "block";
+            document.getElementById('recommendButton').style.display = 'none';
+        } else {
+            container.innerHTML = `<p style='color: red;'>Error: ${data.detail}</p>`;
+            container.style.display = 'block';
+        }
+    };
+
+    // Mode selector logic
+    document.querySelectorAll("#simModeSelector .toggle-option").forEach(opt => {
+        opt.addEventListener("click", () => {
+            document.querySelectorAll("#simModeSelector .toggle-option").forEach(o => o.classList.remove("selected"));
+            opt.classList.add("selected");
+        });
+    });
+
     </script>
 
     <script>
