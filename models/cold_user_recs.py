@@ -57,7 +57,7 @@ def get_tiered_candidates(user_emb, use_only_bayesian=False, top_k_bayes=0, top_
 
     return [book_ids[i] for i in unique_indices.tolist()]
 
-def recommend_books_for_cold_user(user_id: int, top_k: int = 10):
+def recommend_books_for_cold_user(user_id: int, top_k: int = 300):
     db = SessionLocal()
 
     try:

@@ -16,8 +16,7 @@ from app.table_models import Book, User, Interaction, BookSubject, Subject, User
 from app.models import get_all_subject_counts
 from app.search_engine import get_search_results
 from models.knn_utils import get_similar_books
-#from models.cold_user_recs import recommend_books_for_cold_user
-#from models.warm_user_recs import recommend_books_for_warm_user
+from models.recommender_strategy import RecommenderStrategy
 
 import logging
 import pycountry
@@ -251,12 +250,9 @@ async def recommend_for_user(
             Interaction.rating.isnot(None)
         ).count()
 
-        # Cold-start logic
-        if num_ratings < 10:
-            return recommend_books_for_cold_user(user_id=user_id, top_k=top_n)
-
-        print(f"Recommending for warm user {user_id} with {num_ratings} ratings")
-        return recommend_books_for_warm_user(user_id=user_id, top_k=top_n)
+        strategy = RecommenderStrategy.get_strategy(num_ratings)
+        
+        return strategy.recommend(user_id)
     except Exception as e:
         logger.error(f"Error in /profile/recommend: {str(e)}")
         raise HTTPException(status_code=500, detail="Internal server error")

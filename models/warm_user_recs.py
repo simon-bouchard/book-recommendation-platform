@@ -59,7 +59,7 @@ def score_candidates_with_warm_gbt(candidate_books: pd.DataFrame, user, user_emb
     candidate_books["score"] = warm_gbt_model.predict(candidate_books[features])
     return candidate_books
 
-def recommend_books_for_warm_user(user_id: int, top_k: int = 10):
+def recommend_books_for_warm_user(user_id: int, top_k: int = 300):
     db = SessionLocal()
     try:
         user = db.query(User).filter(User.user_id == user_id).first()
@@ -74,7 +74,6 @@ def recommend_books_for_warm_user(user_id: int, top_k: int = 10):
         user_emb = attention_pool([fav_subjects_idxs], subject_emb, attn_weight, attn_bias)[0].cpu()
 
         # Get candidate IDs from ALS
-        from models.shared_utils import user_id_to_als_row, book_als_embs, book_row_to_item_idx, user_als_embs
         user_vec = user_als_embs[user_id_to_als_row[user_id]]
         scores = book_als_embs @ user_vec
         top_indices = np.argsort(-scores)[:200]
