@@ -2,6 +2,7 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 import numpy as np
+from sqlalchemy.orm import Session
 
 try:
     from app.table_models import Interaction
@@ -38,6 +39,8 @@ def load_attention_components(path="models/data/subject_attention_components.pth
 
 def attention_pool(indices_list, emb_layer, weight, bias):
     """Pooled vector from a list of subject indices using attention"""
+    from models.shared_utils import PAD_IDX
+    
     device = emb_layer.weight.device
     batch_size = len(indices_list)
     max_len = max((len(lst) for lst in indices_list), default=1)
@@ -101,6 +104,57 @@ def get_read_books(user_id: int, db: Session):
             Interaction.user_id == user_id
         ).all()
     }
+
+def get_user_embedding(fav_subjects_idxs: list[int]) -> tuple[torch.Tensor, bool]:
+    """
+    Returns:
+    - pooled embedding (torch.Tensor)
+    - is_fallback: True if [PAD_IDX] was used
+    """
+    from models.shared_utils import PAD_IDX
+
+    store = ModelStore()
+    subject_emb, attn_weight, attn_bias = store.get_attention_components()
+
+    is_fallback = not fav_subjects_idxs or all(s == PAD_IDX for s in fav_subjects_idxs)
+
+    with torch.no_grad():
+        if is_fallback:
+            emb = attention_pool([[PAD_IDX]], subject_emb, attn_weight, attn_bias)[0].cpu()
+        else:
+            emb = attention_pool([fav_subjects_idxs], subject_emb, attn_weight, attn_bias)[0].cpu()
+
+    return emb, is_fallback
+
+def get_candidate_book_df(candidate_ids: list[int]) -> pd.DataFrame:
+    """Subset BOOK_META to candidate book rows"""
+    BOOK_META = ModelStore().get_book_meta()
+    return BOOK_META.loc[BOOK_META.index.intersection(candidate_ids)].copy().reset_index()
+
+
+def filter_read_books(df: pd.DataFrame, user_id: int, db: Session) -> pd.DataFrame:
+    """Remove books the user has already read"""
+    read = get_read_books(user_id, db)
+    return df[~df["item_idx"].isin(read)]
+
+
+def add_book_embeddings(df: pd.DataFrame) -> pd.DataFrame:
+    """Attach book embeddings to a candidate DataFrame"""
+    store = ModelStore()
+    book_embs, _ = store.get_book_embeddings()
+    item_idx_to_row = store.get_item_idx_to_row()
+    dim = book_embs.shape[1]
+
+    book_emb_data = []
+    for idx in df["item_idx"]:
+        row_idx = item_idx_to_row.get(idx)
+        if row_idx is not None:
+            book_emb_data.append(book_embs[row_idx])
+        else:
+            book_emb_data.append(np.zeros(dim))
+
+    book_emb_df = pd.DataFrame(book_emb_data, columns=[f"book_emb_{i}" for i in range(dim)])
+    return pd.concat([df.reset_index(drop=True), book_emb_df], axis=1)
 
 # -------------------------------
 # Singleton Model Loader

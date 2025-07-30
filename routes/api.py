@@ -17,6 +17,7 @@ from app.models import get_all_subject_counts
 from app.search_engine import get_search_results
 from models.knn_utils import get_similar_books
 from models.recommender_strategy import RecommenderStrategy
+from models.shared_utils import PAD_IDX
 
 import logging
 import pycountry
@@ -224,7 +225,6 @@ async def get_comments(book: str = Query(...), isbn: bool = False, limit: int = 
 
 @router.get("/book/{item_idx}/similar")
 def get_similar(item_idx: int, db: Session = Depends(get_db)):
-    # Get top-k similar item_idxs
     return  get_similar_books(item_idx, top_k=100, method="faiss")
 
 @router.get('/profile/recommend')
@@ -235,24 +235,27 @@ async def recommend_for_user(
     db: Session = Depends(get_db)
 ):
     try:
-        # Resolve user_id
+        # Find user by ID or username, and preload favorite subjects
+        user_query = db.query(User).options(joinedload(User.favorite_subjects))
         if _id:
-            user_id = int(user)
+            user_obj = user_query.filter(User.user_id == int(user)).first()
         else:
-            user_obj = db.query(User).filter(User.username == user).first()
-            if not user_obj:
-                raise HTTPException(status_code=404, detail="User not found")
-            user_id = user_obj.user_id
+            user_obj = user_query.filter(User.username == user).first()
 
-        # Count valid ratings
+        if not user_obj:
+            raise HTTPException(status_code=404, detail="User not found")
+
+        user_obj.fav_subjects_idxs = [s.subject_idx for s in user_obj.favorite_subjects] or [PAD_IDX]
+
+        # Count ratings
         num_ratings = db.query(Interaction).filter(
-            Interaction.user_id == user_id,
+            Interaction.user_id == user_obj.user_id,
             Interaction.rating.isnot(None)
         ).count()
 
         strategy = RecommenderStrategy.get_strategy(num_ratings)
-        
-        return strategy.recommend(user_id)
+        return strategy.recommend(user_obj, db=db)[:top_n]
+
     except Exception as e:
         logger.error(f"Error in /profile/recommend: {str(e)}")
         raise HTTPException(status_code=500, detail="Internal server error")

@@ -1,4 +1,8 @@
 from abc import ABC, abstractmethod
+from sqlalchemy.orm import Session
+from models.recommendation_engine import RecommendationEngine
+from models.rerankers import GBTWarmReranker, GBTColdReranker
+from models.candidate_generators import ALSCandidateGenerator, ColdHybridCandidateGenerator
 
 # --------------------------------
 # Base Strategy Interface + Factory
@@ -19,12 +23,15 @@ class RecommenderStrategy(ABC):
 # Concrete Strategies
 # --------------------------------
 class WarmRecommender(RecommenderStrategy):
-    def recommend(self, user_id: int) -> list[int]:
-        from .warm_user_recs import recommend_books_for_warm_user
-        return recommend_books_for_warm_user(user_id)
+    def __init__(self):
+        self.engine = RecommendationEngine(ALSCandidateGenerator(), GBTWarmReranker())
 
+    def recommend(self, user, db: Session) -> list[dict]:
+        return self.engine.recommend(user, db=db)
 
 class ColdRecommender(RecommenderStrategy):
-    def recommend(self, user_id: int) -> list[int]:
-        from .cold_user_recs import recommend_books_for_cold_user
-        return recommend_books_for_cold_user(user_id)
+    def __init__(self):
+        self.engine = RecommendationEngine(ColdHybridCandidateGenerator(), GBTColdReranker())
+
+    def recommend(self, user: int, db: Session) -> list[int]:
+        return self.engine.recommend(user, db=db)
