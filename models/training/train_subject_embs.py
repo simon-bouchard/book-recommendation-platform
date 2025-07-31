@@ -14,6 +14,8 @@ from fastai.data.core import DataLoaders
 from fastai.losses import MSELossFlat
 from fastai.optimizer import Adam
 from fastai.callback.core import Callback, CancelBatchException
+from fastprogress.fastprogress import progress_bar
+progress_bar.NO_BAR = True
 
 from collections import defaultdict
 from models.shared_utils import PAD_IDX
@@ -180,7 +182,6 @@ def main():
         wd=0.05,
         opt_func=Adam,
         #cbs=[GradientAccumulation(n_acc=4)],
-        progress_bar=False
     )
 
     print("🚀 Starting training...")
