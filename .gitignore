@@ -1,0 +1,10 @@
+# Data paths
+/models/data/
+/models/training/data/
+
+# Model artifacts
+*.pickle
+*.joblib
+*.pt
+*.pth
+
