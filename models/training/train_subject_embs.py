@@ -184,6 +184,9 @@ def main():
         #cbs=[GradientAccumulation(n_acc=4)],
     )
 
+    from fastai.callback.progress import ProgressCallback
+    learn.remove_cbs(ProgressCallback)
+
     print("🚀 Starting training...")
     learn.fit_one_cycle(5, lr_max=3e-2)
 
