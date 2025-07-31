@@ -325,3 +325,11 @@ async def logout():
 
     return response
 
+@router.post("/admin/reload_models")
+def reload_models_endpoint(secret: str = Query(...)):
+    if secret != os.getenv("ADMIN_SECRET"):
+        raise HTTPException(status_code=403)
+
+    from models.engines_reload import reload_all_models
+    reload_all_models()
+    return {"status": "reloaded"}

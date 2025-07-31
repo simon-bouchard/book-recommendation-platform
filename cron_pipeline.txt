@@ -1,0 +1,57 @@
+✅ FINALIZED PIPELINE (V3)
+Runs from hosting/inference server (via cron)
+
+🔁 Step-by-Step
+Start training VM
+
+Use cloud CLI (az vm start ... or similar)
+
+Prepare training data (locally)
+
+Run export_training_data.py
+
+Export to: models/training/data/new_data/
+(leaves existing data untouched)
+
+Transfer new training data → training server
+
+Push: models/training/data/new_data/ → training_server:~/bookrec/models/training/data/
+
+Train models on training server (remote execution):
+
+train_subject_embs.py
+
+train_als.py
+
+precompute_bayesian.py
+
+precompute_embs.py ✅ ← NEW STEP
+
+train_warm_gbt.py
+
+train_cold_gbt.py
+
+Log all stdout and stderr
+
+Transfer trained models back
+
+Pull: training_server:~/bookrec/models/data/ → models/data/
+
+Move new_data/ to main data path
+
+Overwrite: models/training/data/ with new_data/
+
+Optionally delete new_data/
+
+Reload singleton
+
+FastAPI call or local Python call
+
+✅ Design Clarifications Implemented
+✅ new_data/ ensures no conflict with running inference.
+
+✅ precompute_embs.py now runs before GBT training.
+
+✅ All training occurs remotely.
+
+✅ All movement and updates are atomic from inference side.

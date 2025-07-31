@@ -18,7 +18,19 @@ class SimilarityStrategy(ABC):
 # Subject-based similarity (attention pooled)
 # ------------------------------
 class SubjectSimilarityStrategy(SimilarityStrategy):
+    _instance = None
+
+    def __new__(cls):
+        if cls._instance is None:
+            cls._instance = super().__new__(cls)
+        return cls._instance
+
     def __init__(self):
+        # This will still be called on every construction attempt, so guard it
+        if hasattr(self, "_initialized"):
+            return
+        self._initialized = True
+
         self.store = ModelStore()
         self.embs, self.book_ids = self.store.get_book_embeddings()
         self.item_idx_to_row = self.store.get_item_idx_to_row()
@@ -27,6 +39,10 @@ class SubjectSimilarityStrategy(SimilarityStrategy):
         self.norm_embs = normalize_embeddings(self.embs)
         self.index = faiss.IndexFlatIP(self.norm_embs.shape[1])
         self.index.add(self.norm_embs.astype(np.float32))
+
+    @classmethod
+    def reset(cls):
+        cls._instance = None
 
     def get_similar_books(self, item_idx, top_k=10):
         if item_idx not in self.item_idx_to_row:
@@ -63,7 +79,18 @@ class SubjectSimilarityStrategy(SimilarityStrategy):
 # ALS-based similarity
 # ------------------------------
 class ALSSimilarityStrategy(SimilarityStrategy):
+    _instance = None
+
+    def __new__(cls):
+        if cls._instance is None:
+            cls._instance = super().__new__(cls)
+        return cls._instance
+
     def __init__(self):
+        if hasattr(self, "_initialized"):
+            return
+        self._initialized = True
+
         self.store = ModelStore()
         _, self.embs, _, self.row_to_idx = self.store.get_als_embeddings()
         self.BOOK_META = self.store.get_book_meta()
@@ -75,6 +102,10 @@ class ALSSimilarityStrategy(SimilarityStrategy):
         self.index = faiss.IndexFlatIP(self.norm_embs.shape[1])
         self.index.add(self.norm_embs.astype(np.float32))
 
+    @classmethod
+    def reset(cls):
+        cls._instance = None
+        
     def get_similar_books(self, item_idx, top_k=10):
         if item_idx not in self.item_idx_to_row:
             return []
@@ -110,6 +141,8 @@ class ALSSimilarityStrategy(SimilarityStrategy):
 # Hybrid strategy (weighted combination)
 # ------------------------------
 class HybridSimilarityStrategy(SimilarityStrategy):
+    _instance = None
+
     def __init__(self, alpha=0.5):
         self.subject = SubjectSimilarityStrategy()
         self.als = ALSSimilarityStrategy()
@@ -142,6 +175,11 @@ class HybridSimilarityStrategy(SimilarityStrategy):
                 })
 
         return sorted(merged, key=lambda x: -x["score"])[:top_k]
+    
+    @classmethod
+    def reset(cls):
+        SubjectSimilarityStrategy.reset()
+        ALSSimilarityStrategy.reset()
 
 # ------------------------------
 # Strategy selector

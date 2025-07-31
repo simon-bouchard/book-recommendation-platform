@@ -8,15 +8,26 @@ from models.candidate_generators import ALSCandidateGenerator, ColdHybridCandida
 # Base Strategy Interface + Factory
 # --------------------------------
 class RecommenderStrategy(ABC):
+    _singleton = None
+
     @abstractmethod
     def recommend(self, user_id: int) -> list[int]:
         pass
 
     @staticmethod
     def get_strategy(num_ratings: int) -> "RecommenderStrategy":
-        if num_ratings >= 10:
-            return WarmRecommender()
-        return ColdRecommender()
+        if RecommenderStrategy._singleton is None:
+            if num_ratings >= 10:
+                RecommenderStrategy._singleton = WarmRecommender()
+            else:
+                RecommenderStrategy._singleton = ColdRecommender()
+        return RecommenderStrategy._singleton
+    
+    @staticmethod
+    def reset_singleton():
+        from models.shared_utils import ModelStore
+        ModelStore._instance = None  # clear all loaded models
+        RecommenderStrategy._singleton = None  # force engine rebuild
 
 
 # --------------------------------
