@@ -179,11 +179,12 @@ def main():
         metrics=[rmse],
         wd=0.05,
         opt_func=Adam,
-        #cbs=[GradientAccumulation(n_acc=4)]
+        #cbs=[GradientAccumulation(n_acc=4)],
+        progress_bar=False
     )
 
     print("🚀 Starting training...")
-    learn.fit_one_cycle(5, lr_max=3e-2, progress_bar=False)
+    learn.fit_one_cycle(5, lr_max=3e-2)
 
     # Save components
     state = {
