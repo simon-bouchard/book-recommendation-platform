@@ -1,4 +1,4 @@
-import os import sys
+import os, sys
 import json
 import pickle
 import numpy as np

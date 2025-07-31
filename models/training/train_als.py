@@ -53,7 +53,9 @@ def main():
         factors=FACTORS,
         regularization=REGULARIZATION,
         iterations=ITERATIONS,
-        random_state=RANDOM_STATE
+        random_state=RANDOM_STATE,
+        use_gpu=False,
+        show_progress=False
     )
     model.fit(user_items)
 
