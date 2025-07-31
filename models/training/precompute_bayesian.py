@@ -10,7 +10,7 @@ BOOK_IDS_PATH = Path("models/data/book_ids.json")
 OUTPUT_PATH = Path("models/data/bayesian_tensor.npy")
 
 # Smoothing parameter
-m = 20
+m = 30
 
 def main():
     print("📄 Loading files ...")

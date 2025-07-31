@@ -1,5 +1,4 @@
-import os
-import sys
+import os import sys
 import json
 import pickle
 import numpy as np
@@ -60,9 +59,7 @@ valid_item_idx_set = set(item_idx_to_row)
 before = len(interactions)
 interactions = interactions[interactions["item_idx"].isin(valid_item_idx_set)]
 after = len(interactions)
-print(f"✅ Filtered invalid item_idx: {before - after} rows removed (now {after})")
 
-print("🧹 Filtering warm users...")
 rating_counts = interactions["user_id"].value_counts()
 warm_user_ids = rating_counts[rating_counts >= 10].index
 interactions = interactions[interactions["user_id"].isin(warm_user_ids)]
@@ -177,7 +174,7 @@ def build_rows(inter_df):
         "user_num_ratings", "user_avg_rating", "user_rating_std"
     ] + list(user_emb_df.columns) + list(book_emb_df.columns)]
 
-print("🧠 Building features...")
+print("Building features...")
 train_df = build_rows(train_inter)
 val_df = build_rows(val_inter)
 
@@ -199,14 +196,13 @@ features = cont_cols + cat_cols + emb_cols
 
 X_train, y_train = train_df[features], train_df['rating']
 X_val, y_val = val_df[features], val_df["rating"]
-print(X_train.columns)
 
-print("🚀 Training GBT model...")
+print("Training GBT model...")
 model = LGBMRegressor(
     objective="regression",
-    n_estimators=1000,
-    learning_rate=0.05,
-    max_depth=10,
+    n_estimators=400,
+    learning_rate=0.09,
+    max_depth=7,
     subsample=0.8,
     colsample_bytree=0.6,
     random_state=42
@@ -218,7 +214,7 @@ model.fit(
     eval_metric=['rmse', 'mae'],
     callbacks=[
         early_stopping(50),
-        log_evaluation(50)
+        log_evaluation(100)
     ]
 )
 

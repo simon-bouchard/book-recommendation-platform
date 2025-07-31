@@ -37,8 +37,8 @@ subject_lists = []
 
 for row in books.itertuples():
     subjects = book_to_subjects.get(row.item_idx, [])
-    if not subjects or all(s == PAD_IDX for s in subjects):
-        continue
+    if not subjects:
+        subjects = [PAD_IDX]
     book_ids.append(row.item_idx)
     subject_lists.append(subjects)
 
