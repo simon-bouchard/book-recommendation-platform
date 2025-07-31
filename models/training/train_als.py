@@ -6,6 +6,9 @@ import os
 from collections import Counter
 from implicit.als import AlternatingLeastSquares
 
+import logging
+logging.getLogger("implicit").setLevel(logging.ERROR)
+
 DATA_DIR = "models/training/data"
 MODEL_DIR = "models/data"
 os.makedirs(MODEL_DIR, exist_ok=True)
