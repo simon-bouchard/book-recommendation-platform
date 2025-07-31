@@ -58,7 +58,6 @@ def main():
         iterations=ITERATIONS,
         random_state=RANDOM_STATE,
         use_gpu=False,
-        show_progress=False
     )
     model.fit(user_items)
 
