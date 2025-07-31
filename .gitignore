@@ -4,6 +4,7 @@
 # Data paths
 /models/data/
 /models/training/data/
+/models/training/logs/
 
 # Model artifacts
 *.pickle
@@ -14,3 +15,7 @@
 # Dev Tools
 tree.py
 test.py
+
+#Junk
+__pycache__/
+*.py[cod]

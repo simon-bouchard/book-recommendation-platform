@@ -9,7 +9,7 @@ from app.table_models import (
     BookSubject, UserFavSubject, Subject
 )
 
-OUTPUT_DIR = Path(__file__).parent / "data"
+OUTPUT_DIR = Path(__file__).parent / "data/new_data"
 OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
 
 def main():
