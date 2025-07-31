@@ -183,7 +183,7 @@ def main():
     )
 
     print("🚀 Starting training...")
-    learn.fit_one_cycle(5, lr_max=3e-2)
+    learn.fit_one_cycle(5, lr_max=3e-2, progress_bar=False)
 
     # Save components
     state = {
