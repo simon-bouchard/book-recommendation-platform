@@ -49,37 +49,32 @@ def load_data_from_pickle():
 def main():
     interactions, users, books, user_fav, book_subj = load_data_from_pickle()
 
-    print("🧠 Loading subject attention components and book embeddings...")
     subject_emb, attn_weight, attn_bias = load_attention_components()
     subject_emb, attn_weight, attn_bias = subject_emb.to(DEVICE), attn_weight.to(DEVICE), attn_bias.to(DEVICE)
 
     book_embs, book_ids = load_book_embeddings()
     item_idx_to_row = get_item_idx_to_row(book_ids)
 
-    print("🧹 Filtering valid interactions...")
     interactions = interactions[interactions["rating"].notnull()].copy()
     rating_counts = interactions["user_id"].value_counts()
     interactions["is_warm"] = interactions["user_id"].map(lambda uid: rating_counts.get(uid, 0) >= 10)
 
-    valid_user_ids = set(user_fav)
-    valid_item_ids = set(book_subj) & set(item_idx_to_row)
+    valid_item_ids = set(item_idx_to_row)
 
     interactions = interactions[
-        interactions["user_id"].isin(valid_user_ids) &
+        interactions["user_id"].isin(users["user_id"]) &
         interactions["item_idx"].isin(valid_item_ids)
     ].copy()
 
-    print("📚 Mapping book embeddings...")
+    print("Computing and mapping embeddings")
     interactions["book_emb_row"] = interactions["item_idx"].map(item_idx_to_row)
     book_emb_matrix = book_embs[interactions["book_emb_row"].values]
     book_emb_df = pd.DataFrame(book_emb_matrix, columns=[f"book_emb_{i}" for i in range(book_emb_matrix.shape[1])])
 
-    print("🧠 Computing user embeddings...")
-    fav_subjects_list = [user_fav[uid] for uid in interactions["user_id"]]
+    fav_subjects_list = [user_fav.get(uid, [PAD_IDX]) for uid in interactions["user_id"]]
     user_emb_matrix = batched_attention_pool(fav_subjects_list, subject_emb, attn_weight, attn_bias, batch_size=2048)
     user_emb_df = pd.DataFrame(user_emb_matrix, columns=[f"user_emb_{i}" for i in range(user_emb_matrix.shape[1])])
 
-    print("🔗 Computing subject overlap...")
     interactions["subject_overlap"] = [
         compute_subject_overlap(user_fav[uid], book_subj[iid])
         for uid, iid in zip(interactions["user_id"], interactions["item_idx"])
@@ -110,16 +105,15 @@ def main():
 
     X_train[cont_cols] = X_train[cont_cols].astype(np.float32)
     X_val[cont_cols] = X_val[cont_cols].astype(np.float32)
-    print(X_train.columns)
 
     print("🚀 Training LightGBM model...")
     model = LGBMRegressor(
         objective="regression",
         metric="rmse",
         n_estimators=200,
-        learning_rate=0.03,
-        max_depth=6,
-        subsample=0.9,
+        learning_rate=0.06,
+        max_depth=7,
+        subsample=0.8,
         colsample_bytree=0.8,
         random_state=42,
     )
@@ -128,7 +122,7 @@ def main():
         X_train, y_train,
         eval_set=[(X_val, y_val)],
         eval_metric=['rmse', 'mae'],
-        callbacks=[early_stopping(50), log_evaluation(50)]
+        callbacks=[early_stopping(50), log_evaluation(100)]
     )
 
     os.makedirs("models", exist_ok=True)
