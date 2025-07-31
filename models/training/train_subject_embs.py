@@ -8,7 +8,7 @@ import torch
 import torch.nn as nn
 from torch.utils.data import Dataset, DataLoader
 from fastai.learner import Learner
-from fastai.metrics import rmse
+from fastai.metrics import rmse, mae
 from fastai.callback.schedule import fit_one_cycle
 from fastai.data.core import DataLoaders
 from fastai.losses import MSELossFlat
@@ -178,7 +178,7 @@ def main():
     learn = Learner(
         dls, model,
         loss_func=MSELossFlat(),
-        metrics=[rmse],
+        metrics=[rmse, mae],
         wd=0.05,
         opt_func=Adam,
         #cbs=[GradientAccumulation(n_acc=4)],
