@@ -1,3 +1,6 @@
+# Env and Secrets
+.env
+
 # Data paths
 /models/data/
 /models/training/data/
@@ -8,3 +11,6 @@
 *.pt
 *.pth
 
+# Dev Tools
+tree.py
+test.py
