@@ -79,18 +79,18 @@
 
         <form id="ratingForm">
             <input type="hidden" id="item_idx" name="item_idx" value="{{ book.item_idx }}">
-            <div class="radio-group">
-                <label class="radio-label">
-                    <input type="radio" name="interaction_type" value="read"
-                        {% if not user_rating or user_rating.rating is none %}checked{% endif %}>
+            <div class="toggle-group" id="interactionSelector">
+                <div class="toggle-option {{ 'selected' if not user_rating or user_rating.rating is none else '' }}"
+                    data-value="read" role="button" aria-pressed="{{ 'true' if not user_rating or user_rating.rating is none else 'false' }}">
                     I've read this book
-                </label>
-                <label class="radio-label">
-                    <input type="radio" name="interaction_type" value="rated"
-                        {% if user_rating and user_rating.rating is not none %}checked{% endif %}>
+                </div>
+                <div class="toggle-option {{ 'selected' if user_rating and user_rating.rating is not none else '' }}"
+                    data-value="rated" role="button" aria-pressed="{{ 'true' if user_rating and user_rating.rating is not none else 'false' }}">
                     I want to rate it
-                </label>
+                </div>
             </div>
+            <input type="hidden" id="interaction_type" name="interaction_type"
+                value="{{ 'rated' if user_rating and user_rating.rating is not none else 'read' }}">
 
             <div id="ratingSection">
                 <label for="rating">Rating (1–10):</label>
@@ -290,7 +290,7 @@
 
     <script>
         function toggleRatingSection() {
-            const interactionType = document.querySelector('input[name="interaction_type"]:checked').value;
+            const interactionType = document.getElementById("interaction_type").value;
             const ratingSection = document.getElementById("ratingSection");
             if (interactionType === "rated") {
                 ratingSection.style.display = "block";
@@ -300,8 +300,20 @@
             }
         }
 
-        document.querySelectorAll('input[name="interaction_type"]').forEach(input => {
-            input.addEventListener("change", toggleRatingSection);
+        const toggleOptions = document.querySelectorAll('#interactionSelector .toggle-option');
+        const interactionInput = document.getElementById('interaction_type');
+
+        toggleOptions.forEach(opt => {
+            opt.addEventListener('click', () => {
+                toggleOptions.forEach(o => {
+                    o.classList.remove('selected');
+                    o.setAttribute('aria-pressed', 'false');
+                });
+                opt.classList.add('selected');
+                opt.setAttribute('aria-pressed', 'true');
+                interactionInput.value = opt.getAttribute('data-value');
+                toggleRatingSection();
+            });
         });
 
         // Run on page load
