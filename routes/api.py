@@ -228,6 +228,7 @@ async def get_comments(book: str = Query(...), isbn: bool = False, limit: int = 
 
 @router.get("/book/{item_idx}/similar")
 def get_similar(item_idx: int, mode: str = "subject", alpha: float = 0.6):
+    print(mode)
     strategy = get_similarity_strategy(mode=mode, alpha=alpha)
     return strategy.get_similar_books(item_idx, top_k=100)
 
