@@ -232,7 +232,7 @@ def get_similar(item_idx: int, mode: str = "subject", alpha: float = 0.6):
 async def recommend_for_user(
     user: str = Query(...),
     _id: bool = True,
-    top_n: int = 100,
+    top_n: int = 200,
     db: Session = Depends(get_db)
 ):
     try:
@@ -251,7 +251,7 @@ async def recommend_for_user(
         user_meta = ModelStore().get_user_meta()
         row = user_meta.loc[user_obj.user_id] if user_obj.user_id in user_meta.index else None
         num_ratings = int(row["user_num_ratings"]) if row is not None else 0
-       
+
         strategy = RecommenderStrategy.get_strategy(num_ratings)
 
         return strategy.recommend(user_obj, db=db)[:top_n]
