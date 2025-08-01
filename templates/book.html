@@ -214,7 +214,7 @@
         let item_idx = '{{ book.item_idx }}';
 
         // Get selected similarity mode
-        let selectedMode = document.querySelector('.toggle-option.selected').getAttribute('data-mode');
+        let selectedMode = document.querySelector('#simModeSelector .toggle-option.selected')?.getAttribute('data-mode') || 'subject';
 
         let alpha = 0.6;  // default hybrid weight
         let response = await fetch(`/book/${item_idx}/similar?mode=${selectedMode}&alpha=${alpha}`);
@@ -250,9 +250,11 @@
         opt.addEventListener("click", () => {
             document.querySelectorAll("#simModeSelector .toggle-option").forEach(o => o.classList.remove("selected"));
             opt.classList.add("selected");
+
+            // Automatically get new recommendations on mode change
+            document.getElementById('recommendButton').click();
         });
     });
-
     </script>
 
     <script>
