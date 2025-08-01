@@ -459,6 +459,7 @@ li {
     margin-bottom: 10px; /* Add spacing between list items */
 }
 
+/* Navbar */
 .navbar {
     width: 100%;
     background-color: #007bff;
@@ -510,6 +511,62 @@ li {
     font-weight: bold;
     border-radius: 20px;
     padding: 6px 14px;
+}
+
+/* Comments Section */
+.comments-section {
+    margin-top: 30px;
+    width: 100%;
+    margin-left: auto;
+    margin-right: auto;
+}
+
+.comment-list {
+    display: flex;
+    flex-direction: column;
+    gap: 20px;
+    margin-top: 15px;
+}
+
+.comment-block {
+    border: 1px solid #e0e0e0;
+    border-radius: 6px;
+    background-color: #fff;
+    padding: 14px 16px;
+}
+
+.comment-header {
+    display: flex;
+    justify-content: space-between;
+    font-size: 0.95rem;
+    color: #333;
+    margin-bottom: 8px;
+}
+
+.comment-username {
+    font-weight: bold;
+    color: #222;
+}
+
+.comment-rating {
+    background-color: #007bff;
+    color: white;
+    padding: 2px 8px;
+    border-radius: 12px;
+    font-size: 0.85rem;
+}
+
+.comment-body {
+    font-size: 0.95rem;
+    color: #444;
+    line-height: 1.4;
+    white-space: pre-wrap;
+}
+
+.no-comments {
+    color: #666;
+    text-align: center;
+    font-style: italic;
 }
 
 /* Responsive Design */

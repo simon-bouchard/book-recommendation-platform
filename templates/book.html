@@ -104,9 +104,13 @@
             <button type="submit">Submit</button>
         </form>
 
-        <h3>Comments</h3>
-        <button id="commentsButton">View Comments</button>
-        <div id="comments" style="display:none"></div>
+        <div class="comments-section">
+            <h3>Comments</h3>
+            <button id="commentsButton">View Comments</button>
+            <div id="commentsList" class="comment-list" style="display: none;"></div>
+            <p id="commentsError" class="form-error" style="display: none;"></p>
+            <p id="noCommentsMessage" class="no-comments" style="display: none;">No comments yet.</p>
+        </div>
 
         <h3>See Similar Books</h3>
         <h3>Similarity Mode</h3>
@@ -145,25 +149,62 @@
 	</script>
 
     <script>
-        document.getElementById('commentsButton').onclick = async function() {
-            let item_idx = '{{ book.item_idx }}';
+    document.getElementById('commentsButton').onclick = async function () {
+        const commentsList = document.getElementById('commentsList');
+        const errorMsg = document.getElementById('commentsError');
+        const item_idx = '{{ book.item_idx }}';
 
-            let response = await fetch(`/comments?book=${encodeURIComponent(item_idx)}`);
-            let data = await response.json();
+        const response = await fetch(`/comments?book=${encodeURIComponent(item_idx)}`);
+        const data = await response.json();
+        const noCommentsMsg = document.getElementById('noCommentsMessage');
 
-            if (response.ok) {
-                let comments = data.map(com =>
-                    `<li>${com.username}: ${com.comment} <strong>${com.rating}</strong></li>`
-                ).join("");
+        if (response.ok) {
 
-                document.getElementById('comments').innerHTML = `<ul>${comments}</ul>`;
-                document.getElementById('comments').style.display = 'block';
-                document.getElementById('commentsButton').style.display = 'none';
+            if (!data.length) {
+                commentsList.innerHTML = "";
+                commentsList.style.display = "none";
+                noCommentsMsg.style.display = "block";
+                errorMsg.style.display = "none";
             } else {
-                document.getElementById('comments').innerHTML = `<p style='color: red;'>Error: ${data.detail}</p>`;
-                document.getElementById('comments').style.display = 'block';
+                commentsList.innerHTML = "";
+                data.forEach(com => {
+                    const block = document.createElement("div");
+                    block.className = "comment-block";
+
+                    const header = document.createElement("div");
+                    header.className = "comment-header";
+
+                    const username = document.createElement("span");
+                    username.className = "comment-username";
+                    username.innerText = com.username;
+
+                    const rating = document.createElement("span");
+                    rating.className = "comment-rating";
+                    if (com.rating !== null) rating.innerText = `${com.rating}/10`;
+
+                    const body = document.createElement("div");
+                    body.className = "comment-body";
+                    body.innerText = com.comment;
+
+                    header.appendChild(username);
+                    if (com.rating !== null) header.appendChild(rating);
+
+                    block.appendChild(header);
+                    block.appendChild(body);
+
+                    commentsList.appendChild(block);
+                });
+                commentsList.style.display = 'block';
+                commentsButton.style.display = 'none';
             }
+            commentsList.style.display = 'block';
+            this.style.display = 'none';
+            errorMsg.style.display = 'none';
+        } else {
+            errorMsg.textContent = "Error: " + data.detail;
+            errorMsg.style.display = 'block';
         }
+    };
     </script>
 
     <script type="module">

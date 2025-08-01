@@ -7,7 +7,7 @@ from dotenv import load_dotenv
 from datetime import datetime
 
 from datetime import datetime
-from sqlalchemy import func, select
+from sqlalchemy import func, desc
 from sqlalchemy.orm import Session, joinedload
 
 from app.auth import get_current_user
@@ -208,12 +208,13 @@ async def get_comments(book: str = Query(...), isbn: bool = False, limit: int = 
             Interaction.comment.isnot(None),
             Interaction.comment != ''
         )
+        .order_by(desc(Interaction.timestamp))
         .limit(limit)
         .all()
     )
 
     if not comment_query:
-        raise HTTPException(status_code=404, detail='No comments have been submitted for this book yet')
+        return []
 
     return [
         {
@@ -224,7 +225,6 @@ async def get_comments(book: str = Query(...), isbn: bool = False, limit: int = 
         }
         for row in comment_query
     ]
-
 
 @router.get("/book/{item_idx}/similar")
 def get_similar(item_idx: int, mode: str = "subject", alpha: float = 0.6):
