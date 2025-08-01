@@ -8,9 +8,9 @@
 </head>
 <body>
     <div class="layout">
-    <div class="container">
-
+        <div class="container">
         {% include 'navbar.html' %}
+
 
         <h2>Book Details</h2>
 
@@ -45,11 +45,16 @@
             {% endif %}
 
             {% if book.subjects %}
-                <p><strong>Subjects:</strong></p>
-                <div class="subject-list">
-                    {% for subj in book.subjects %}
-                        <span class="subject-pill">{{ subj }}</span>
-                    {% endfor %}
+                <div class="book-subjects-wrapper">
+                    <div class="subject-line">
+                        <strong>Subjects:</strong>
+                        <div class="subject-list book-subjects-collapsed" id="subjectList">
+                            {% for subj in book.subjects %}
+                                <span class="subject-pill">{{ subj }}</span>
+                            {% endfor %}
+                        </div>
+                    </div>
+                    <span class="toggle-link" id="toggleSubjects" style="display: none;">Show more</span>
                 </div>
             {% endif %}
 
@@ -281,6 +286,38 @@
     }
 </script>
 
+<script>
+    const toggleSubjectsBtn = document.getElementById("toggleSubjects");
+    const subjectList = document.getElementById("subjectList");
+    const labelEl = document.querySelector(".subject-line strong");
+
+    function isOverflowing(el) {
+        return el.scrollHeight > el.clientHeight + 2;
+    }
+
+    function didWrapInlineWith(label, container) {
+        return container.getBoundingClientRect().top > label.getBoundingClientRect().top;
+    }
+
+    if (toggleSubjectsBtn && subjectList) {
+        // Center if wrapped to next line
+        if (didWrapInlineWith(labelEl, subjectList)) {
+            subjectList.classList.add("centered");
+        }
+
+        if (isOverflowing(subjectList)) {
+            subjectList.classList.add("fade-active"); // ✅ only show fade when needed
+            toggleSubjectsBtn.style.display = "inline-block";
+
+            toggleSubjectsBtn.onclick = () => {
+                const isCollapsed = subjectList.classList.contains("book-subjects-collapsed");
+                subjectList.classList.toggle("book-subjects-collapsed");
+                subjectList.classList.toggle("book-subjects-expanded");
+                toggleSubjectsBtn.textContent = isCollapsed ? "Show less" : "Show more";
+            };
+        }
+    }
+</script>
 
 </body>
 </html>
