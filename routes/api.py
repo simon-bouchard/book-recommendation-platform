@@ -13,7 +13,7 @@ from sqlalchemy.orm import Session, joinedload
 from app.auth import get_current_user
 from app.database import SessionLocal, get_db
 from app.table_models import Book, User, Interaction, BookSubject, Subject, UserFavSubject
-from app.models import get_all_subject_counts
+from app.models import get_all_subject_counts, clean_float_values
 from app.search_engine import get_search_results
 from models.book_similarity_engine import get_similarity_strategy
 from models.recommender_strategy import RecommenderStrategy
@@ -279,7 +279,7 @@ def search_books(
 
     return templates.TemplateResponse("search.html", {
         "request": request,
-        "results": results,
+        "results": clean_float_values(results),
         "query": query,
         "subjects": subjects or [],
         "subject_suggestions": subject_suggestions[:20],
@@ -299,7 +299,7 @@ def search_books_json(
         subject_idxs = [s.subject_idx for s in subject_rows]
 
     results = get_search_results(query, subject_idxs, page, 60, db)
-    return {"results": results}
+    return {"results": clean_float_values(results)}
 
 @router.get("/subjects/suggestions")
 def subject_suggestions(q: Optional[str] = Query(default=None), db: Session = Depends(get_db)):

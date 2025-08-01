@@ -207,7 +207,9 @@ class ModelStore:
 
     def get_bayesian_tensor(self):
         if self._bayesian_tensor is None:
-            self._bayesian_tensor = np.load("models/data/bayesian_tensor.npy")
+            arr = np.load("models/data/bayesian_tensor.npy")
+            arr = np.nan_to_num(arr, nan=0.0, posinf=0.0, neginf=0.0)
+            self._bayesian_tensor = arr
         return self._bayesian_tensor
 
     def get_book_meta(self):

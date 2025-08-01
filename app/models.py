@@ -61,3 +61,16 @@ def get_all_subject_counts(db: Session):
     ]
     _last_subject_fetch = now
     return _subject_cache
+
+def clean_float_values(obj):
+    """Recursively replace NaN, inf, -inf with None (for JSON compliance)."""
+    if isinstance(obj, dict):
+        return {k: clean_float_values(v) for k, v in obj.items()}
+    elif isinstance(obj, list):
+        return [clean_float_values(v) for v in obj]
+    elif isinstance(obj, float):
+        if obj != obj or obj in [float("inf"), float("-inf")]:
+            return None
+        return obj
+    else:
+        return obj
