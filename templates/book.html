@@ -7,7 +7,11 @@
     <link rel="stylesheet" href="{{ url_for('static', path='css/styles.css') }}">
 </head>
 <body>
+    <div class="layout">
     <div class="container">
+
+        {% include 'navbar.html' %}
+
         <h2>Book Details</h2>
 
             {% if book.cover_id %}
@@ -118,7 +122,7 @@
             <a href="/">Go Back</a>
         </div>
     </div>
-
+    </div>
     <script>
 
 		let userRatingElement = document.getElementById('userRating');

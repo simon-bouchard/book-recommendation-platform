@@ -1,0 +1,16 @@
+<nav class="navbar">
+    <div class="navbar-inner">
+        <div class="navbar-center">
+            <a href="/" class="{% if page == 'home' %}active{% endif %}">Home</a>
+            <a href="/search" class="{% if page == 'search' %}active{% endif %}">Search</a>
+            <a href="/profile" class="{% if page == 'profile' %}active{% endif %}">Profile</a>
+        </div>
+        <div class="navbar-right">
+            {% if request.cookies.access_token %}
+                <a href="/logout">Logout</a>
+            {% else %}
+                <a href="/login" class="{% if page == 'login' %}active{% endif %}">Login</a>
+            {% endif %}
+        </div>
+    </div>
+</nav>

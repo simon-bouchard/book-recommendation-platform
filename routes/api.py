@@ -35,7 +35,8 @@ def signup_page(request: Request):
     countries = sorted([c.name for c in pycountry.countries])
     return templates.TemplateResponse('login.html', {
         'request': request,
-        'countries': countries
+        'countries': countries,
+        'page': 'login'
     })
 
 @router.get('/profile')
@@ -52,7 +53,8 @@ def profile_page(request: Request, current_user: dict = Depends(get_current_user
         "favorite_subjects": [
             s.subject.subject for s in current_user.favorite_subjects
             if s.subject and s.subject.subject != "[NO_SUBJECT]"
-        ]
+        ],
+        "page": "profile"
     }
 
     return templates.TemplateResponse('profile.html', {'request': request, 'user': user_data})
@@ -164,7 +166,8 @@ async def book_recommendation(request: Request, item_idx: int, current_user: Use
         'cover_id': book.cover_id,
         'average_rating': round(average, 2) if average else None,
         'rating_count': rating_count,
-        'subjects': subjects
+        'subjects': subjects,
+        'page': 'book',
     }
 
     user_rating = None
@@ -283,6 +286,7 @@ def search_books(
         "query": query,
         "subjects": subjects or [],
         "subject_suggestions": subject_suggestions[:20],
+        "page": "search"
     })
 
 @router.get("/search/json")

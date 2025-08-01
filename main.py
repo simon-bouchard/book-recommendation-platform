@@ -17,6 +17,6 @@ app.include_router(auth_router)
 
 @app.get('/', response_class=HTMLResponse)
 def root(request: Request):
-    return templates.TemplateResponse('index.html', {'request': request})
+    return templates.TemplateResponse('index.html', {'request': request, 'page': 'home'})
 
 

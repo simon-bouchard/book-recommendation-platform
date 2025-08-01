@@ -7,6 +7,9 @@
     <link rel="stylesheet" href="{{ url_for('static', path='css/styles.css') }}">
 </head>
 <body>
+<div class="login-layout">
+    {% include 'navbar.html' %}
+
     <div class="login-container">
         <h1>Book Recommendation</h1>
 
@@ -55,7 +58,7 @@
             <button type="submit">Sign Up</button>
         </form>
     </div>
-
+</div>
     <script type="module">
         import { initSubjectPicker } from "/static/js/subject_picker.js";
 

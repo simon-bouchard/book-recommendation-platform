@@ -7,6 +7,10 @@
     <link rel="stylesheet" href="{{ url_for('static', path='css/styles.css') }}">
 </head>
 <body>
+<div class = 'layout'>
+
+    {% include 'navbar.html' %}
+
     <div class="container">
         <h1>FastAPI Machine Learning Project</h1>
         <h2>Book Recommendation</h2>
@@ -18,10 +22,8 @@
             <button type="submit">Submit</button>
         </form>
 
-        <div class="links">
-            <a href="/profile">Profile / Login / Sign up</a>
-        </div>
     </div>
+</div>
 
     <script>
         document.getElementById('bookForm').onsubmit = function(event) {

@@ -7,6 +7,9 @@
     <link rel="stylesheet" href="{{ url_for('static', path='css/styles.css') }}">
 </head>
 <body>
+<div class="layout">
+    {% include 'navbar.html' %}
+
     <div class="container">
         <h1>Search Books</h1>
             <form method="get" action="/search" id="searchForm">
@@ -106,13 +109,8 @@
                 fetchPage(0);
             </script>
         {% endif %}
-
-        <div class="links">
-            <a href="/">Home</a>
-            <a href="/profile">Profile</a>
-        </div>
     </div>
-    
+</div>    
     <script type="module">
         import { initSubjectPicker } from "/static/js/subject_picker.js";
     
