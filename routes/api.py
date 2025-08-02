@@ -167,6 +167,7 @@ async def book_recommendation(request: Request, item_idx: int, current_user: Use
         'average_rating': round(average, 2) if average else None,
         'rating_count': rating_count,
         'subjects': subjects,
+        'num_pages': book.num_pages,
         'page': 'book',
     }
 

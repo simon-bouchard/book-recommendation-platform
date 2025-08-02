@@ -14,61 +14,64 @@
 
         <h2>Book Details</h2>
 
-            {% if book.cover_id %}
-                <div class="cover-container">
-                    <img src="https://covers.openlibrary.org/b/id/{{ book.cover_id }}-L.jpg" alt="Book Cover">
-                </div>
-            {% endif %}
-
-            <p><strong>Title:</strong> {{ book.title }}</p>
-            <p><strong>Author:</strong> {{ book.author }}</p>
-            <p><strong>ISBN:</strong> {{ book.isbn }}</p>
-            <p><strong>Year:</strong> {{ book.year }}</p>
-            <p><strong>Average Rating:</strong> {{ book.average_rating }}</p>
-            <p><strong>Ratings Count:</strong> {{ book.rating_count }}</p>
-
-            {% if book.description %}
-                <p><strong>Description:</strong></p>
-                <div id="descriptionContainer">
-                    <span id="shortDescription">
-                        {{ book.description[:300] }}{% if book.description|length > 300 %}...
-                            <span id="toggleShowMore" class="toggle-link">Show more</span>
-                        {% endif %}
-                    </span>
-                    {% if book.description|length > 300 %}
-                        <span id="fullDescription" style="display:none">
-                            {{ book.description }}
-                            <span id="toggleShowLess" class="toggle-link"> Show less</span>
-                        </span>
+            <div class="book-header">
+                <div class="book-cover">
+                    {% if book.cover_id %}
+                        <img src="https://covers.openlibrary.org/b/id/{{ book.cover_id }}-L.jpg" alt="Book cover">
+                    {% else %}
+                        <div class="book-cover-placeholder">No cover available</div>
                     {% endif %}
                 </div>
+
+                <div class="book-details">
+                    <h1 class="book-title">{{ book.title }}</h1>
+                    <p class="book-author">{{ book.author }}</p>
+                    {% if book.year %}
+                        <p class="book-meta">Published: {{ book.year }}</p>
+                    {% endif %}
+                    {% if book.num_pages %}
+                    <p class="book-meta">Pages: {{ book.num_pages }}</p>
+                    {% endif %}
+                    {% if book.average_rating %}
+                        <p class="book-meta">Average rating: {{ book.average_rating }} ({{ book.rating_count }} ratings)</p>
+                    {% endif %}
+                    {% if book.isbn %}
+                    <p class="book-meta">ISBN: {{ book.isbn }}</p>
+                    {% endif %}
+
+                    {% if user_rating %}
+                        <div class="rating-summary">
+                            <h3>Your Rating</h3>
+                            <p><strong>Rating:</strong> {{ user_rating.rating }}/10</p>
+                            {% if user_rating.comment %}
+                                <p><strong>Comment:</strong> {{ user_rating.comment }}</p>
+                            {% endif %}
+                        </div>
+                    {% endif %}
+                </div>
+            </div>
+
+            {% if book.description %}
+            <div class="book-description-container">
+                <h3>Description</h3>
+                <p id="book-description" class="book-description collapsed">{{ book.description }}</p>
+                <span id="toggle-description" class="toggle-link" style="display: none;">Show more</span>
+            </div>
             {% endif %}
 
             {% if book.subjects %}
-                <div class="book-subjects-wrapper">
-                    <div class="subject-line">
-                        <strong>Subjects:</strong>
-                        <div class="subject-list book-subjects-collapsed" id="subjectList">
-                            {% for subj in book.subjects %}
-                                <span class="subject-pill">{{ subj }}</span>
-                            {% endfor %}
-                        </div>
-                    </div>
-                    <span class="toggle-link" id="toggleSubjects" style="display: none;">Show more</span>
+            <div class="book-subjects-wrapper">
+                <div class="subject-line">
+                    <strong>Subjects:</strong>
                 </div>
+                <div class="subject-list book-subjects-collapsed" id="subjectList">
+                    {% for subject in book.subjects %}
+                        <span class="subject-pill">{{ subject }}</span>
+                    {% endfor %}
+                </div>
+                <span class="toggle-link" id="toggle-subjects" style="display: none;">Show more</span>
+            </div>
             {% endif %}
-
-            {% if user_rating %}
-                {% if user_rating.rating %}
-                    <p><strong>You rated this book:</strong> {{ user_rating.rating }}/10</p>
-                {% else %}
-                    <p><strong>You’ve marked this book as read.</strong></p>
-                {% endif %}
-                {% if user_rating.comment %}
-                    <p><strong>Your comment:</strong> {{ user_rating.comment }}</p>
-                {% endif %}
-            {% endif %}
-            
 
         {% if user_rating %}
             <h3>Edit Your Rating</h3>
@@ -323,55 +326,58 @@
     </script>
 
 <script>
-    const showMoreBtn = document.getElementById("toggleShowMore");
-    const showLessBtn = document.getElementById("toggleShowLess");
-    const shortDesc = document.getElementById("shortDescription");
-    const fullDesc = document.getElementById("fullDescription");
+    document.addEventListener("DOMContentLoaded", () => {
+        const desc = document.getElementById("book-description");
+        const toggle = document.getElementById("toggle-description");
 
-    if (showMoreBtn && showLessBtn) {
-        showMoreBtn.onclick = () => {
-            shortDesc.style.display = "none";
-            fullDesc.style.display = "inline";
-        };
+        if (!desc) return;
 
-        showLessBtn.onclick = () => {
-            fullDesc.style.display = "none";
-            shortDesc.style.display = "inline";
+        function isOverflowing(el) {
+            return el.scrollHeight > el.clientHeight + 2;
+        }
+
+        if (isOverflowing(desc)) {
+            toggle.style.display = "inline-block";
+        }
+
+        toggle.onclick = () => {
+            const isExpanded = desc.classList.toggle("expanded");
+            desc.classList.toggle("collapsed", !isExpanded);
+            toggle.textContent = isExpanded ? "Show less" : "Show more";
         };
-    }
+    });
 </script>
 
 <script>
-    const toggleSubjectsBtn = document.getElementById("toggleSubjects");
-    const subjectList = document.getElementById("subjectList");
-    const labelEl = document.querySelector(".subject-line strong");
+const toggleSubjectsBtn = document.getElementById("toggle-subjects");
+const subjectList = document.getElementById("subjectList");
+const labelEl = document.querySelector(".subject-line strong");
 
-    function isOverflowing(el) {
-        return el.scrollHeight > el.clientHeight + 2;
+function isOverflowing(el) {
+    return el.scrollHeight > el.clientHeight + 2;
+}
+
+function didWrapInlineWith(label, container) {
+    return container.getBoundingClientRect().top > label.getBoundingClientRect().top;
+}
+
+if (toggleSubjectsBtn && subjectList) {
+    if (didWrapInlineWith(labelEl, subjectList)) {
+        subjectList.classList.add("centered");
     }
 
-    function didWrapInlineWith(label, container) {
-        return container.getBoundingClientRect().top > label.getBoundingClientRect().top;
+    if (isOverflowing(subjectList)) {
+        subjectList.classList.add("fade-active"); // ✅ only show fade when needed
+        toggleSubjectsBtn.style.display = "inline-block";
+
+        toggleSubjectsBtn.onclick = () => {
+            const isCollapsed = subjectList.classList.contains("book-subjects-collapsed");
+            subjectList.classList.toggle("book-subjects-collapsed");
+            subjectList.classList.toggle("book-subjects-expanded");
+            toggleSubjectsBtn.textContent = isCollapsed ? "Show less" : "Show more";
+        };
     }
-
-    if (toggleSubjectsBtn && subjectList) {
-        // Center if wrapped to next line
-        if (didWrapInlineWith(labelEl, subjectList)) {
-            subjectList.classList.add("centered");
-        }
-
-        if (isOverflowing(subjectList)) {
-            subjectList.classList.add("fade-active"); // ✅ only show fade when needed
-            toggleSubjectsBtn.style.display = "inline-block";
-
-            toggleSubjectsBtn.onclick = () => {
-                const isCollapsed = subjectList.classList.contains("book-subjects-collapsed");
-                subjectList.classList.toggle("book-subjects-collapsed");
-                subjectList.classList.toggle("book-subjects-expanded");
-                toggleSubjectsBtn.textContent = isCollapsed ? "Show less" : "Show more";
-            };
-        }
-    }
+}
 </script>
 
 </body>
