@@ -3,7 +3,8 @@ export function initSubjectPicker({
     suggestionsBoxId,
     pillsContainerId,
     hiddenInputId,
-    maxSubjects = 5
+    maxSubjects = 5,
+    prefill = []
 }) {
     const input = document.getElementById(inputId);
     const suggestionsBox = document.getElementById(suggestionsBoxId);
@@ -83,6 +84,28 @@ export function initSubjectPicker({
     function updateHiddenField() {
         hiddenInput.value = selectedSubjects.join(",");
     }
+
+    prefill.forEach(subject => {
+        if (!selectedSubjects.includes(subject)) {
+            selectedSubjects.push(subject);
+            const pill = document.createElement("div");
+            pill.classList.add("pill");
+            pill.textContent = subject;
+
+            const x = document.createElement("span");
+            x.textContent = "×";
+            x.classList.add("pill-remove");
+            x.onclick = () => {
+                selectedSubjects = selectedSubjects.filter(s => s !== subject);
+                pill.remove();
+                updateHiddenField();
+            };
+
+            pill.appendChild(x);
+            pillsContainer.appendChild(pill);
+        }
+    });
+    updateHiddenField();
 
     input.addEventListener("input", async function () {
         const query = this.value.trim();

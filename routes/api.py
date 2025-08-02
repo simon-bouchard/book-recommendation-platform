@@ -7,7 +7,7 @@ from dotenv import load_dotenv
 from datetime import datetime
 
 from datetime import datetime
-from sqlalchemy import func, desc
+from sqlalchemy import func, desc, case
 from sqlalchemy.orm import Session, joinedload
 
 from app.auth import get_current_user
@@ -40,9 +40,26 @@ def signup_page(request: Request):
     })
 
 @router.get('/profile')
-def profile_page(request: Request, current_user: dict = Depends(get_current_user)):
+def profile_page(request: Request, current_user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
     if not current_user:
         return RedirectResponse(url='/login', status_code=status.HTTP_303_SEE_OTHER)
+
+    # Efficient SQL aggregation: count total and rated
+    counts = db.query(
+        func.count().label("total"),
+        func.count(case((Interaction.rating.isnot(None), 1))).label("rated")
+    ).filter(
+        Interaction.user_id == current_user.user_id
+    ).one()
+
+    num_books_read = counts.total
+    num_ratings = counts.rated
+
+    # Get warm status from user_meta
+    user_meta = ModelStore().get_user_meta()
+    row = user_meta.loc[current_user.user_id] if current_user.user_id in user_meta.index else None
+    ratings_from_pkl = int(row["user_num_ratings"]) if row is not None else 0
+    is_warm = ratings_from_pkl >= 10
 
     user_data = {
         "id": current_user.user_id,
@@ -50,6 +67,9 @@ def profile_page(request: Request, current_user: dict = Depends(get_current_user
         "email": current_user.email,
         "age": current_user.age,
         "country": current_user.country,
+        "num_books_read": num_books_read,
+        "num_ratings": num_ratings,
+        "is_warm": is_warm,
         "favorite_subjects": [
             s.subject.subject for s in current_user.favorite_subjects
             if s.subject and s.subject.subject != "[NO_SUBJECT]"
