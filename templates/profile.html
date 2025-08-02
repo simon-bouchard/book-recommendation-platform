@@ -14,13 +14,35 @@
         <h1>Book Recommendation API</h1>
         <h2 style='text-align:center'>Welcome, {{ user.username }}</h2>
 
-        <div id="profileDisplay">
+        <div id="profileDisplay" class="profile-card">
             <h3>Profile Information</h3>
-            <p><strong>Username:</strong> {{ user.username }}</p>
-            <p><strong>User ID:</strong> {{ user.id }}</p>
-            <p><strong>Email:</strong> {{ user.email }}</p>
-            <p><strong>Age:</strong> {{ user.age }}</p>
-            <p><strong>Country:</strong> {{ user.country }}</p>
+            <div class="profile-grid">
+                <div><strong>Username:</strong></div><div>{{ user.username }}</div>
+                <div><strong>User ID:</strong></div><div>{{ user.id }}</div>
+                <div><strong>Email:</strong></div><div>{{ user.email }}</div>
+                <div><strong>Age:</strong></div><div>{{ user.age }}</div>
+                <div><strong>Country:</strong></div><div>{{ user.country }}</div>
+                <div><strong>Ratings:</strong></div><div>{{ user.num_ratings }}</div>
+                <div><strong>Books Read:</strong></div><div>{{ user.num_ratings }}</div>
+
+                <div class="profile-status-row" style="grid-column: 1 / -1;">
+                    {% if user.is_warm %}
+                        <div class="warm-user-banner">
+                            ✅ You're a <strong>warm user</strong> — you've rated enough books to receive personalized recommendations.
+                        </div>
+                    {% elif user.num_ratings >= 10 %}
+                        <div class="cold-user-banner">
+                            ⏳ You've rated <strong>{{ user.num_ratings }}</strong> books — you're eligible for personalized recommendations, but the server hasn't updated yet. Please check back soon!
+                        </div>
+                    {% else %}
+                        <div class="cold-user-banner">
+                            ⚠️ You're a <strong>cold user</strong> — rate at least 10 books to unlock personalized recommendations.
+                        </div>
+                    {% endif %}
+                </div>
+
+            </div>
+
             <h4>Your Favorite Subjects</h4>
             {% if user.favorite_subjects %}
                 <div class="subject-list">
@@ -29,11 +51,13 @@
                     {% endfor %}
                 </div>
             {% else %}
-                <p style="color: #555; font-style: italic;">You haven't selected any favorite subjects yet.</p>
+                <p class="no-subjects">You haven't selected any favorite subjects yet.</p>
             {% endif %}
+
             <button id="editProfileBtn">Edit Profile</button>
         </div>
 
+        <h2>Profile Actions</h2>        
         <div id="profileEditForm" style="display: none;">
             <h3>Edit Profile</h3>
             <form id="profileForm">
@@ -67,9 +91,9 @@
         <h3>Personalised Recommendations</h3>
         <button id="recommendButton">Get Recommendations</button>
         <div id="recommendations" style="display: none"></div>
-        <div style="text-align: center; margin-top: 10px;">
-            <button id="prevButton" style="display: none; width: auto;">Previous</button>
-            <button id="nextButton" style="display: none; width: auto;">Next</button>
+        <div class="pagination-buttons">
+            <button id="prevButton" style="display: none;">Previous</button>
+            <button id="nextButton" style="display: none;">Next</button>
         </div>
     </div>
 </div>
