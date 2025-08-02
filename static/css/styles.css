@@ -569,6 +569,106 @@ li {
     font-style: italic;
 }
 
+/* Book Page Book Card */
+.book-header {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 24px;
+    margin-bottom: 30px;
+    align-items: flex-start;
+}
+
+.book-cover img {
+    width: 160px;
+    border-radius: 6px;
+    box-shadow: 0 2px 6px rgba(0, 0, 0, 0.1);
+}
+
+.book-cover-placeholder {
+    width: 160px;
+    height: 240px;
+    background: #eee;
+    border-radius: 6px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: #777;
+    font-size: 0.9rem;
+    text-align: center;
+}
+
+.book-details {
+    flex: 1;
+    min-width: 220px;
+}
+
+.book-title {
+    margin-bottom: 0.25em;
+    font-size: 1.8rem;
+}
+
+.book-author {
+    font-weight: bold;
+    margin-bottom: 0.5em;
+    font-size: 1.1rem;
+}
+
+.book-meta {
+    margin-bottom: 0.4em;
+    color: #555;
+    font-size: 0.95rem;
+}
+
+.rating-summary {
+    padding: 0;
+    margin: 0;
+    background: none;
+    border: none;
+    box-shadow: none;
+    font-size: inherit;
+    color: inherit;
+}
+
+.book-subjects {
+    margin-top: 1em;
+}
+
+.subject-list {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    margin-top: 0.5em;
+}
+
+.subject-pill {
+    background-color: #e2ecf9;
+    color: #24496d;
+    padding: 4px 10px;
+    border-radius: 999px;
+    font-size: 0.85rem;
+}
+
+
+.book-description-container {
+    margin-bottom: 30px;
+}
+
+.book-description.collapsed {
+    max-height: 6em;
+    overflow: hidden;
+    position: relative;
+}
+
+.book-description.expanded {
+    max-height: none;
+}
+
+.toggle-link {
+    color: #007BFF;
+    cursor: pointer;
+    font-size: 0.9em;
+}
+
 /* Responsive Design */
 @media (max-width: 600px) {
     .container, .login-container {
