@@ -2,42 +2,71 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Book Recommendation</title>
     <link rel="stylesheet" href="{{ url_for('static', path='css/styles.css') }}">
 </head>
 <body>
-<div class = 'layout'>
-
-    
+<div class="layout">
     <div class="container">
         {% include 'navbar.html' %}
-        <h1>FastAPI Machine Learning Project</h1>
-        <h2>Book Recommendation</h2>
-        <p>Example usage: OL1888129W (Where the Heart Is (Oprah's Book Club (Paperback)))</p>
 
-        <form id="bookForm">
-            <label for="book">Book Work ID:</label>
-            <input type="text" id="book" name="book" placeholder="0446672211" required>
-            <button type="submit">Submit</button>
-        </form>
+        <h1>Discover Your Next Favorite Book</h1>
+        <p style="text-align:center; font-size: 1.1rem; margin-bottom: 30px;">
+            Smart, personalized recommendations — powered by machine learning.
+        </p>
 
+        <div class="toggle-group" style="justify-content: center;">
+            <a href="/search"><button>🔍 Search Books</button></a>
+            <a href="/profile"><button>🎯 Get Recommendations</button></a>
+            <a href="/login"><button>👤 Log In / Sign Up</button></a>
+        </div>
     </div>
+
+    <div class="container">
+        <h2>Why Use This App?</h2>
+        <ul>
+            <li><strong>📚 Personalized Recommendations:</strong> Based on your favorite genres and past ratings.</li>
+            <li><strong>🔁 Similar Books:</strong> Find books similar to the ones you love.</li>
+            <li><strong>⭐ Community Ratings:</strong> See reviews and scores from other readers.</li>
+        </ul>
+    </div>
+
+    <div class="container">
+        <h2>How to Use the App</h2>
+        <ol>
+            <li>
+                <strong>Create Your Profile:</strong> 
+                Sign up and select your <strong>favorite genres</strong>. These are used to generate your first set of recommendations.
+            </li>
+            <li>
+                <strong>Explore Initial Recommendations:</strong> 
+                Until you've rated at least <strong>10 books</strong>, suggestions are mostly based on your favorite genres. You can update them anytime from your profile.
+            </li>
+            <li>
+                <strong>Browse Popular Books:</strong> 
+                Visit the <a href="/search">Search</a> page without entering a title to see books ranked by popularity (using a Bayesian formula). This is a great way to find books you’ve already read and rate them quickly.
+            </li>
+            <li>
+                <strong>Rate at Least 10 Books:</strong> 
+                Once you’ve rated 10 or more books, the system unlocks <strong>fully personalized recommendations</strong> based on your own preferences.
+            </li>
+            <li>
+                <strong>Keep Exploring and Rating:</strong> 
+                The more books you rate, the better your recommendations become. You can also find similar books on any book's detail page.
+            </li>
+        </ol>
+    </div>
+
 </div>
 
-    <script>
-        document.getElementById('bookForm').onsubmit = function(event) {
-            event.preventDefault(); // Prevent form from reloading the page
-
-            let book = document.getElementById('book').value.trim();
-            if (!book) {
-                alert('Please enter a valid Work ID!');
-                return;
-            }
-
-            // Fix: Redirect user to book details page with correct ISBN
+<script>
+    document.getElementById('bookForm')?.addEventListener('submit', function(e) {
+        e.preventDefault();
+        let book = document.getElementById('book').value.trim();
+        if (book) {
             window.location.href = `/book/${encodeURIComponent(book)}`;
-        };
-    </script>
+        }
+    });
+</script>
 </body>
 </html>
