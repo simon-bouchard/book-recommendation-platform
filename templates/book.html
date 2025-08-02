@@ -42,7 +42,9 @@
                     {% if user_rating %}
                         <div class="rating-summary">
                             <h3>Your Rating</h3>
-                            <p><strong>Rating:</strong> {{ user_rating.rating }}/10</p>
+                            {% if user_rating.rating is not none %}
+                                <p><strong>Rating:</strong> {{ user_rating.rating }}/10</p>
+                            {% endif %}
                             {% if user_rating.comment %}
                                 <p><strong>Comment:</strong> {{ user_rating.comment }}</p>
                             {% endif %}
@@ -59,13 +61,14 @@
             </div>
             {% endif %}
 
-            {% if book.subjects %}
+            {% set filtered_subjects = book.subjects | select('ne', '[NO_SUBJECT]') | list %}
+            {% if filtered_subjects %}
             <div class="book-subjects-wrapper">
                 <div class="subject-line">
                     <strong>Subjects:</strong>
                 </div>
                 <div class="subject-list book-subjects-collapsed" id="subjectList">
-                    {% for subject in book.subjects %}
+                    {% for subject in filtered_subjects %}
                         <span class="subject-pill">{{ subject }}</span>
                     {% endfor %}
                 </div>
@@ -124,11 +127,10 @@
         </div>
         <button id="recommendButton">Get Recommendations</button>
         <div id="recommendations" style="display: none"></div>
-        <div style="text-align: center; margin-top: 10px;">
+        <div class="pagination-buttons">
             <button id="prevButton" style="display: none;">Previous</button>
             <button id="nextButton" style="display: none;">Next</button>
         </div>
-
 
         <div class="links">
             <a href="/">Go Back</a>
@@ -211,19 +213,23 @@
     </script>
 
     <script type="module">
-        import { setupPaginatedBookDisplay } from "/static/js/paginated_books.js";
+    import { setupPaginatedBookDisplay } from "/static/js/paginated_books.js";
 
-        document.getElementById('recommendButton').onclick = async function () {
-        let item_idx = '{{ book.item_idx }}';
+    const recommendBtn = document.getElementById("recommendButton");
+    const container = document.getElementById("recommendations");
+    const simOptions = document.querySelectorAll("#simModeSelector .toggle-option");
+    const prevBtn = document.getElementById("prevButton");
+    const nextBtn = document.getElementById("nextButton");
 
-        // Get selected similarity mode
-        let selectedMode = document.querySelector('#simModeSelector .toggle-option.selected')?.getAttribute('data-mode') || 'subject';
+    let hasFetchedOnce = false;
 
-        let alpha = 0.6;  // default hybrid weight
-        let response = await fetch(`/book/${item_idx}/similar?mode=${selectedMode}&alpha=${alpha}`);
-        let data = await response.json();
+    async function fetchRecommendations() {
+        const item_idx = '{{ book.item_idx }}';
+        const selectedMode = document.querySelector('#simModeSelector .toggle-option.selected')?.getAttribute('data-mode') || 'subject';
+        const alpha = 0.6;
 
-        const container = document.getElementById("recommendations");
+        const response = await fetch(`/book/${item_idx}/similar?mode=${selectedMode}&alpha=${alpha}`);
+        const data = await response.json();
 
         if (response.ok) {
             if (!Array.isArray(data) || data.length === 0) {
@@ -241,21 +247,28 @@
             }
 
             container.style.display = "block";
-            document.getElementById('recommendButton').style.display = 'none';
+            recommendBtn.style.display = "none";
+            hasFetchedOnce = true;
+
         } else {
             container.innerHTML = `<p style='color: red;'>Error: ${data.detail}</p>`;
             container.style.display = 'block';
+            recommendBtn.style.display = "inline-block";
         }
-    };
+    }
 
-    // Mode selector logic
-    document.querySelectorAll("#simModeSelector .toggle-option").forEach(opt => {
+    // First-time fetch
+    recommendBtn.onclick = fetchRecommendations;
+
+    // Mode change triggers fetch *only* after first click
+    simOptions.forEach(opt => {
         opt.addEventListener("click", () => {
-            document.querySelectorAll("#simModeSelector .toggle-option").forEach(o => o.classList.remove("selected"));
+            simOptions.forEach(o => o.classList.remove("selected"));
             opt.classList.add("selected");
 
-            // Automatically get new recommendations on mode change
-            document.getElementById('recommendButton').click();
+            if (hasFetchedOnce) {
+                fetchRecommendations();
+            }
         });
     });
     </script>
