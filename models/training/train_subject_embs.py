@@ -106,6 +106,9 @@ def load_training_data_from_pickle(pad_to=5):
         user_fav[row.user_id].append(row.subject_idx)
 
     book_subj = defaultdict(list)
+    for row in book_subj_df.itertuples(index=False):
+        book_subj[row.item_idx].append(row.subject_idx)
+    
     rows = []
     for row in interactions.itertuples(index=False):
         if not row.is_warm:
