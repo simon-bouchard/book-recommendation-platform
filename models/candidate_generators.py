@@ -2,7 +2,7 @@ from sqlalchemy.orm import Session
 from abc import ABC, abstractmethod
 import numpy as np
 import torch
-from models.shared_utils import ModelStore
+from models.shared_utils import ModelStore, normalize_vector
 
 store = ModelStore()
 book_embs, book_ids = store.get_book_embeddings()
@@ -26,7 +26,7 @@ class ColdHybridCandidateGenerator(CandidateGenerator):
         use_only_bayesian=False,
         top_k_bayes=0,
         top_k_sim=00,
-        top_k_mixed=100,
+        top_k_mixed=200,
         scale_sim=10.0,
         w=0.7,
         db: Session = None
@@ -39,16 +39,11 @@ class ColdHybridCandidateGenerator(CandidateGenerator):
 
         print("Using hybrid candidates")
         # Compute similarity and hybrid scores
-        user_emb_tensor = torch.tensor(user_emb.numpy())
+        user_emb_tensor = normalize_vector(torch.tensor(user_emb.numpy()))
         sim_scores = scale_sim * torch.matmul(torch.tensor(book_embs), user_emb_tensor)
         bayes_scores = torch.tensor(bayesian_tensor)
         final_scores = w * sim_scores + (1 - w) * bayes_scores
-        print("user_emb mean/std/min/max:", user_emb.mean().item(), user_emb.std().item(), user_emb.min().item(), user_emb.max().item())
-        print("book_embs shape:", book_embs.shape)
-        print("book_embs mean/std:", np.mean(book_embs), np.std(book_embs))
-        norms = book_embs / np.linalg.norm(book_embs, axis=1, keepdims=True)
-        print("embedding norms: mean =", norms.mean(), ", std =", norms.std())
-
+        
         # Top from each tier
         idx_mixed = torch.topk(final_scores, top_k_mixed).indices.tolist()
         idx_sim = torch.topk(sim_scores, top_k_sim).indices.tolist()
