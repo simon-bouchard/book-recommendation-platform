@@ -115,7 +115,7 @@ def load_training_data_from_pickle(pad_to=5):
             continue
 
         book_subjs = book_subj.get(row.item_idx, [])
-        if not subjects or all(s == PAD_IDX for s in subjects):
+        if not book_subjs or all(s == PAD_IDX for s in book_subjs):
             continue
 
         fav_subjs = user_fav.get(row.user_id, [])
