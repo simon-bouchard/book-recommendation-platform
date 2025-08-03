@@ -90,6 +90,9 @@ def normalize_embeddings(embs):
     """L2 normalize embeddings along last axis"""
     return embs / np.linalg.norm(embs, axis=1, keepdims=True)
 
+def normalize_vector(x: torch.Tensor) -> torch.Tensor:
+    return x / x.norm() if x.norm() > 0 else x
+
 def compute_subject_overlap(fav_subjects, book_subjects):
     return len(set(fav_subjects) & set(book_subjects))
 
@@ -204,6 +207,7 @@ class ModelStore:
     def get_book_embeddings(self):
         if self._book_embs is None:
             self._book_embs, self._book_ids = load_book_embeddings()
+            self._book_embs = normalize_embeddings(self._book_embs)  # ← normalize here
             self._item_idx_to_row = get_item_idx_to_row(self._book_ids)
         return self._book_embs, self._book_ids
 
