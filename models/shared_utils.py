@@ -207,7 +207,6 @@ class ModelStore:
     def get_book_embeddings(self):
         if self._book_embs is None:
             self._book_embs, self._book_ids = load_book_embeddings()
-            self._book_embs = normalize_embeddings(self._book_embs)  # ← normalize here
             self._item_idx_to_row = get_item_idx_to_row(self._book_ids)
         return self._book_embs, self._book_ids
 
