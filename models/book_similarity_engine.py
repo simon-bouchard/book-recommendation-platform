@@ -33,11 +33,12 @@ class SubjectSimilarityStrategy(SimilarityStrategy):
 
         self.store = ModelStore()
         self.embs, self.book_ids = self.store.get_book_embeddings()
+        self.norm_embs = normalize_embeddings(self.embs.copy())
         self.item_idx_to_row = self.store.get_item_idx_to_row()
         self.BOOK_META = self.store.get_book_meta()
 
-        self.index = faiss.IndexFlatIP(self.embs.shape[1])
-        self.index.add(self.embs.astype(np.float32))
+        self.index = faiss.IndexFlatIP(self.norm_embs.shape[1])
+        self.index.add(self.norm_embs.astype(np.float32))
 
     @classmethod
     def reset(cls):
@@ -48,7 +49,7 @@ class SubjectSimilarityStrategy(SimilarityStrategy):
             return []
 
         row = self.item_idx_to_row[item_idx]
-        query = self.embs[row].reshape(1, -1).astype(np.float32)
+        query = self.norm_embs[row].reshape(1, -1).astype(np.float32)
         sim_scores, result_rows = self.index.search(query, top_k + 1)
 
         return self._format_results(result_rows[0], sim_scores[0], item_idx, top_k)

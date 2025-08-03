@@ -2,12 +2,12 @@ from sqlalchemy.orm import Session
 from abc import ABC, abstractmethod
 import numpy as np
 import torch
-from models.shared_utils import ModelStore, normalize_vector
+from models.shared_utils import ModelStore, normalize_vector, normalize_embeddings
 
 store = ModelStore()
 book_embs, book_ids = store.get_book_embeddings()
 bayesian_tensor = store.get_bayesian_tensor()
-
+book_embs = normalize_embeddings(book_embs.copy())
 
 class CandidateGenerator(ABC):
     @abstractmethod
