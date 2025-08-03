@@ -127,10 +127,17 @@ def get_user_embedding(fav_subjects_idxs: list[int]) -> tuple[torch.Tensor, bool
     return emb, is_fallback
 
 def get_candidate_book_df(candidate_ids: list[int]) -> pd.DataFrame:
+    BOOK_META = ModelStore().get_book_meta()
+    # Select and preserve order
+    df = BOOK_META.loc[BOOK_META.index.intersection(candidate_ids)].copy()
+    df["item_idx"] = df.index  
+    df["__sort"] = df["item_idx"].map({idx: i for i, idx in enumerate(candidate_ids)})
+    return df.sort_values("__sort").drop(columns="__sort").reset_index(drop=True)
+
+def old_get_candidate_book_df(candidate_ids: list[int]) -> pd.DataFrame:
     """Subset BOOK_META to candidate book rows"""
     BOOK_META = ModelStore().get_book_meta()
     return BOOK_META.loc[BOOK_META.index.intersection(candidate_ids)].copy().reset_index()
-
 
 def filter_read_books(df: pd.DataFrame, user_id: int, db: Session) -> pd.DataFrame:
     """Remove books the user has already read"""

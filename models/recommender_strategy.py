@@ -1,7 +1,7 @@
 from abc import ABC, abstractmethod
 from sqlalchemy.orm import Session
 from models.recommendation_engine import RecommendationEngine
-from models.rerankers import GBTWarmReranker, GBTColdReranker
+from models.rerankers import GBTWarmReranker, GBTColdReranker, NoOpReranker
 from models.candidate_generators import ALSCandidateGenerator, ColdHybridCandidateGenerator
 
 # --------------------------------
@@ -39,7 +39,7 @@ class WarmRecommender(RecommenderStrategy):
 
 class ColdRecommender(RecommenderStrategy):
     def __init__(self):
-        self.engine = RecommendationEngine(ColdHybridCandidateGenerator(), GBTColdReranker())
+        self.engine = RecommendationEngine(ColdHybridCandidateGenerator(), NoOpReranker())
 
     def recommend(self, user: int, db: Session) -> list[int]:
         print('cold')

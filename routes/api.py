@@ -74,10 +74,9 @@ def profile_page(request: Request, current_user: dict = Depends(get_current_user
             s.subject.subject for s in current_user.favorite_subjects
             if s.subject and s.subject.subject != "[NO_SUBJECT]"
         ],
-        "page": "profile"
     }
 
-    return templates.TemplateResponse('profile.html', {'request': request, 'user': user_data})
+    return templates.TemplateResponse('profile.html', {'request': request, 'user': user_data, "page": "profile"})
 
 @router.post("/profile/update")
 async def update_profile(
@@ -272,6 +271,7 @@ async def recommend_for_user(
             raise HTTPException(status_code=404, detail="User not found")
 
         user_obj.fav_subjects_idxs = [s.subject_idx for s in user_obj.favorite_subjects] or [PAD_IDX]
+        print("Fav subject idxs:", user_obj.fav_subjects_idxs)
 
         user_meta = ModelStore().get_user_meta()
         row = user_meta.loc[user_obj.user_id] if user_obj.user_id in user_meta.index else None

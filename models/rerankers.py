@@ -91,3 +91,12 @@ class GBTWarmReranker(Reranker):
 
         df["score"] = warm_gbt_model.predict(df[features])
         return df
+
+class NoOpReranker(Reranker):
+    def score(self, user, candidate_ids: list[int], user_emb: np.ndarray, db: Session) -> pd.DataFrame:
+        df = get_candidate_book_df(candidate_ids)
+        df = filter_read_books(df, user.user_id, db=db)
+
+        # Assign descending score or default value
+        df["score"] = np.linspace(1.0, 0.0, num=len(df), endpoint=False)
+        return df

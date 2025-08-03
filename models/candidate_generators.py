@@ -25,10 +25,10 @@ class ColdHybridCandidateGenerator(CandidateGenerator):
         user_emb: np.ndarray,
         use_only_bayesian=False,
         top_k_bayes=0,
-        top_k_sim=50,
-        top_k_mixed=150,
+        top_k_sim=00,
+        top_k_mixed=100,
         scale_sim=10.0,
-        w=0.5,
+        w=0.7,
         db: Session = None
     ) -> list[int]:
         if use_only_bayesian:
@@ -38,19 +38,43 @@ class ColdHybridCandidateGenerator(CandidateGenerator):
             return [book_ids[i] for i in idx_bayes.tolist()]
 
         print("Using hybrid candidates")
+        # Compute similarity and hybrid scores
         user_emb_tensor = torch.tensor(user_emb.numpy())
         sim_scores = scale_sim * torch.matmul(torch.tensor(book_embs), user_emb_tensor)
-        final_scores = w * sim_scores + (1 - w) * torch.tensor(bayesian_tensor)
+        bayes_scores = torch.tensor(bayesian_tensor)
+        final_scores = w * sim_scores + (1 - w) * bayes_scores
+        print("user_emb mean/std/min/max:", user_emb.mean().item(), user_emb.std().item(), user_emb.min().item(), user_emb.max().item())
+        print("book_embs shape:", book_embs.shape)
+        print("book_embs mean/std:", np.mean(book_embs), np.std(book_embs))
+        norms = book_embs / np.linalg.norm(book_embs, axis=1, keepdims=True)
+        print("embedding norms: mean =", norms.mean(), ", std =", norms.std())
 
-        idx_mixed = torch.topk(final_scores, top_k_mixed).indices
-        idx_sim = torch.topk(sim_scores, top_k_sim).indices
-        idx_bayes = torch.topk(torch.tensor(bayesian_tensor), top_k_bayes).indices
+        # Top from each tier
+        idx_mixed = torch.topk(final_scores, top_k_mixed).indices.tolist()
+        idx_sim = torch.topk(sim_scores, top_k_sim).indices.tolist()
+        idx_bayes = torch.topk(bayes_scores, top_k_bayes).indices.tolist()
 
-        all_indices = torch.cat([idx_mixed, idx_sim, idx_bayes])
-        unique_indices = torch.unique(all_indices)
+        # Build final list with priority and uniqueness
+        seen = set()
+        final_ranked = []
 
-        return [book_ids[i] for i in unique_indices.tolist()]
+        def add_ranked(indices, scores, top_k):
+            added = 0
+            for idx in indices:
+                if idx not in seen:
+                    seen.add(idx)
+                    final_ranked.append((idx, scores[idx].item()))
+                    added += 1
+                    if added == top_k:
+                        break
 
+        add_ranked(idx_mixed, final_scores, top_k_mixed)
+        add_ranked(idx_sim, sim_scores, top_k_sim)
+        add_ranked(idx_bayes, bayes_scores, top_k_bayes)
+
+        # Final output ordered by score descending
+        final_ranked.sort(key=lambda x: -x[1])
+        return [book_ids[i] for i, _ in final_ranked]
 
 class ALSCandidateGenerator(CandidateGenerator):
     def generate(self, user_id: int, user_emb: np.ndarray = None, top_k: int = 500, db: Session = None, **kwargs) -> list[int]:
