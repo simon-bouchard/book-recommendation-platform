@@ -21,58 +21,6 @@ sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "../../"
 
 PAD_IDX = 3520
 
-def load_attention_components(path="models/data/subject_attention_components.pth"):
-    """Load subject embedding weights + attention weights"""
-    state = torch.load(path, map_location="cpu")
-
-    emb_weight = state['subject_embs']['weight']
-    num_embeddings, embedding_dim = emb_weight.shape
-
-    subject_embs = nn.Embedding(num_embeddings, embedding_dim, padding_idx=0)
-    subject_embs.load_state_dict({'weight': emb_weight})
-    subject_embs.weight.requires_grad_(False)
-
-    attn_weight = state['attn_weight']
-    attn_bias = state['attn_bias']
-
-    return subject_embs, attn_weight, attn_bias
-
-def attention_pool(indices_list, emb_layer, weight, bias):
-    """Pooled vector from a list of subject indices using attention"""
-    from models.shared_utils import PAD_IDX
-    
-    device = emb_layer.weight.device
-    batch_size = len(indices_list)
-    max_len = max((len(lst) for lst in indices_list), default=1)
-
-    padded = [lst + [0] * (max_len - len(lst)) if len(lst) > 0 else [0]*max_len for lst in indices_list]
-    idx_tensor = torch.tensor(padded, device=device)
-    mask = (idx_tensor != PAD_IDX)
-
-    # Safety fix: unmask 1st position if all are PADs
-    has_real_subjects = mask.any(dim=1)
-    for i in range(len(mask)):
-        if not has_real_subjects[i]:
-            mask[i, 0] = True
-
-    embs = emb_layer(idx_tensor)
-    scores = (embs @ weight.T) + bias
-    scores = scores.squeeze(-1).masked_fill(~mask, float("-inf"))
-    attn = F.softmax(scores, dim=-1).unsqueeze(-1)
-
-    pooled = (embs * attn).sum(dim=1)
-    pooled = pooled.nan_to_num(0.0)
-    return pooled
-
-
-def batched_attention_pool(indices_list, emb_layer, weight, bias, batch_size=1024):
-    all_outputs = []
-    for i in range(0, len(indices_list), batch_size):
-        batch = indices_list[i:i+batch_size]
-        pooled = attention_pool(batch, emb_layer, weight, bias)
-        all_outputs.append(pooled.detach().cpu().numpy())
-    return np.concatenate(all_outputs, axis=0)
-
 def load_book_embeddings(emb_path="models/data/book_embs.npy", id_path="models/data/book_ids.json"):
     """Load precomputed book embeddings and item_idx list"""
     embs = np.load(emb_path)
@@ -169,8 +117,6 @@ class ModelStore:
 
     def _init_once(self):
         self._subject_emb = None
-        self._attn_weight = None
-        self._attn_bias = None
         self._book_embs = None
         self._book_ids = None
         self._item_idx_to_row = None
@@ -184,14 +130,6 @@ class ModelStore:
         self._book_als_embs = None
         self._user_id_to_als_row = None
         self._book_row_to_item_idx = None
-
-    def get_attention_components(self):
-        if self._subject_emb is None:
-            self._subject_emb, self._attn_weight, self._attn_bias = load_attention_components()
-            self._subject_emb = self._subject_emb.to("cpu")
-            self._attn_weight = self._attn_weight.to("cpu")
-            self._attn_bias = self._attn_bias.to("cpu")
-        return self._subject_emb, self._attn_weight, self._attn_bias
 
     def get_book_embeddings(self):
         if self._book_embs is None:
