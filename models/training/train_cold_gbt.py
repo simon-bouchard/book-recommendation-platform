@@ -49,9 +49,6 @@ def load_data_from_pickle():
 def main():
     interactions, users, books, user_fav, book_subj = load_data_from_pickle()
 
-    subject_emb, attn_weight, attn_bias = load_attention_components()
-    subject_emb, attn_weight, attn_bias = subject_emb.to(DEVICE), attn_weight.to(DEVICE), attn_bias.to(DEVICE)
-
     book_embs, book_ids = load_book_embeddings()
     item_idx_to_row = get_item_idx_to_row(book_ids)
 
