@@ -11,10 +11,11 @@ from lightgbm import LGBMRegressor, early_stopping, log_evaluation
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "../..")))
 from models.shared_utils import (
     load_attention_components,
-    attention_pool,
-    batched_attention_pool,
+    ModelStore,
     PAD_IDX,
 )
+
+ATTENTION_STRAT = 'scalar'
 
 DATA_DIR = Path(__file__).parent / "data"
 MODEL_PATH = Path("models/data/gbt_warm.pickle")
@@ -35,11 +36,6 @@ book_embs = np.load(BOOK_EMBS_PATH)
 with open(BOOK_IDS_PATH, "r") as f:
     book_ids = json.load(f)
 item_idx_to_row = {idx: i for i, idx in enumerate(book_ids)}
-
-subject_emb, attn_weight, attn_bias = load_attention_components()
-subject_emb = subject_emb.to("cpu")
-attn_weight = attn_weight.to("cpu")
-attn_bias = attn_bias.to("cpu")
 
 # -------------------------------
 # Filter warm users and split
@@ -132,8 +128,6 @@ for row in user_fav_df.itertuples(index=False):
 # -------------------------------
 # Feature builder
 # -------------------------------
-from models.shared_utils import batched_attention_pool
-
 def build_rows(inter_df):
     # Merge metadata
     inter_df = inter_df.merge(users, on="user_id", how="left")
@@ -152,13 +146,8 @@ def build_rows(inter_df):
     # Build list of favorite subject indices
     fav_subjects_list = [user_fav.get(uid, [PAD_IDX]) for uid in inter_df["user_id"]]
 
-    user_emb_matrix = batched_attention_pool(
-        fav_subjects_list,
-        subject_emb,
-        attn_weight,
-        attn_bias,
-        batch_size=2048  
-    )
+    pooler = ModelStore().get_attention_strategy(ATTENTION_STRAT)
+    user_emb_matrix = pooler(fav_subjects_list).cpu().numpy()
 
     user_emb_df = pd.DataFrame(
         user_emb_matrix,

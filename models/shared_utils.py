@@ -108,26 +108,15 @@ def get_read_books(user_id: int, db: Session):
         ).all()
     }
 
-def get_user_embedding(fav_subjects_idxs: list[int]) -> tuple[torch.Tensor, bool]:
-    """
-    Returns:
-    - pooled embedding (torch.Tensor)
-    - is_fallback: True if [PAD_IDX] was used
-    """
-    from models.shared_utils import PAD_IDX
-
+def get_user_embedding(fav_subjects_idxs: list[int], strategy: str = "scalar") -> tuple[torch.Tensor, bool]:
     store = ModelStore()
-    subject_emb, attn_weight, attn_bias = store.get_attention_components()
-
     is_fallback = not fav_subjects_idxs or all(s == PAD_IDX for s in fav_subjects_idxs)
+    pooler = store.get_attention_strategy(strategy)
 
     with torch.no_grad():
-        if is_fallback:
-            emb = attention_pool([[PAD_IDX]], subject_emb, attn_weight, attn_bias)[0].cpu()
-        else:
-            emb = attention_pool([fav_subjects_idxs], subject_emb, attn_weight, attn_bias)[0].cpu()
+        pooled = pooler([[PAD_IDX]] if is_fallback else [fav_subjects_idxs])[0].cpu()
 
-    return emb, is_fallback
+    return pooled, is_fallback
 
 def get_candidate_book_df(candidate_ids: list[int]) -> pd.DataFrame:
     BOOK_META = ModelStore().get_book_meta()
@@ -269,3 +258,17 @@ class ModelStore:
 
         return (self._user_als_embs, self._book_als_embs,
                 self._user_id_to_als_row, self._book_row_to_item_idx)
+
+    def get_attention_strategy(self, name=None):
+        name = name or os.getenv("ATTN_STRATEGY", "scalar")
+
+        if not hasattr(self, "_attn_strategy") or self._attn_strategy_name != name:
+            from models.subject_attention_strategy import STRATEGY_REGISTRY
+            if name not in STRATEGY_REGISTRY:
+                raise ValueError(f"Unknown attention strategy: {name}")
+
+            strategy_class = STRATEGY_REGISTRY[name]
+            self._attn_strategy = strategy_class(path="models/data/subject_attention_components.pth")
+            self._attn_strategy_name = name
+
+        return self._attn_strategy
