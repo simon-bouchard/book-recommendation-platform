@@ -103,3 +103,40 @@ class PerDimAttentionStrategy(AttentionPoolingStrategy):
 
     def get_embedding_dim(self) -> int:
         return self.subject_emb.embedding_dim
+
+@register_attention_strategy("selfattn")
+class SelfAttentionStrategy(AttentionPoolingStrategy):
+    def __init__(self, path: str):
+        super().__init__()
+        state = torch.load(path, map_location="cpu")
+
+        # Trainable subject embedding
+        self.subject_emb = nn.Embedding.from_pretrained(
+            embeddings=state["subject_embs"]["weight"],
+            freeze=False,  # trainable
+            padding_idx=PAD_IDX,
+        )
+
+        D = self.subject_emb.embedding_dim
+        self.mha = nn.MultiheadAttention(embed_dim=D, num_heads=2, batch_first=True)
+        self.mha.load_state_dict(state["mha"])
+
+    def forward(self, indices_list: list[list[int]]) -> torch.Tensor:
+        idx_tensor, mask = self.prepare_inputs(indices_list)        # [B, L], [B, L]
+        embs = self.subject_emb(idx_tensor)                         # [B, L, D]
+
+        # MHA expects True where PAD — opposite of our mask
+        attn_output, _ = self.mha(
+            embs, embs, embs,
+            key_padding_mask=(~mask)  # [B, L]
+        )  # attn_output: [B, L, D]
+
+        # Mean-pooling over valid positions
+        masked_output = attn_output.masked_fill(~mask.unsqueeze(-1), 0.0)  # [B, L, D]
+        lengths = mask.sum(dim=1, keepdim=True).clamp(min=1)              # [B, 1]
+        pooled = masked_output.sum(dim=1) / lengths                       # [B, D]
+
+        return pooled.nan_to_num(0.0)
+
+    def get_embedding_dim(self) -> int:
+        return self.subject_emb.embedding_dim
