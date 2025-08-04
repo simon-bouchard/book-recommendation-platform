@@ -10,16 +10,10 @@ from collections import defaultdict
 import sys
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "../..")))
 
-from models.shared_utils import load_attention_components, batched_attention_pool, PAD_IDX
+from models.shared_utils import PAD_IDX, ModelStore
 
 DEVICE = 'cuda' if torch.cuda.is_available() else 'cpu'
-
-# Load trained embedding + attention weights
-print("📦 Loading subject embedding and attention components...")
-subject_emb, attn_weight, attn_bias = load_attention_components("models/data/subject_attention_components.pth")
-subject_emb = subject_emb.to(DEVICE)
-attn_weight = attn_weight.to(DEVICE)
-attn_bias = attn_bias.to(DEVICE)
+ATTENTION_STRAT = "scalar"
 
 # ----------------------------
 # Load .pkl files
@@ -48,7 +42,8 @@ print(f"✅ Books with valid subjects: {len(book_ids)}")
 # Compute pooled embeddings
 # ----------------------------
 print("🧠 Computing pooled subject embeddings...")
-pooled_embs = batched_attention_pool(subject_lists, subject_emb, attn_weight, attn_bias, batch_size=512)
+pooler = ModelStore().get_attention_strategy("scalar")
+pooled_embs = pooler(subject_lists).cpu().numpy()
 print(f"📐 Shape: {pooled_embs.shape}")
 
 # ----------------------------

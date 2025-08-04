@@ -13,17 +13,17 @@ from lightgbm import early_stopping, log_evaluation
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "../..")))
 
 from models.shared_utils import (
-    load_attention_components,
-    batched_attention_pool,
     load_book_embeddings,
     get_item_idx_to_row,
     compute_subject_overlap,
     decompose_embeddings,
-    PAD_IDX
+    PAD_IDX,
+    ModelStore
 )
 
 import torch
 DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
+ATTENTION_STRAT ='scalar'
 
 DATA_DIR = Path(__file__).parent / "data"
 
@@ -72,7 +72,8 @@ def main():
     book_emb_df = pd.DataFrame(book_emb_matrix, columns=[f"book_emb_{i}" for i in range(book_emb_matrix.shape[1])])
 
     fav_subjects_list = [user_fav.get(uid, [PAD_IDX]) for uid in interactions["user_id"]]
-    user_emb_matrix = batched_attention_pool(fav_subjects_list, subject_emb, attn_weight, attn_bias, batch_size=2048)
+    pooler = ModelStore().get_attention_strategy("scalar")
+    user_emb_matrix = pooler(fav_subjects_list).cpu().numpy()
     user_emb_df = pd.DataFrame(user_emb_matrix, columns=[f"user_emb_{i}" for i in range(user_emb_matrix.shape[1])])
 
     interactions["subject_overlap"] = [
@@ -133,4 +134,3 @@ def main():
 
 if __name__ == "__main__":
     main()
-
