@@ -669,9 +669,10 @@ li {
 }
 
 .book-description.collapsed {
-    max-height: 6em;
+    display: -webkit-box;
+    -webkit-line-clamp: 3;
+    -webkit-box-orient: vertical;
     overflow: hidden;
-    position: relative;
 }
 
 .book-description.expanded {
