@@ -140,3 +140,40 @@ class SelfAttentionStrategy(AttentionPoolingStrategy):
 
     def get_embedding_dim(self) -> int:
         return self.subject_emb.embedding_dim
+
+@register_attention_strategy("selfattn_perdim")
+class SelfAttnPerDimStrategy(AttentionPoolingStrategy):
+    def __init__(self, path: str):
+        super().__init__()
+        state = torch.load(path, map_location="cpu")
+
+        # Trainable subject embedding
+        self.subject_emb = nn.Embedding.from_pretrained(
+            embeddings=state["subject_embs"]["weight"],
+            freeze=False,
+            padding_idx=PAD_IDX,
+        )
+
+        D = self.subject_emb.embedding_dim
+        self.mha = nn.MultiheadAttention(embed_dim=D, num_heads=2, batch_first=True)
+        self.mha.load_state_dict(state["mha"])
+
+        self.register_buffer("attn_weight", state["attn_weight"])  # [D]
+        self.register_buffer("attn_bias", state["attn_bias"])      # [D]
+
+    def forward(self, indices_list: list[list[int]]) -> torch.Tensor:
+        idx_tensor, mask = self.prepare_inputs(indices_list)        # [B, L], [B, L]
+        embs = self.subject_emb(idx_tensor)                         # [B, L, D]
+
+        attn_out, _ = self.mha(embs, embs, embs, key_padding_mask=~mask)  # [B, L, D]
+
+        # Per-dim attention over contextualized output
+        scores = (attn_out * self.attn_weight) + self.attn_bias      # [B, L, D]
+        scores = scores.sum(dim=-1).masked_fill(~mask, float("-inf"))  # [B, L]
+        attn = F.softmax(scores, dim=-1).unsqueeze(-1)               # [B, L, 1]
+
+        pooled = (attn * attn_out).sum(dim=1)                        # [B, D]
+        return pooled.nan_to_num(0.0)
+
+    def get_embedding_dim(self) -> int:
+        return self.subject_emb.embedding_dim
