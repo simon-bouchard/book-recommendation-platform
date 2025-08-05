@@ -28,11 +28,10 @@ def main():
 
         print("Exporting users...")
         users = pd.read_sql(
-            "SELECT user_id, age, age_group, filled_age, country FROM users",
+            "SELECT user_id, age, filled_age, country FROM users",
             db.bind
         )
 
-        # User-level aggregates
         user_stats = rated.groupby("user_id")["rating"].agg(
             user_num_ratings="count",
             user_avg_rating="mean",
@@ -45,20 +44,25 @@ def main():
         users["user_rating_std"] = users["user_rating_std"].fillna(0.0)
         users["user_avg_rating"] = users["user_avg_rating"].fillna(global_avg_rating)
         users["age"] = users["age"].fillna(users["age"].mean())
-        users["age_group"] = users["age_group"].fillna("unknown_age")
         users["country"] = users["country"].fillna("Unknown")
 
         users.to_pickle(OUTPUT_DIR / "users.pkl")
 
         print("Exporting books with author name...")
-        books = pd.read_sql("SELECT * FROM books", db.bind)
+        books = pd.read_sql("""
+            SELECT 
+                item_idx, title, author_idx, isbn, cover_id,
+                main_subject, year, filled_year,
+                num_pages, filled_num_pages, language
+            FROM books
+        """, db.bind)
+
         authors = pd.read_sql("SELECT author_idx, name FROM authors", db.bind)
 
         books = books.merge(authors, how="left", on="author_idx")
         books = books.drop(columns=["author_idx"])
         books = books.rename(columns={"name": "author"})
 
-        # Book-level aggregates
         book_stats = rated.groupby("item_idx")["rating"].agg(
             book_num_ratings="count",
             book_avg_rating="mean",
