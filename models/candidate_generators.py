@@ -27,8 +27,8 @@ class ColdHybridCandidateGenerator(CandidateGenerator):
         top_k_bayes=0,
         top_k_sim=00,
         top_k_mixed=200,
-        scale_sim=10.0,
-        w=0.7,
+        scale_sim=4.5,
+        w=0.4,
         db: Session = None
     ) -> list[int]:
         if use_only_bayesian:
@@ -40,7 +40,7 @@ class ColdHybridCandidateGenerator(CandidateGenerator):
         print("Using hybrid candidates")
         # Compute similarity and hybrid scores
         user_emb_tensor = normalize_vector(torch.tensor(user_emb.numpy()))
-        sim_scores = scale_sim * torch.matmul(torch.tensor(book_embs), user_emb_tensor)
+        sim_scores = scale_sim * ( 1 + torch.matmul(torch.tensor(book_embs), user_emb_tensor))
         bayes_scores = torch.tensor(bayesian_tensor)
         final_scores = w * sim_scores + (1 - w) * bayes_scores
         
