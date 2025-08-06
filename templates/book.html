@@ -339,8 +339,8 @@
 
 <script>
     document.addEventListener("DOMContentLoaded", () => {
-        const desc = document.getElementById("book-description");
-        const toggle = document.getElementById("toggle-description");
+        const desc = document.getElementById("bookDescription");
+        const toggle = desc?.nextElementSibling;
 
         if (!desc) return;
 
@@ -348,8 +348,10 @@
             return el.scrollHeight > el.clientHeight + 2;
         }
 
-        if (isOverflowing(desc)) {
+        if (desc && toggle && isOverflowing(desc)) {
             toggle.style.display = "inline-block";
+        } else if (toggle) {
+            toggle.style.display = "none";
         }
 
         toggle.onclick = () => {
@@ -379,7 +381,7 @@ if (toggleSubjectsBtn && subjectList) {
     }
 
     if (isOverflowing(subjectList)) {
-        subjectList.classList.add("fade-active"); // ✅ only show fade when needed
+        subjectList.classList.add("fade-active"); 
         toggleSubjectsBtn.style.display = "inline-block";
 
         toggleSubjectsBtn.onclick = () => {
