@@ -146,7 +146,7 @@ def main():
     all_subjs = set(s for r in rows for s in r['book_subjects'] + r['fav_subjects'])
     n_subjects = max(all_subjs) + 1
 
-    model = SelfAttnPerDimModel(n_users, n_items, n_subjects, emb_dim=16, n_heads=2).to(device)
+    model = SelfAttnPerDimModel(n_users, n_items, n_subjects, emb_dim=16, n_heads=4, dropout=0.1).to(device)
 
     learn = Learner(
         dls, model,
@@ -160,7 +160,7 @@ def main():
     learn.remove_cbs(ProgressCallback)
 
     print("🚀 Starting training...")
-    learn.fit_one_cycle(5, lr_max=3e-2)
+    learn.fit_one_cycle(7, lr_max=3e-2)
 
     state = {
         "subject_embs": model.subject_emb.state_dict(),
