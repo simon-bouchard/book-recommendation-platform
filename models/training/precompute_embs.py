@@ -13,7 +13,7 @@ sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "../..")
 from models.shared_utils import PAD_IDX, ModelStore
 
 DEVICE = 'cuda' if torch.cuda.is_available() else 'cpu'
-ATTENTION_STRAT = "scalar"
+ATTN_STRATEGY = os.getenv("ATTN_STRATEGY", "scalar")
 
 # ----------------------------
 # Load .pkl files
@@ -42,7 +42,7 @@ print(f"✅ Books with valid subjects: {len(book_ids)}")
 # Compute pooled embeddings
 # ----------------------------
 print("🧠 Computing pooled subject embeddings...")
-pooler = ModelStore().get_attention_strategy("scalar")
+pooler = ModelStore().get_attention_strategy(ATTN_STRATEGY)
 pooled_embs = pooler(subject_lists).cpu().numpy()
 print(f"📐 Shape: {pooled_embs.shape}")
 

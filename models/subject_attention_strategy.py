@@ -48,6 +48,7 @@ class AttentionPoolingStrategy(nn.Module):
 class ScalarAttentionStrategy(AttentionPoolingStrategy):
     def __init__(self, path: str):
         super().__init__()
+        print('Using ScalarAttentionStrategy')
         state = torch.load(path, map_location="cpu")
 
         # Load frozen subject embedding
@@ -78,6 +79,7 @@ class ScalarAttentionStrategy(AttentionPoolingStrategy):
 class PerDimAttentionStrategy(AttentionPoolingStrategy):
     def __init__(self, path: str):
         super().__init__()
+        print('Using PerDimAttentionStrategy')
         state = torch.load(path, map_location="cpu")
 
         self.subject_emb = nn.Embedding.from_pretrained(
