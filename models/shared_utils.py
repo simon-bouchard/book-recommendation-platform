@@ -56,7 +56,7 @@ def get_read_books(user_id: int, db: Session):
         ).all()
     }
 
-def get_user_embedding(fav_subjects_idxs: list[int], strategy: str = "scalar") -> tuple[torch.Tensor, bool]:
+def get_user_embedding(fav_subjects_idxs: list[int], strategy: str = "") -> tuple[torch.Tensor, bool]:
     store = ModelStore()
     is_fallback = not fav_subjects_idxs or all(s == PAD_IDX for s in fav_subjects_idxs)
     pooler = store.get_attention_strategy(strategy)
@@ -206,7 +206,10 @@ class ModelStore:
                 raise ValueError(f"Unknown attention strategy: {name}")
 
             strategy_class = STRATEGY_REGISTRY[name]
-            self._attn_strategy = strategy_class(path="models/data/subject_attention_components.pth")
+            
+            path = f"models/data/subject_attention_components_{name}.pth" if name != "scalar" else "models/data/subject_attention_components.pth"
+            self._attn_strategy = strategy_class(path=path)
+
             self._attn_strategy_name = name
 
         return self._attn_strategy
