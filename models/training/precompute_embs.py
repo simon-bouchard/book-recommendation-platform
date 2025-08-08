@@ -42,8 +42,18 @@ print(f"✅ Books with valid subjects: {len(book_ids)}")
 # Compute pooled embeddings
 # ----------------------------
 print("🧠 Computing pooled subject embeddings...")
+BATCH_SIZE = 1024
+all_embs = []
 pooler = ModelStore().get_attention_strategy(ATTN_STRATEGY)
-pooled_embs = pooler(subject_lists).cpu().numpy()
+
+with torch.no_grad():
+    for start in range(0, len(subject_lists), BATCH_SIZE):
+        batch = subject_lists[start:start+BATCH_SIZE]
+        embs = pooler(batch).cpu().numpy()
+        all_embs.append(embs)
+
+pooled_embs = np.vstack(all_embs)
+
 print(f"📐 Shape: {pooled_embs.shape}")
 
 # ----------------------------
