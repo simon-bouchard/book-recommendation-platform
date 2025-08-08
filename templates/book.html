@@ -11,16 +11,15 @@
         <div class="container">
         {% include 'navbar.html' %}
 
-
         <h2>Book Details</h2>
 
             <div class="book-header">
                 <div class="book-cover">
-                    {% if book.cover_id %}
-                        <img src="https://covers.openlibrary.org/b/id/{{ book.cover_id }}-L.jpg" alt="Book cover">
-                    {% else %}
-                        <div class="book-cover-placeholder">No cover available</div>
-                    {% endif %}
+                    <!-- Always render an <img>; JS below will set placeholder if needed -->
+                    <img id="detailCover"
+                         class="book-cover-img"
+                         alt="Cover for {{ book.title | e }}"
+                         src="{% if book.cover_id %}https://covers.openlibrary.org/b/id/{{ book.cover_id }}-L.jpg{% else %}{% endif %}">
                 </div>
 
                 <div class="book-details">
@@ -81,7 +80,6 @@
             <h3>Rate or Mark as Read</h3>
         {% endif %}
 
-
         <form id="ratingForm">
             <input type="hidden" id="item_idx" name="item_idx" value="{{ book.item_idx }}">
             <div class="toggle-group" id="interactionSelector">
@@ -136,8 +134,61 @@
         </div>
     </div>
     </div>
-    <script>
 
+    <!-- ====== DETAIL COVER FALLBACK (same behavior as cards) ====== -->
+    <script>
+      (function () {
+        const img = document.getElementById('detailCover');
+
+        function escapeHtml(str) {
+          if (str == null) return '';
+          return String(str)
+            .replace(/&/g, '&amp;')
+            .replace(/</g, '&lt;')
+            .replace(/>/g, '&gt;')
+            .replace(/"/g, '&quot;')
+            .replace(/'/g, '&#039;');
+        }
+
+        // SVG placeholder sized to match your CSS (160×240 on detail page)
+        function placeholderDataURI(titleText) {
+          const svg =
+`<svg xmlns="http://www.w3.org/2000/svg" width="160" height="240" viewBox="0 0 160 240">
+  <defs>
+    <linearGradient id="g" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#f1f1f1"/>
+      <stop offset="100%" stop-color="#e7e7e7"/>
+    </linearGradient>
+  </defs>
+  <rect width="160" height="240" fill="url(#g)" />
+  <rect x="10" y="10" width="140" height="220" rx="8" ry="8"
+        fill="none" stroke="#cfcfcf" stroke-dasharray="6 4" />
+  <text x="80" y="116" font-size="18" text-anchor="middle" fill="#7a7a7a"
+        font-family="Arial, sans-serif">No cover</text>
+  <text x="80" y="138" font-size="10" text-anchor="middle" fill="#9a9a9a"
+        font-family="Arial, sans-serif">${escapeHtml(titleText).slice(0, 28)}</text>
+</svg>`;
+          return 'data:image/svg+xml;utf8,' + encodeURIComponent(svg);
+        }
+
+        const title = {{ (book.title | tojson) }};
+        const hasSrc = img.getAttribute('src') && img.getAttribute('src').trim() !== '';
+
+        // If template didn't set a src (no cover_id), use placeholder immediately
+        if (!hasSrc) {
+          img.src = placeholderDataURI(title || 'No cover');
+        }
+
+        // If remote cover fails, swap to placeholder once
+        img.onerror = function () {
+          if (this.dataset.fallback) return;
+          this.dataset.fallback = '1';
+          this.src = placeholderDataURI(title || 'No cover');
+        };
+      })();
+    </script>
+
+    <script>
 		let userRatingElement = document.getElementById('userRating');
 		let userCommentElement = document.getElementById('userComment');
 		let user_rating = {{ user_rating | tojson if user_rating else 'null' }};  
@@ -149,7 +200,6 @@
 		if (user_rating && user_rating.comment !== null && user_rating.comment.trim() !== "") {
 		    userCommentElement.style.display = 'block';
 		}
-
 	</script>
 
     <script>
@@ -240,7 +290,7 @@
                     prevButtonId: "prevButton",
                     nextButtonId: "nextButton",
                     limit: 30,
-                    showSimilarity: true,
+                    showSimilarity: false,
                     scrollOnFirstRender: true
                 });
             }
