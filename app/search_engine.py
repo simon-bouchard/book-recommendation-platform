@@ -41,6 +41,7 @@ def get_search_results(query, subject_idxs, page, per_page, db):
                 "author": row.get("author", "Unknown"),
                 "year": row.get("year"),
                 "cover_id": row.get("cover_id"),
+                "isbn": row.get("isbn"),
                 "bayes_score": float(bayesian_tensor[item_idx]) if item_idx < len(bayesian_tensor) else None
             })
 
@@ -63,6 +64,7 @@ def get_search_results(query, subject_idxs, page, per_page, db):
                 "author": book.author.name if book.author else "Unknown",
                 "year": book.year,
                 "cover_id": book.cover_id,
+                "isbn": book.isbn,
                 "bayes_score": float(bayesian_tensor[book.item_idx]) if book.item_idx < len(bayesian_tensor) else None
             })
 
