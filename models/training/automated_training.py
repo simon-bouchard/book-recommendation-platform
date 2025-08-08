@@ -37,8 +37,17 @@ REMOTE_MODELS = f"{REMOTE_HOST}:{REMOTE_REPO}/models/data"
 LOCAL_MODELS = PROJECT_ROOT / "models/data"
 LOG_DIR = Path(os.getenv("TRAIN_LOG_DIR", PROJECT_ROOT / "models/training/logs"))
 
+# Pick the correct train_subject_embs script based on ATTN_STRATEGY
+ATTN_STRATEGY = os.getenv("ATTN_STRATEGY", "scalar").lower()
+train_subject_script = f"train_subject_embs_{ATTN_STRATEGY}.py"
+
+# Fallback if script doesn’t exist (e.g., for scalar)
+train_subject_script_path = Path(PROJECT_ROOT / "models/training" / train_subject_script)
+if not train_subject_script_path.exists():
+    train_subject_script = "train_subject_embs_scalar.py"
+
 TRAIN_SCRIPTS = [
-    "train_subject_embs.py",
+    train_subject_script,
     "precompute_embs.py",
     "precompute_bayesian.py",
     "train_cold_gbt.py",
