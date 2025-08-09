@@ -806,3 +806,143 @@ li {
         font-size: 1.25rem;
     }
 }
+
+/* --- Hard mobile fixes: let the page actually shrink --- */
+
+/* 1) Navbar must be allowed to wrap, and flex children must be shrinkable */
+/* =========================
+   MOBILE BREAKPOINT: ≤700px
+   ========================= */
+@media (max-width: 700px) {
+  html, body {
+    width: 100%;
+    overflow-x: hidden;
+  }
+
+  .navbar-inner,
+  .navbar-center,
+  .navbar-right,
+  .book-details,
+  .container,
+  .login-container {
+    min-width: 0;
+  }
+
+  .navbar-inner {
+    flex-wrap: wrap;
+    justify-content: center;
+    gap: 6px;            /* tighter spacing */
+    padding: 8px 10px;   /* less padding for mobile */
+    max-width: 100%;
+  }
+
+  .navbar-center {
+    flex: 1 1 auto;
+    justify-content: center;
+    gap: 6px;
+  }
+
+  .navbar-right {
+    position: static;    /* remove absolute positioning */
+    width: auto;
+    flex: 0 1 auto;
+    justify-content: center;
+    gap: 6px;
+    margin: 0;
+  }
+
+  .navbar-left {
+    flex: 0 1 auto;
+    justify-content: center;
+  }
+
+  .navbar a {
+    padding: 6px 10px;
+    white-space: nowrap;
+  }
+}
+
+/* =========================
+   MOBILE BREAKPOINT: ≤600px
+   ========================= */
+@media (max-width: 600px) {
+  .book-header {
+    flex-direction: column;
+    align-items: center;
+  }
+
+  .book-details {
+    min-width: 0;
+    width: 100%;
+  }
+
+  .book-grid {
+    grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+    gap: 12px;
+  }
+
+  .book-card img.book-cover-img {
+    width: 130px;
+    height: 190px;
+  }
+
+  .profile-grid {
+    grid-template-columns: 1fr;
+    row-gap: 8px;
+  }
+
+  .container,
+  .login-container {
+    padding: 16px;
+  }
+
+  body {
+    align-items: stretch;
+    padding: 10px;
+  }
+
+  img,
+  video {
+    max-width: 100%;
+    height: auto;
+  }
+}
+
+/* =========================
+   MOBILE BREAKPOINT: ≤560px
+   ========================= */
+@media (max-width: 560px) {
+  .book-header {
+    flex-direction: column;
+    align-items: center;
+  }
+
+  .book-details {
+    min-width: 0;
+    width: 100%;
+  }
+
+  .book-cover img.book-cover-img {
+    width: 140px;
+  }
+
+  .book-grid {
+    grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+    gap: 12px;
+  }
+
+  .book-card img.book-cover-img {
+    width: 130px;
+    height: 190px;
+  }
+
+  html,
+  body {
+    overflow-x: hidden;
+  }
+
+  .container,
+  .login-container {
+    padding: 16px;
+  }
+}
