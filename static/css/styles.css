@@ -1,3 +1,52 @@
+:root {
+  /* Brand */
+  --color-primary: #007bff;
+  --color-primary-hover: #0069d9;
+  --color-primary-dark: #0056b3;
+
+  /* Neutrals */
+  --color-body-bg: #f4f4f4;
+  --color-surface: #ffffff;
+  --color-text: #333333;
+  --color-text-strong: #222222;
+  --color-text-muted: #666666;
+
+  /* Secondary */
+  --color-secondary: #e9ecef;
+  --color-secondary-hover: #d6d8db;
+
+  /* Borders */
+  --color-border: #cccccc;
+  --color-border-light: #eaeaea;
+  --color-border-lighter: #e0e0e0;
+
+  /* Accents for meta text */
+  --color-author: #444444;
+  --color-year: #777777;
+  --color-isbn: #999999;
+
+  /* Danger */
+  --color-danger: #dc3545;
+  --color-danger-hover: #c82333;
+  --color-danger-light-bg: #f4f1ec;
+  --color-danger-light-hover: #e8e3dd;
+  --color-danger-light-text: #a12c2c;
+  --color-danger-border: #dc3545;
+
+  /* Subjects (tags) */
+  --color-subject-bg: #e2ecf9;
+  --color-subject-text: #24496d;
+
+  /* Banners */
+  --color-warm-bg: #e6f4ea;
+  --color-warm-text: #276749;
+  --color-warm-border: #c6e2d5;
+
+  --color-cold-bg: #fff3cd;
+  --color-cold-text: #856404;
+  --color-cold-border: #ffeeba;
+}
+
 /* General Reset */
 * {
     font-family: 'Arial', sans-serif;
@@ -8,8 +57,8 @@
 
 /* Page Layout */
 body {
-    background-color: #f4f4f4;
-    color: #333;
+    background-color: var(--color-body-bg);
+    color: var(--color-text);
     padding: 20px;
     display: flex;
     flex-direction: column;
@@ -20,11 +69,11 @@ body {
 
 /* Containers */
 .container {
-    background: white;
+    background: var(--color-surface);
     border-radius: 8px;
     padding: 30px;
     box-shadow: 0px 2px 10px rgba(0, 0, 0, 0.1);
-    width: 100%; /* full width of layout */
+    width: 100%;
     text-align: left;
     margin-bottom: 20px;
 }
@@ -36,7 +85,7 @@ body {
 }
 
 .login-container {
-    background: white;
+    background: var(--color-surface);
     border-radius: 8px;
     padding: 30px;
     box-shadow: 0px 2px 10px rgba(0, 0, 0, 0.1);
@@ -56,24 +105,24 @@ body {
 /* Headings */
 h1 {
     font-size: 2.5rem;
-    color: #007bff;
+    color: var(--color-primary);
     text-align: center;
-    margin-top: 0; /* No top margin to keep it close to the top */
-    margin-bottom: 30px; /* Larger bottom margin to connect to the content below */
+    margin-top: 0;
+    margin-bottom: 30px;
 }
 
 h2 {
     font-size: 2rem;
-    color: #0056b3;
-    margin-top: 20px; /* Larger top margin to separate from the element above */
-    margin-bottom: 8px; /* Smaller bottom margin to connect to the content below */
+    color: var(--color-primary-dark);
+    margin-top: 20px;
+    margin-bottom: 8px;
 }
 
 h3 {
     font-size: 1.5rem;
     color: #004080;
-    margin-top: 20px; /* Larger top margin to separate from the element above */
-    margin-bottom: 8px; /* Smaller bottom margin to connect to the content below */
+    margin-top: 20px;
+    margin-bottom: 8px;
 }
 
 /* Forms */
@@ -84,37 +133,36 @@ form {
     flex-direction: column;
     width: 100%;
     max-width: 400px;
-    gap: 10px; /* Reduced gap for tighter spacing */
+    gap: 10px;
     margin: auto;
 }
 
 form label {
     font-weight: bold;
-    margin-bottom: 5px; /* Small bottom margin to connect to the input below */
+    margin-bottom: 5px;
 }
 
 form input {
     width: 100%;
     padding: 12px;
-    border: 1px solid #ccc;
+    border: 1px solid var(--color-border);
     border-radius: 5px;
     font-size: 1rem;
-    margin-bottom: 15px; /* Larger bottom margin to separate from the next element */
+    margin-bottom: 15px;
 }
 
 form select {
     width: 100%;
     padding: 12px;
-    border: 1px solid #ccc;
+    border: 1px solid var(--color-border);
     border-radius: 5px;
     font-size: 1rem;
     margin-bottom: 15px;
-    background-color: white;
+    background-color: var(--color-surface);
     appearance: none;
 }
 
 /* Buttons */
-/* Base */
 .btn {
   display: inline-block;
   padding: 8px 16px;
@@ -133,40 +181,39 @@ form select {
 
 /* Primary */
 .btn--primary {
-  background-color: #007bff;
+  background-color: var(--color-primary);
   color: #fff;
 }
 .btn--primary:hover {
-  background-color: #0069d9;
+  background-color: var(--color-primary-hover);
 }
 
 /* Secondary */
 .btn--secondary {
-  background-color: #e9ecef;
+  background-color: var(--color-secondary);
   color: #212529;
 }
 .btn--secondary:hover {
-  background-color: #d6d8db;
+  background-color: var(--color-secondary-hover);
 }
 
 /* Danger / Cancel */
 .btn--danger {
-  background-color: #dc3545;
+  background-color: var(--color-danger);
   color: #fff;
 }
 .btn--danger:hover {
-  background-color: #c82333;
+  background-color: var(--color-danger-hover);
 }
 
-/* Light Danger — for less destructive or secondary danger actions */
+/* Light Danger */
 .btn--danger-light {
-  background-color: #f4f1ec;
-  color: #a12c2c;
-  border: 1px solid #dc3545;
+  background-color: var(--color-danger-light-bg);
+  color: var(--color-danger-light-text);
+  border: 1px solid var(--color-danger-border);
 }
-
 .btn--danger-light:hover {
-  background-color: #e8e3dd;
+  background-color: var(--color-danger-light-hover);
 }
 
 /* Small */
@@ -206,14 +253,14 @@ form select {
 }
 
 .links a {
-    color: #007bff;
+    color: var(--color-primary);
     text-decoration: none;
     font-weight: bold;
     transition: color 0.3s ease;
 }
 
 .links a:hover {
-    color: #0056b3;
+    color: var(--color-primary-dark);
     text-decoration: underline;
 }
 
@@ -237,8 +284,8 @@ form select {
 }
 
 .book-card {
-  background: #fff;
-  border: 1px solid #eaeaea;
+  background: var(--color-surface);
+  border: 1px solid var(--color-border-light);
   border-radius: 8px;
   box-shadow: 0 2px 8px rgba(0,0,0,0.06);
   padding: 12px 12px 20px;
@@ -250,7 +297,6 @@ form select {
   text-align: center;
   height: 100%;
 
-  /* smoother motion on lift */
   transition: box-shadow 0.25s ease, transform 0.35s cubic-bezier(0.4, 0, 0.2, 1);
 }
 
@@ -269,7 +315,7 @@ form select {
   flex: 0 0 auto;
 }
 
-/* Title: reserve EXACTLY 3 lines, centered vertically */
+/* Title block */
 .book-card .book-title {
   line-height: 1.2;
   height: calc(1.2em * 1.5);
@@ -280,7 +326,7 @@ form select {
 
 .book-card .book-title-text {
   display: -webkit-box;
-  -webkit-line-clamp: 2;         /* up to 3 lines */
+  -webkit-line-clamp: 2;
   -webkit-box-orient: vertical;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -288,8 +334,8 @@ form select {
   line-height: 1.2;
   max-width: 100%;
 
-  font-size: 1.1rem;             /* card title size */
-  color: #007bff;
+  font-size: 1.1rem;
+  color: var(--color-primary);
 }
 
 /* Meta */
@@ -302,26 +348,26 @@ form select {
   margin: 0;
   flex: 0 0 auto;
 }
-.book-card p.author { color: #444; }
+.book-card p.author { color: var(--color-author); }
 .book-card p.author i { font-style: italic; }
-.book-card p.year   { font-size: 0.85rem; color: #777; }
-.book-card p.isbn   { font-size: 0.8rem;  color: #999; }
+.book-card p.year   { font-size: 0.85rem; color: var(--color-year); }
+.book-card p.isbn   { font-size: 0.8rem;  color: var(--color-isbn); }
 
-/* push meta block to bottom; extra space sits between title and meta */
+/* push meta block to bottom */
 .book-card h3 + p { margin-top: auto; }
 
 .subject-list {
     display: flex;
     flex-wrap: wrap;
-    justify-content: center; /* center just the tags */
+    justify-content: center;
     margin-top: 5px;
     margin-bottom: 15px;
-    gap: 6px 10px; /* tighter spacing between rows and columns */
+    gap: 6px 10px;
 }
 
 .subject-pill {
-    background: #007bff;
-    color: white;
+    background: var(--color-primary);
+    color: #ffffff;
     padding: 5px 10px;
     border-radius: 20px;
     font-size: 0.8rem;
@@ -355,7 +401,7 @@ form select {
 }
 
 .book-subjects-collapsed {
-    max-height: 5.7em; /* about 3 lines */
+    max-height: 5.7em;
     overflow: hidden;
     position: relative;
 }
@@ -367,7 +413,7 @@ form select {
     bottom: 0;
     width: 100%;
     height: 2.5em;
-    background: linear-gradient(to bottom, rgba(255, 255, 255, 0), white 85%);
+    background: linear-gradient(to bottom, rgba(255, 255, 255, 0), var(--color-surface) 85%);
     pointer-events: none;
 }
 
@@ -389,7 +435,7 @@ form select {
 
 .toggle-option {
     padding: 8px 16px;
-    border: 1px solid #ccc;
+    border: 1px solid var(--color-border);
     border-radius: 20px;
     cursor: pointer;
     background-color: #f2f2f2;
@@ -402,17 +448,16 @@ form select {
 }
 
 .toggle-option.selected {
-    background-color: #007BFF;
-    color: white;
-    border-color: #007BFF;
+    background-color: var(--color-primary);
+    color: #ffffff;
+    border-color: var(--color-primary);
 }
 
 
 .toggle-link {
     display: inline-block;
     padding: 1px 2px;
-    /*margin-left: 4px;*/
-    color: #007bff;
+    color: var(--color-primary);
     font-size: 0.85em;
     font-weight: normal;
     text-decoration: underline;
@@ -422,13 +467,13 @@ form select {
 }
 
 .toggle-link:hover {
-    color: #0056b3;
+    color: var(--color-primary-dark);
     text-decoration: none;
 }
 
 /* Error messages */
 .form-error {
-    color: red;
+    color: var(--color-danger);
     font-size: 0.85rem;
     margin-bottom: 10px;
 }
@@ -442,7 +487,7 @@ form select {
 #subject-input {
     width: 100%;
     padding: 12px;
-    border: 1px solid #ccc;
+    border: 1px solid var(--color-border);
     border-radius: 5px;
     font-size: 1rem;
     margin-bottom: 8px;
@@ -453,8 +498,8 @@ form select {
     top: 100%;
     left: 0;
     right: 0;
-    background: white;
-    border: 1px solid #ccc;
+    background: var(--color-surface);
+    border: 1px solid var(--color-border);
     max-height: 150px;
     overflow-y: auto;
     z-index: 10;
@@ -480,7 +525,7 @@ form select {
 
 .subject-count {
     font-size: 0.85rem;
-    color: #888;
+    color: #888888;
     margin-left: 10px;
     white-space: nowrap;
 }
@@ -494,8 +539,8 @@ form select {
 }
 
 .pill {
-    background: #007bff;
-    color: white;
+    background: var(--color-primary);
+    color: #ffffff;
     padding: 5px 10px;
     border-radius: 20px;
     font-size: 0.85rem;
@@ -513,18 +558,18 @@ form select {
 
 /* Lists */
 ul {
-    padding-left: 20px; /* Add padding to align bullets with the rest of the content */
-    list-style-position: inside; /* Ensure bullets are inside the padding area */
+    padding-left: 20px;
+    list-style-position: inside;
 }
 
 li {
-    margin-bottom: 10px; /* Add spacing between list items */
+    margin-bottom: 10px;
 }
 
 /* Navbar */
 .navbar {
     width: 100%;
-    background-color: #007bff;
+    background-color: var(--color-primary);
     padding: 10px 0;
     box-shadow: 0 2px 4px rgba(0,0,0,0.1);
     border-radius: 8px;
@@ -536,7 +581,7 @@ li {
     margin: auto;
     position: relative;
     display: flex;
-    justify-content: center;  /* center center block */
+    justify-content: center;
     align-items: center;
     padding: 0 20px;
 }
@@ -555,21 +600,21 @@ li {
 }
 
 .navbar a {
-    color: white;
+    color: #ffffff;
     text-decoration: none;
     font-weight: bold;
     padding: 6px 14px;
-    border-radius: 20px; /* always pill */
+    border-radius: 20px;
     transition: background-color 0.2s ease, color 0.2s ease;
 }
 
 .navbar a:hover {
-    background-color: #0056b3;
+    background-color: var(--color-primary-dark);
 }
 
 .navbar a.active {
-    background-color: white;
-    color: #007bff;
+    background-color: #ffffff;
+    color: var(--color-primary);
     font-weight: bold;
     border-radius: 20px;
     padding: 6px 14px;
@@ -591,9 +636,9 @@ li {
 }
 
 .comment-block {
-    border: 1px solid #e0e0e0;
+    border: 1px solid var(--color-border-lighter);
     border-radius: 6px;
-    background-color: #fff;
+    background-color: var(--color-surface);
     padding: 14px 16px;
 }
 
@@ -601,18 +646,18 @@ li {
     display: flex;
     justify-content: space-between;
     font-size: 0.95rem;
-    color: #333;
+    color: var(--color-text);
     margin-bottom: 8px;
 }
 
 .comment-username {
     font-weight: bold;
-    color: #222;
+    color: var(--color-text-strong);
 }
 
 .comment-rating {
-    background-color: #007bff;
-    color: white;
+    background-color: var(--color-primary);
+    color: #ffffff;
     padding: 2px 8px;
     border-radius: 12px;
     font-size: 0.85rem;
@@ -620,13 +665,13 @@ li {
 
 .comment-body {
     font-size: 0.95rem;
-    color: #444;
+    color: #444444;
     line-height: 1.4;
     white-space: pre-wrap;
 }
 
 .no-comments {
-    color: #666;
+    color: var(--color-text-muted);
     text-align: center;
     font-style: italic;
 }
@@ -664,7 +709,7 @@ li {
 
 .book-meta {
     margin-bottom: 0.4em;
-    color: #555;
+    color: #555555;
     font-size: 0.95rem;
 }
 
@@ -686,13 +731,12 @@ li {
 }
 
 .subject-pill {
-    background-color: #e2ecf9;
-    color: #24496d;
+    background-color: var(--color-subject-bg);
+    color: var(--color-subject-text);
     padding: 4px 10px;
     border-radius: 999px;
     font-size: 0.85rem;
 }
-
 
 .book-description-container {
     margin-bottom: 30px;
@@ -710,7 +754,7 @@ li {
 }
 
 .toggle-link {
-    color: #007BFF;
+    color: var(--color-primary);
     cursor: pointer;
     font-size: 0.9em;
 }
@@ -718,7 +762,7 @@ li {
 .profile-card {
     padding: 20px;
     background-color: #fdfdfd;
-    border: 1px solid #ddd;
+    border: 1px solid #dddddd;
     border-radius: 8px;
     box-shadow: 0 2px 6px rgba(0,0,0,0.05);
     margin-bottom: 30px;
@@ -746,19 +790,19 @@ li {
 }
 
 .warm-user-banner {
-    background-color: #e6f4ea;
-    color: #276749;
-    border: 1px solid #c6e2d5;
+    background-color: var(--color-warm-bg);
+    color: var(--color-warm-text);
+    border: 1px solid var(--color-warm-border);
 }
 
 .cold-user-banner {
-    background-color: #fff3cd;
-    color: #856404;
-    border: 1px solid #ffeeba;
+    background-color: var(--color-cold-bg);
+    color: var(--color-cold-text);
+    border: 1px solid var(--color-cold-border);
 }
 
 .no-subjects {
-    color: #666;
+    color: var(--color-text-muted);
     font-style: italic;
     margin-top: 10px;
 }
@@ -767,13 +811,13 @@ li {
 .section-header {
   display: flex;
   justify-content: space-between;
-  align-items: center; /* perfectly centers heading & button */
+  align-items: center;
   gap: 10px;
   margin-bottom: 12px;
 }
 
 .section-header h3 {
-  margin: 0;          
+  margin: 0;
 }
 
 
@@ -807,12 +851,9 @@ li {
     }
 }
 
-/* --- Hard mobile fixes: let the page actually shrink --- */
+/* --- Hard mobile fixes --- */
 
-/* 1) Navbar must be allowed to wrap, and flex children must be shrinkable */
-/* =========================
-   MOBILE BREAKPOINT: ≤700px
-   ========================= */
+/* ≤700px */
 @media (max-width: 700px) {
   html, body {
     width: 100%;
@@ -831,8 +872,8 @@ li {
   .navbar-inner {
     flex-wrap: wrap;
     justify-content: center;
-    gap: 6px;            /* tighter spacing */
-    padding: 8px 10px;   /* less padding for mobile */
+    gap: 6px;
+    padding: 8px 10px;
     max-width: 100%;
   }
 
@@ -843,7 +884,7 @@ li {
   }
 
   .navbar-right {
-    position: static;    /* remove absolute positioning */
+    position: static;
     width: auto;
     flex: 0 1 auto;
     justify-content: center;
@@ -862,9 +903,7 @@ li {
   }
 }
 
-/* =========================
-   MOBILE BREAKPOINT: ≤600px
-   ========================= */
+/* ≤600px */
 @media (max-width: 600px) {
   .book-header {
     flex-direction: column;
@@ -908,9 +947,7 @@ li {
   }
 }
 
-/* =========================
-   MOBILE BREAKPOINT: ≤560px
-   ========================= */
+/* ≤560px */
 @media (max-width: 560px) {
   .book-header {
     flex-direction: column;
