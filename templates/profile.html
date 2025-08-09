@@ -15,8 +15,27 @@
         <h2 style='text-align:center'>Welcome, {{ user.username }}</h2>
 
         <div id="profileDisplay" class="profile-card">
+            
+            <div class="profile-status-row" style="grid-column: 1 / -1;">
+                {% if user.is_warm %}
+                    <div class="warm-user-banner">
+                        ✅ You're a <strong>warm user</strong> — you've rated enough books to receive personalized recommendations.
+                    </div>
+                {% elif user.num_ratings >= 10 %}
+                    <div class="cold-user-banner">
+                        ⏳ You've rated <strong>{{ user.num_ratings }}</strong> books — you're eligible for personalized recommendations, but the server hasn't updated yet. Please check back soon!
+                    </div>
+                {% else %}
+                    <div class="cold-user-banner">
+                        ⚠️ You're a <strong>cold user</strong> — rate at least 10 books to unlock personalized recommendations.
+                    </div>
+                {% endif %}
+            </div>
+
             <h3>Profile Information</h3>
+
             <div class="profile-grid">
+
                 <div><strong>Username:</strong></div><div>{{ user.username }}</div>
                 <div><strong>User ID:</strong></div><div>{{ user.id }}</div>
                 <div><strong>Email:</strong></div><div>{{ user.email }}</div>
@@ -24,23 +43,7 @@
                 <div><strong>Country:</strong></div><div>{{ user.country }}</div>
                 <div><strong>Ratings:</strong></div><div>{{ user.num_ratings }}</div>
                 <div><strong>Books Read:</strong></div><div>{{ user.num_ratings }}</div>
-
-                <div class="profile-status-row" style="grid-column: 1 / -1;">
-                    {% if user.is_warm %}
-                        <div class="warm-user-banner">
-                            ✅ You're a <strong>warm user</strong> — you've rated enough books to receive personalized recommendations.
-                        </div>
-                    {% elif user.num_ratings >= 10 %}
-                        <div class="cold-user-banner">
-                            ⏳ You've rated <strong>{{ user.num_ratings }}</strong> books — you're eligible for personalized recommendations, but the server hasn't updated yet. Please check back soon!
-                        </div>
-                    {% else %}
-                        <div class="cold-user-banner">
-                            ⚠️ You're a <strong>cold user</strong> — rate at least 10 books to unlock personalized recommendations.
-                        </div>
-                    {% endif %}
-                </div>
-
+                
             </div>
 
             <h4>Your Favorite Subjects</h4>
@@ -57,7 +60,6 @@
             <button id="editProfileBtn">Edit Profile</button>
         </div>
 
-        <h2>Profile Actions</h2>        
         <div id="profileEditForm" style="display: none;">
             <h3>Edit Profile</h3>
             <form id="profileForm">
