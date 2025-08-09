@@ -116,20 +116,30 @@ class ModelStore:
         return cls._instance
 
     def _init_once(self):
-        self._subject_emb = None
+        # Core caches
         self._book_embs = None
         self._book_ids = None
         self._item_idx_to_row = None
+
+        # Precomputed tensors / metadata
         self._bayesian_tensor = None
         self._book_meta = None
         self._user_meta = None
         self._book_to_subj = None
+
+        # Models
         self._cold_gbt = None
         self._warm_gbt = None
+
+        # ALS embeddings and lookup maps
         self._user_als_embs = None
         self._book_als_embs = None
         self._user_id_to_als_row = None
         self._book_row_to_item_idx = None
+
+        # Attention strategy cache (aligns with get_attention_strategy)
+        self._attn_strategy = None
+        self._attn_strategy_name = None
 
     def get_book_embeddings(self):
         if self._book_embs is None:
