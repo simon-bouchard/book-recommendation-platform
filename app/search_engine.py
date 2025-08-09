@@ -12,13 +12,14 @@ _, book_ids = store.get_book_embeddings()
 def get_search_results(query, subject_idxs, page, per_page, db):
     offset = page * per_page
     results = []
+    has_next = False
 
     if query.strip() == "":
+        # POPULAR / NO-QUERY PATH
         topk_idx = torch.topk(torch.tensor(bayesian_tensor), 1000).indices.tolist()
         topk_item_idxs = [book_ids[i] for i in topk_idx]
 
         filtered_meta = BOOK_META
-
         if subject_idxs:
             valid_books = db.query(BookSubject.item_idx).filter(
                 BookSubject.subject_idx.in_(subject_idxs)
@@ -34,7 +35,13 @@ def get_search_results(query, subject_idxs, page, per_page, db):
         )
         filtered_meta = filtered_meta.sort_values("__sort_idx__").drop(columns="__sort_idx__")
 
-        for item_idx, row in filtered_meta.iloc[offset:offset + per_page].iterrows():
+        # look-ahead slice
+        slice_df = filtered_meta.iloc[offset:offset + per_page + 1]
+        has_next = len(slice_df) > per_page
+        if has_next:
+            slice_df = slice_df.iloc[:per_page]
+
+        for item_idx, row in slice_df.iterrows():
             results.append({
                 "item_idx": item_idx,
                 "title": row["title"],
@@ -46,16 +53,23 @@ def get_search_results(query, subject_idxs, page, per_page, db):
             })
 
     else:
-        q = db.query(Book).join(BookSubject, Book.item_idx == BookSubject.item_idx).filter(Book.title.ilike(f"%{query}%"))
+        # QUERY PATH
+        q = db.query(Book).join(BookSubject, Book.item_idx == BookSubject.item_idx).filter(
+            Book.title.ilike(f"%{query}%")
+        )
 
         if subject_idxs:
-            q = q.filter(BookSubject.subject_idx.in_(subject_idxs)).group_by(Book.item_idx).having(
-                func.count(func.distinct(BookSubject.subject_idx)) == len(subject_idxs)
-            )
+            q = (q.filter(BookSubject.subject_idx.in_(subject_idxs))
+                   .group_by(Book.item_idx)
+                   .having(func.count(func.distinct(BookSubject.subject_idx)) == len(subject_idxs)))
         else:
             q = q.group_by(Book.item_idx)
 
-        books = q.offset(offset).limit(per_page).all()
+        # look-ahead limit
+        books = q.offset(offset).limit(per_page + 1).all()
+        has_next = len(books) > per_page
+        if has_next:
+            books = books[:per_page]
 
         for book in books:
             results.append({
@@ -68,4 +82,4 @@ def get_search_results(query, subject_idxs, page, per_page, db):
                 "bayes_score": float(bayesian_tensor[book.item_idx]) if book.item_idx < len(bayesian_tensor) else None
             })
 
-    return results
+    return results, has_next

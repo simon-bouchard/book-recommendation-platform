@@ -344,16 +344,18 @@ def search_books(
         subject_rows = db.query(Subject).filter(Subject.subject.in_(subject_list)).all()
         subject_idxs = [s.subject_idx for s in subject_rows]
 
-    results = get_search_results(query, subject_idxs, page, 60, db)
+    results, has_next = get_search_results(query, subject_idxs, page, 60, db)
     subject_suggestions = get_all_subject_counts(db)
-
+    
     return templates.TemplateResponse("search.html", {
         "request": request,
         "results": clean_float_values(results),
         "query": query,
         "subjects": subjects or [],
         "subject_suggestions": subject_suggestions[:20],
-        "page": "search"
+        "page": "search",
+        "has_next": has_next,
+        "has_prev": page > 0
     })
 
 @router.get("/search/json")
@@ -369,8 +371,12 @@ def search_books_json(
         subject_rows = db.query(Subject).filter(Subject.subject.in_(subject_list)).all()
         subject_idxs = [s.subject_idx for s in subject_rows]
 
-    results = get_search_results(query, subject_idxs, page, 60, db)
-    return {"results": clean_float_values(results)}
+    results, has_next = get_search_results(query, subject_idxs, page, 60, db)
+    return {
+        "results": clean_float_values(results),
+        "has_next": has_next,
+        "has_prev": page > 0
+    }
 
 @router.get("/subjects/suggestions")
 def subject_suggestions(q: Optional[str] = Query(default=None), db: Session = Depends(get_db)):
