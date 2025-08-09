@@ -9,7 +9,7 @@ from models.candidate_generators import ALSCandidateGenerator, ColdHybridCandida
 # --------------------------------
 class RecommenderStrategy(ABC):
     @abstractmethod
-    def recommend(self, user_id: int) -> list[int]:
+    def recommend(self, user, db: Session, top_k: int) -> list[dict]:
         pass
 
     @staticmethod
@@ -33,14 +33,14 @@ class WarmRecommender(RecommenderStrategy):
     def __init__(self):
         self.engine = RecommendationEngine(ALSCandidateGenerator(), GBTWarmReranker())
 
-    def recommend(self, user, db: Session) -> list[dict]:
+    def recommend(self, user, db: Session, top_k: int) -> list[dict]:
         print('warm')
-        return self.engine.recommend(user, db=db)
+        return self.engine.recommend(user, top_k=top_k, db=db)
 
 class ColdRecommender(RecommenderStrategy):
     def __init__(self):
         self.engine = RecommendationEngine(ColdHybridCandidateGenerator(), NoOpReranker())
 
-    def recommend(self, user: int, db: Session) -> list[int]:
+    def recommend(self, user, db: Session, top_k: int) -> list[dict]:
         print('cold')
-        return self.engine.recommend(user, db=db)
+        return self.engine.recommend(user, top_k=top_k, db=db)
