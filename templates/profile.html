@@ -32,7 +32,10 @@
                 {% endif %}
             </div>
 
-            <h3>Profile Information</h3>
+            <div class="section-header">
+                <h3>Profile Information</h3>
+                <button id="editProfileBtn" class="btn btn--secondary btn--sm">Edit Profile</button>
+            </div>
 
             <div class="profile-grid">
 
@@ -56,8 +59,6 @@
             {% else %}
                 <p class="no-subjects">You haven't selected any favorite subjects yet.</p>
             {% endif %}
-
-            <button id="editProfileBtn">Edit Profile</button>
         </div>
 
         <div id="profileEditForm" style="display: none;">
@@ -84,20 +85,23 @@
                 <div id="subject-pills" class="pill-container"></div>
                 <input type="hidden" name="favorite_subjects" id="fav_subjects-hidden">
 
-                <button type="submit">Save</button>
-                <button type="button" id="cancelEditBtn">Cancel</button>
+                <button type="submit" class="btn btn--primary">Save</button>
+                <button type="button" id="cancelEditBtn" class="btn btn--danger">Cancel</button>
             </form>
             <p id="profileMessage" style="color: green; display: none;"></p>
         </div>
 
         <h3>Personalised Recommendations</h3>
-        <button id="recommendButton">Get Recommendations</button>
+        <div class="section-cta">
+            <button id="recommendButton" class="btn btn--primary btn--lg">Get Recommendations</button>
+        </div>
+
         <div id="recommendations" style="display: none"></div>
         <div class="pagination-buttons">
-            <button id="prevButton" style="display: none;">Previous</button>
-            <button id="nextButton" style="display: none;">Next</button>
+            <button id="prevButton" class="btn btn--secondary btn--sm" style="display: none;">Previous</button>
+            <button id="nextButton" class="btn btn--secondary btn--sm" style="display: none;">Next</button>
         </div>
-    </div>
+
 </div>
     <script type="module">
         import { setupPaginatedBookDisplay } from "/static/js/paginated_books.js";
