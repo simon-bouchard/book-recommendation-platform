@@ -108,7 +108,7 @@
         import { setupPaginatedBookDisplay } from "/static/js/paginated_books.js";
 
         document.getElementById('recommendButton').onclick = async () => {
-            const res = await fetch(`/profile/recommend?user={{ user.id }}&top_n=100`);
+            const res = await fetch(`/profile/recommend?user={{ user.id }}&top_n=200`);
             const data = await res.json();
 
             if (res.ok) {
