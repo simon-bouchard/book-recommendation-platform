@@ -151,6 +151,29 @@ async def new_rating(current_user = Depends(get_current_user), data: dict = Body
 
     return {'message': 'Interaction recorded successfully'}
 
+@router.delete("/rating/{item_idx}")
+async def delete_rating(
+    item_idx: int,
+    current_user = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    if not current_user:
+        raise HTTPException(status_code=401, detail="Not authenticated")
+
+    interaction = db.query(Interaction).filter(
+        Interaction.user_id == current_user.user_id,
+        Interaction.item_idx == item_idx
+    ).first()
+
+    if not interaction:
+        # Idempotent delete; OK if there's nothing to remove
+        return {"message": "No rating found to delete"}
+
+    db.delete(interaction)
+    db.commit()
+    return {"message": "Rating deleted"}
+
+
 @router.get('/book/{item_idx}', response_class=HTMLResponse)
 async def book_recommendation(request: Request, item_idx: int, current_user: User = Depends(get_current_user), db: Session = Depends(get_db)):
 

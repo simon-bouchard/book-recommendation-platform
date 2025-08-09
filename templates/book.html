@@ -361,6 +361,38 @@
     </script>
 
     <script>
+        (function () {
+            const deleteBtn = document.getElementById("deleteRating");
+            if (!deleteBtn) return;
+
+            deleteBtn.addEventListener("click", async (e) => {
+                e.preventDefault();
+                if (!confirm("Delete your rating/comment for this book?")) return;
+
+                const item_idx = document.getElementById("item_idx").value;
+
+                const resp = await fetch(`/rating/${encodeURIComponent(item_idx)}`, {
+                    method: "DELETE"
+                });
+
+                if (resp.status === 401) {
+                    alert("You must be logged in to delete your rating.");
+                    window.location.href = "/login";
+                    return;
+                }
+
+                const result = await resp.json();
+                if (resp.ok) {
+                    alert(result.message);
+                    window.location.reload();
+                } else {
+                    alert("Error: " + (result.detail || "Unknown error"));
+                }
+            });
+        })();
+    </script>
+
+    <script>
         function toggleRatingSection() {
             const interactionType = document.getElementById("interaction_type").value;
             const ratingSection = document.getElementById("ratingSection");
