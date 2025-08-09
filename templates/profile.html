@@ -86,7 +86,8 @@
                 <input type="hidden" name="favorite_subjects" id="fav_subjects-hidden">
 
                 <button type="submit" class="btn btn--primary">Save</button>
-                <button type="button" id="cancelEditBtn" class="btn btn--danger">Cancel</button>
+                <button type="button" id="cancelEditBtn" class="btn btn--danger-light">Cancel</button>
+                <button type="button" id="deleteAccountBtn" class="btn btn--danger">Delete Account</button>
             </form>
             <p id="profileMessage" style="color: green; display: none;"></p>
         </div>
@@ -186,6 +187,36 @@
         };
 
     </script>
+
+<script>
+    (function () {
+        const delBtn = document.getElementById("deleteAccountBtn");
+        if (!delBtn) return;
+
+        delBtn.addEventListener("click", async () => {
+            const check = prompt("Type DELETE to permanently remove your account (this cannot be undone).");
+            if (check !== "DELETE") return;
+
+            const resp = await fetch("/profile", { method: "DELETE" });
+
+            if (resp.status === 401) {
+                // Not logged in (or expired): send to login
+                window.location.href = "/login";
+                return;
+            }
+
+            const data = await resp.json().catch(() => ({}));
+
+            if (resp.ok) {
+                alert(data.message || "Profile deleted.");
+                // Clear cookie via your existing logout endpoint, then land on login
+                window.location.href = "/logout";
+            } else {
+                alert("Error: " + (data.detail || "Unable to delete profile."));
+            }
+        });
+    })();
+</script>
 
 </body>
 </html>

@@ -108,6 +108,29 @@ async def update_profile(
     db.commit()
     return {"message": "Profile updated"}
 
+@router.delete("/profile")
+def delete_profile(
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    if not current_user:
+        raise HTTPException(status_code=401, detail="Not authenticated")
+
+    # Re-fetch as ORM row to be safe
+    user = db.query(User).filter(User.user_id == current_user.user_id).first()
+    if not user:
+        raise HTTPException(status_code=404, detail="User not found")
+
+    # Remove dependents explicitly (don’t rely on DB cascade)
+    db.query(UserFavSubject).filter(UserFavSubject.user_id == user.user_id).delete(synchronize_session=False)
+    db.query(Interaction).filter(Interaction.user_id == user.user_id).delete(synchronize_session=False)
+
+    # Delete user
+    db.delete(user)
+    db.commit()
+
+    return {"message": "Profile deleted"}
+
 @router.post('/rating')
 async def new_rating(current_user = Depends(get_current_user), data: dict = Body(...), db: Session = Depends(get_db)):
 
