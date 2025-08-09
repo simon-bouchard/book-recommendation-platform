@@ -90,8 +90,8 @@
                     });
 
                     booksContainer.style.display = "block";
-                    prevBtn.style.display = page > 0 ? "inline-block" : "none";
-                    nextBtn.style.display = "inline-block";
+                    prevBtn.style.display = data.has_prev ? "inline-block" : "none";
+                    nextBtn.style.display = data.has_next ? "inline-block" : "none";
 
                     if (shouldScroll) {
                         booksContainer.scrollIntoView({ behavior: "smooth" });
