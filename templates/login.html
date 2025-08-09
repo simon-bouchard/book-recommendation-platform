@@ -11,16 +11,16 @@
     
     {% include 'navbar.html' %}
     <div class="login-container">
-        <h1>Book Recommendation</h1>
+        <h1>Account</h1>
 
-        <h2>Log in</h2>
+        <h2>Log In</h2>
         <form id="login" method="post" action="/auth/login">
             <input type="text" name="username" placeholder="Username" required>
             <input type="password" name="password" placeholder="Password" required>
             <button type="submit" class="btn btn--primary btn--block">Log In</button>
         </form>
 
-        <h2>Sign up</h2>
+        <h2>Sign Up</h2>
         <form id="signup" method="post" action="/auth/signup" onsubmit="return validateSignupForm()">
             <label for="username">Username:</label>
             <input type="text" name="username" required>
