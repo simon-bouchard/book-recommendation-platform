@@ -10,9 +10,9 @@
     <div class="container">
         {% include 'navbar.html' %}
 
-        <h1>Discover Your Next Favorite Book</h1>
+        <h1>Machine Learning Book Recommender (Portfolio)</h1>
         <p style="text-align:center; font-size: 1.1rem; margin-bottom: 30px;">
-            Smart, personalized recommendations — powered by machine learning.
+            An end‑to‑end project exploring data cleaning, recommendation modeling, and deployment.
         </p>
 
         <div class="toggle-group" style="justify-content: center;">
@@ -20,14 +20,23 @@
             <a href="/profile"><button>🎯 Get Recommendations</button></a>
             <a href="/login"><button>👤 Log In / Sign Up</button></a>
         </div>
+
+        <div style="background:#f1f5ff; border:1px solid #d6e4ff; padding:12px 14px; border-radius:8px; margin-top:18px; text-align:center;">
+            <strong>Project Note:</strong> This app uses the <em>Book‑Crossing</em> dataset as a starting point. 
+            The raw data contained significant noise and inconsistencies. I implemented extensive cleaning and 
+            enrichment (e.g., standardized metadata, subject mapping), but a small number of errors can still persist.
+            The app exists to showcase the ML pipeline and engineering, not perfect catalog data.
+        </div>
     </div>
 
     <div class="container">
-        <h2>Why Use This App?</h2>
+        <h2>What This Demonstrates</h2>
         <ul>
-            <li><strong>📚 Personalized Recommendations:</strong> Based on your favorite genres and past ratings.</li>
-            <li><strong>🔁 Similar Books:</strong> Find books similar to the ones you love.</li>
-            <li><strong>⭐ Community Ratings:</strong> See reviews and scores from other readers.</li>
+            <li><strong>End‑to‑end ML build:</strong> data ingestion → cleaning → modeling → deployment.</li>
+            <li><strong>Recommendation UX:</strong> cold‑start via subjects; warm personalization via ratings.</li>
+            <li><strong>Evaluation in the wild:</strong> popularity ranking and similar‑book browsing to gather signal.</li>
+            <li><strong>MLOps mindset:</strong> scheduled retraining on a separate server with automated deployment.</li>
+            <li><strong>Performance & scale:</strong> low‑latency candidate retrieval and reranking.</li>
         </ul>
     </div>
 
@@ -55,6 +64,19 @@
                 The more books you rate, the better your recommendations become. You can also find similar books on any book's detail page.
             </li>
         </ol>
+    </div>
+
+    <div class="container">
+        <h2>Behind the Scenes</h2>
+        <ul>
+            <li><strong>Data pipeline:</strong> Book‑Crossing base with extensive cleaning/enrichment (standardized metadata, subject mapping).</li>
+            <li><strong>Retrieval:</strong> implicit‑feedback <strong>ALS</strong> embeddings for fast user–item candidate generation.</li>
+            <li><strong>Content similarity:</strong> attention‑pooled <strong>subject embeddings</strong> scored via <strong>cosine similarity</strong>.</li>
+            <li><strong>ANN search:</strong> <strong>FAISS</strong> indexes over ALS and subject spaces for efficient top‑K lookups.</li>
+            <li><strong>Popularity:</strong> <strong>Bayesian</strong> adjustment balances rating averages with rating counts.</li>
+            <li><strong>Reranking:</strong> <strong>LightGBM</strong> merges metadata and decomposed embeddings to refine results.</li>
+            <li><strong>Automation:</strong> scheduled training on a separate server; artifacts exported and hot‑reloaded without downtime.</li>
+        </ul>
     </div>
 
 </div>
