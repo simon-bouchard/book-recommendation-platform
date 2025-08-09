@@ -104,33 +104,38 @@
             <label for="comment">Comment (optional):</label>
             <textarea id="comment" name="comment" rows="3">{{ user_rating.comment if user_rating else '' }}</textarea>
 
-            <button type="submit">Submit</button>
+            <button id="submitRating" class="btn btn--primary btn--sm">Save Rating</button>
+    
+            {% if user_rating %}
+                <button id="deleteRating" class="btn btn--danger btn--sm">Delete Rating</button>
+            {% endif %}
         </form>
 
         <div class="comments-section">
             <h3>Comments</h3>
-            <button id="commentsButton">View Comments</button>
+            <button id="commentsButton" class="btn btn--secondary">View Comments</button>
             <div id="commentsList" class="comment-list" style="display: none;"></div>
             <p id="commentsError" class="form-error" style="display: none;"></p>
             <p id="noCommentsMessage" class="no-comments" style="display: none;">No comments yet.</p>
         </div>
 
         <h3>See Similar Books</h3>
-        <h3>Similarity Mode</h3>
         <div class="toggle-group" id="simModeSelector">
             <div class="toggle-option selected" data-mode="subject">Subject</div>
             <div class="toggle-option" data-mode="als">Behavioral</div>
             <div class="toggle-option" data-mode="hybrid">Hybrid</div>
         </div>
-        <button id="recommendButton">Get Recommendations</button>
+        <div class="section-cta">
+            <button id="recommendButton" class="btn btn--primary btn--lg">Get Recommendations</button>
+        </div>
         <div id="recommendations" style="display: none"></div>
         <div class="pagination-buttons">
-            <button id="prevButton" style="display: none;">Previous</button>
-            <button id="nextButton" style="display: none;">Next</button>
+            <button id="prevButton" class="btn btn--secondary btn--sm" style="display: none;">Previous</button>
+            <button id="nextButton" class="btn btn--secondary btn--sm" style="display: none;">Next</button>
         </div>
 
         <div class="links">
-            <a href="/">Go Back</a>
+            <a href="/search" class="btn btn--secondary btn--sm">← Back to Search</a>
         </div>
     </div>
     </div>

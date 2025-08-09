@@ -24,17 +24,17 @@
                 <div id="subject-pills" class="pill-container"></div>
                 <input type="hidden" name="subjects" id="fav_subjects-hidden" value="{{ subjects if subjects is string else subjects|join(',') }}">
 
-                <button type="submit">Search</button>
+                <button type="submit" class="btn btn--primary">Search</button>
             </form>
 
         {% if results %}
             <h2>Results</h2>
             <div id="search-results" style="display: none;"></div>
             <div class="pagination-buttons">
-                <button id="prevButton" style="display: none;">Previous</button>
-                <button id="nextButton" style="display: none;">Next</button>
+                <button id="prevButton" class="btn btn--secondary btn--sm" style="display: none;">Previous</button>
+                <button id="nextButton" class="btn btn--secondary btn--sm" style="display: none;">Next</button>
             </div>
-
+            
             <script type="module">
                 import { setupPaginatedBookDisplay } from "/static/js/paginated_books.js";
 
