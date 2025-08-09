@@ -158,6 +158,17 @@ form select {
   background-color: #c82333;
 }
 
+/* Light Danger — for less destructive or secondary danger actions */
+.btn--danger-light {
+  background-color: #f4f1ec;
+  color: #a12c2c;
+  border: 1px solid #dc3545;
+}
+
+.btn--danger-light:hover {
+  background-color: #e8e3dd;
+}
+
 /* Small */
 .btn--sm {
   padding: 5px 10px;
