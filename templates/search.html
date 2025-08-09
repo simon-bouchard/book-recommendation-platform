@@ -62,7 +62,7 @@
                     window.history.replaceState({}, "", newUrl);
                 }
                 
-                async function fetchPage(page = 0) {
+                async function fetchPage(page = 0, shouldScroll = false) {
                     currentPage = page;
                     const params = new URLSearchParams(baseParams);
                     params.set("page", page);
@@ -85,7 +85,7 @@
                         prevButtonId,
                         nextButtonId,
                         limit: 60,
-                        scrollOnFirstRender: true,
+                        scrollOnFirstRender: false,
                         manualPagination: true
                     });
 
@@ -93,20 +93,25 @@
                     prevBtn.style.display = page > 0 ? "inline-block" : "none";
                     nextBtn.style.display = "inline-block";
 
+                    if (shouldScroll) {
+                        booksContainer.scrollIntoView({ behavior: "smooth" });
+                    }
                 }
 
 
                 prevBtn.onclick = () => {
                     if (currentPage > 0) {
-                        fetchPage(currentPage - 1);
+                        fetchPage(currentPage - 1, true); // scroll on click
                     }
                 };
 
                 nextBtn.onclick = () => {
-                    fetchPage(currentPage + 1);
+                    fetchPage(currentPage + 1, true);   // scroll on click
                 };
-                // Always fetch on page load
-                fetchPage(0);
+
+                // Initial load: no scroll
+                fetchPage(0, false);
+
             </script>
         {% endif %}
     </div>
