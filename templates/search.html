@@ -9,8 +9,8 @@
 <body>
 <div class="layout">
     
+    {% include 'navbar.html' %}
     <div class="container">
-        {% include 'navbar.html' %}
         <h1>Search Books</h1>
             <form method="get" action="/search" id="searchForm">
                 <label for="query">Book Title:</label>
@@ -34,7 +34,7 @@
                 <button id="prevButton" class="btn btn--secondary btn--sm" style="display: none;">Previous</button>
                 <button id="nextButton" class="btn btn--secondary btn--sm" style="display: none;">Next</button>
             </div>
-            
+
             <script type="module">
                 import { setupPaginatedBookDisplay } from "/static/js/paginated_books.js";
 
