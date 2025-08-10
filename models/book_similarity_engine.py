@@ -2,6 +2,7 @@ import numpy as np
 import pandas as pd
 import faiss
 from abc import ABC, abstractmethod
+from typing import Any
 from models.shared_utils import (
     normalize_embeddings, ModelStore
 )
@@ -11,7 +12,7 @@ from models.shared_utils import (
 # ------------------------------
 class SimilarityStrategy(ABC):
     @abstractmethod
-    def get_similar_books(self, item_idx: int, top_k: int = 10) -> list[dict]:
+    def get_similar_books(self, item_idx: int, top_k: int = 10, **kwargs:Any) -> list[dict]:
         pass
 
 # ------------------------------
@@ -44,7 +45,7 @@ class SubjectSimilarityStrategy(SimilarityStrategy):
     def reset(cls):
         cls._instance = None
 
-    def get_similar_books(self, item_idx, top_k=10):
+    def get_similar_books(self, item_idx, top_k=10, **kwargs):
         if item_idx not in self.item_idx_to_row:
             return []
 
@@ -106,7 +107,7 @@ class ALSSimilarityStrategy(SimilarityStrategy):
     def reset(cls):
         cls._instance = None
         
-    def get_similar_books(self, item_idx, top_k=10):
+    def get_similar_books(self, item_idx, top_k=10, **kwargs):
         if item_idx not in self.item_idx_to_row:
             return []
 
@@ -148,16 +149,18 @@ class HybridSimilarityStrategy(SimilarityStrategy):
         self.als = ALSSimilarityStrategy()
         self.alpha = alpha
 
-    def get_similar_books(self, item_idx, top_k=10):
+    def get_similar_books(self, item_idx, top_k=10, **kwargs):
         subj = self.subject.get_similar_books(item_idx, top_k=50)
         als = self.als.get_similar_books(item_idx, top_k=50)
+
+        alpha = float(kwargs.get("alpha", self.alpha))
 
         # Merge by item_idx
         combined_scores = {}
         for r in subj:
-            combined_scores[r["item_idx"]] = self.alpha * r["score"]
+            combined_scores[r["item_idx"]] = alpha * r["score"]
         for r in als:
-            combined_scores[r["item_idx"]] = combined_scores.get(r["item_idx"], 0.0) + (1 - self.alpha) * r["score"]
+            combined_scores[r["item_idx"]] = combined_scores.get(r["item_idx"], 0.0) + (1 - alpha) * r["score"]
 
         merged = []
         meta = self.subject.BOOK_META  # same across both

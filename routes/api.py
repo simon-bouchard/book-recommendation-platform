@@ -295,14 +295,15 @@ async def get_comments(book: str = Query(...), isbn: bool = False, limit: int = 
 @router.get("/book/{item_idx}/similar")
 def get_similar(item_idx: int, mode: str = "subject", alpha: float = 0.6, top_k: int = 200):
     strategy = get_similarity_strategy(mode=mode, alpha=alpha)
-    return strategy.get_similar_books(item_idx, top_k=top_k)
+    return strategy.get_similar_books(item_idx, top_k=top_k, alpha=alpha)
 
 @router.get('/profile/recommend')
 async def recommend_for_user(
     user: str = Query(...),
     _id: bool = True,
     top_n: int = 200,
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    w: float = 0.6,
 ):
     try:
         # Find user by ID or username, and preload favorite subjects
@@ -324,7 +325,7 @@ async def recommend_for_user(
 
         strategy = RecommenderStrategy.get_strategy(num_ratings)
 
-        return strategy.recommend(user_obj, db=db, top_k=top_n)
+        return strategy.recommend(user_obj, db=db, top_k=top_n, w=w)
 
     except Exception as e:
         logger.error(f"Error in /profile/recommend: {str(e)}")

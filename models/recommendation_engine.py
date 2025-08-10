@@ -2,13 +2,14 @@ from sqlalchemy.orm import Session
 from models.candidate_generators import CandidateGenerator
 from models.rerankers import Reranker
 from models.shared_utils import get_user_embedding
+from typing import Any
 
 class RecommendationEngine:
     def __init__(self, candidate_strategy: CandidateGenerator, reranker: Reranker):
         self.generator = candidate_strategy
         self.reranker = reranker
 
-    def recommend(self, user, top_k: int = 100, db: Session = None):
+    def recommend(self, user, top_k: int = 100, db: Session = None, **gen_overrides: Any):
         """
         Main recommendation pipeline.
         Args:
@@ -26,7 +27,8 @@ class RecommendationEngine:
             user_id=user.user_id,
             user_emb=user_emb,
             use_only_bayesian=is_fallback,
-            db=db
+            db=db,
+            **gen_overrides
         )
 
         if not candidate_ids:
