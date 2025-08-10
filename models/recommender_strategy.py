@@ -3,13 +3,14 @@ from sqlalchemy.orm import Session
 from models.recommendation_engine import RecommendationEngine
 from models.rerankers import GBTWarmReranker, GBTColdReranker, NoOpReranker
 from models.candidate_generators import ALSCandidateGenerator, ColdHybridCandidateGenerator
+from typing import Any
 
 # --------------------------------
 # Base Strategy Interface + Factory
 # --------------------------------
 class RecommenderStrategy(ABC):
     @abstractmethod
-    def recommend(self, user, db: Session, top_k: int) -> list[dict]:
+    def recommend(self, user, db: Session, top_k: int, **kwargs: Any) -> list[dict]:
         pass
 
     @staticmethod
@@ -33,14 +34,14 @@ class WarmRecommender(RecommenderStrategy):
     def __init__(self):
         self.engine = RecommendationEngine(ALSCandidateGenerator(), GBTWarmReranker())
 
-    def recommend(self, user, db: Session, top_k: int) -> list[dict]:
+    def recommend(self, user, db: Session, top_k: int, **kwargs) -> list[dict]:
         print('warm')
-        return self.engine.recommend(user, top_k=top_k, db=db)
+        return self.engine.recommend(user, top_k=top_k, db=db, **kwargs)
 
 class ColdRecommender(RecommenderStrategy):
     def __init__(self):
         self.engine = RecommendationEngine(ColdHybridCandidateGenerator(), NoOpReranker())
 
-    def recommend(self, user, db: Session, top_k: int) -> list[dict]:
+    def recommend(self, user, db: Session, top_k: int, **kwargs) -> list[dict]:
         print('cold')
-        return self.engine.recommend(user, top_k=top_k, db=db)
+        return self.engine.recommend(user, top_k=top_k, db=db, **kwargs)
