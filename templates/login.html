@@ -72,33 +72,49 @@
     </script>
 
     <script>
-        function validateSignupForm() {
-            let valid = true;
+    function getSelectedSubjects() {
+        const hidden = document.getElementById("fav_subjects-hidden");
+        if (!hidden) return [];
+            const raw = hidden.value?.trim() || "";
+        // Try JSON first (some pickers store ["A","B"]); fallback to CSV
+        try {
+            const parsed = JSON.parse(raw);
+            if (Array.isArray(parsed)) return parsed.filter(Boolean);
+        } catch {}
+        return raw.split(",").map(s => s.trim()).filter(Boolean);
+    }
 
-            const pw = document.getElementById("password").value;
-            const repeat = document.getElementById("repeat_password").value;
-            const age = parseInt(document.getElementById("age").value);
+    function validateSignupForm() {
+        let valid = true;
 
-            document.getElementById("password-error").textContent = "";
-            document.getElementById("age-error").textContent = "";
+        const pw = document.getElementById("password").value;
+        const repeat = document.getElementById("repeat_password").value;
+        const ageVal = document.getElementById("age").value;
+        const age = Number(ageVal);
+        const subjects = getSelectedSubjects();
 
-            if (pw !== repeat) {
-                document.getElementById("password-error").textContent = "Passwords do not match.";
-                valid = false;
-            }
+        // clear previous errors
+        document.getElementById("password-error").textContent = "";
+        document.getElementById("age-error").textContent = "";
 
-            if (isNaN(age) || age < 5) {
-                document.getElementById("age-error").textContent = "Please enter a valid age (5 or older).";
-                valid = false;
-            }
-
-            if (selectedSubjects.length < 1 || selectedSubjects.length > 5) {
-                alert("Please select between 1 and 5 favorite subjects.");
-                valid = false;
-            }
-
-            return valid;
+        if (pw !== repeat) {
+            document.getElementById("password-error").textContent = "Passwords do not match.";
+            valid = false;
         }
+
+        if (!Number.isFinite(age) || age < 5) {
+            document.getElementById("age-error").textContent = "Please enter a valid age (5 or older).";
+            valid = false;
+        }
+
+        if (subjects.length < 1 || subjects.length > 5) {
+            alert("Please select between 1 and 5 favorite subjects.");
+            valid = false;
+        }
+
+        return valid; // returning false blocks the submit
+    }
     </script>
+
 </body>
 </html>
