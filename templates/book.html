@@ -123,6 +123,19 @@
             <div class="toggle-option" data-mode="als">Behavioral</div>
             <div class="toggle-option" data-mode="hybrid">Hybrid</div>
         </div>
+
+        <div class="blend-controls" id="hybridControls">
+            <div class="blend-row">
+                <div class="blend-label">Blend</div>
+                <div class="blend-scale">
+                    <span>Subject</span>
+                    <input type="range" id="alphaSlider" class="blend-slider" min="0" max="1" step="0.01" value="0.6">
+                    <span>Behavioral</span>
+                </div>
+                <div class="blend-value" id="alphaValue">0.60</div>
+            </div>
+        </div>
+
         <div class="section-cta">
             <button id="recommendButton" class="btn btn--primary btn--lg">Get Recommendations</button>
         </div>
@@ -265,98 +278,102 @@
     </script>
 
     <script type="module">
-    import { setupPaginatedBookDisplay } from "/static/js/paginated_books.js";
+        import { setupPaginatedBookDisplay } from "/static/js/paginated_books.js";
 
-    const recommendBtn = document.getElementById("recommendButton");
-    const container = document.getElementById("recommendations");
-    const simOptions = document.querySelectorAll("#simModeSelector .toggle-option");
-    const prevBtn = document.getElementById("prevButton");
-    const nextBtn = document.getElementById("nextButton");
+        const recommendBtn = document.getElementById("recommendButton");
+        const container = document.getElementById("recommendations");
+        const simOptions = document.querySelectorAll("#simModeSelector .toggle-option");
+        const prevBtn = document.getElementById("prevButton");
+        const nextBtn = document.getElementById("nextButton");
 
-    let hasFetchedOnce = false;
+        // Hybrid slider bits
+        const hybridControls = document.getElementById("hybridControls");
+        const alphaSlider = document.getElementById("alphaSlider");
+        const alphaValue = document.getElementById("alphaValue");
 
-    async function fetchRecommendations() {
-        const item_idx = '{{ book.item_idx }}';
-        const selectedMode = document.querySelector('#simModeSelector .toggle-option.selected')?.getAttribute('data-mode') || 'subject';
-        const alpha = 0.6;
-
-        const response = await fetch(`/book/${item_idx}/similar?mode=${selectedMode}&alpha=${alpha}`);
-        const data = await response.json();
-
-        if (response.ok) {
-            if (!Array.isArray(data) || data.length === 0) {
-                container.innerHTML = `<p>No similar books found.</p>`;
-            } else {
-                setupPaginatedBookDisplay({
-                    books: data,
-                    containerId: "recommendations",
-                    prevButtonId: "prevButton",
-                    nextButtonId: "nextButton",
-                    limit: 30,
-                    showSimilarity: false,
-                    scrollOnFirstRender: true
-                });
-            }
-
-            container.style.display = "block";
-            recommendBtn.style.display = "none";
-            hasFetchedOnce = true;
-
-        } else {
-            container.innerHTML = `<p style='color: red;'>Error: ${data.detail}</p>`;
-            container.style.display = 'block';
-            recommendBtn.style.display = "inline-block";
+        function selectedMode() {
+            return document.querySelector('#simModeSelector .toggle-option.selected')?.getAttribute('data-mode') || 'subject';
         }
-    }
 
-    // First-time fetch
-    recommendBtn.onclick = fetchRecommendations;
+        function clamp01(x) {
+            const n = Number(x);
+            if (Number.isNaN(n)) return 0.6;
+            return Math.max(0, Math.min(1, n));
+        }
 
-    // Mode change triggers fetch *only* after first click
-    simOptions.forEach(opt => {
-        opt.addEventListener("click", () => {
-            simOptions.forEach(o => o.classList.remove("selected"));
-            opt.classList.add("selected");
+        // Enable/disable slider depending on mode (no auto-fetch)
+        function updateHybridUI() {
+            const isHybrid = selectedMode() === 'hybrid';
+            hybridControls.classList.toggle('disabled', !isHybrid);
+            alphaSlider.disabled = !isHybrid;
+        }
 
-            if (hasFetchedOnce) {
-                fetchRecommendations();
+        // Keep button label steady; button is always visible
+        function setButtonLabelReady() {
+            recommendBtn.textContent = "Get Recommendations";
+        }
+
+        async function fetchRecommendations() {
+            const item_idx = '{{ book.item_idx }}';
+            const mode = selectedMode();
+            const alpha = mode === 'hybrid' ? clamp01(alphaSlider.value) : 0.6;
+
+            try {
+                recommendBtn.disabled = true;
+                recommendBtn.textContent = "Loading…";
+                const resp = await fetch(`/book/${item_idx}/similar?mode=${mode}&alpha=${alpha}`);
+                const data = await resp.json();
+
+                if (resp.ok) {
+                    if (!Array.isArray(data) || data.length === 0) {
+                        container.innerHTML = `<p>No similar books found.</p>`;
+                    } else {
+                        setupPaginatedBookDisplay({
+                            books: data,
+                            containerId: "recommendations",
+                            prevButtonId: "prevButton",
+                            nextButtonId: "nextButton",
+                            limit: 30,
+                            showSimilarity: false,
+                            scrollOnFirstRender: true
+                        });
+                    }
+                    container.style.display = "block";
+                } else {
+                    container.innerHTML = `<p style='color: red;'>Error: ${data.detail}</p>`;
+                    container.style.display = 'block';
+                }
+            } catch (e) {
+                container.innerHTML = `<p style='color: red;'>Network error.</p>`;
+                container.style.display = 'block';
+            } finally {
+                recommendBtn.disabled = false;
+                setButtonLabelReady();
             }
-        });
-    });
-    </script>
+        }
 
-    <script>
-        document.getElementById("ratingForm").onsubmit = async function (event) {
-            event.preventDefault();
+        // Button is the *only* trigger
+        recommendBtn.addEventListener("click", fetchRecommendations);
 
-            let data = {
-                item_idx: document.getElementById("item_idx").value,
-                rating: document.querySelector('input[name="rating"]').value || null,
-                comment: document.getElementById("comment").value
-            };
-
-            let response = await fetch("/rating", {
-                method: "POST",
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify(data)
+        // Mode changes: update selected state + slider enabled/disabled; do NOT fetch
+        simOptions.forEach(opt => {
+            opt.addEventListener("click", () => {
+                simOptions.forEach(o => o.classList.remove("selected"));
+                opt.classList.add("selected");
+                updateHybridUI();
             });
+        });
 
-            if (response.status === 401) {
-                alert("You must be logged in to rate this book.");
-                window.location.href = "/login";
-                return;
-            }
+        // Slider: just update display; do NOT fetch
+        alphaSlider?.addEventListener("input", () => {
+            alphaValue.textContent = clamp01(alphaSlider.value).toFixed(2);
+        });
 
-            let result = await response.json();
-            if (response.ok) {
-                alert(result.message);
-                window.location.reload();
-            } else {
-                alert("Error: " + result.detail);
-            }
-        };
-
-    </script>
+        // Init UI state
+        updateHybridUI();
+        alphaValue.textContent = clamp01(alphaSlider.value).toFixed(2);
+        setButtonLabelReady();
+        </script>
 
     <script>
         (function () {

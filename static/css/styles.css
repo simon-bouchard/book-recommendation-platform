@@ -471,6 +471,64 @@ form select {
     text-decoration: none;
 }
 
+/* Hybrid blend slider */
+.blend-controls {
+    display: block;
+    gap: 10px;
+    margin: 6px 0 12px;
+}
+
+.blend-row {
+    display: grid;
+    grid-template-columns: auto 1fr auto;
+    align-items: center;
+    column-gap: 12px;
+}
+
+.blend-label {
+    font-size: 0.95rem;
+    color: var(--color-text-muted);
+    white-space: nowrap;
+}
+
+.blend-scale {
+    display: grid;
+    grid-template-columns: auto 1fr auto;
+    align-items: center;
+    column-gap: 10px;
+}
+
+.blend-scale span {
+    font-size: 0.85rem;
+    color: var(--color-text-muted);
+    white-space: nowrap;
+}
+
+.blend-scale span:first-child {
+    text-align: left;
+}
+
+.blend-scale span:last-child {
+    text-align: right;
+}
+
+.blend-value {
+    width: 3.6ch;
+    text-align: right;
+    font-variant-numeric: tabular-nums;
+    color: var(--color-text-muted);
+}
+
+input[type="range"].blend-slider {
+    width: 100%;
+    margin: 0;
+}
+
+.blend-controls.disabled {
+    opacity: 0.5;
+    pointer-events: none;
+}
+
 /* Error messages */
 .form-error {
     color: var(--color-danger);
