@@ -154,13 +154,14 @@ class HybridSimilarityStrategy(SimilarityStrategy):
         als = self.als.get_similar_books(item_idx, top_k=50)
 
         alpha = float(kwargs.get("alpha", self.alpha))
+        print(alpha)
 
         # Merge by item_idx
         combined_scores = {}
         for r in subj:
-            combined_scores[r["item_idx"]] = alpha * r["score"]
+            combined_scores[r["item_idx"]] = (1 - alpha) * r["score"]
         for r in als:
-            combined_scores[r["item_idx"]] = combined_scores.get(r["item_idx"], 0.0) + (1 - alpha) * r["score"]
+            combined_scores[r["item_idx"]] = combined_scores.get(r["item_idx"], 0.0) + alpha * r["score"]
 
         merged = []
         meta = self.subject.BOOK_META  # same across both

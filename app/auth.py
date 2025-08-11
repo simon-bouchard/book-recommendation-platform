@@ -4,11 +4,9 @@ from fastapi import APIRouter, HTTPException, Depends, Form, Request, status, Co
 from fastapi.security import OAuth2PasswordBearer
 from fastapi.responses import HTMLResponse, RedirectResponse, JSONResponse
 from fastapi.templating import Jinja2Templates
-from motor.motor_asyncio import AsyncIOMotorClient
 from app.models import UserSignup, UserLogin, hash_password, verify_password
 import os
 from dotenv import load_dotenv
-from motor.motor_asyncio import AsyncIOMotorClient
 from datetime import datetime
 from sqlalchemy.orm import Session
 from app.database import SessionLocal, get_db
