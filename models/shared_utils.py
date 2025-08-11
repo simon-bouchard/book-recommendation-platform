@@ -19,7 +19,7 @@ from collections import defaultdict
 import sys, os
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "../../")))
 
-PAD_IDX = os.getenv("PAD_IDX", 0)
+PAD_IDX = int(os.getenv("PAD_IDX", 0))
 
 def load_book_embeddings(emb_path="models/data/book_embs.npy", id_path="models/data/book_ids.json"):
     """Load precomputed book embeddings and item_idx list"""
