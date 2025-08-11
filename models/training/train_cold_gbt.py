@@ -23,7 +23,6 @@ from models.shared_utils import (
 
 import torch
 DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
-ATTN_STRATEGY = os.getenv("ATTN_STRATEGY", "scalar")
 
 DATA_DIR = Path(__file__).parent / "data"
 
@@ -69,7 +68,7 @@ def main():
     book_emb_df = pd.DataFrame(book_emb_matrix, columns=[f"book_emb_{i}" for i in range(book_emb_matrix.shape[1])])
 
     fav_subjects_list = [user_fav.get(uid, [PAD_IDX]) for uid in interactions["user_id"]]
-    pooler = ModelStore().get_attention_strategy("scalar")
+    pooler = ModelStore().get_attention_strategy()
     user_emb_matrix = pooler(fav_subjects_list).cpu().numpy()
     user_emb_df = pd.DataFrame(user_emb_matrix, columns=[f"user_emb_{i}" for i in range(user_emb_matrix.shape[1])])
 

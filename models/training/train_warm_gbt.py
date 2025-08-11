@@ -11,8 +11,6 @@ from lightgbm import LGBMRegressor, early_stopping, log_evaluation
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "../..")))
 from models.shared_utils import ModelStore, PAD_IDX
 
-ATTN_STRATEGY = os.getenv("ATTN_STRATEGY", "scalar")
-
 DATA_DIR = Path(__file__).parent / "data"
 MODEL_PATH = Path("models/data/gbt_warm.pickle")
 
@@ -142,7 +140,7 @@ def build_rows(inter_df):
     # Build list of favorite subject indices
     fav_subjects_list = [user_fav.get(uid, [PAD_IDX]) for uid in inter_df["user_id"]]
 
-    pooler = ModelStore().get_attention_strategy(ATTENTION_STRAT)
+    pooler = ModelStore().get_attention_strategy()
     user_emb_matrix = pooler(fav_subjects_list).cpu().numpy()
 
     user_emb_df = pd.DataFrame(
