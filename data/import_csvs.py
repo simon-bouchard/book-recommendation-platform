@@ -18,7 +18,6 @@ CHUNK = 10000
 
 def main():
     db = SessionLocal()
-
     try:
         # === 1. Clear all tables ===
         for table in ["interactions", "user_fav_subjects", "book_subjects", "subjects", "books", "authors", "users"]:
@@ -83,14 +82,9 @@ def main():
 
         # === 5. Import Books and build work_id → item_idx map ===
         book_df = pd.read_csv("data/books.csv").dropna(subset=["work_id"])
-        
-        book_df = book_df.drop_duplicates(subset=["work_id"])
-        book_df = book_df.reset_index(drop=True)  # force consistent row order
-        book_df["item_idx"] = book_df.index  # reliable, unique, no collisions
-
-        # Then build mapping
+        book_df = book_df.drop_duplicates(subset=["work_id"]).reset_index(drop=True)
+        book_df["item_idx"] = book_df.index
         work_to_item_idx = dict(zip(book_df["work_id"], book_df["item_idx"]))
-        books = []
 
         # Count global subject frequency
         excluded_subjects = {"Fiction", "General"}
@@ -98,13 +92,15 @@ def main():
             s for s in book_sub_df["subjects"] if s not in excluded_subjects
         )
 
-        for _, row in book_df.iterrows():
-            external_author_id = str(row["author_id"]).strip()
+        # Pre-index subjects for O(1) lookup
+        bs_by_work = book_sub_df.groupby("work_id")["subjects"].apply(list).to_dict()
+
+        books = []
+        for row in tqdm(book_df.itertuples(index=False), total=len(book_df), desc="Preparing books"):
+            external_author_id = str(row.author_id).strip()
             author_idx = author_map.get(external_author_id)
 
-            # Lookup subject list for this book
-            book_subjs = book_sub_df.loc[book_sub_df["work_id"] == row["work_id"], "subjects"].tolist()
-            excluded_subjects = {"Fiction", "General"}
+            book_subjs = bs_by_work.get(row.work_id, [])
             filtered_subjs = [s for s in book_subjs if s not in excluded_subjects]
 
             if not filtered_subjs:
@@ -112,29 +108,26 @@ def main():
             else:
                 main_subject = max(filtered_subjs, key=lambda s: subject_counts.get(s, 0))
 
-            book = Book(
-                work_id=row["work_id"],
-                title=row["title"],
-                year=row["year"],
-                year_bucket=row["year_bucket"],
-                filled_year=row["filled_year"],
-                description=row["description"],
-                cover_id=row["cover_id"],
-                language=row["language"],
-                num_pages=row["num_pages"],
-                filled_num_pages=row["filled_num_pages"],
+            books.append(Book(
+                work_id=row.work_id,
+                title=row.title,
+                year=row.year,
+                year_bucket=row.year_bucket,
+                filled_year=row.filled_year,
+                description=row.description,
+                cover_id=row.cover_id,
+                language=row.language,
+                num_pages=row.num_pages,
+                filled_num_pages=row.filled_num_pages,
                 author_idx=author_idx,
-                isbn=row["isbn"],
-                main_subject=main_subject  
-            )
-
-            books.append(book)
+                isbn=row.isbn,
+                main_subject=main_subject
+            ))
 
         for i in tqdm(range(0, len(books), CHUNK), desc="Importing books"):
             batch = books[i:i+CHUNK]
             db.add_all(batch)
-            db.flush()  # this assigns item_idx via AUTO_INCREMENT
-
+            db.flush()
             for book in batch:
                 work_to_item_idx[book.work_id] = book.item_idx
 
@@ -194,3 +187,4 @@ def main():
 
 if __name__ == "__main__":
     main()
+
