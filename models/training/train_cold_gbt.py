@@ -23,7 +23,7 @@ from models.shared_utils import (
 
 import torch
 DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
-ATTENTION_STRAT ='scalar'
+ATTN_STRATEGY = os.getenv("ATTN_STRATEGY", "scalar")
 
 DATA_DIR = Path(__file__).parent / "data"
 
