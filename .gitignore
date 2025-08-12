@@ -5,6 +5,8 @@
 /models/data/
 /models/training/data/
 /models/training/logs/
+data/backups/db/
+*.sql.gz
 
 # Model artifacts
 *.pickle
@@ -19,3 +21,4 @@ test.py
 #Junk
 __pycache__/
 *.py[cod]
+
