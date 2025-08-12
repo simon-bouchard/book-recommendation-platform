@@ -80,6 +80,9 @@ def main():
         print("  - Still waiting for SSH...")
         time.sleep(5)
 
+    print("🔄 Backing up current database...")
+    subprocess.run(["python", "ops/backup_db.py"], check=True, env={**os.environ})
+
     print("📁 Ensuring remote data directory exists...")
     run(f"ssh {REMOTE_HOST} 'mkdir -p {REMOTE_REPO}/models/training/data'")
 
