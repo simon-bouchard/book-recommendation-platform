@@ -11,11 +11,10 @@ from lightgbm import LGBMRegressor, early_stopping, log_evaluation
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "../..")))
 from models.shared_utils import ModelStore, PAD_IDX
 
-DATA_DIR = Path(__file__).parent / "data"
-MODEL_PATH = Path("models/data/gbt_warm.pickle")
-
-BOOK_EMBS_PATH = "models/data/book_embs.npy"
-BOOK_IDS_PATH = "models/data/book_ids.json"
+ROOT = Path(__file__).resolve().parents[2]
+DATA_DIR = ROOT / "models" / "training" / "data"
+MODELS_DIR = ROOT / "models" / "data"
+MODEL_PATH = MODELS_DIR / "gbt_warm.pickle"
 
 # -------------------------------
 # Load base data
@@ -26,8 +25,8 @@ users = pd.read_pickle(DATA_DIR / "users.pkl")
 books = pd.read_pickle(DATA_DIR / "books.pkl")
 user_fav_df = pd.read_pickle(DATA_DIR / "user_fav_subjects.pkl")
 
-book_embs = np.load(BOOK_EMBS_PATH)
-with open(BOOK_IDS_PATH, "r") as f:
+book_embs = np.load(MODELS_DIR / "book_embs.npy")
+with open(MODELS_DIR / "book_ids.json", "r") as f:
     book_ids = json.load(f)
 item_idx_to_row = {idx: i for i, idx in enumerate(book_ids)}
 
@@ -201,7 +200,6 @@ model.fit(
     ]
 )
 
-os.makedirs("models", exist_ok=True)
 with open(MODEL_PATH, "wb") as f:
     pickle.dump(model, f)
 
