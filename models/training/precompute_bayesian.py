@@ -4,10 +4,13 @@ import json
 from pathlib import Path
 
 # Config
-INTERACTIONS_PATH = Path("models/training/data/interactions.pkl")
-BOOKS_PATH = Path("models/training/data/books.pkl")
-BOOK_IDS_PATH = Path("models/data/book_ids.json")
-OUTPUT_PATH = Path("models/data/bayesian_tensor.npy")
+REPO_ROOT = Path(__file__).parent.parent.parent
+DATA_DIR = REPO_ROOT / "models" / "training" / "data"
+
+INTERACTIONS_PATH = Path(DATA_DIR / "interactions.pkl")
+BOOKS_PATH = Path(DATA_DIR / "books.pkl")
+BOOK_IDS_PATH = Path(REPO_ROOT / "models/data/book_ids.json")
+OUTPUT_PATH = Path(REPO_ROOT / "models/data/bayesian_tensor.npy")
 
 # Smoothing parameter
 m = 30

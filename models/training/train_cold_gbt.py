@@ -24,7 +24,8 @@ from models.shared_utils import (
 import torch
 DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
 
-DATA_DIR = Path(__file__).parent / "data"
+REPO_ROOT = Path(__file__).parent.parent.parent
+DATA_DIR = REPO_ROOT / "models" / "training" / "data"
 
 def load_data_from_pickle():
     print("📦 Loading .pkl data from:", DATA_DIR)
@@ -122,11 +123,11 @@ def main():
         callbacks=[early_stopping(50), log_evaluation(100)]
     )
 
-    os.makedirs("models", exist_ok=True)
-    with open("models/data/gbt_cold.pickle", "wb") as f:
+    os.makedirs(REPO_ROOT / "models/data", exist_ok=True)
+    with open(REPO_ROOT / "models/data/gbt_cold.pickle", "wb") as f:
         pickle.dump(model, f)
 
-    print("✅ Saved: models/data/gbt_cold.pickle")
+    print(f"✅ Saved: {REPO_ROOT}/models/data/gbt_cold.pickle")
 
 if __name__ == "__main__":
     main()

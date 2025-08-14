@@ -11,11 +11,13 @@ from lightgbm import LGBMRegressor, early_stopping, log_evaluation
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "../..")))
 from models.shared_utils import ModelStore, PAD_IDX
 
-DATA_DIR = Path(__file__).parent / "data"
-MODEL_PATH = Path("models/data/gbt_warm.pickle")
+REPO_ROOT = Path(__file__).parent.parent.parent
+DATA_DIR = REPO_ROOT / "models" / "training" / "data"
 
-BOOK_EMBS_PATH = "models/data/book_embs.npy"
-BOOK_IDS_PATH = "models/data/book_ids.json"
+MODEL_PATH = Path(REPO_ROOT / "models/data/gbt_warm.pickle")
+
+BOOK_EMBS_PATH = REPO_ROOT / "models/data/book_embs.npy"
+BOOK_IDS_PATH = REPO_ROOT / "models/data/book_ids.json"
 
 # -------------------------------
 # Load base data
@@ -201,7 +203,7 @@ model.fit(
     ]
 )
 
-os.makedirs("models", exist_ok=True)
+os.makedirs(REPO_ROOT / "models/data", exist_ok=True)
 with open(MODEL_PATH, "wb") as f:
     pickle.dump(model, f)
 

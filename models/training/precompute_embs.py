@@ -6,7 +6,7 @@ import torch.nn as nn
 import torch.nn.functional as F
 import numpy as np
 from collections import defaultdict
-
+from pathlib import Path
 import sys
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "../..")))
 
@@ -15,12 +15,15 @@ from models.shared_utils import PAD_IDX, ModelStore
 DEVICE = 'cuda' if torch.cuda.is_available() else 'cpu'
 ATTN_STRATEGY = os.getenv("ATTN_STRATEGY", "scalar")
 
+REPO_ROOT = Path(__file__).parent.parent.parent
+DATA_DIR = REPO_ROOT / "models" / "training" / "data"
+
 # ----------------------------
 # Load .pkl files
 # ----------------------------
 print("📄 Loading book and subject mappings...")
-books = pd.read_pickle("models/training/data/books.pkl")
-book_subjects = pd.read_pickle("models/training/data/book_subjects.pkl")
+books = pd.read_pickle(DATA_DIR / "books.pkl")
+book_subjects = pd.read_pickle(DATA_DIR / "book_subjects.pkl")
 
 book_to_subjects = defaultdict(list)
 for row in book_subjects.itertuples():
@@ -59,12 +62,12 @@ print(f"📐 Shape: {pooled_embs.shape}")
 # ----------------------------
 # Save outputs
 # ----------------------------
-os.makedirs("models", exist_ok=True)
-np.save("models/data/book_embs.npy", pooled_embs)
+os.makedirs(REPO_ROOT / "models" / "data", exist_ok=True)
+np.save(REPO_ROOT / "models/data/book_embs.npy", pooled_embs)
 
-with open("models/data/book_ids.json", "w") as f:
+with open(REPO_ROOT / "models/data/book_ids.json", "w") as f:
     json.dump(book_ids, f)
 
 print("✅ Saved:")
-print("   - models/data/book_embs.npy")
-print("   - models/data/book_ids.json")
+print(f"   - {REPO_ROOT}/models/data/book_embs.npy")
+print(f"   - {REPO_ROOT}/models/data/book_ids.json")

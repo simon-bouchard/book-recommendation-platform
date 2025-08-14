@@ -5,12 +5,14 @@ import json
 import os
 from collections import Counter
 from implicit.als import AlternatingLeastSquares
+from pathlib import Path
 
 import logging
 logging.getLogger("implicit").setLevel(logging.ERROR)
 
-DATA_DIR = "models/training/data"
-MODEL_DIR = "models/data"
+REPO_ROOT = Path(__file__).parent.parent.parent
+DATA_DIR = REPO_ROOT / "models" / "training" / "data"
+MODEL_DIR = REPO_ROOT / "models/data"
 os.makedirs(MODEL_DIR, exist_ok=True)
 
 ALPHA = 40

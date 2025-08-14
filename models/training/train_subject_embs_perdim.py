@@ -1,5 +1,3 @@
-# train_subject_embs_perdim.py
-
 import os
 import sys
 from pathlib import Path
@@ -77,8 +75,8 @@ class PerDimAttentionModel(nn.Module):
 
         return dot + self.user_bias(u).squeeze() + self.item_bias(i).squeeze() + self.global_bias
 
-
-DATA_DIR = Path(__file__).parent / "data"
+REPO_ROOT = Path(__file__).parent.parent.parent
+DATA_DIR = REPO_ROOT / "models" / "training" / "data"
 
 def load_training_data_from_pickle(pad_to=5):
     print("📦 Loading .pkl data from:", DATA_DIR)
@@ -169,9 +167,9 @@ def main():
         'attn_bias': model.attn_bias.detach().cpu(),
     }
 
-    os.makedirs("models/data", exist_ok=True)
-    torch.save(state, "models/data/subject_attention_components_perdim.pth")
-    print("✅ Saved to models/data/subject_attention_components_perdim.pth")
+    os.makedirs(REPO_ROOT / "models/data", exist_ok=True)
+    torch.save(state, REPO_ROOT / "models/data/subject_attention_components_perdim.pth")
+    print(f"✅ Saved to {REPO_ROOT}/models/data/subject_attention_components_perdim.pth")
 
 if __name__ == "__main__":
     main()
