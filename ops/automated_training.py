@@ -29,7 +29,7 @@ AZURE_TENANT_ID = sp["tenantId"]
 
 INFERENCE_ROOT = Path(__file__).resolve().parent
 SCRIPT_DIR = Path(__file__).resolve().parent
-PROJECT_ROOT = SCRIPT_DIR.parent.parent
+PROJECT_ROOT = SCRIPT_DIR.parent
 TRAINING_DATA_NEW = PROJECT_ROOT / "models/training/data/new_data"
 TRAINING_DATA_MAIN = PROJECT_ROOT / "models/training/data"
 REMOTE_DATA = f"{REMOTE_HOST}:{REMOTE_REPO}/models/training/data"
@@ -80,8 +80,10 @@ def main():
         print("  - Still waiting for SSH...")
         time.sleep(5)
 
+    """
     print("🔄 Backing up current database...")
     subprocess.run(["python", "ops/backup_db.py"], check=True, env={**os.environ})
+    """
 
     print("📁 Ensuring remote data directory exists...")
     run(f"ssh {REMOTE_HOST} 'mkdir -p {REMOTE_REPO}/models/training/data'")
