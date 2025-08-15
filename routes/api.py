@@ -33,10 +33,13 @@ load_dotenv()
 @router.get('/login', response_class=HTMLResponse)
 def signup_page(request: Request):
     countries = sorted([c.name for c in pycountry.countries])
+    message = request.session.pop("flash_success", None)
+
     return templates.TemplateResponse('login.html', {
         'request': request,
         'countries': countries,
-        'page': 'login'
+        'page': 'login',
+        'message': message
     })
 
 @router.get('/profile')
@@ -76,7 +79,13 @@ def profile_page(request: Request, current_user: dict = Depends(get_current_user
         ],
     }
 
-    return templates.TemplateResponse('profile.html', {'request': request, 'user': user_data, "page": "profile"})
+    message = request.session.pop("flash_success", None)
+    return templates.TemplateResponse('profile.html', {
+        'request': request,
+        'user': user_data,
+        "page": "profile",
+        'message': message
+    })
 
 @router.post("/profile/update")
 async def update_profile(

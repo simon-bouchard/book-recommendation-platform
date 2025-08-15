@@ -45,6 +45,31 @@
   --color-cold-bg: #fff3cd;
   --color-cold-text: #856404;
   --color-cold-border: #ffeeba;
+
+  /* Alerts */
+  --alert-radius: 8px;
+  --alert-padding: 12px 14px;
+  --alert-border: 1px solid;
+
+  /* Success */
+  --alert-success-bg: var(--color-warm-bg);
+  --alert-success-text: var(--color-warm-text);
+  --alert-success-border: var(--color-warm-border);
+
+  /* Error */
+  --alert-error-bg: #fdecec;
+  --alert-error-text: #8a1f1f;
+  --alert-error-border: #f5c2c7;
+
+  /* Info */
+  --alert-info-bg: #e9f2ff;
+  --alert-info-text: #0b4a8b;
+  --alert-info-border: #c9defa;
+
+  /* Warning */
+  --alert-warning-bg: var(--color-cold-bg);
+  --alert-warning-text: var(--color-cold-text);
+  --alert-warning-border: var(--color-cold-border);
 }
 
 /* General Reset */
@@ -849,6 +874,12 @@ li {
     margin-bottom: 20px;
 }
 
+.no-subjects {
+    color: var(--color-text-muted);
+    font-style: italic;
+    margin-top: 10px;
+}
+
 .warm-user-banner {
     background-color: var(--color-warm-bg);
     color: var(--color-warm-text);
@@ -861,11 +892,66 @@ li {
     border: 1px solid var(--color-cold-border);
 }
 
-.no-subjects {
-    color: var(--color-text-muted);
-    font-style: italic;
-    margin-top: 10px;
+/* Alert/Success Banners */
+.page-banner {
+  margin: 0 0 14px 0;
 }
+
+.alert {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  align-items: start;
+  gap: 10px;
+  padding: var(--alert-padding);
+  border-radius: var(--alert-radius);
+  border: var(--alert-border);
+  font-size: 0.95rem;
+  line-height: 1.35;
+}
+
+.alert strong {
+  font-weight: 600;
+}
+
+.alert--success {
+  background: var(--alert-success-bg);
+  color: var(--alert-success-text);
+  border-color: var(--alert-success-border);
+}
+
+.alert--error {
+  background: var(--alert-error-bg);
+  color: var(--alert-error-text);
+  border-color: var(--alert-error-border);
+}
+
+.alert--info {
+  background: var(--alert-info-bg);
+  color: var(--alert-info-text);
+  border-color: var(--alert-info-border);
+}
+
+.alert--warning {
+  background: var(--alert-warning-bg);
+  color: var(--alert-warning-text);
+  border-color: var(--alert-warning-border);
+}
+
+/* Optional close button */
+.alert__close {
+  background: transparent;
+  border: none;
+  cursor: pointer;
+  color: inherit;
+  font-size: 1rem;
+  padding: 2px 6px;
+  border-radius: 6px;
+  line-height: 1;
+}
+.alert__close:hover { opacity: 0.75; }
+
+/* Spacing if multiple banners stack */
+.page-banner + .page-banner { margin-top: 10px; }
 
 /* Section Headers */
 .section-header {
