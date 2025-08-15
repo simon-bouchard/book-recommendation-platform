@@ -27,6 +27,7 @@ logger = logging.getLogger(__name__)
 
 router = APIRouter()
 templates = Jinja2Templates(directory="templates")
+templates.env.globals['now'] = datetime.utcnow
 
 load_dotenv()
 

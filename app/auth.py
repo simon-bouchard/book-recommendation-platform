@@ -14,6 +14,7 @@ from app.database import SessionLocal, get_db
 from app.table_models import User, Subject, UserFavSubject
 import pycountry
 import pandas as pd
+from datetime import datetime
 
 load_dotenv()
 
@@ -28,6 +29,7 @@ allowed_countries = {country.name for country in pycountry.countries}
 allowed_countries.add("Unknown")
 
 templates = Jinja2Templates(directory='templates')
+templates.env.globals['now'] = datetime.utcnow
 
 async def create_access_token(data: dict, expires_delta: timedelta = None):
     to_encode = data.copy()

@@ -136,7 +136,9 @@ class ModelStore:
         self._book_als_embs = None
         self._user_id_to_als_row = None
         self._book_row_to_item_idx = None
-
+        self._book_als_ids = None          # <-- keep original list from JSON
+        self._als_book_id_set = None
+        
         # Attention strategy cache (aligns with get_attention_strategy)
         self._attn_strategy = None
         self._attn_strategy_name = None
@@ -196,17 +198,31 @@ class ModelStore:
             with open("models/data/user_als_ids.json") as f:
                 als_user_ids = json.load(f)
             with open("models/data/book_als_ids.json") as f:
-                als_book_ids = json.load(f)
+                self._book_als_ids = json.load(f)  # <-- store raw list
 
             self._user_als_embs = np.load("models/data/user_als_emb.npy")
             self._book_als_embs = np.load("models/data/book_als_emb.npy")
 
             self._user_id_to_als_row = {uid: i for i, uid in enumerate(als_user_ids)}
-            self._book_row_to_item_idx = {i: iid for i, iid in enumerate(als_book_ids)}
+            self._book_row_to_item_idx = {i: iid for i, iid in enumerate(self._book_als_ids)}
 
         return (self._user_als_embs, self._book_als_embs,
                 self._user_id_to_als_row, self._book_row_to_item_idx)
+    
+    def has_book_als(self, item_idx: int) -> bool:
+        # Ensure ALS is loaded so _book_als_ids is populated
+        self.get_als_embeddings()
+        if self._als_book_id_set is None:
+            self._als_book_id_set = set(int(i) for i in self._book_als_ids)
+        return int(item_idx) in self._als_book_id_set
 
+    # Optional: expose book ALS IDs if needed elsewhere (no side effects)
+    def get_book_als_id_set(self) -> set[int]:
+        self.get_als_embeddings()
+        if self._als_book_id_set is None:
+            self._als_book_id_set = set(int(i) for i in self._book_als_ids)
+        return self._als_book_id_set
+    
     def get_attention_strategy(self, name=None):
         name = name or os.getenv("ATTN_STRATEGY", "scalar")
 
