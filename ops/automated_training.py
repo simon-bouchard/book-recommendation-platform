@@ -36,6 +36,7 @@ REMOTE_DATA = f"{REMOTE_HOST}:{REMOTE_REPO}/models/training/data"
 REMOTE_MODELS = f"{REMOTE_HOST}:{REMOTE_REPO}/models/data"
 LOCAL_MODELS = PROJECT_ROOT / "models/data"
 LOG_DIR = Path(os.getenv("TRAIN_LOG_DIR", PROJECT_ROOT / "models/training/logs"))
+REMOTE_BACKUP_DIR = os.getenv("REMOTE_BACKUP_DIR")
 
 # Pick the correct train_subject_embs script based on ATTN_STRATEGY
 ATTN_STRATEGY = os.getenv("ATTN_STRATEGY", "scalar").lower()
@@ -80,10 +81,24 @@ def main():
         print("  - Still waiting for SSH...")
         time.sleep(5)
 
-    """
     print("🔄 Backing up current database...")
-    subprocess.run(["python", "ops/backup_db.py"], check=True, env={**os.environ})
-    """
+    run(f'{PROJECT_ROOT}/ops/backup_db.py')
+
+	def _db_from_env():
+			db = os.getenv("MYSQL_DB", "").strip()
+			if db:
+				return db
+			try:
+				return (urlsplit(os.getenv("DATABASE_URL","")).path or "").lstrip("/")
+			except Exception:
+				return ""
+		db_name = _db_from_env()
+		backup_dir = PROJECT_ROOT / "data/backups/db"
+		candidates = sorted(backup_dir.glob(f"*_{db_name}.sql.gz"))
+		if candidates:
+			latest_dump = candidates[-1]
+			run(f"ssh {REMOTE_HOST} 'mkdir -p {REMOTE_BACKUP_DIR}'")
+			run(f"scp {SSH_OPTS} {shlex.quote(str(latest_dump))} {REMOTE_HOST}:{REMOTE_BACKUP_DIR.rstrip('/')}/")
 
     print("📁 Ensuring remote data directory exists...")
     run(f"ssh {REMOTE_HOST} 'mkdir -p {REMOTE_REPO}/models/training/data'")
