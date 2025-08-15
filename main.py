@@ -1,14 +1,17 @@
-from fastapi import FastAPI, Request, Form, BackgroundTasks
+from fastapi import FastAPI, Request
 from fastapi.templating import Jinja2Templates
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import HTMLResponse
+from starlette.middleware.sessions import SessionMiddleware
 from routes.api import router 
 from app.auth import router as auth_router
-from app.database import get_db
+import os
 
 app = FastAPI()
 
 app.mount('/static', StaticFiles(directory='static'), name='static')
+
+app.add_middleware(SessionMiddleware, secret_key=os.getenv("SECRET_KEY"))
 
 templates = Jinja2Templates(directory='templates')
 

@@ -4,7 +4,8 @@ from fastapi import APIRouter, HTTPException, Depends, Form, Request, status, Co
 from fastapi.security import OAuth2PasswordBearer
 from fastapi.responses import HTMLResponse, RedirectResponse, JSONResponse
 from fastapi.templating import Jinja2Templates
-from app.models import UserSignup, UserLogin, hash_password, verify_password
+from starlette.middleware.sessions import SessionMiddleware
+from app.models import hash_password, verify_password
 import os
 from dotenv import load_dotenv
 from datetime import datetime
@@ -116,10 +117,11 @@ async def signup(
 
     db.commit()
 
-    return templates.TemplateResponse("login.html", {
-        "request": request,
-        "message": "Signup successful. Please log in."
-    })
+    access_token = await create_access_token({"sub": username})
+    response = RedirectResponse(url="/profile", status_code=status.HTTP_303_SEE_OTHER)
+    response.set_cookie(key="access_token", value=access_token, httponly=True, max_age=3600)
+    request.session["flash_success"] = "Profile successfully created."
+    return response
 
 @router.post('/auth/login', response_class=HTMLResponse)
 async def login(request: Request, username: str = Form(...), password: str = Form(...), db: Session=Depends(get_db)):

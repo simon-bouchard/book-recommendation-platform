@@ -11,6 +11,14 @@
     {% include 'navbar.html' %}
     
     <div class="container">
+        {% if message %}
+        <div class="page-banner">
+            <div class="alert alert--success">
+                <div>{{ message }}</div>
+                <button class="alert__close" type="button" aria-label="Close">✕</button>
+            </div>
+        </div>
+        {% endif %}
         <h1>Profile</h1>
         <h2 style='text-align:center'>Welcome, {{ user.username }}</h2>
 
@@ -216,6 +224,11 @@
             }
         });
     })();
+</script>
+
+<script type="module">
+  import { mountBanners } from "/static/js/flash_banner.js";
+  mountBanners({ autoHideMs: 5000 }); // set 0 to disable auto‑dismiss
 </script>
 
 </body>
