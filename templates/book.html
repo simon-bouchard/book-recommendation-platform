@@ -505,5 +505,43 @@ if (toggleSubjectsBtn && subjectList) {
         toggle.textContent = desc.classList.contains("collapsed") ? "Show more" : "Show less";
     }
 </script>
+
+<script>
+document.getElementById("ratingForm").addEventListener("submit", async function(e) {
+    e.preventDefault();
+
+    const item_idx = document.getElementById("item_idx").value;
+    const interaction_type = document.getElementById("interaction_type").value;
+    const ratingValue = interaction_type === "rated" ? document.getElementById("rating").value : null;
+    const commentValue = document.getElementById("comment").value.trim();
+
+    const payload = {
+        item_idx: parseInt(item_idx, 10),
+        rating: ratingValue ? parseInt(ratingValue, 10) : null,
+        comment: commentValue || null
+    };
+
+    const resp = await fetch("/rating", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload)
+    });
+
+    if (resp.status === 401) {
+        alert("You must be logged in to rate a book.");
+        window.location.href = "/login";
+        return;
+    }
+
+    const result = await resp.json();
+    if (resp.ok) {
+        alert(result.message);
+        window.location.reload();
+    } else {
+        alert("Error: " + (result.detail || "Unknown error"));
+    }
+});
+</script>
+
 </body>
 </html>
