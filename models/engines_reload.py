@@ -6,7 +6,11 @@ def reload_all_models():
         HybridSimilarityStrategy
     )
 
-    RecommenderStrategy.reset_singleton()
     SubjectSimilarityStrategy.reset()
     ALSSimilarityStrategy.reset()
     HybridSimilarityStrategy.reset()
+
+    ModelStore.reset()
+    ModelStore().preload()
+
+    RecommenderStrategy.reset_singleton()
