@@ -150,8 +150,8 @@ class HybridSimilarityStrategy(SimilarityStrategy):
         self.alpha = alpha
 
     def get_similar_books(self, item_idx, top_k=10, **kwargs):
-        subj = self.subject.get_similar_books(item_idx, top_k=50)
-        als = self.als.get_similar_books(item_idx, top_k=50)
+        subj = self.subject.get_similar_books(item_idx, top_k=1000)
+        als = self.als.get_similar_books(item_idx, top_k=1000)
 
         alpha = float(kwargs.get("alpha", self.alpha))
         print(alpha)

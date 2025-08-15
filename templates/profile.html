@@ -110,15 +110,14 @@
             <button id="prevButton" class="btn btn--secondary btn--sm" style="display: none;">Previous</button>
             <button id="nextButton" class="btn btn--secondary btn--sm" style="display: none;">Next</button>
         </div>
-
-</div>
+    </div>
     <script type="module">
         import { setupPaginatedBookDisplay } from "/static/js/paginated_books.js";
-
+        
         document.getElementById('recommendButton').onclick = async () => {
             const res = await fetch(`/profile/recommend?user={{ user.id }}&top_n=200`);
             const data = await res.json();
-
+            
             if (res.ok) {
                 setupPaginatedBookDisplay({
                     books: data,
@@ -134,11 +133,12 @@
                 document.getElementById("recommendations").style.display = "block";
             }
         };
-    </script>
+        </script>
+{% include 'footer.html' %}
 
-    <script type="module">
-        import { initSubjectPicker } from "/static/js/subject_picker.js";
-
+<script type="module">
+    import { initSubjectPicker } from "/static/js/subject_picker.js";
+    
         // Toggle edit mode
         document.getElementById("editProfileBtn").onclick = () => {
             document.getElementById("profileDisplay").style.display = "none";
