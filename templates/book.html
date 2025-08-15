@@ -100,7 +100,9 @@
             </div>
 
             <label for="comment">Comment (optional):</label>
-            <textarea id="comment" name="comment" rows="3">{{ user_rating.comment if user_rating else '' }}</textarea>
+            <textarea id="comment" name="comment" rows="3">
+				{{ '' if not user_rating or user_rating.comment in [none, 'None'] else user_rating.comment }}
+			</textarea>
 
             <button id="submitRating" class="btn btn--primary btn--sm">Save Rating</button>
     
