@@ -120,8 +120,8 @@
         <h3>See Similar Books</h3>
         <div class="toggle-group" id="simModeSelector">
             <div class="toggle-option selected" data-mode="subject">Subject</div>
-            <div class="toggle-option" data-mode="als">Behavioral</div>
-            <div class="toggle-option" data-mode="hybrid">Hybrid</div>
+            <div class="toggle-option {% if not has_als %}disabled{% endif %}" data-mode="als">Behavioral</div>
+            <div class="toggle-option {% if not has_als %}disabled{% endif %}" data-mode="hybrid">Hybrid</div>
         </div>
 
         <div class="blend-controls" id="hybridControls">
@@ -220,80 +220,84 @@
 	</script>
 
     <script>
-    document.getElementById('commentsButton').onclick = async function () {
-        const commentsList = document.getElementById('commentsList');
-        const errorMsg = document.getElementById('commentsError');
-        const item_idx = '{{ book.item_idx }}';
+        document.getElementById('commentsButton').onclick = async function () {
+            const commentsList = document.getElementById('commentsList');
+            const errorMsg = document.getElementById('commentsError');
+            const item_idx = '{{ book.item_idx }}';
 
-        const response = await fetch(`/comments?book=${encodeURIComponent(item_idx)}`);
-        const data = await response.json();
-        const noCommentsMsg = document.getElementById('noCommentsMessage');
+            const response = await fetch(`/comments?book=${encodeURIComponent(item_idx)}`);
+            const data = await response.json();
+            const noCommentsMsg = document.getElementById('noCommentsMessage');
 
-        if (response.ok) {
+            if (response.ok) {
 
-            if (!data.length) {
-                commentsList.innerHTML = "";
-                commentsList.style.display = "none";
-                noCommentsMsg.style.display = "block";
-                errorMsg.style.display = "none";
-            } else {
-                commentsList.innerHTML = "";
-                data.forEach(com => {
-                    const block = document.createElement("div");
-                    block.className = "comment-block";
+                if (!data.length) {
+                    commentsList.innerHTML = "";
+                    commentsList.style.display = "none";
+                    noCommentsMsg.style.display = "block";
+                    errorMsg.style.display = "none";
+                } else {
+                    commentsList.innerHTML = "";
+                    data.forEach(com => {
+                        const block = document.createElement("div");
+                        block.className = "comment-block";
 
-                    const header = document.createElement("div");
-                    header.className = "comment-header";
+                        const header = document.createElement("div");
+                        header.className = "comment-header";
 
-                    const username = document.createElement("span");
-                    username.className = "comment-username";
-                    username.innerText = com.username;
+                        const username = document.createElement("span");
+                        username.className = "comment-username";
+                        username.innerText = com.username;
 
-                    const rating = document.createElement("span");
-                    rating.className = "comment-rating";
-                    if (com.rating !== null) rating.innerText = `${com.rating}/10`;
+                        const rating = document.createElement("span");
+                        rating.className = "comment-rating";
+                        if (com.rating !== null) rating.innerText = `${com.rating}/10`;
 
-                    const body = document.createElement("div");
-                    body.className = "comment-body";
-                    body.innerText = com.comment;
+                        const body = document.createElement("div");
+                        body.className = "comment-body";
+                        body.innerText = com.comment;
 
-                    header.appendChild(username);
-                    if (com.rating !== null) header.appendChild(rating);
+                        header.appendChild(username);
+                        if (com.rating !== null) header.appendChild(rating);
 
-                    block.appendChild(header);
-                    block.appendChild(body);
+                        block.appendChild(header);
+                        block.appendChild(body);
 
-                    commentsList.appendChild(block);
-                });
+                        commentsList.appendChild(block);
+                    });
+                    commentsList.style.display = 'block';
+                    commentsButton.style.display = 'none';
+                }
                 commentsList.style.display = 'block';
-                commentsButton.style.display = 'none';
+                this.style.display = 'none';
+                errorMsg.style.display = 'none';
+            } else {
+                errorMsg.textContent = "Error: " + data.detail;
+                errorMsg.style.display = 'block';
             }
-            commentsList.style.display = 'block';
-            this.style.display = 'none';
-            errorMsg.style.display = 'none';
-        } else {
-            errorMsg.textContent = "Error: " + data.detail;
-            errorMsg.style.display = 'block';
-        }
-    };
-    </script>
+        };
+        </script>
 
-    <script type="module">
+        <script type="module">
         import { setupPaginatedBookDisplay } from "/static/js/paginated_books.js";
 
+        const hasAls = {{ 'true' if has_als else 'false' }};
         const recommendBtn = document.getElementById("recommendButton");
         const container = document.getElementById("recommendations");
         const simOptions = document.querySelectorAll("#simModeSelector .toggle-option");
         const prevBtn = document.getElementById("prevButton");
         const nextBtn = document.getElementById("nextButton");
-
-        // Hybrid slider bits
         const hybridControls = document.getElementById("hybridControls");
         const alphaSlider = document.getElementById("alphaSlider");
         const alphaValue = document.getElementById("alphaValue");
 
         function selectedMode() {
-            return document.querySelector('#simModeSelector .toggle-option.selected')?.getAttribute('data-mode') || 'subject';
+            const el = document.querySelector("#simModeSelector .toggle-option.selected");
+            return el ? el.getAttribute("data-mode") : "subject";
+        }
+
+        function modeRequiresAls(m) {
+            return m === "als" || m === "hybrid";
         }
 
         function clamp01(x) {
@@ -302,32 +306,45 @@
             return Math.max(0, Math.min(1, n));
         }
 
-        // Enable/disable slider depending on mode (no auto-fetch)
         function updateHybridUI() {
-            const isHybrid = selectedMode() === 'hybrid';
-            hybridControls.classList.toggle('disabled', !isHybrid);
-            alphaSlider.disabled = !isHybrid;
+            const isHybrid = selectedMode() === "hybrid";
+            const enabled = isHybrid && hasAls;
+            hybridControls.classList.toggle("disabled", !enabled);
+            if (alphaSlider) alphaSlider.disabled = !enabled;
         }
 
-        // Keep button label steady; button is always visible
-        function setButtonLabelReady() {
-            recommendBtn.textContent = "Get Recommendations";
-        }
+        simOptions.forEach((opt) => {
+            opt.addEventListener("click", () => {
+                if (opt.classList.contains("disabled")) return;
+                const mode = opt.getAttribute("data-mode");
+                if (!hasAls && modeRequiresAls(mode)) return;
+                simOptions.forEach((o) => o.classList.remove("selected"));
+                opt.classList.add("selected");
+                updateHybridUI();
+            });
+        });
 
         async function fetchRecommendations() {
-            const item_idx = '{{ book.item_idx }}';
+            const item_idx = "{{ book.item_idx }}";
             const mode = selectedMode();
-            const alpha = mode === 'hybrid' ? clamp01(alphaSlider.value) : 0.6;
+            const alpha = mode === "hybrid" ? clamp01(alphaSlider.value) : 0.6;
+
+            if (!hasAls && modeRequiresAls(mode)) {
+                container.innerHTML = "<p style='color:#a12c2c'>Behavioral similarity is unavailable for this book (no ALS data yet). Try <strong>Subject</strong>.</p>";
+                container.style.display = "block";
+                return;
+            }
 
             try {
                 recommendBtn.disabled = true;
                 recommendBtn.textContent = "Loading…";
+
                 const resp = await fetch(`/book/${item_idx}/similar?mode=${mode}&alpha=${alpha}`);
                 const data = await resp.json();
 
                 if (resp.ok) {
                     if (!Array.isArray(data) || data.length === 0) {
-                        container.innerHTML = `<p>No similar books found.</p>`;
+                        container.innerHTML = "<p>No similar books found.</p>";
                     } else {
                         setupPaginatedBookDisplay({
                             books: data,
@@ -341,40 +358,31 @@
                     }
                     container.style.display = "block";
                 } else {
-                    container.innerHTML = `<p style='color: red;'>Error: ${data.detail}</p>`;
-                    container.style.display = 'block';
+                    container.innerHTML = `<p style='color:#a12c2c;'>Error: ${data.detail || "Unable to fetch recommendations."}</p>`;
+                    container.style.display = "block";
                 }
-            } catch (e) {
-                container.innerHTML = `<p style='color: red;'>Network error.</p>`;
-                container.style.display = 'block';
+            } catch {
+                container.innerHTML = "<p style='color:#a12c2c;'>Network error.</p>";
+                container.style.display = "block";
             } finally {
                 recommendBtn.disabled = false;
-                setButtonLabelReady();
+                recommendBtn.textContent = "Get Recommendations";
             }
         }
 
-        // Button is the *only* trigger
-        recommendBtn.addEventListener("click", fetchRecommendations);
+        if (recommendBtn) {
+            recommendBtn.addEventListener("click", fetchRecommendations);
+        }
 
-        // Mode changes: update selected state + slider enabled/disabled; do NOT fetch
-        simOptions.forEach(opt => {
-            opt.addEventListener("click", () => {
-                simOptions.forEach(o => o.classList.remove("selected"));
-                opt.classList.add("selected");
-                updateHybridUI();
+        if (alphaSlider && alphaValue) {
+            alphaSlider.addEventListener("input", () => {
+                alphaValue.textContent = clamp01(alphaSlider.value).toFixed(2);
             });
-        });
-
-        // Slider: just update display; do NOT fetch
-        alphaSlider?.addEventListener("input", () => {
             alphaValue.textContent = clamp01(alphaSlider.value).toFixed(2);
-        });
+        }
 
-        // Init UI state
         updateHybridUI();
-        alphaValue.textContent = clamp01(alphaSlider.value).toFixed(2);
-        setButtonLabelReady();
-        </script>
+    </script>
 
     <script>
         (function () {

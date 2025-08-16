@@ -258,10 +258,13 @@ async def book_recommendation(request: Request, item_idx: int, current_user: Use
                 'comment': interaction.comment
             }
 
+    has_als = ModelStore().has_book_als(book.item_idx)
+
     return templates.TemplateResponse('book.html', {
         "request": request,
         "book": book_info,
-        "user_rating": user_rating
+        "user_rating": user_rating,
+        'has_als': has_als
     })
 
 @router.get('/comments')
@@ -304,6 +307,12 @@ async def get_comments(book: str = Query(...), isbn: bool = False, limit: int = 
 
 @router.get("/book/{item_idx}/similar")
 def get_similar(item_idx: int, mode: str = "subject", alpha: float = 0.6, top_k: int = 200):
+    if mode in ("als", "hybrid") and not ModelStore().has_book_als(item_idx):
+        raise HTTPException(
+            status_code=422,
+            detail="Behavioral similarity is unavailable for this book (no ALS data yet). Try Subject mode."
+        )
+    
     strategy = get_similarity_strategy(mode=mode, alpha=alpha)
     return strategy.get_similar_books(item_idx, top_k=top_k, alpha=alpha)
 
