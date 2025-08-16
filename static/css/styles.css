@@ -504,7 +504,6 @@ form select {
 }
 
 .toggle-option.disabled::after {
-    content: "Unavailable (no ALS data)";
     position: absolute;
     bottom: 120%;
     left: 50%;
@@ -525,6 +524,15 @@ form select {
     opacity: 1;
 }
 
+/* Context-specific messages */
+#simModeSelector .toggle-option.disabled::after {
+    content: "Unavailable for this book (no ALS data)";
+}
+
+#modeSelector .toggle-option.disabled::after {
+    content: "Unavailable until you’ve rated 10+ books";
+}
+
 button[disabled],
 .btn[disabled] {
     opacity: 0.6;
@@ -533,60 +541,52 @@ button[disabled],
 
 /* Hybrid blend slider */
 .blend-controls {
-    display: block;
-    gap: 10px;
-    margin: 20px 0 12px;
+  display: block;
+  margin: 20px 0 12px;
 }
 
 .blend-row {
-    display: grid;
-    grid-template-columns: auto 1fr auto;
-    align-items: center;
-    column-gap: 12px;
+  display: block;
 }
 
-.blend-label {
-    font-size: 0.95rem;
-    color: var(--color-text-muted);
-    white-space: nowrap;
-}
-
+/* Slider row with fixed side labels */
 .blend-scale {
-    display: grid;
-    grid-template-columns: auto 1fr auto;
-    align-items: center;
-    column-gap: 10px;
+  display: grid;
+  grid-template-columns: auto 1fr auto; /* left label | slider | right label */
+  align-items: center;
+  column-gap: 10px;
+  width: 100%;
 }
 
-.blend-scale span {
-    font-size: 0.85rem;
-    color: var(--color-text-muted);
-    white-space: nowrap;
-}
-
-.blend-scale span:first-child {
-    text-align: left;
-}
-
-.blend-scale span:last-child {
-    text-align: right;
-}
-
-.blend-value {
-    width: 3.6ch;
-    text-align: right;
-    font-variant-numeric: tabular-nums;
-    color: var(--color-text-muted);
+.blend-scale .side-label {
+  font-size: 0.85rem;
+  color: var(--color-text-muted);
+  white-space: nowrap;
 }
 
 input[type="range"].blend-slider {
-    width: 100%;
-    margin: 0;
+  width: 100%;
+  margin: 0;
+}
+
+/* Centered numeric value under the slider */
+.blend-meta {
+  margin-top: 6px;
+  text-align: center;
+  font-size: 0.85rem;
+  color: var(--color-text-muted);
 }
 
 .blend-controls.disabled {
-    opacity: 0.5;
-    pointer-events: none;
+  opacity: 0.5;
+  pointer-events: none;
+}
+
+#wMeta {
+    text-align: center;
+    margin-top: 6px;
+    font-size: 0.9rem;
+    color: var(--color-text-muted);
 }
 
 /* Error messages */
@@ -904,7 +904,7 @@ li {
     padding: 12px;
     border-radius: 8px;
     font-size: 0.95rem;
-    margin-top: 10px;
+    margin-top: 0px;
     margin-bottom: 20px;
 }
 

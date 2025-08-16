@@ -126,13 +126,12 @@
 
         <div class="blend-controls" id="hybridControls">
             <div class="blend-row">
-                <div class="blend-label">Blend</div>
                 <div class="blend-scale">
-                    <span>Subject</span>
-                    <input type="range" id="alphaSlider" class="blend-slider" min="0" max="1" step="0.01" value="0.6">
-                    <span>Behavioral</span>
+                    <span class="side-label">Subject</span>
+                    <input type="range" id="alphaSlider" class="blend-slider" min="0" max="1" step="0.01" value="0.50">
+                    <span class="side-label">Behavioral</span>
                 </div>
-                <div class="blend-value" id="alphaValue">0.60</div>
+                <div id="alphaMeta" class="blend-meta"></div>
             </div>
         </div>
 
@@ -289,7 +288,7 @@
         const nextBtn = document.getElementById("nextButton");
         const hybridControls = document.getElementById("hybridControls");
         const alphaSlider = document.getElementById("alphaSlider");
-        const alphaValue = document.getElementById("alphaValue");
+        const alphaMeta = document.getElementById("alphaMeta");
 
         function selectedMode() {
             const el = document.querySelector("#simModeSelector .toggle-option.selected");
@@ -299,11 +298,17 @@
         function modeRequiresAls(m) {
             return m === "als" || m === "hybrid";
         }
-
+        
         function clamp01(x) {
-            const n = Number(x);
-            if (Number.isNaN(n)) return 0.6;
-            return Math.max(0, Math.min(1, n));
+            x = Number(x);
+            return (x >= 0 && x <= 1) ? x : 0.5;
+        }
+
+        function updateAlphaMeta() {
+            if (!alphaSlider || !alphaMeta) return;
+            const a = clamp01(alphaSlider.value);
+            const percent = Math.round(a * 100);
+            alphaMeta.textContent = percent;    // single centered number, e.g., 50
         }
 
         function updateHybridUI() {
@@ -312,7 +317,7 @@
             hybridControls.classList.toggle("disabled", !enabled);
             if (alphaSlider) alphaSlider.disabled = !enabled;
         }
-
+        
         simOptions.forEach((opt) => {
             opt.addEventListener("click", () => {
                 if (opt.classList.contains("disabled")) return;
@@ -323,25 +328,25 @@
                 updateHybridUI();
             });
         });
-
+        
         async function fetchRecommendations() {
             const item_idx = "{{ book.item_idx }}";
             const mode = selectedMode();
             const alpha = mode === "hybrid" ? clamp01(alphaSlider.value) : 0.6;
-
+            
             if (!hasAls && modeRequiresAls(mode)) {
                 container.innerHTML = "<p style='color:#a12c2c'>Behavioral similarity is unavailable for this book (no ALS data yet). Try <strong>Subject</strong>.</p>";
                 container.style.display = "block";
                 return;
             }
-
+            
             try {
                 recommendBtn.disabled = true;
                 recommendBtn.textContent = "Loading…";
-
+                
                 const resp = await fetch(`/book/${item_idx}/similar?mode=${mode}&alpha=${alpha}`);
                 const data = await resp.json();
-
+                
                 if (resp.ok) {
                     if (!Array.isArray(data) || data.length === 0) {
                         container.innerHTML = "<p>No similar books found.</p>";
@@ -369,18 +374,18 @@
                 recommendBtn.textContent = "Get Recommendations";
             }
         }
-
+        
         if (recommendBtn) {
             recommendBtn.addEventListener("click", fetchRecommendations);
         }
+        
 
-        if (alphaSlider && alphaValue) {
-            alphaSlider.addEventListener("input", () => {
-                alphaValue.textContent = clamp01(alphaSlider.value).toFixed(2);
-            });
-            alphaValue.textContent = clamp01(alphaSlider.value).toFixed(2);
+        if (alphaSlider) {
+            alphaSlider.addEventListener("input", updateAlphaMeta);
+            alphaSlider.addEventListener("change", updateAlphaMeta);
+            updateAlphaMeta();
         }
-
+        
         updateHybridUI();
     </script>
 

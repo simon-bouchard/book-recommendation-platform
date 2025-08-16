@@ -16,7 +16,7 @@ from app.table_models import Book, User, Interaction, BookSubject, Subject, User
 from app.models import get_all_subject_counts, clean_float_values
 from app.search_engine import get_search_results
 from models.book_similarity_engine import get_similarity_strategy
-from models.recommender_strategy import RecommenderStrategy
+from models.recommender_strategy import RecommenderStrategy, WarmRecommender, ColdRecommender
 from models.shared_utils import PAD_IDX, ModelStore
 
 import logging, traceback
@@ -316,6 +316,7 @@ def get_similar(item_idx: int, mode: str = "subject", alpha: float = 0.6, top_k:
     strategy = get_similarity_strategy(mode=mode, alpha=alpha)
     return strategy.get_similar_books(item_idx, top_k=top_k, alpha=alpha)
 
+# add: mode param with default "auto"
 @router.get('/profile/recommend')
 async def recommend_for_user(
     user: str = Query(...),
@@ -323,29 +324,32 @@ async def recommend_for_user(
     top_n: int = 200,
     db: Session = Depends(get_db),
     w: float = 0.6,
+    mode: str = Query("auto")  # "auto" | "subject" | "behavioral"
 ):
     try:
-        # Find user by ID or username, and preload favorite subjects
         user_query = db.query(User).options(joinedload(User.favorite_subjects))
-        if _id:
-            user_obj = user_query.filter(User.user_id == int(user)).first()
-        else:
-            user_obj = user_query.filter(User.username == user).first()
-
+        user_obj = user_query.filter(User.user_id == int(user)).first() if _id \
+                   else user_query.filter(User.username == user).first()
         if not user_obj:
             raise HTTPException(status_code=404, detail="User not found")
 
         user_obj.fav_subjects_idxs = [s.subject_idx for s in user_obj.favorite_subjects] or [PAD_IDX]
-        print("Fav subject idxs:", user_obj.fav_subjects_idxs)
 
         user_meta = ModelStore().get_user_meta()
         row = user_meta.loc[user_obj.user_id] if user_obj.user_id in user_meta.index else None
         num_ratings = int(row["user_num_ratings"]) if row is not None else 0
 
-        strategy = RecommenderStrategy.get_strategy(num_ratings)
-
-        return strategy.recommend(user_obj, db=db, top_k=top_n, w=w)
-
+        # choose strategy
+        if mode == "behavioral":
+            strategy = WarmRecommender()
+            return strategy.recommend(user_obj, db=db, top_k=top_n)
+        elif mode == "subject":
+            strategy = ColdRecommender()
+            return strategy.recommend(user_obj, db=db, top_k=top_n, w=w)
+        else:
+            strategy = RecommenderStrategy.get_strategy(num_ratings) 
+            return strategy.recommend(user_obj, db=db, top_k=top_n, w=w)
+        
     except Exception as e:
         logger.error(f"Error in /profile/recommend: {str(e)}")
         raise HTTPException(status_code=500, detail="Internal server error")

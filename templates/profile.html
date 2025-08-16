@@ -101,6 +101,24 @@
         </div>
 
         <h3>Personalised Recommendations</h3>
+        <div class="toggle-group" id="modeSelector">
+            <div class="toggle-option selected" data-mode="subject">Subject</div>
+            <div class="toggle-option {% if not user.is_warm %}disabled{% endif %}" data-mode="behavioral">
+                Behavioral
+            </div>
+        </div>
+
+        <div class="blend-controls" id="subjectWeightControls">
+        <div class="blend-row">
+            <div class="blend-scale">
+            <span class="side-label">Popularity</span>
+            <input type="range" id="wSlider" class="blend-slider" min="0" max="1" step="0.01" value="0.60">
+            <span class="side-label">Subject</span>
+            </div>
+            <div id="wMeta" class="blend-meta"></div>
+        </div>
+        </div>
+
         <div class="section-cta">
             <button id="recommendButton" class="btn btn--primary btn--lg">Get Recommendations</button>
         </div>
@@ -111,13 +129,92 @@
             <button id="nextButton" class="btn btn--secondary btn--sm" style="display: none;">Next</button>
         </div>
     </div>
+    
     <script type="module">
-        import { setupPaginatedBookDisplay } from "/static/js/paginated_books.js";
-        
-        document.getElementById('recommendButton').onclick = async () => {
-            const res = await fetch(`/profile/recommend?user={{ user.id }}&top_n=200`);
+    import { setupPaginatedBookDisplay } from "/static/js/paginated_books.js";
+
+    const isWarm = {{ 'true' if user.is_warm else 'false' }};
+    const userId = {{ user.id }};
+
+    const modeOptions = document.querySelectorAll("#modeSelector .toggle-option");
+    const subjectWeightControls = document.getElementById("subjectWeightControls");
+    const wSlider = document.getElementById("wSlider");
+    const wMeta = document.getElementById("wMeta");
+
+    const recommendBtn = document.getElementById("recommendButton");
+    const container = document.getElementById("recommendations");
+    const prevBtn = document.getElementById("prevButton");
+    const nextBtn = document.getElementById("nextButton");
+
+    function clamp01(x) {
+        const n = Number(x);
+        if (Number.isNaN(n)) return 0.6;
+        return Math.max(0, Math.min(1, n));
+    }
+
+    function selectedMode() {
+        const el = document.querySelector("#modeSelector .toggle-option.selected");
+        return el ? el.getAttribute("data-mode") : "subject";
+    }
+
+    // --- NEW: centered numeric readout under the slider ---
+    function updateWMeta() {
+        if (!wSlider || !wMeta) return;
+        const w = clamp01(wSlider.value);
+        const percent = Math.round(w * 100);
+        wMeta.textContent = percent;   // single centered number
+    }
+    
+    function enableSubjectControls(enable) {
+        subjectWeightControls.classList.toggle("disabled", !enable);
+        if (wSlider) wSlider.disabled = !enable;
+    }
+
+    function updateUI() {
+        const mode = selectedMode();
+        const subjectSelected = mode === "subject";
+        enableSubjectControls(subjectSelected);
+        updateWMeta(); // always refresh the centered readout
+    }
+
+    // Toggle mode (block clicks on disabled Behavioral)
+    modeOptions.forEach(opt => {
+        opt.addEventListener("click", () => {
+            if (opt.classList.contains("disabled")) return;
+            modeOptions.forEach(o => o.classList.remove("selected"));
+            opt.classList.add("selected");
+            updateUI();
+        });
+    });
+
+    // Keep the centered readout live as the user drags the slider
+    if (wSlider) {
+        wSlider.addEventListener("input", updateWMeta);
+        wSlider.addEventListener("change", updateWMeta);
+    }
+
+    // Fetch recommendations (button stays visible; classic loading state)
+    async function fetchRecommendations() {
+        try {
+            recommendBtn.disabled = true;
+            recommendBtn.textContent = "Loading…";
+
+            const mode = selectedMode();
+            const params = new URLSearchParams();
+            params.set("user", String(userId));
+            params.set("top_n", "200");
+            params.set("_id", "true");
+
+            if (mode === "behavioral") {
+                params.set("mode", "behavioral"); // ALS path; w not used
+            } else {
+                params.set("mode", "subject");    // Cold hybrid path; uses w
+                params.set("w", clamp01(wSlider?.value ?? 0.6).toString());
+            }
+
+            const res = await fetch(`/profile/recommend?${params.toString()}`);
             const data = await res.json();
-            
+
             if (res.ok) {
                 setupPaginatedBookDisplay({
                     books: data,
@@ -125,15 +222,28 @@
                     prevButtonId: "prevButton",
                     nextButtonId: "nextButton",
                     scrollOnFirstRender: true,
-                    limit: 30,
+                    limit: 30
                 });
-                document.getElementById("recommendButton").style.display = "none";
+                container.style.display = "block";
             } else {
-                document.getElementById("recommendations").innerHTML = `<p style="color:red">Error: ${data.detail}</p>`;
-                document.getElementById("recommendations").style.display = "block";
+                container.innerHTML = `<p class="form-error">Error: ${data.detail || "Unable to fetch recommendations."}</p>`;
+                container.style.display = "block";
             }
-        };
-        </script>
+        } catch {
+            container.innerHTML = `<p class="form-error">Network error.</p>`;
+            container.style.display = "block";
+        } finally {
+            recommendBtn.disabled = false;
+            recommendBtn.textContent = "Get Recommendations";
+        }
+    }
+
+    recommendBtn.addEventListener("click", fetchRecommendations);
+
+    // Initial render
+    updateUI();
+</script>
+
 {% include 'footer.html' %}
 
 <script type="module">
