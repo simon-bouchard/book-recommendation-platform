@@ -1,5 +1,3 @@
-# train_subject_embs_perdim.py
-
 import os
 import sys
 from pathlib import Path
@@ -171,7 +169,7 @@ def main():
 
     os.makedirs(REPO_ROOT / "models/data", exist_ok=True)
     torch.save(state, REPO_ROOT / "models/data/subject_attention_components_perdim.pth")
-    print(f"✅ Saved to models/data/subject_attention_components_perdim.pth")
+    print(f"✅ Saved to {REPO_ROOT}/models/data/subject_attention_components_perdim.pth")
 
 if __name__ == "__main__":
     main()

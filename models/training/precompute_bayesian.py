@@ -2,17 +2,15 @@ import pandas as pd
 import numpy as np
 import json
 from pathlib import Path
-from pathlib import Path
 
 # Config
-ROOT = Path(__file__).resolve().parents[2]
-DATA_DIR = ROOT / "models" / "training" / "data"
-MODELS_DIR = ROOT / "models" / "data"
+REPO_ROOT = Path(__file__).parent.parent.parent
+DATA_DIR = REPO_ROOT / "models" / "training" / "data"
 
-INTERACTIONS_PATH = DATA_DIR / "interactions.pkl"
-BOOKS_PATH = DATA_DIR / "books.pkl"
-BOOK_IDS_PATH = MODELS_DIR / "book_ids.json"
-OUTPUT_PATH = MODELS_DIR / "bayesian_tensor.npy"
+INTERACTIONS_PATH = Path(DATA_DIR / "interactions.pkl")
+BOOKS_PATH = Path(DATA_DIR / "books.pkl")
+BOOK_IDS_PATH = Path(REPO_ROOT / "models/data/book_ids.json")
+OUTPUT_PATH = Path(REPO_ROOT / "models/data/bayesian_tensor.npy")
 
 # Smoothing parameter
 m = 30
@@ -20,8 +18,10 @@ m = 30
 def main():
     print("📄 Loading files ...")
     interactions = pd.read_pickle(INTERACTIONS_PATH)
-    books = pd.read_pickle(BOOKS_PATH)
-    with open(BOOK_IDS_PATH) as f:
+
+    books = pd.read_pickle(BOOKS_PATH).set_index("item_idx")
+
+    with open(BOOK_IDS_PATH, "r") as f:
         book_ids = json.load(f)
 
     rated = interactions[interactions["rating"].notna()]
@@ -58,8 +58,8 @@ def main():
         print(f"{title} ({score:.6f})")
 
     bayesian_tensor = score_df.loc[book_ids]["score"].fillna(0).values.astype(np.float32)
-    OUTPUT_PATH.parent.mkdir(parents=True, exist_ok=True)
     np.save(OUTPUT_PATH, bayesian_tensor)
+    print(f"✅ Saved: {OUTPUT_PATH} (shape: {bayesian_tensor.shape})")
 
 if __name__ == "__main__":
     main()

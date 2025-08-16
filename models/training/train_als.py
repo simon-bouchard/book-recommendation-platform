@@ -10,10 +10,10 @@ from pathlib import Path
 import logging
 logging.getLogger("implicit").setLevel(logging.ERROR)
 
-ROOT = Path(__file__).resolve().parents[2]
-DATA_DIR = ROOT / "models" / "training" / "data"
-MODEL_DIR = ROOT / "models" / "data"
-MODEL_DIR.mkdir(parents=True, exist_ok=True)
+REPO_ROOT = Path(__file__).parent.parent.parent
+DATA_DIR = REPO_ROOT / "models" / "training" / "data"
+MODEL_DIR = REPO_ROOT / "models/data"
+os.makedirs(MODEL_DIR, exist_ok=True)
 
 ALPHA = 40
 FACTORS = 32
@@ -23,7 +23,7 @@ RANDOM_STATE = 42
 
 def main():
     print("📦 Loading interactions...")
-    interactions = pd.read_pickle(DATA_DIR / "interactions.pkl")
+    interactions = pd.read_pickle(f"{DATA_DIR}/interactions.pkl")
     interactions = interactions[interactions["rating"].notnull()]
     
     # Warm users only
@@ -64,11 +64,12 @@ def main():
     model.fit(user_items)
 
     print("💾 Saving outputs...")
-    np.save(MODEL_DIR / "user_als_emb.npy", model.user_factors)
-    np.save(MODEL_DIR / "book_als_emb.npy", model.item_factors)
-    with open(MODEL_DIR / "user_als_ids.json", "w") as f:
+    np.save(f"{MODEL_DIR}/user_als_emb.npy", model.user_factors)
+    np.save(f"{MODEL_DIR}/book_als_emb.npy", model.item_factors)
+    
+    with open(f"{MODEL_DIR}/user_als_ids.json", "w") as f:
         json.dump([int(idx2user[i]) for i in range(num_users)], f)
-    with open(MODEL_DIR / "book_als_ids.json", "w") as f:
+    with open(f"{MODEL_DIR}/book_als_ids.json", "w") as f:
         json.dump([int(idx2item[i]) for i in range(num_items)], f)
 
     print("✅ ALS training complete.")
