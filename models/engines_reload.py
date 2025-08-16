@@ -9,4 +9,8 @@ def reload_all_models():
     RecommenderStrategy.reset_singleton()
     SubjectSimilarityStrategy.reset()
     ALSSimilarityStrategy.reset()
+
+    ModelStore.reset()
+    ModelStore().preload()
+
     HybridSimilarityStrategy.reset()
