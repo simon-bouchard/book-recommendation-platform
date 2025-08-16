@@ -1,24 +1,22 @@
 import os
 import pandas as pd
-from pathlib import Path
 import json
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
 import numpy as np
 from collections import defaultdict
-
+from pathlib import Path
 import sys
-
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "../..")))
-from models.shared_utils import PAD_IDX, ModelStore
 
-ROOT = Path(__file__).resolve().parents[2]  # repo root
-DATA_DIR = ROOT / "models" / "training" / "data"
-MODELS_DIR = ROOT / "models" / "data"
+from models.shared_utils import PAD_IDX, ModelStore
 
 DEVICE = 'cuda' if torch.cuda.is_available() else 'cpu'
 ATTN_STRATEGY = os.getenv("ATTN_STRATEGY", "scalar")
+
+REPO_ROOT = Path(__file__).parent.parent.parent
+DATA_DIR = REPO_ROOT / "models" / "training" / "data"
 
 # ----------------------------
 # Load .pkl files
@@ -64,12 +62,12 @@ print(f"📐 Shape: {pooled_embs.shape}")
 # ----------------------------
 # Save outputs
 # ----------------------------
-MODELS_DIR.mkdir(parents=True, exist_ok=True)
-np.save(MODELS_DIR / "book_embs.npy", pooled_embs)
+os.makedirs(REPO_ROOT / "models" / "data", exist_ok=True)
+np.save(REPO_ROOT / "models/data/book_embs.npy", pooled_embs)
 
-with open(f"{MODELS_DIR}/book_ids.json", "w") as f:
+with open(REPO_ROOT / "models/data/book_ids.json", "w") as f:
     json.dump(book_ids, f)
 
 print("✅ Saved:")
-print(f"   - {MODELS_DIR}/book_embs.npy")
-print(f"   - {MODELS_DIR}/book_ids.json")
+print(f"   - {REPO_ROOT}/models/data/book_embs.npy")
+print(f"   - {REPO_ROOT}/models/data/book_ids.json")

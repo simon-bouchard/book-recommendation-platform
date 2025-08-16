@@ -24,16 +24,14 @@ from models.shared_utils import (
 import torch
 DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
 
-ROOT = Path(__file__).resolve().parents[2]
-DATA_DIR = ROOT / "models" / "training" / "data"
-MODELS_DIR = ROOT / "models" / "data"
-MODELS_DIR.mkdir(parents=True, exist_ok=True)
+REPO_ROOT = Path(__file__).parent.parent.parent
+DATA_DIR = REPO_ROOT / "models" / "training" / "data"
 
 def load_data_from_pickle():
     print("📦 Loading .pkl data from:", DATA_DIR)
     interactions = pd.read_pickle(DATA_DIR / "interactions.pkl")
-    book_embs = np.load(MODELS_DIR / "book_embs.npy")
-    book_ids = np.load(MODELS_DIR / "book_ids.npy")
+    users = pd.read_pickle(DATA_DIR / "users.pkl")
+    books = pd.read_pickle(DATA_DIR / "books.pkl")
 
     user_fav_df = pd.read_pickle(DATA_DIR / "user_fav_subjects.pkl")
     book_subj_df = pd.read_pickle(DATA_DIR / "book_subjects.pkl")
@@ -125,10 +123,11 @@ def main():
         callbacks=[early_stopping(50), log_evaluation(100)]
     )
 
-    with open(MODELS_DIR / "gbt_cold.pickle", "wb") as f:
+    os.makedirs(REPO_ROOT / "models/data", exist_ok=True)
+    with open(REPO_ROOT / "models/data/gbt_cold.pickle", "wb") as f:
         pickle.dump(model, f)
 
-    print("✅ Saved: models/data/gbt_cold.pickle")
+    print(f"✅ Saved: {REPO_ROOT}/models/data/gbt_cold.pickle")
 
 if __name__ == "__main__":
     main()
