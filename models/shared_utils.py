@@ -239,3 +239,29 @@ class ModelStore:
             self._attn_strategy_name = name
 
         return self._attn_strategy
+
+	@classmethod
+    def reset(cls):
+        """Hard reset singleton so all files are re-read on next access."""
+        cls._instance = None
+
+	def preload(self):
+		# 1) Core embeddings + row map
+		self.get_book_embeddings()          # sets _book_embs, _book_ids
+		self.get_item_idx_to_row()          # sets _item_idx_to_row (via above)
+
+		# 2) Precomputed tensors / metadata
+		self.get_bayesian_tensor()          # _bayesian_tensor
+		self.get_book_meta()                # _book_meta
+		self.get_user_meta()                # _user_meta
+		self.get_book_to_subj()             # _book_to_subj
+
+		# 3) Models (best-effort)
+		self.get_warm_gbt_model()       # _warm_gbt
+
+		# 4) ALS embeddings + lookup maps
+		self.get_als_embeddings()           # _user_als_embs, _book_als_embs, _user_id_to_als_row, _book_row_to_item_idx
+
+		# 5) Attention strategy (env var ATTN_STRATEGY or default "scalar")
+		self.get_attention_strategy()
+
