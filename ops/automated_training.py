@@ -8,6 +8,7 @@ from pathlib import Path
 from dotenv import load_dotenv
 from pathlib import Path
 import requests
+import shlex
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(PROJECT_ROOT))
@@ -19,6 +20,7 @@ AZURE_VM = os.getenv("AZURE_VM_NAME")
 AZURE_RG = os.getenv("AZURE_RESOURCE_GROUP")
 REMOTE_HOST = os.getenv("REMOTE_HOST")
 REMOTE_REPO = os.getenv("REMOTE_REPO_PATH")
+REMOTE_BACKUP_DIR = os.getenv('REMOTE_BACKUP_DIR')
 
 with open(AZURE_AUTH) as f:
     sp = json.load(f)
@@ -80,10 +82,26 @@ def main():
         print("  - Still waiting for SSH...")
         time.sleep(5)
 
-    """
+
     print("🔄 Backing up current database...")
-    subprocess.run(["python", "ops/backup_db.py"], check=True, env={**os.environ})
-    """
+    run(f'python {PROJECT_ROOT}/ops/backup_db.py')
+
+    def _db_from_env():
+            db = os.getenv("MYSQL_DB", "").strip()
+            if db:
+                return db
+            try:
+                return (urlsplit(os.getenv("DATABASE_URL","")).path or "").lstrip("/")
+            except Exception:
+                return ""
+
+    db_name = _db_from_env()
+    backup_dir = PROJECT_ROOT / "data/backups/db"
+    candidates = sorted(backup_dir.glob(f"*_{db_name}.sql.gz"))
+    if candidates:
+        latest_dump = candidates[-1]
+        run(f"ssh {REMOTE_HOST} 'mkdir -p {REMOTE_BACKUP_DIR}'")
+        run(f"scp {shlex.quote(str(latest_dump))} {REMOTE_HOST}:{REMOTE_BACKUP_DIR.rstrip('/')}/")
 
     print("📁 Ensuring remote data directory exists...")
     run(f"ssh {REMOTE_HOST} 'mkdir -p {REMOTE_REPO}/models/training/data'")
