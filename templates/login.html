@@ -11,13 +11,13 @@
     
     {% include 'navbar.html' %}
     <div class="login-container">
-        <h1>Account</h1>
         {% if message %}
-            <div class="alert alert-success">{{ message }}</div>
+            <div class="alert alert--success">{{ message }}</div>
         {% endif %}
         {% if error %}
-            <div class="alert alert-error">{{ error }}</div>
+            <div class="alert alert--error">{{ error }}</div>
         {% endif %}
+        <h1>Account</h1>
 
         <h2>Log In</h2>
         <form id="login" method="post" action="/auth/login">
