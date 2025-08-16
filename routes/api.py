@@ -19,7 +19,7 @@ from models.book_similarity_engine import get_similarity_strategy
 from models.recommender_strategy import RecommenderStrategy
 from models.shared_utils import PAD_IDX, ModelStore
 
-import logging
+import logging, traceback
 import pycountry
 from typing import List, Optional
 
@@ -417,7 +417,10 @@ async def logout():
 def reload_models_endpoint(secret: str = Query(...)):
     if secret != os.getenv("ADMIN_SECRET"):
         raise HTTPException(status_code=403)
-
-    from models.engines_reload import reload_all_models
-    reload_all_models()
-    return {"status": "reloaded"}
+    try:
+        from models.engines_reload import reload_all_models
+        reload_all_models()
+        return {"status": "reloaded"}
+    except Exception as e:
+        logging.getLogger(__name__).error("Reload failed:\n%s", traceback.format_exc())
+        raise HTTPException(status_code=500, detail=f"Reload failed: {e}")
