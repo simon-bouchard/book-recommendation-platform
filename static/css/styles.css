@@ -497,6 +497,40 @@ form select {
     text-decoration: none;
 }
 
+.toggle-option.disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+    position: relative;
+}
+
+.toggle-option.disabled::after {
+    content: "Unavailable (no ALS data)";
+    position: absolute;
+    bottom: 120%;
+    left: 50%;
+    transform: translateX(-50%);
+    background: #333;
+    color: #fff;
+    padding: 6px 8px;
+    border-radius: 4px;
+    font-size: 0.75rem;
+    white-space: nowrap;
+    opacity: 0;
+    pointer-events: none;
+    transition: opacity 0.2s ease;
+    z-index: 100;
+}
+
+.toggle-option.disabled:hover::after {
+    opacity: 1;
+}
+
+button[disabled],
+.btn[disabled] {
+    opacity: 0.6;
+    cursor: not-allowed;
+}
+
 /* Hybrid blend slider */
 .blend-controls {
     display: block;
