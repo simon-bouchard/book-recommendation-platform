@@ -66,19 +66,29 @@ async def signup(
     db: Session = Depends(get_db)
 ):
     existing_user = db.query(User).filter(User.username == username).first()
+    
+    countries = sorted([c.name for c in pycountry.countries])
     if existing_user:
         return templates.TemplateResponse("login.html", {
             "request": request,
+            "countries": countries,
+            "page": "login",
             "error": "Username already exists. Please choose another."
-        })
+        },
+        status_code=status.HTTP_400_BAD_REQUEST,
+    )
 
     try:
         country_name = pycountry.countries.lookup(country).name
     except LookupError:
-        return templates.TemplateResponse("signup.html", {
+        return templates.TemplateResponse("login.html", {
             "request": request,
+            "countries": countries,
+            "page": "login",
             "error": "Invalid country name."
-        })
+        },
+        status_code=status.HTTP_400_BAD_REQUEST,
+    )
 
     # Correct age handling logic
     if age is None:
@@ -126,20 +136,33 @@ async def signup(
     return response
 
 @router.post('/auth/login', response_class=HTMLResponse)
-async def login(request: Request, username: str = Form(...), password: str = Form(...), db: Session=Depends(get_db)):
-
+async def login(
+    request: Request,
+    username: str = Form(...),
+    password: str = Form(...),
+    db: Session = Depends(get_db)
+):
     db_user = db.query(User).filter(User.username == username).first()
 
-    if not db_user:
-        raise HTTPException(status_code=401, detail='Invalid username')
-    if not verify_password(password, db_user.password):
-        raise HTTPException(status_code=401, detail='Invalid password')
+    # On any auth failure, re-render login.html with a friendly message
+    if not db_user or not verify_password(password, db_user.password):
+        # keep country list and page context so the template renders fully
+        countries = sorted([c.name for c in pycountry.countries])
+        return templates.TemplateResponse(
+            "login.html",
+            {
+                "request": request,
+                "countries": countries,
+                "page": "login",
+                "error": "Invalid username or password."
+            },
+            status_code=status.HTTP_401_UNAUTHORIZED,
+        )
 
-    access_token = await create_access_token({'sub': username})
-
+    # Success → set cookie and redirect to profile
+    access_token = await create_access_token({"sub": username})
     response = RedirectResponse(url="/profile", status_code=status.HTTP_303_SEE_OTHER)
     response.set_cookie(key="access_token", value=access_token, httponly=True, max_age=3600)
-
     return response
 
 def assign_age_group(age):
