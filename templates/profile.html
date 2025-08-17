@@ -53,11 +53,10 @@
                 <div><strong>Age:</strong></div><div>{{ user.age }}</div>
                 <div><strong>Country:</strong></div><div>{{ user.country }}</div>
                 <div><strong>Ratings:</strong></div><div>{{ user.num_ratings }}</div>
-                <div><strong>Books Read:</strong></div><div>{{ user.num_ratings }}</div>
+                <div><strong>Books Read:</strong></div><div>{{ user.num_books_read }}</div>
                 
             </div>
-
-            <h4>Your Favorite Subjects</h4>
+            <div><strong>Your Favorite Subjects:</strong></div>
             {% if user.favorite_subjects %}
                 <div class="subject-list">
                     {% for subj in user.favorite_subjects %}
@@ -98,6 +97,26 @@
                 <button type="button" id="deleteAccountBtn" class="btn btn--danger">Delete Account</button>
             </form>
             <p id="profileMessage" style="color: green; display: none;"></p>
+        </div>
+
+        <div class="section-header">
+            <h3>Your Interactions</h3>
+            <div id="ratingsCount" class="interaction-date"></div>
+        </div>
+        <div class="interactions-card profile-card", id="ratingsContainer">
+
+            <div id="ratingsError" class="page-banner" style="display:none;">
+                <div class="alert alert--error">
+                    <div>Unable to load your interactions.</div>
+                    <button class="alert__close" type="button" aria-label="Close">✕</button>
+                </div>
+            </div>
+
+            <div id="ratingsEmpty" class="no-comments" style="display:none;">
+                You haven't logged any interactions yet.
+            </div>
+
+            <div id="ratingsList" class="interactions-list"></div>
         </div>
 
         <h3>Personalised Recommendations</h3>
@@ -339,6 +358,168 @@
 <script type="module">
   import { mountBanners } from "/static/js/flash_banner.js";
   mountBanners({ autoHideMs: 5000 }); // set 0 to disable auto‑dismiss
+</script>
+
+<script type="module">
+    const ratingsList = document.getElementById("ratingsList");
+    const ratingsEmpty = document.getElementById("ratingsEmpty");
+    const ratingsError = document.getElementById("ratingsError");
+    const ratingsCount = document.getElementById("ratingsCount");
+
+    // Sentinel to detect end-of-list within the scrollable container
+    const sentinel = document.createElement("div");
+    sentinel.id = "ratingsSentinel";
+    sentinel.style.height = "1px";
+    ratingsList.appendChild(sentinel);
+
+    let nextCursor = null;
+    let isLoading = false;
+    let totalCount = 0;
+    const pageSize = 10; // adjust as desired
+    let lastCursorRequested = "__none__";
+    let io; // IntersectionObserver
+
+    function fmtDate(iso) {
+        if (!iso) return "";
+        const d = new Date(iso);
+        if (Number.isNaN(d.getTime())) return "";
+        return d.toLocaleDateString(undefined, { year: "numeric", month: "short", day: "numeric" });
+    }
+
+    function ratingCard(item) {
+        const a = document.createElement("a");
+        a.href = `/book/${item.book_id}`;
+        a.className = "interaction-card";
+
+        const img = document.createElement("img");
+        img.className = "interaction-cover";
+        img.alt = "Book cover";
+        img.loading = "lazy";
+        img.src = item.cover_url_small || "/static/img/placeholder_cover.png";
+
+        const body = document.createElement("div");
+        body.className = "interaction-body";
+        if (item.comment) body.classList.add("has-comment");
+
+        // Top: title + author
+        const top = document.createElement("div");
+        top.className = "interaction-top";
+
+        const title = document.createElement("div");
+        title.className = "interaction-title";
+        title.textContent = item.title || "Untitled";
+
+        const author = document.createElement("div");
+        author.className = "interaction-author";
+        author.textContent = item.author || "";
+
+        top.appendChild(title);
+        if (author.textContent) top.appendChild(author);
+
+        // Middle: comment excerpt (optional)
+        const middle = document.createElement("div");
+        middle.className = "interaction-middle";
+        if (item.comment) {
+            const c = document.createElement("div");
+            c.className = "interaction-comment";
+            c.textContent = item.comment;
+            middle.appendChild(c);
+        }
+
+        // Bottom: meta row (rating chip + date)
+        const meta = document.createElement("div");
+        meta.className = "interaction-meta";
+
+        if (item.user_rating != null) {
+            const badge = document.createElement("span");
+            badge.className = "comment-rating";
+            badge.textContent = `⭐ ${item.user_rating}/5`;
+            meta.appendChild(badge);
+        }
+
+        if (item.rated_at) {
+            const date = document.createElement("span");
+            date.className = "interaction-date";
+            date.textContent = fmtDate(item.rated_at);
+            meta.appendChild(date);
+        }
+
+        // Assemble
+        body.appendChild(top);
+        body.appendChild(middle);
+        body.appendChild(meta);
+
+        a.appendChild(img);
+        a.appendChild(body);
+        return a;
+    }
+
+    async function fetchRatings(initial = false) {
+        if (isLoading) return;
+
+        const requestedCursor = nextCursor ?? "__first__";
+        if (!initial && requestedCursor === lastCursorRequested) return;
+        lastCursorRequested = requestedCursor;
+
+        isLoading = true;
+        try {
+            const params = new URLSearchParams();
+            params.set("limit", String(pageSize));
+            params.set("sort", "newest");
+            if (nextCursor) params.set("cursor", nextCursor);
+
+            const res = await fetch(`/profile/ratings?${params.toString()}`);
+            const data = await res.json();
+            if (!res.ok) throw new Error(data?.detail || "Request failed");
+
+            const items = Array.isArray(data.items) ? data.items : [];
+
+            // Empty initial state
+            if (initial && items.length === 0) {
+                ratingsEmpty.style.display = "block";
+                nextCursor = null;
+                if (io) io.disconnect();
+                return;
+            }
+
+            // Update header count
+            totalCount = typeof data.total_count === "number" ? data.total_count : totalCount;
+            if (ratingsCount && totalCount) ratingsCount.textContent = `(${totalCount})`;
+
+            // Render items BEFORE the sentinel so sentinel remains last
+            for (const it of items) {
+                ratingsList.insertBefore(ratingCard(it), sentinel);
+            }
+
+            // Update cursor / stop observing if done
+            if (data.has_more === false || items.length === 0) {
+                nextCursor = null;
+                if (io) io.disconnect();
+            } else {
+                nextCursor = data.next_cursor ?? null;
+            }
+        } catch {
+            ratingsError.style.display = "block";
+            nextCursor = null;
+            if (io) io.disconnect();
+        } finally {
+            isLoading = false;
+        }
+    }
+
+    // IntersectionObserver to trigger fetch when sentinel enters view
+    io = new IntersectionObserver((entries) => {
+        if (entries.some(e => e.isIntersecting)) {
+            if (!isLoading && nextCursor) fetchRatings(false);
+        }
+    }, {
+        root: ratingsList,
+        rootMargin: "200px",
+        threshold: 0.01
+    });
+
+    io.observe(sentinel);
+    fetchRatings(true);
 </script>
 
 </body>
