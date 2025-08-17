@@ -803,7 +803,7 @@ li {
     gap: 14px;
     max-height: 400px;
     overflow-y: auto;
-    padding-right: 15px;
+    padding-right: 7px;
 }
 
 .interaction-card {
