@@ -109,12 +109,24 @@
             {% endif %}
         </form>
 
-        <div class="comments-section">
+        <div class="section-header">
             <h3>Comments</h3>
-            <button id="commentsButton" class="btn btn--secondary">View Comments</button>
-            <div id="commentsList" class="comment-list" style="display: none;"></div>
-            <p id="commentsError" class="form-error" style="display: none;"></p>
-            <p id="noCommentsMessage" class="no-comments" style="display: none;">No comments yet.</p>
+            <div id="bookCommentsCount" class="interaction-date"></div>
+        </div>
+
+        <div class="interactions-card profile-card" id="bookCommentsContainer">
+            <div id="bookCommentsError" class="page-banner" style="display:none;">
+                <div class="alert alert--error">
+                    <div>Unable to load comments.</div>
+                    <button class="alert__close" type="button" aria-label="Close">✕</button>
+                </div>
+            </div>
+
+            <div id="bookCommentsEmpty" class="no-comments" style="display:none;">
+                No comments yet.
+            </div>
+
+            <div id="bookCommentsList" class="interactions-list"></div>
         </div>
 
         <h3>See Similar Books</h3>
@@ -218,66 +230,7 @@
 		}
 	</script>
 
-    <script>
-        document.getElementById('commentsButton').onclick = async function () {
-            const commentsList = document.getElementById('commentsList');
-            const errorMsg = document.getElementById('commentsError');
-            const item_idx = '{{ book.item_idx }}';
-
-            const response = await fetch(`/comments?book=${encodeURIComponent(item_idx)}`);
-            const data = await response.json();
-            const noCommentsMsg = document.getElementById('noCommentsMessage');
-
-            if (response.ok) {
-
-                if (!data.length) {
-                    commentsList.innerHTML = "";
-                    commentsList.style.display = "none";
-                    noCommentsMsg.style.display = "block";
-                    errorMsg.style.display = "none";
-                } else {
-                    commentsList.innerHTML = "";
-                    data.forEach(com => {
-                        const block = document.createElement("div");
-                        block.className = "comment-block";
-
-                        const header = document.createElement("div");
-                        header.className = "comment-header";
-
-                        const username = document.createElement("span");
-                        username.className = "comment-username";
-                        username.innerText = com.username;
-
-                        const rating = document.createElement("span");
-                        rating.className = "comment-rating";
-                        if (com.rating !== null) rating.innerText = `${com.rating}/10`;
-
-                        const body = document.createElement("div");
-                        body.className = "comment-body";
-                        body.innerText = com.comment;
-
-                        header.appendChild(username);
-                        if (com.rating !== null) header.appendChild(rating);
-
-                        block.appendChild(header);
-                        block.appendChild(body);
-
-                        commentsList.appendChild(block);
-                    });
-                    commentsList.style.display = 'block';
-                    commentsButton.style.display = 'none';
-                }
-                commentsList.style.display = 'block';
-                this.style.display = 'none';
-                errorMsg.style.display = 'none';
-            } else {
-                errorMsg.textContent = "Error: " + data.detail;
-                errorMsg.style.display = 'block';
-            }
-        };
-        </script>
-
-        <script type="module">
+    <script type="module">
         import { setupPaginatedBookDisplay } from "/static/js/paginated_books.js";
 
         const hasAls = {{ 'true' if has_als else 'false' }};
@@ -543,6 +496,87 @@ document.getElementById("ratingForm").addEventListener("submit", async (e) => {
         alert("Error: " + (result.detail || "Unknown error"));
     }
 });
+</script>
+
+<script type="module">
+    import { setupInfiniteList } from "/static/js/infinite_list.js";
+
+    const commentsList = document.getElementById("bookCommentsList");
+    const commentsEmpty = document.getElementById("bookCommentsEmpty");
+    const commentsError = document.getElementById("bookCommentsError");
+    const commentsCount = document.getElementById("bookCommentsCount");
+    const itemIdx = "{{ book.item_idx }}";
+
+    function fmtDate(iso) {
+        if (!iso) return "";
+        const d = new Date(iso);
+        if (Number.isNaN(d.getTime())) return "";
+        return d.toLocaleDateString(undefined, { year: "numeric", month: "short", day: "numeric" });
+    }
+
+    function renderComment(item) {
+        const block = document.createElement("div");
+        block.className = "comment-block";
+
+        const header = document.createElement("div");
+        header.className = "comment-header";
+
+        const username = document.createElement("span");
+        username.className = "comment-username";
+        username.textContent = item.username || "User";
+
+        const right = document.createElement("div");
+        right.style.display = "flex";
+        right.style.gap = "8px";
+        right.style.alignItems = "center";
+
+        if (item.rating != null) {
+            const rating = document.createElement("span");
+            rating.className = "comment-rating";
+            rating.textContent = `${item.rating}/10 ⭐`;
+            right.appendChild(rating);
+        }
+
+        if (item.rated_at) {
+            const date = document.createElement("span");
+            date.className = "interaction-date";
+            date.textContent = fmtDate(item.rated_at);
+            right.appendChild(date);
+        }
+
+        header.appendChild(username);
+        header.appendChild(right);
+
+        const body = document.createElement("div");
+        body.className = "comment-body";
+        body.textContent = item.comment || "";
+
+        block.appendChild(header);
+        block.appendChild(body);
+        return block;
+    }
+
+    async function fetchCommentsPage({ cursor, limit }) {
+        const params = new URLSearchParams();
+        params.set("limit", String(limit));
+        if (cursor) params.set("cursor", String(cursor));
+        const res = await fetch(`/book/${encodeURIComponent(itemIdx)}/comments?${params.toString()}`);
+        const data = await res.json();
+        if (!res.ok) throw new Error(data?.detail || "Request failed");
+        return data;
+    }
+
+    const ctl = setupInfiniteList({
+        listEl: commentsList,
+        errorEl: commentsError,
+        emptyEl: commentsEmpty,
+        countEl: commentsCount,
+        pageSize: 10,
+        fetchPage: fetchCommentsPage,
+        renderItem: renderComment
+    });
+
+    ctl.start();
 </script>
 
 </body>

@@ -361,23 +361,12 @@
 </script>
 
 <script type="module">
+    import { setupInfiniteList } from "/static/js/infinite_list.js";
+
     const ratingsList = document.getElementById("ratingsList");
     const ratingsEmpty = document.getElementById("ratingsEmpty");
     const ratingsError = document.getElementById("ratingsError");
     const ratingsCount = document.getElementById("ratingsCount");
-
-    // Sentinel to detect end-of-list within the scrollable container
-    const sentinel = document.createElement("div");
-    sentinel.id = "ratingsSentinel";
-    sentinel.style.height = "1px";
-    ratingsList.appendChild(sentinel);
-
-    let nextCursor = null;
-    let isLoading = false;
-    let totalCount = 0;
-    const pageSize = 10; // adjust as desired
-    let lastCursorRequested = "__none__";
-    let io; // IntersectionObserver
 
     function fmtDate(iso) {
         if (!iso) return "";
@@ -386,7 +375,7 @@
         return d.toLocaleDateString(undefined, { year: "numeric", month: "short", day: "numeric" });
     }
 
-    function ratingCard(item) {
+    function renderRatingCard(item) {
         const a = document.createElement("a");
         a.href = `/book/${item.book_id}`;
         a.className = "interaction-card";
@@ -401,7 +390,6 @@
         body.className = "interaction-body";
         if (item.comment) body.classList.add("has-comment");
 
-        // Top: title + author
         const top = document.createElement("div");
         top.className = "interaction-top";
 
@@ -416,7 +404,6 @@
         top.appendChild(title);
         if (author.textContent) top.appendChild(author);
 
-        // Middle: comment excerpt (optional)
         const middle = document.createElement("div");
         middle.className = "interaction-middle";
         if (item.comment) {
@@ -426,17 +413,14 @@
             middle.appendChild(c);
         }
 
-        // Bottom: meta row (rating chip + date)
         const meta = document.createElement("div");
         meta.className = "interaction-meta";
-
         if (item.user_rating != null) {
             const badge = document.createElement("span");
             badge.className = "comment-rating";
-            badge.textContent = `⭐ ${item.user_rating}/10`;
+            badge.textContent = `${item.user_rating}/10 ⭐`;
             meta.appendChild(badge);
         }
-
         if (item.rated_at) {
             const date = document.createElement("span");
             date.className = "interaction-date";
@@ -444,7 +428,6 @@
             meta.appendChild(date);
         }
 
-        // Assemble
         body.appendChild(top);
         body.appendChild(middle);
         body.appendChild(meta);
@@ -454,72 +437,28 @@
         return a;
     }
 
-    async function fetchRatings(initial = false) {
-        if (isLoading) return;
-
-        const requestedCursor = nextCursor ?? "__first__";
-        if (!initial && requestedCursor === lastCursorRequested) return;
-        lastCursorRequested = requestedCursor;
-
-        isLoading = true;
-        try {
-            const params = new URLSearchParams();
-            params.set("limit", String(pageSize));
-            params.set("sort", "newest");
-            if (nextCursor) params.set("cursor", nextCursor);
-
-            const res = await fetch(`/profile/ratings?${params.toString()}`);
-            const data = await res.json();
-            if (!res.ok) throw new Error(data?.detail || "Request failed");
-
-            const items = Array.isArray(data.items) ? data.items : [];
-
-            // Empty initial state
-            if (initial && items.length === 0) {
-                ratingsEmpty.style.display = "block";
-                nextCursor = null;
-                if (io) io.disconnect();
-                return;
-            }
-
-            // Update header count
-            totalCount = typeof data.total_count === "number" ? data.total_count : totalCount;
-            if (ratingsCount && totalCount) ratingsCount.textContent = `(${totalCount})`;
-
-            // Render items BEFORE the sentinel so sentinel remains last
-            for (const it of items) {
-                ratingsList.insertBefore(ratingCard(it), sentinel);
-            }
-
-            // Update cursor / stop observing if done
-            if (data.has_more === false || items.length === 0) {
-                nextCursor = null;
-                if (io) io.disconnect();
-            } else {
-                nextCursor = data.next_cursor ?? null;
-            }
-        } catch {
-            ratingsError.style.display = "block";
-            nextCursor = null;
-            if (io) io.disconnect();
-        } finally {
-            isLoading = false;
-        }
+    async function fetchRatingsPage({ cursor, limit }) {
+        const params = new URLSearchParams();
+        params.set("limit", String(limit));
+        params.set("sort", "newest");
+        if (cursor) params.set("cursor", String(cursor));
+        const res = await fetch(`/profile/ratings?${params.toString()}`);
+        const data = await res.json();
+        if (!res.ok) throw new Error(data?.detail || "Request failed");
+        return data;
     }
 
-    // IntersectionObserver to trigger fetch when sentinel enters view
-    io = new IntersectionObserver((entries) => {
-        if (entries.some(e => e.isIntersecting)) {
-            if (!isLoading && nextCursor) fetchRatings(false);
-        }
-    }, {
-        root: ratingsList,
-        rootMargin: "200px",
-        threshold: 0.01
+    const ctl = setupInfiniteList({
+        listEl: ratingsList,
+        errorEl: ratingsError,
+        emptyEl: ratingsEmpty,
+        countEl: ratingsCount,
+        pageSize: 10,
+        fetchPage: fetchRatingsPage,
+        renderItem: renderRatingCard
     });
 
-    io.observe(sentinel);
-    fetchRatings(true);
+    ctl.start();
 </script>
 
 </body>
