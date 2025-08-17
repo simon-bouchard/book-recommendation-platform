@@ -793,6 +793,129 @@ li {
     color: var(--color-text-muted);
     text-align: center;
     font-style: italic;
+    margin: 10px 0 0;
+}
+
+/* Interactions (vertical scroll list) */
+.interactions-list {
+    display: flex;
+    flex-direction: column;
+    gap: 14px;
+    max-height: 400px;
+    overflow-y: auto;
+    padding-right: 15px;
+}
+
+.interaction-card {
+    border: 1px solid var(--color-border-lighter);
+    border-radius: 6px;
+    background-color: var(--color-surface);
+    padding: 8px 12px;
+    display: flex;
+    flex-direction: row;
+    gap: 12px;
+    align-items: stretch;
+    text-decoration: none;
+    color: inherit;
+}
+
+#ratingsContainer {
+  padding-right: 5px;    
+}
+
+/* Cover defines the card height */
+.interaction-cover {
+    width: 64px;
+    height: 96px;              /* controls overall card height */
+    border-radius: 4px;
+    object-fit: cover;
+    background: var(--color-secondary);
+    flex-shrink: 0;
+}
+
+/* Body is a strict 3-row grid: top (title+author), middle (comment), bottom (meta) */
+.interaction-body {
+    flex: 1;
+    display: grid;
+    grid-template-rows: auto 1fr auto;   /* top | middle | bottom */
+    gap: 4px;
+    overflow: hidden;
+    max-height: 96px;                    /* match cover height */
+}
+
+/* Top: title + author */
+.interaction-top {
+    min-height: 0;
+    display: grid;
+    grid-auto-rows: min-content;
+    gap: 2px;
+}
+
+.interaction-title {
+    font-weight: 600;
+    color: var(--color-text-strong);
+    line-height: 1.25;
+    font-size: 0.95rem;
+    display: -webkit-box;
+    -webkit-box-orient: vertical;
+    overflow: hidden;
+}
+
+/* Clamp title differently when comment exists to keep card compact */
+.interaction-body.has-comment .interaction-title { -webkit-line-clamp: 1; }
+.interaction-body:not(.has-comment) .interaction-title { -webkit-line-clamp: 2; }
+
+.interaction-author {
+    color: var(--color-author);
+    font-size: 0.85rem;
+    font-style: italic;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.interaction-meta {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    flex-wrap: nowrap;
+    font-size: 0.8rem;
+    min-height: 0;
+}
+
+.interaction-date { color: var(--color-text-muted); font-size: 0.85rem; white-space: nowrap; }
+
+.interaction-type {
+    border: 1px solid var(--color-border-lighter);
+    border-radius: 12px;
+    padding: 2px 8px;
+    font-size: 0.8rem;
+    color: var(--color-text-muted);
+    background: #fafafa;
+}
+
+/* Middle: comment excerpt (takes flexible space) */
+.interaction-middle { min-height: 0; overflow: hidden; }
+.interaction-comment {
+    font-size: 0.85rem;
+    color: #444444;
+    line-height: 1.3;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    display: -webkit-box;
+    -webkit-box-orient: vertical;
+    -webkit-line-clamp: 2;              /* keep compact */
+    margin-top: 2px;
+}
+
+/* Thin scrollbar */
+.interactions-list::-webkit-scrollbar {
+    width: 8px;
+}
+.interactions-list::-webkit-scrollbar-thumb {
+    background: var(--color-border);
+    border-radius: 8px;
+    margin-left: 8px;
 }
 
 /* Book Page Book Card */

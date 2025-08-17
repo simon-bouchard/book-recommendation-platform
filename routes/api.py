@@ -7,7 +7,7 @@ from dotenv import load_dotenv
 from datetime import datetime
 
 from datetime import datetime
-from sqlalchemy import func, desc, case
+from sqlalchemy import func, desc, case, or_, and_
 from sqlalchemy.orm import Session, joinedload
 
 from app.auth import get_current_user
@@ -140,6 +140,77 @@ def delete_profile(
     db.commit()
 
     return {"message": "Profile deleted"}
+
+@router.get("/profile/ratings")
+def get_user_ratings(
+        limit: int = Query(10, ge=1, le=100),
+        cursor: Optional[int] = Query(None, description="Keyset: last seen Interaction.id"),
+        current_user: User = Depends(get_current_user),
+        db: Session = Depends(get_db)
+    ):
+        if not current_user:
+            raise HTTPException(status_code=401, detail="Not authenticated")
+
+        # total count (for header)
+        total_count = (
+            db.query(func.count(Interaction.id))
+              .filter(Interaction.user_id == current_user.user_id)
+              .scalar()
+            or 0
+        )
+
+        q = (
+            db.query(Interaction, Book)
+              .join(Book, Book.item_idx == Interaction.item_idx)
+              .filter(Interaction.user_id == current_user.user_id)
+        )
+        if cursor is not None:
+            # simple, stable keyset: fetch strictly older ids
+            q = q.filter(Interaction.id < cursor)
+
+        rows = (
+            q.order_by(desc(Interaction.id))       # newest first, stable by id
+             .limit(limit + 1)                     # +1 to detect has_more
+             .all()
+        )
+
+        items = []
+        for inter, book in rows[:limit]:
+            author_obj = getattr(book, "author", None)
+            author_str = getattr(author_obj, "name", None)
+            if not isinstance(author_str, str) or not author_str.strip():
+                author_str = "Unknown Author"
+                
+            cover_url_small = (
+                f"https://covers.openlibrary.org/b/id/{getattr(book, 'cover_id', None)}-S.jpg"
+                if getattr(book, "cover_id", None) else "/static/img/placeholder_cover.png"
+            )
+            item = {
+                "book_id": book.item_idx,
+                "title": book.title or "Untitled",
+                "author": author_str,
+                "year": getattr(book, "year", None),
+                "cover_url_small": cover_url_small,
+                "rated_at": inter.timestamp.isoformat() if inter.timestamp else None,
+            }
+            if getattr(inter, "rating", None) is not None:
+                item["user_rating"] = inter.rating
+            if getattr(inter, "comment", None) is not None:
+                item["comment"] = inter.comment or ""
+            items.append(item)
+
+        has_more = len(rows) > limit
+        next_cursor = None
+        if has_more:
+            last_inter, _ = rows[limit - 1]
+            next_cursor = int(last_inter.id)       # next page continues from this id
+
+        return {
+            "items": items,
+            "total_count": total_count,
+            "has_more": has_more,
+            "next_cursor": next_cursor
+        }
 
 @router.post('/rating')
 async def new_rating(current_user = Depends(get_current_user), data: dict = Body(...), db: Session = Depends(get_db)):
