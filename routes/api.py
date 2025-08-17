@@ -338,43 +338,59 @@ async def book_recommendation(request: Request, item_idx: int, current_user: Use
         'has_als': has_als
     })
 
-@router.get('/comments')
-async def get_comments(book: str = Query(...), isbn: bool = False, limit: int = 5, db: Session = Depends(get_db)):
-    # Resolve work_id
-    if isbn:
-        db_book = db.query(Book).filter(Book.isbn == book).first()
-        if not db_book:
-            raise HTTPException(status_code=404, detail='Book not found')
-        item_idx = db_book.item_idx
-    else:
-        item_idx = book
-
-    # Query interactions with comments
-    comment_query = (
-        db.query(Interaction.comment, Interaction.user_id, User.username, Interaction.rating)
-        .join(User, User.user_id == Interaction.user_id)
-        .filter(
-            Interaction.item_idx == item_idx,
-            Interaction.comment.isnot(None),
-            Interaction.comment != ''
-        )
-        .order_by(desc(Interaction.timestamp))
-        .limit(limit)
-        .all()
+@router.get("/book/{item_idx}/comments")
+def get_book_comments_paginated(
+    item_idx: int,
+    limit: int = Query(10, ge=1, le=100),
+    cursor: Optional[int] = Query(None),
+    db: Session = Depends(get_db),
+):
+    total_count = (
+        db.query(func.count(Interaction.id))
+          .filter(
+              Interaction.item_idx == item_idx,
+              Interaction.comment.isnot(None),
+              Interaction.comment != ""
+          )
+          .scalar() or 0
     )
 
-    if not comment_query:
-        return []
+    q = (
+        db.query(Interaction, User)
+          .join(User, User.user_id == Interaction.user_id)
+          .filter(
+              Interaction.item_idx == item_idx,
+              Interaction.comment.isnot(None),
+              Interaction.comment != ""
+          )
+    )
+    if cursor is not None:
+        q = q.filter(Interaction.id < cursor)
 
-    return [
-        {
-            'comment': row.comment,
-            'user_id': row.user_id,
-            'username': row.username,
-            'rating': row.rating
-        }
-        for row in comment_query
-    ]
+    rows = q.order_by(desc(Interaction.id)).limit(limit + 1).all()
+
+    items = []
+    for inter, user in rows[:limit]:
+        items.append({
+            "user_id": user.user_id,
+            "username": user.username,
+            "rating": inter.rating,
+            "comment": inter.comment or "",
+            "rated_at": inter.timestamp.isoformat() if inter.timestamp else None,
+        })
+
+    has_more = len(rows) > limit
+    next_cursor = None
+    if has_more:
+        last_inter, _ = rows[limit - 1]
+        next_cursor = int(last_inter.id)
+
+    return {
+        "items": items,
+        "total_count": total_count,
+        "has_more": has_more,
+        "next_cursor": next_cursor,
+    }
 
 @router.get("/book/{item_idx}/similar")
 def get_similar(item_idx: int, mode: str = "subject", alpha: float = 0.6, top_k: int = 200):
