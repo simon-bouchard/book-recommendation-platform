@@ -4,11 +4,6 @@ import numpy as np
 import torch
 from models.shared_utils import ModelStore, normalize_vector, normalize_embeddings
 
-store = ModelStore()
-book_embs, book_ids = store.get_book_embeddings()
-bayesian_tensor = store.get_bayesian_tensor()
-book_embs = normalize_embeddings(book_embs.copy())
-
 class CandidateGenerator(ABC):
     @abstractmethod
     def generate(self, user_id: int, user_emb: np.ndarray, **kwargs) -> list[int]:
@@ -31,6 +26,11 @@ class ColdHybridCandidateGenerator(CandidateGenerator):
         w=0.6,
         db: Session = None
     ) -> list[int]:
+        store = ModelStore()    
+        book_embs, book_ids = store.get_book_embeddings()
+        bayesian_tensor = store.get_bayesian_tensor()
+        book_embs = normalize_embeddings(book_embs.copy())
+
         if use_only_bayesian:
             print("Using only Bayesian candidates")
             top_k = top_k_bayes + top_k_sim + top_k_mixed
@@ -74,7 +74,7 @@ class ColdHybridCandidateGenerator(CandidateGenerator):
 class ALSCandidateGenerator(CandidateGenerator):
     def generate(self, user_id: int, user_emb: np.ndarray = None, top_k: int = 500, db: Session = None, **kwargs) -> list[int]:
         print("Using ALS candidate generator")
-        user_als_embs, book_als_embs, user_id_to_als_row, book_row_to_item_idx = store.get_als_embeddings()
+        user_als_embs, book_als_embs, user_id_to_als_row, book_row_to_item_idx = ModelStore().get_als_embeddings()
 
         if user_id not in user_id_to_als_row:
             return []

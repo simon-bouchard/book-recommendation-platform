@@ -4,11 +4,8 @@ import numpy as np
 from sqlalchemy.orm import Session
 from models.shared_utils import (
     ModelStore, decompose_embeddings, compute_subject_overlap, get_read_books,
-    get_candidate_book_df, filter_read_books, add_book_embeddings
-)
-
-store = ModelStore()
-from models.shared_utils import PAD_IDX
+    get_candidate_book_df, filter_read_books, add_book_embeddings, PAD_IDX
+ )
 
 class Reranker(ABC):
     @abstractmethod
@@ -21,6 +18,7 @@ class Reranker(ABC):
 
 class GBTColdReranker(Reranker):
     def score(self, user, candidate_ids, user_emb, db: Session) -> pd.DataFrame:
+        store = ModelStore()
         BOOK_TO_SUBJ = store.get_book_to_subj()
         cold_gbt_model = store.get_cold_gbt_model()
 
@@ -55,6 +53,7 @@ class GBTColdReranker(Reranker):
 
 class GBTWarmReranker(Reranker):
     def score(self, user, candidate_ids, user_emb, db: Session) -> pd.DataFrame:
+        store = ModelStore()
         USER_META = store.get_user_meta()
         warm_gbt_model = store.get_warm_gbt_model()
 
