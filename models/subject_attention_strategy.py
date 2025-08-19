@@ -110,6 +110,7 @@ class PerDimAttentionStrategy(AttentionPoolingStrategy):
 class SelfAttentionStrategy(AttentionPoolingStrategy):
     def __init__(self, path: str):
         super().__init__()
+        print('using self attention strategy')
         state = torch.load(path, map_location="cpu")
 
         # Trainable subject embedding

@@ -234,6 +234,7 @@ class ModelStore:
             strategy_class = STRATEGY_REGISTRY[name]
             
             path = f"models/data/subject_attention_components_{name}.pth" if name != "scalar" else "models/data/subject_attention_components.pth"
+            print(f"Loading attention strategy from {path}")
             self._attn_strategy = strategy_class(path=path)
 
             self._attn_strategy_name = name
