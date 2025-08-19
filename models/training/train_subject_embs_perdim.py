@@ -145,7 +145,7 @@ def main():
     all_subjs = set(s for r in rows for s in r['book_subjects'] + r['fav_subjects'])
     n_subjects = max(all_subjs) + 1
 
-    model = PerDimAttentionModel(n_users, n_items, n_subjects, emb_dim=32).to(device)
+    model = PerDimAttentionModel(n_users, n_items, n_subjects, emb_dim=64).to(device)
 
     learn = Learner(
         dls, model,

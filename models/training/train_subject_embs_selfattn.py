@@ -67,7 +67,8 @@ class SelfAttentionModel(nn.Module):
         return dot + self.user_bias(u).squeeze() + self.item_bias(i).squeeze() + self.global_bias
 
 
-DATA_DIR = Path(__file__).parent / "data"
+REPO_ROOT = Path(__file__).parent.parent.parent
+DATA_DIR = REPO_ROOT / "models" / "training" / "data"
 
 def load_training_data_from_pickle(pad_to=5):
     print("📦 Loading .pkl data from:", DATA_DIR)
@@ -136,7 +137,7 @@ def main():
     all_subjs = set(s for r in rows for s in r['book_subjects'] + r['fav_subjects'])
     n_subjects = max(all_subjs) + 1
 
-    model = SelfAttentionModel(n_users, n_items, n_subjects, emb_dim=16, n_heads=1, dropout=0).to(device)
+    model = SelfAttentionModel(n_users, n_items, n_subjects, emb_dim=32, n_heads=1, dropout=0).to(device)
 
     learn = Learner(
         dls, model,
@@ -157,9 +158,9 @@ def main():
         "mha": model.mha.state_dict(),
     }
 
-    os.makedirs("models/data", exist_ok=True)
-    torch.save(state, "models/data/subject_attention_components_selfattn.pth")
-    print("✅ Saved to models/data/subject_attention_components_selfattn.pth")
+    os.makedirs(REPO_ROOT / "models/data", exist_ok=True)
+    torch.save(state, REPO_ROOT / "models/data/subject_attention_components_selfattn.pth")
+    print(f"✅ Saved to {REPO_ROOT}/models/data/subject_attention_components_selfattn.pth")
 
 if __name__ == "__main__":
     main()
