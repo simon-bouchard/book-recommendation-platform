@@ -34,38 +34,62 @@ class SubjectDataset(Dataset):
         }, torch.tensor(row['rating'], dtype=torch.float32)
 
 
+import torch
+import torch.nn as nn
+
+class SelfAttentionBlock(nn.Module):
+    def __init__(self, d_model=64, n_heads=4, attn_drop=0.1, ffn_mult=2, ffn_drop=0.1):
+        super().__init__()
+        self.norm1 = nn.LayerNorm(d_model)
+        self.attn  = nn.MultiheadAttention(d_model, n_heads, dropout=attn_drop, batch_first=True)
+        self.norm2 = nn.LayerNorm(d_model)
+        self.ffn   = nn.Sequential(
+            nn.Linear(d_model, d_model * ffn_mult),
+            nn.ReLU(inplace=True),
+            nn.Dropout(ffn_drop),
+            nn.Linear(d_model * ffn_mult, d_model),
+        )
+
+    def forward(self, x, key_padding_mask):
+        y, _ = self.attn(self.norm1(x), self.norm1(x), self.norm1(x), key_padding_mask=key_padding_mask)
+        x = x + y
+        x = x + self.ffn(self.norm2(x))
+        return x
+
 class SelfAttentionModel(nn.Module):
-    def __init__(self, n_users, n_items, n_subjects, emb_dim=16, n_heads=2, dropout=0.1):
+    def __init__(self, n_users, n_items, n_subjects, emb_dim=64, n_heads=4, dropout=0.1):
         super().__init__()
         self.subject_emb = nn.Embedding(n_subjects, emb_dim, padding_idx=PAD_IDX)
-        self.mha = nn.MultiheadAttention(embed_dim=emb_dim, num_heads=n_heads, batch_first=True)
-        self.drop = nn.Dropout(dropout)
-        self.user_bias = nn.Embedding(n_users, 1)
-        self.item_bias = nn.Embedding(n_items, 1)
+        self.cls_token   = nn.Parameter(torch.zeros(1, 1, emb_dim))
+        nn.init.normal_(self.cls_token, std=0.02)
+
+        self.block = SelfAttentionBlock(d_model=emb_dim, n_heads=n_heads, attn_drop=dropout, ffn_drop=dropout)
+        self.drop  = nn.Dropout(dropout)
+
+        self.user_bias   = nn.Embedding(n_users, 1)
+        self.item_bias   = nn.Embedding(n_items, 1)
         self.global_bias = nn.Parameter(torch.tensor([0.0]))
 
     def attention_pool(self, indices):
-        mask = (indices != PAD_IDX)                     # [B, L]
-        embs = self.subject_emb(indices)                # [B, L, D]
-        attn_out, _ = self.mha(embs, embs, embs, key_padding_mask=~mask)  # [B, L, D]
+        # indices: [B, L]
+        mask = (indices != PAD_IDX)                 # True for real tokens
+        embs = self.subject_emb(indices)            # [B, L, D]
 
-        masked_out = attn_out.masked_fill(~mask.unsqueeze(-1), 0.0)
-        lengths = mask.sum(dim=1, keepdim=True).clamp(min=1)  # avoid divide-by-0
-        pooled = masked_out.sum(dim=1) / lengths               # [B, D]
+        B = indices.size(0)
+        cls = self.cls_token.expand(B, 1, -1)       # [B, 1, D]
+        x = torch.cat([cls, embs], dim=1)           # [B, 1+L, D]
+        mask_ext = torch.cat([torch.ones(B, 1, dtype=torch.bool, device=mask.device), mask], dim=1)
+
+        x = self.block(x, key_padding_mask=~mask_ext)
+        pooled = x[:, 0, :]                         # CLS
         return self.drop(pooled)
 
     def forward(self, batch):
-        u = batch['user_idx']
-        i = batch['item_idx']
-        u_sub = batch['fav_subjects']
-        i_sub = batch['book_subjects']
-
-        u_emb = self.attention_pool(u_sub)
-        i_emb = self.attention_pool(i_sub)
+        u = batch['user_idx']; i = batch['item_idx']
+        u_emb = self.attention_pool(batch['fav_subjects'])
+        i_emb = self.attention_pool(batch['book_subjects'])
         dot = (u_emb * i_emb).sum(dim=1)
-
         return dot + self.user_bias(u).squeeze() + self.item_bias(i).squeeze() + self.global_bias
-
 
 REPO_ROOT = Path(__file__).parent.parent.parent
 DATA_DIR = REPO_ROOT / "models" / "training" / "data"
@@ -137,7 +161,7 @@ def main():
     all_subjs = set(s for r in rows for s in r['book_subjects'] + r['fav_subjects'])
     n_subjects = max(all_subjs) + 1
 
-    model = SelfAttentionModel(n_users, n_items, n_subjects, emb_dim=32, n_heads=1, dropout=0).to(device)
+    model = SelfAttentionModel(n_users, n_items, n_subjects, emb_dim=32, n_heads=4, dropout=0.1).to(device)
 
     learn = Learner(
         dls, model,
@@ -151,16 +175,19 @@ def main():
     learn.remove_cbs(ProgressCallback)
 
     print("🚀 Starting training...")
-    learn.fit_one_cycle(5, lr_max=3e-2)
+    learn.fit_one_cycle(8, lr_max=3e-2)
 
     state = {
-        "subject_embs": model.subject_emb.state_dict(),
-        "mha": model.mha.state_dict(),
+        "subject_embs": model.subject_emb.state_dict(),       # {"weight": ...}
+        "sab":          model.block.state_dict(),             # SelfAttentionBlock state
+        "cls_token":    model.cls_token.detach().cpu(),       # [1, 1, D]
+        "n_heads":      int(model.block.attn.num_heads),      # needed to re-instantiate MHA
     }
 
-    os.makedirs(REPO_ROOT / "models/data", exist_ok=True)
-    torch.save(state, REPO_ROOT / "models/data/subject_attention_components_selfattn.pth")
-    print(f"✅ Saved to {REPO_ROOT}/models/data/subject_attention_components_selfattn.pth")
+    out_path = REPO_ROOT / "models/data/subject_attention_components_selfattn.pth"
+    out_path.parent.mkdir(parents=True, exist_ok=True)
+    torch.save(state, out_path)
+    print(f"✅ Saved to {out_path}")
 
 if __name__ == "__main__":
     main()
