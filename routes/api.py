@@ -449,6 +449,7 @@ def search_books(
     page: int = Query(default=0),
     db: Session = Depends(get_db)
 ):
+    subject_list = []
     subject_idxs = []
     if subjects:
         subject_list = [s.strip() for s in subjects.split(",") if s.strip()]
@@ -462,7 +463,7 @@ def search_books(
         "request": request,
         "results": clean_float_values(results),
         "query": query,
-        "subjects": subjects or [],
+        "subjects": subject_list,
         "subject_suggestions": subject_suggestions[:20],
         "page": "search",
         "has_next": has_next,

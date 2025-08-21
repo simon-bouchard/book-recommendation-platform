@@ -22,7 +22,7 @@
                     <div id="subject-suggestions" class="suggestions-box"></div>
                 </div>
                 <div id="subject-pills" class="pill-container"></div>
-                <input type="hidden" name="subjects" id="fav_subjects-hidden" value="{{ subjects if subjects is string else subjects|join(',') }}">
+                <input type="hidden" name="subjects" id="fav_subjects-hidden" value="{{ subjects or '' }}">
 
                 <button type="submit" class="btn btn--primary">Search</button>
             </form>
@@ -120,12 +120,15 @@
     <script type="module">
         import { initSubjectPicker } from "/static/js/subject_picker.js";
     
+        const prefill = {{ (subjects or []) | tojson }};
+
         initSubjectPicker({
             inputId: "subject-input",
             suggestionsBoxId: "subject-suggestions",
             pillsContainerId: "subject-pills",
             hiddenInputId: "fav_subjects-hidden",
-            maxSubjects: 3
+            maxSubjects: 3,
+            prefill 
         });
     </script>
 </body>
