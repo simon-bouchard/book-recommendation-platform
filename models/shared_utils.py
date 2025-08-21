@@ -118,6 +118,7 @@ class ModelStore:
     def _init_once(self):
         # Core caches
         self._book_embs = None
+        self._book_embs_norm = None
         self._book_ids = None
         self._item_idx_to_row = None
 
@@ -134,6 +135,7 @@ class ModelStore:
         # ALS embeddings and lookup maps
         self._user_als_embs = None
         self._book_als_embs = None
+        self._book_als_embs_norm = None
         self._user_id_to_als_row = None
         self._book_row_to_item_idx = None
         self._book_als_ids = None          # <-- keep original list from JSON
@@ -143,11 +145,24 @@ class ModelStore:
         self._attn_strategy = None
         self._attn_strategy_name = None
 
-    def get_book_embeddings(self):
+    def get_book_embeddings(self, normalized: bool = False):
+        """
+        Returns (embs, book_ids). If normalized=True, emb vectors are L2-normalized
+        and cached in _book_embs_norm (float32).
+        """
         if self._book_embs is None:
             self._book_embs, self._book_ids = load_book_embeddings()
             self._item_idx_to_row = get_item_idx_to_row(self._book_ids)
-        return self._book_embs, self._book_ids
+
+        if not normalized:
+            return self._book_embs, self._book_ids
+
+        if self._book_embs_norm is None:
+            # Build once per reload
+            embs = self._book_embs
+            norm = normalize_embeddings(embs.astype(np.float32, copy=False))
+            self._book_embs_norm = norm
+        return self._book_embs_norm, self._book_ids
 
     def get_item_idx_to_row(self):
         if self._item_idx_to_row is None:
@@ -209,6 +224,23 @@ class ModelStore:
         return (self._user_als_embs, self._book_als_embs,
                 self._user_id_to_als_row, self._book_row_to_item_idx)
     
+    def get_als_book_embeddings(self, normalized: bool = False):
+        """
+        Returns (book_als_embs, book_row_to_item_idx).
+        If normalized=True, returns L2-normalized embeddings (float32), cached.
+        """
+        # ensure ALS is loaded
+        self.get_als_embeddings()
+
+        if not normalized:
+            return self._book_als_embs, self._book_row_to_item_idx
+
+        if self._book_als_embs_norm is None:
+            embs = self._book_als_embs
+            norm = embs / np.linalg.norm(embs, axis=1, keepdims=True)
+            self._book_als_embs_norm = norm.astype(np.float32, copy=False)
+        return self._book_als_embs_norm, self._book_row_to_item_idx
+    
     def has_book_als(self, item_idx: int) -> bool:
         # Ensure ALS is loaded so _book_als_ids is populated
         self.get_als_embeddings()
@@ -248,7 +280,8 @@ class ModelStore:
 
     def preload(self):
         # 1) Core embeddings + row map
-        self.get_book_embeddings()          # sets _book_embs, _book_ids
+        self.get_book_embeddings()
+        self.get_book_embeddings(normalized=True)          # sets _book_embs, _book_ids
         self.get_item_idx_to_row()          # sets _item_idx_to_row (via above)
 
         # 2) Precomputed tensors / metadata
@@ -262,6 +295,7 @@ class ModelStore:
 
         # 4) ALS embeddings + lookup maps
         self.get_als_embeddings()           # _user_als_embs, _book_als_embs, _user_id_to_als_row, _book_row_to_item_idx
+        self.get_als_book_embeddings(normalized=True)
 
         # 5) Attention strategy (env var ATTN_STRATEGY or default "scalar")
         self.get_attention_strategy()

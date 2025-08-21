@@ -2,7 +2,7 @@ from sqlalchemy.orm import Session
 from abc import ABC, abstractmethod
 import numpy as np
 import torch
-from models.shared_utils import ModelStore, normalize_vector, normalize_embeddings
+from models.shared_utils import ModelStore, normalize_vector
 
 class CandidateGenerator(ABC):
     @abstractmethod
@@ -20,16 +20,15 @@ class ColdHybridCandidateGenerator(CandidateGenerator):
         user_emb: np.ndarray,
         use_only_bayesian=False,
         top_k_bayes=0,
-        top_k_sim=00,
+        top_k_sim=0,
         top_k_mixed=200,
         scale_sim=4.5,
         w=0.6,
         db: Session = None
     ) -> list[int]:
         store = ModelStore()    
-        book_embs, book_ids = store.get_book_embeddings()
+        book_embs, book_ids = store.get_book_embeddings(normalized=True)
         bayesian_tensor = store.get_bayesian_tensor()
-        book_embs = normalize_embeddings(book_embs.copy())
 
         if use_only_bayesian:
             print("Using only Bayesian candidates")
@@ -39,8 +38,8 @@ class ColdHybridCandidateGenerator(CandidateGenerator):
 
         print("Using hybrid candidates")
         # Compute similarity and hybrid scores
-        user_emb_tensor = normalize_vector(torch.tensor(user_emb.numpy()))
-        sim_scores = scale_sim * ( 1 + torch.matmul(torch.tensor(book_embs), user_emb_tensor))
+        user_emb_tensor = normalize_vector(torch.from_numpy(user_emb).to(torch.float32))
+        sim_scores = scale_sim * (1.0 + torch.matmul(torch.from_numpy(book_embs).to(torch.float32), user_emb_tensor))
         bayes_scores = torch.tensor(bayesian_tensor)
         final_scores = w * sim_scores + (1 - w) * bayes_scores
         
