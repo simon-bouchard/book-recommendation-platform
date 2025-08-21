@@ -3,13 +3,6 @@ from sqlalchemy import func
 from app.table_models import Book, BookSubject, Subject
 from models.shared_utils import ModelStore
 
-store = ModelStore()
-
-BOOK_META = store.get_book_meta()
-bayesian_tensor = store.get_bayesian_tensor()
-_, book_ids = store.get_book_embeddings()
-item_idx_to_row = store.get_item_idx_to_row()  
-
 # --- Strategy engines ---
 
 class _BaseSearchStrategy:
@@ -71,22 +64,23 @@ class _SubjectsNoQueryStrategy(_BaseSearchStrategy):
 
 
 class _NoQueryGlobalStrategy(_BaseSearchStrategy):
-    # no subjects + no query → global top-K popularity order (current behavior)
+    # no subjects + no query → ALL books ordered by bayesian desc, paginated
     def run(self, page, per_page):
         offset = page * per_page
 
-        topk_idx = torch.topk(torch.tensor(self.bayesian_tensor), 1000).indices.tolist()
-        topk_item_idxs = [self.book_ids[i] for i in topk_idx]
+        df = self.BOOK_META.copy()
+        if df.empty:
+            return [], False
 
-        df = self.BOOK_META.loc[self.BOOK_META.index.intersection(topk_item_idxs)].copy()
-        pos = {iid: p for p, iid in enumerate(topk_item_idxs)}
-        df["__sort_idx__"] = df.index.map(lambda i: pos.get(i, 10**12))
-        df = df.sort_values("__sort_idx__", kind="mergesort").drop(columns="__sort_idx__")
+        df["__bayes__"] = df.index.map(self._bayes)
+        df = (
+            df.sort_values(["__bayes__", "title"], ascending=[False, True], kind="mergesort")
+              .drop(columns="__bayes__")
+        )
 
         slice_df, has_next = self._paginate_df(df, offset, per_page)
         results = [self._row_to_result(i, r) for i, r in slice_df.iterrows()]
         return results, has_next
-
 
 class _QueryStrategy(_BaseSearchStrategy):
     # query path (title LIKE), keep your current SQL pagination + group_by/having
@@ -124,7 +118,7 @@ class _QueryStrategy(_BaseSearchStrategy):
         return results, has_next
 
 
-def _get_strategy(query: str, subject_idxs):
+def _get_strategy(query: str, subject_idxs, BOOK_META, bayesian_tensor, book_ids, item_idx_to_row):
     if query.strip() == "":
         if subject_idxs:
             return _SubjectsNoQueryStrategy(BOOK_META, bayesian_tensor, book_ids, item_idx_to_row)
@@ -132,7 +126,14 @@ def _get_strategy(query: str, subject_idxs):
     return _QueryStrategy(BOOK_META, bayesian_tensor, book_ids, item_idx_to_row)
 
 def get_search_results(query, subject_idxs, page, per_page, db):
-    strat = _get_strategy(query, subject_idxs)
+    store = ModelStore()
+
+    BOOK_META = store.get_book_meta()
+    bayesian_tensor = store.get_bayesian_tensor()
+    _, book_ids = store.get_book_embeddings()
+    item_idx_to_row = store.get_item_idx_to_row()  
+
+    strat = _get_strategy(query, subject_idxs, BOOK_META, bayesian_tensor, book_ids, item_idx_to_row)
     if isinstance(strat, _SubjectsNoQueryStrategy):
         return strat.run(subject_idxs, page, per_page, db)
     if isinstance(strat, _NoQueryGlobalStrategy):
