@@ -149,12 +149,12 @@ def multi_positive_infonce(item_emb, user_idx, book_subjects,
     item_emb: [B, D] (not normalized)
     user_idx: [B]
     book_subjects: [B, L]
+    Returns: (loss, stats_dict)
     """
     B = item_emb.size(0)
-    Z = F.normalize(item_emb, dim=1)                  # cosine
-    sim = (Z @ Z.t()) / t                             # [B,B]
-    # remove self-comparisons from denominator via -inf on diag
-    sim = sim - torch.eye(B, device=sim.device) * 1e9
+    Z = F.normalize(item_emb, dim=1)         # cosine
+    sim = (Z @ Z.t()) / t                    # [B,B]
+    sim = sim - torch.eye(B, device=sim.device) * 1e9  # mask self
 
     same_user = user_idx.unsqueeze(1).eq(user_idx.unsqueeze(0))  # [B,B]
     same_user.fill_diagonal_(False)
@@ -165,18 +165,33 @@ def multi_positive_infonce(item_emb, user_idx, book_subjects,
     else:
         subj_mask = torch.zeros_like(same_user)
 
-    pos_mask = (same_user | subj_mask)                # multi-positive
-    # anchors without any positive -> ignore
-    valid = pos_mask.any(dim=1)
-    if not valid.any():
-        return torch.zeros([], device=item_emb.device)
+    pos_mask = (same_user | subj_mask)      # multi-positive
+    valid = pos_mask.any(dim=1)             # anchors that have >=1 positive
 
-    # numerator: logsumexp over positives; denominator: logsumexp over all others
-    # mask negatives in numerator by -inf
+    if not valid.any():
+        # No positives in this batch: return 0 loss and empty stats (caller will skip)
+        return torch.zeros([], device=item_emb.device), {
+            "pct_with_positive": torch.tensor(0.0, device=item_emb.device),
+            "pos_mean": torch.tensor(float("nan"), device=item_emb.device),
+            "neg_mean": torch.tensor(float("nan"), device=item_emb.device),
+        }
+
     num = torch.logsumexp(sim.masked_fill(~pos_mask, float("-inf")), dim=1)
     den = torch.logsumexp(sim, dim=1)
-    loss_i = -(num - den)[valid]
-    return loss_i.mean()
+    loss_vec = -(num - den)[valid]
+    loss = loss_vec.mean()
+
+    # Diagnostics (don’t backprop through stats)
+    with torch.no_grad():
+        pos_vals = sim[pos_mask]
+        neg_vals = sim[(~pos_mask) & (~torch.eye(B, device=sim.device, dtype=torch.bool))]
+        stats = {
+            "pct_with_positive": valid.float().mean() * 100.0,
+            "pos_mean": pos_vals.mean() if pos_vals.numel() else torch.tensor(float("nan"), device=sim.device),
+            "neg_mean": neg_vals.mean() if neg_vals.numel() else torch.tensor(float("nan"), device=sim.device),
+        }
+
+    return loss, stats
 
 # ---------------------------
 # Train
@@ -209,44 +224,87 @@ def main():
 
     mse_loss = nn.MSELoss()
 
-    print("🚀 Starting contrastive+RMSE training...")
-    for epoch in range(epochs):
-        model.train()
-        total, nsteps = 0.0, 0
-        for batch in dl:
-            for k in batch:
-                batch[k] = batch[k].to(device, non_blocking=True)
+	print("🚀 Starting contrastive+RMSE training...")
+	for epoch in range(epochs):
+		model.train()
 
-            opt.zero_grad(set_to_none=True)
-            pred, i_emb, u_idx = model(batch)
+		# running sums for epoch-level metrics
+		sum_total, sum_contrast, sum_mse = 0.0, 0.0, 0.0
+		sse, n_examples = 0.0, 0
+		pos_count_pct, pos_mean_accum, neg_mean_accum, stat_steps = 0.0, 0.0, 0.0, 0
 
-            # RMSE head
-            loss_mse = mse_loss(pred, batch["rating"])
+		for step, batch in enumerate(dl, 1):
+			for k in batch:
+				batch[k] = batch[k].to(device, non_blocking=True)
 
-            # Contrastive head (multi-positive InfoNCE)
-            loss_contrast = multi_positive_infonce(
-                item_emb=i_emb,
-                user_idx=u_idx,
-                book_subjects=batch["book_subjects"],
-                t=t_contrast,
-                use_jaccard=use_jaccard,
-                overlap_thresh=overlap_thresh,
-            )
+			opt.zero_grad(set_to_none=True)
+			pred, i_emb, u_idx = model(batch)
 
-            if loss_contrast.numel() == 0:  # no positives this step
-                loss = loss_mse
-            else:
-                loss = lambda_contrast * loss_contrast + lambda_mse * loss_mse
+			# --- supervised head ---
+			mse = mse_loss(pred, batch["rating"])
+			# also accumulate RMSE components over the whole epoch
+			with torch.no_grad():
+				se = (pred.detach() - batch["rating"])**2
+				sse += se.sum().item()
+				n_examples += se.numel()
 
-            loss.backward()
-            torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=1.0)
-            opt.step()
+			# --- contrastive head ---
+			contrast, stats = multi_positive_infonce(
+				item_emb=i_emb,
+				user_idx=u_idx,
+				book_subjects=batch["book_subjects"],
+				t=t_contrast,
+				use_jaccard=use_jaccard,
+				overlap_thresh=overlap_thresh,
+			)
 
-            total += loss.item(); nsteps += 1
+			if contrast.numel() == 0:
+				total_loss = mse  # fallback if no positives in this batch
+				contrast_val = 0.0
+			else:
+				total_loss = lambda_contrast * contrast + lambda_mse * mse
+				contrast_val = contrast.item()
 
-        print(f"epoch {epoch+1}/{epochs}  loss={total/nsteps:.4f}")
+				# log diagnostics
+				pos_count_pct += stats["pct_with_positive"].item()
+				# stats are on the scaled sim (=cosine/t); we can still compare means across epochs
+				if not torch.isnan(stats["pos_mean"]):
+					pos_mean_accum += stats["pos_mean"].item()
+					neg_mean_accum += stats["neg_mean"].item()
+					stat_steps += 1
 
-    state = {
+			total_loss.backward()
+			torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=1.0)
+			opt.step()
+
+			# running sums
+			sum_total += total_loss.item()
+			sum_contrast += contrast_val
+			sum_mse += mse.item()
+
+		# epoch summaries
+		epoch_rmse = math.sqrt(sse / max(n_examples, 1))
+		avg_total = sum_total / step
+		avg_contrast = sum_contrast / step
+		avg_mse = sum_mse / step
+
+		if stat_steps > 0:
+			pct_with_pos = pos_count_pct / step
+			pos_mean = pos_mean_accum / stat_steps
+			neg_mean = neg_mean_accum / stat_steps
+		else:
+			pct_with_pos, pos_mean, neg_mean = 0.0, float("nan"), float("nan")
+
+		print(
+			f"epoch {epoch+1}/{epochs}  "
+			f"total={avg_total:.4f}  "
+			f"contrast={avg_contrast:.4f}  "
+			f"mse={avg_mse:.4f}  "
+			f"rmse={epoch_rmse:.4f}  "
+			f"| anchors_with_pos={pct_with_pos:.1f}%  "
+			f"pos_mean={pos_mean:.3f}  neg_mean={neg_mean:.3f}"
+		)
+		state = {
         "subject_embs": model.shared_subj_emb.state_dict(),
         "attn_weight": model.attn_weight.detach().cpu(),
         "attn_bias": model.attn_bias.detach().cpu(),
