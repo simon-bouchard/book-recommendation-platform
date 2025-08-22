@@ -93,7 +93,7 @@ class SubjectSimilarityStrategy(SimilarityStrategy):
 # ------------------------------
 class ALSSimilarityStrategy(SimilarityStrategy):
     _instance = None
-    MIN_COUNT = 5
+    MIN_COUNT = 10
 
     def __new__(cls):
         if cls._instance is None:
@@ -172,7 +172,7 @@ class ALSSimilarityStrategy(SimilarityStrategy):
 # ------------------------------
 class HybridSimilarityStrategy(SimilarityStrategy):
     _instance = None
-    MIN_COUNT = 3
+    MIN_COUNT = 5
 
     def __init__(self, alpha: float = 0.5):
         if hasattr(self, "_initialized"):
