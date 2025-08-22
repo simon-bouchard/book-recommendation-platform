@@ -16,7 +16,7 @@ MODEL_DIR = REPO_ROOT / "models/data"
 os.makedirs(MODEL_DIR, exist_ok=True)
 
 ALPHA = 40
-FACTORS = 32
+FACTORS = 64
 ITERATIONS = 15
 REGULARIZATION = 0.1
 RANDOM_STATE = 42
