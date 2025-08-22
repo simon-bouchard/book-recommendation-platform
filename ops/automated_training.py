@@ -41,7 +41,7 @@ LOG_DIR = Path(os.getenv("TRAIN_LOG_DIR", PROJECT_ROOT / "models/training/logs")
 
 # Pick the correct train_subject_embs script based on ATTN_STRATEGY
 ATTN_STRATEGY = os.getenv("ATTN_STRATEGY", "scalar").lower()
-train_subject_script = f"train_subject_embs_{ATTN_STRATEGY}.py"
+train_subject_script = os.getenv("SUBJECT_TRAIN_FILE", 'train_subject_embs_scalar.py')
 
 # Fallback if script doesn’t exist (e.g., for scalar)
 train_subject_script_path = Path(PROJECT_ROOT / "models/training" / train_subject_script)
