@@ -18,8 +18,11 @@ from datetime import datetime
 app = FastAPI()
 
 ALLOWED_ORIGINS = [
-    "https://simonbouchard.space",
-    "https://www.simonbouchard.space",
+    "simonbouchard.space",
+    "www.simonbouchard.space",
+    "127.0.0.1",
+    "localhost",
+    "89.117.146.162"
 
     # Development origins
     # "http://localhost:3000",
@@ -36,7 +39,7 @@ app.add_middleware(
 
 app.add_middleware(
     TrustedHostMiddleware,
-    allowed_hosts=["yourdomain.com", "www.yourdomain.com", "localhost"]
+    allowed_hosts=["simonbouchard.space", "www.simonbouchard.space", "localhost"]
 )
 
 app.add_middleware(HTTPSRedirectMiddleware)
@@ -45,9 +48,13 @@ app.add_middleware(HTTPSRedirectMiddleware)
 async def add_security_headers(request, call_next):
     resp = await call_next(request)
     resp.headers["Content-Security-Policy"] = (
-        "default-src 'self'; img-src 'self' data: https:; "
-        "script-src 'self'; style-src 'self' 'unsafe-inline'; "
-        "object-src 'none'; base-uri 'self'; frame-ancestors 'none'; "
+		"default-src 'self'; "
+        "img-src 'self' data: https:; "
+        "script-src 'self' 'unsafe-inline'; "   
+        "style-src 'self' 'unsafe-inline'; "
+        "object-src 'none'; "
+        "base-uri 'self'; "
+        "frame-ancestors 'none'; "
         "upgrade-insecure-requests"
     )
     resp.headers["Referrer-Policy"] = "strict-origin-when-cross-origin"
