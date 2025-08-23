@@ -32,7 +32,7 @@ class RecommenderStrategy(ABC):
 # --------------------------------
 class WarmRecommender(RecommenderStrategy):
     def __init__(self):
-        self.engine = RecommendationEngine(ALSCandidateGenerator(), GBTWarmReranker())
+        self.engine = RecommendationEngine(ALSCandidateGenerator(), NoOpReranker())
 
     def recommend(self, user, db: Session, top_k: int, **kwargs) -> list[dict]:
         print('warm')
