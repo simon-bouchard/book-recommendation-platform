@@ -128,7 +128,7 @@ def main():
     print(f"✅ Loaded {len(rows)} training samples")
 
     # DataLoader — RandomSampler with replacement improves chance of repeated users per batch
-    bs = int(os.getenv("SUBJ_BS", "512"))
+    bs = int(os.getenv("SUBJ_BS", "1024"))
     sampler = RandomSampler(ds, replacement=True, num_samples=len(ds))
     dl = DataLoader(ds, batch_size=bs, sampler=sampler, num_workers=2, pin_memory=True, drop_last=True)
 
@@ -137,7 +137,8 @@ def main():
     pooler = pooler.to(device)
 
     opt = torch.optim.AdamW(pooler.parameters(), lr=float(os.getenv("SUBJ_LR", "3e-3")), weight_decay=5e-2)
-    epochs = int(os.getenv("SUBJ_EPOCHS", "6"))
+    epochs = int(os.getenv("SUBJ_EPOCHS", "14"))
+    print('num epochs: ', epochs)
 
     # Loss weights & params
     lambda_contrast = float(os.getenv("LAMBDA_CONTRAST", "0.8"))
