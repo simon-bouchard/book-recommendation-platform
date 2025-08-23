@@ -20,8 +20,7 @@ app = FastAPI()
 ALLOWED_ORIGINS = [
     "simonbouchard.space",
     "www.simonbouchard.space",
-    "127.0.0.1",
-    "localhost",
+    "recsys.simonbouchard.space",
     "89.117.146.162"
 
     # Development origins
@@ -39,7 +38,7 @@ app.add_middleware(
 
 app.add_middleware(
     TrustedHostMiddleware,
-    allowed_hosts=["simonbouchard.space", "www.simonbouchard.space", "localhost"]
+    allowed_hosts=["simonbouchard.space", "www.simonbouchard.space", "localhost", "recsys.simonbouchard.space"]
 )
 
 app.add_middleware(HTTPSRedirectMiddleware)
