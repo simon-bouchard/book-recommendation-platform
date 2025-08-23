@@ -42,20 +42,23 @@ LOG_DIR = Path(os.getenv("TRAIN_LOG_DIR", PROJECT_ROOT / "models/training/logs")
 # Pick the correct train_subject_embs script based on ATTN_STRATEGY
 ATTN_STRATEGY = os.getenv("ATTN_STRATEGY", "scalar").lower()
 train_subject_script = os.getenv("SUBJECT_TRAIN_FILE", 'train_subject_embs_scalar.py')
+SUBJECT_AUTO_TRAIN = os.getenv("SUBJECT_AUTO_TRAIN", "false")
 
 # Fallback if script doesn’t exist (e.g., for scalar)
 train_subject_script_path = Path(PROJECT_ROOT / "models/training" / train_subject_script)
 if not train_subject_script_path.exists():
     train_subject_script = "train_subject_embs_scalar.py"
 
-TRAIN_SCRIPTS = [
-    train_subject_script,
+TRAIN_SCRIPTS = []
+if SUBJECT_AUTO_TRAIN.lower() == "true":
+    TRAIN_SCRIPTS.append(train_subject_script)
+
+TRAIN_SCRIPTS.extend([
     "precompute_embs.py",
     "precompute_bayesian.py",
-    "train_cold_gbt.py",
     "train_als.py",
     "train_warm_gbt.py",
-]
+])
 
 def run(cmd, **kwargs):
     print(f"▶ Running: {cmd}")
