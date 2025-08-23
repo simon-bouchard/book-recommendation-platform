@@ -133,7 +133,7 @@ Result: a normalized SQL schema with **clean IDs, consistent metadata, and a man
 ### Local Development
 ```bash
 # clone repo
-git clone https://github.com/your-username/book-recsys.git
+git clone https://github.com/simon-bouchard/Book_Recommendation_UI_with_FastAPI
 cd book-recsys
 
 # setup env
