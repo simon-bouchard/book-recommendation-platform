@@ -12,11 +12,13 @@ import redis.asyncio as redis
 
 from routes.api import router 
 from app.auth import router as auth_router
+from routes import chat
+
 import os
 from datetime import datetime
 
 app = FastAPI()
-
+"""
 ALLOWED_ORIGINS = [
     "simonbouchard.space",
     "www.simonbouchard.space",
@@ -70,6 +72,7 @@ async def _init_rl():
 @app.get("/api/health", dependencies=[Depends(RateLimiter(times=10, seconds=60))])
 async def health():
     return {"ok": True}
+"""
 
 app.mount('/static', StaticFiles(directory='static'), name='static')
 
@@ -79,6 +82,7 @@ templates = Jinja2Templates(directory="templates")
 templates.env.globals['now'] = datetime.utcnow
 
 app.include_router(router)
+app.include_router(chat.router)
 app.include_router(auth_router)
 
 @app.get('/', response_class=HTMLResponse)

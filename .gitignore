@@ -17,6 +17,7 @@ data/backups/db/
 # Dev Tools
 tree.py
 test.py
+/prompts
 
 #Junk
 __pycache__/
