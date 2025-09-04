@@ -1,13 +1,25 @@
-from fastapi import APIRouter, Request
+from fastapi import APIRouter, Request, Response
 from fastapi.templating import Jinja2Templates
 from pydantic import BaseModel
 from typing import List, Optional
-from datetime import datetime 
-from app.agents.web_agent import answer 
+from datetime import datetime
+from app.agents.web_agent import answer
+import os, json, uuid
+import redis
 
 router = APIRouter()
 templates = Jinja2Templates(directory="templates")
-templates.env.globals['now'] = datetime.utcnow  # <-- add this
+templates.env.globals['now'] = datetime.utcnow  # keep existing
+
+# ---- Redis-backed conversation state (rolling history) ----
+REDIS_URL = os.getenv("REDIS_URL", "redis://localhost:6379/0")
+try:
+    _r = redis.from_url(REDIS_URL, decode_responses=True)  # str in/out
+except Exception:
+    _r = None  # degrade to stateless if Redis is unavailable
+
+CHAT_TTL = int(os.getenv("CHAT_TTL_SEC", "172800"))   # 2 days
+HIST_TURNS = int(os.getenv("CHAT_HIST_TURNS", "3"))   # last 3 exchanges
 
 # ---------- Chat page ----------
 @router.get("/chat")
@@ -35,14 +47,51 @@ class ChatOut(BaseModel):
     books: List[BookOut] = []
 
 @router.post("/chat/agent", response_model=ChatOut)
-def chat_agent(body: ChatIn):
+def chat_agent(body: ChatIn, request: Request, response: Response):
     text = body.message.strip()
     if not text:
         return ChatOut(reply="Ask me for book ideas or comparisons.", books=[])
 
-    raw = answer(text).strip()
+    # Assign/get a conversation id cookie (no login required)
+    conv_id = request.cookies.get("conv_id")
+    if not conv_id:
+        conv_id = uuid.uuid4().hex
+        response.set_cookie("conv_id", conv_id, max_age=60 * 60 * 24 * 7, samesite="Lax")
+
+    # Load short history from Redis
+    hist: List[dict] = []
+    key = f"chat:{conv_id}"
+    if _r:
+        try:
+            hist = json.loads(_r.get(key) or "[]")
+        except Exception:
+            hist = []
+
+    # Build compact context (last N exchanges)
+    ctx_lines: List[str] = []
+    for turn in hist[-HIST_TURNS:]:
+        u = turn.get("u")
+        a = turn.get("a")
+        if u:
+            ctx_lines.append(f"User: {u}")
+        if a:
+            ctx_lines.append(f"Assistant: {a}")
+    context = "\n".join(ctx_lines).strip()
+    composed = f"(Conversation so far — use only for context)\n{context}\n\nUser: {text}" if context else text
+
+    # Call the existing agent with composed input
+    raw = answer(composed).strip()
+
     # Strip the control prefix for display
     if raw.lower().startswith("final answer:"):
         raw = raw[len("final answer:"):].strip()
+
+    # Save back last N exchanges with TTL
+    hist.append({"u": text, "a": raw})
+    if _r:
+        try:
+            _r.setex(key, CHAT_TTL, json.dumps(hist[-HIST_TURNS:]))
+        except Exception:
+            pass  # degrade silently if Redis hiccups
 
     return ChatOut(reply=raw, books=[])
