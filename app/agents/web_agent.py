@@ -1,15 +1,13 @@
-# app/agents/web_agent.py
 import os, re
 from dotenv import load_dotenv
 
 load_dotenv()
 
-# ---- LLM: OpenAI by default; easy to swap to Groq later ----
-# Set OPENAI_API_KEY in .env (or replace with Groq - see comment below).
+# ---- LLM: OpenAI by default ----
 from langchain_openai import ChatOpenAI
 _llm = ChatOpenAI(model="gpt-4o-mini", temperature=0, timeout=30)
 
-# If you prefer Groq now:
+# Groq:
 # from langchain_groq import ChatGroq
 # _llm = ChatGroq(model="llama-3.1-70b-versatile", temperature=0, timeout=30)
 
@@ -17,9 +15,11 @@ _llm = ChatOpenAI(model="gpt-4o-mini", temperature=0, timeout=30)
 from langchain_community.tools import DuckDuckGoSearchResults
 from langchain_community.utilities import WikipediaAPIWrapper
 from langchain_core.tools import Tool
+import requests
 
 _ddg = DuckDuckGoSearchResults(num_results=5)
 _wiki = WikipediaAPIWrapper(lang="en")
+_ol_session = requests.Session()
 
 def _norm(q: str) -> str:
     toks = re.findall(r"\w+", q.lower())
@@ -27,6 +27,8 @@ def _norm(q: str) -> str:
     return " ".join(toks)
 
 _seen = {"web-search": set(), "Wikipedia": set()}
+_seen["openlibrary"] = set()
+_seen["ol-work"] = set()
 
 def _safe_web(q: str) -> str:
     key = _norm(q)
@@ -44,6 +46,67 @@ def _safe_wiki(q: str) -> str:
     out = _wiki.run(q)
     return out if out.strip() else "[Wiki] No content returned."
 
+def _safe_ol_search(q: str) -> str:
+    """Search Open Library for books; return a compact, readable list."""
+    key = _norm(q)
+    if key in _seen["openlibrary"]:
+        return "[Guardrail] Repeated Open Library search. Use prior results."
+    _seen["openlibrary"].add(key)
+
+    try:
+        # Simple, deterministic search
+        r = _ol_session.get(
+            "https://openlibrary.org/search.json",
+            params={"q": q, "fields": "title,author_name,first_publish_year,key,edition_count", "limit": 5},
+            timeout=12
+        )
+        r.raise_for_status()
+        js = r.json()
+        docs = js.get("docs", [])[:5]
+        if not docs:
+            return "[OpenLibrary] No results."
+        lines = []
+        for d in docs:
+            title = d.get("title") or "Untitled"
+            author = ", ".join(d.get("author_name", [])[:2]) or "Unknown"
+            year = d.get("first_publish_year")
+            work = d.get("key")  # like '/works/OL12345W'
+            editions = d.get("edition_count")
+            meta = []
+            if year: meta.append(str(year))
+            if editions: meta.append(f"{editions} eds")
+            meta_str = f" ({', '.join(meta)})" if meta else ""
+            lines.append(f"- {title} — {author}{meta_str}  [source: openlibrary.org{work}]")
+        return "\n".join(lines)
+    except Exception:
+        return "[OpenLibrary] Error reaching API."
+
+def _safe_ol_work(work_key: str) -> str:
+    """Fetch a single work's metadata/description by key like '/works/OL12345W'."""
+    key = _norm(work_key)
+    if key in _seen["ol-work"]:
+        return "[Guardrail] Repeated Open Library work fetch. Use prior results."
+    _seen["ol-work"].add(key)
+
+    # normalize input to '/works/..' form
+    wk = work_key.strip()
+    if not wk.startswith("/works/"):
+        wk = f"/works/{wk}"
+
+    try:
+        r = _ol_session.get(f"https://openlibrary.org{wk}.json", timeout=12)
+        r.raise_for_status()
+        w = r.json()
+        title = w.get("title") or "Untitled"
+        desc = w.get("description")
+        if isinstance(desc, dict):
+            desc = desc.get("value")
+        if not desc:
+            desc = "[No description available]"
+        return f"Title: {title}\nWork: {wk}\nDescription: {desc[:800]}{'…' if len(desc or '')>800 else ''}\n[source: openlibrary.org{wk}]"
+    except Exception:
+        return "[OpenLibrary] Error fetching work details."
+
 _tools = [
     Tool(
         name="web-search",
@@ -54,6 +117,16 @@ _tools = [
         name="Wikipedia",
         func=_safe_wiki,
         description="Background/definitions only; avoid for 'best/top/latest' lists."
+    ),
+    Tool(
+        name="openlibrary-search",
+        func=_safe_ol_search,
+        description="Search Open Library for real book results (title/author/year). Input: plain query."
+    ),
+    Tool(
+        name="openlibrary-work",
+        func=_safe_ol_work,
+        description="Fetch details for a specific Open Library work. Input: '/works/OLXXXXW' or just 'OLXXXXW'."
     ),
 ]
 
