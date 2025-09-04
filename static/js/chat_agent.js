@@ -25,10 +25,11 @@ function appendMessage(role, text) {
 }
 
 function renderBooks(books = []) {
-  resultsGrid.innerHTML = "";
+  const grid = document.getElementById("chatBookResults");
+  if (!grid) return;            // grid is optional on the chat demo page
+  grid.innerHTML = "";
   if (!books.length) return;
 
-  // Reuse your existing card visual language (book-grid + book-card classes)
   books.forEach(b => {
     const a = document.createElement("a");
     a.href = `/book/${encodeURIComponent(b.item_idx)}`;
@@ -48,7 +49,7 @@ function renderBooks(books = []) {
     if (b.author) a.appendChild(el("p", "author", b.author));
     if (b.year)   a.appendChild(el("p", "year", String(b.year)));
 
-    resultsGrid.appendChild(a);
+    grid.appendChild(a);
   });
 }
 
@@ -79,6 +80,7 @@ async function sendMessage() {
     const resp = await fetch("/chat/agent", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
+      credentials: "same-origin",
       body: JSON.stringify(payload)
     });
 
@@ -91,11 +93,12 @@ async function sendMessage() {
     // optional book suggestions array
     if (Array.isArray(data?.books)) {
       renderBooks(data.books);
-      if (data.books.length) {
-        // smooth scroll to the grid on first render
-        resultsGrid.scrollIntoView({ behavior: "smooth", block: "start" });
+      const grid = document.getElementById("chatBookResults");
+      if (grid && data.books.length) {
+        grid.scrollIntoView({ behavior: "smooth", block: "start" });
       }
     }
+
   } catch (err) {
     thinking.remove();
     appendMessage("bot", "Something went wrong while contacting the agent.");
