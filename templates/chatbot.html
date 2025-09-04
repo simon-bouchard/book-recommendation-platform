@@ -1,0 +1,74 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Chat — Book Recommender</title>
+  <link rel="stylesheet" href="{{ url_for('static', path='css/styles.css') }}">
+  <link rel="icon" type="image/png" href="{{ url_for('static', path='favicon.png') }}">
+  <link rel="shortcut icon" href="{{ url_for('static', path='favicon.ico') }}">
+</head>
+<body>
+<div class="layout">
+  {% set page = 'chat' %}
+  {% include 'navbar.html' %}
+  
+  <div class="container">
+    <h1>Book Chat</h1>
+    <p style="text-align:center; margin-top:-10px; margin-bottom:18px;">
+      Ask for recommendations in plain English. The agent can use your profile (if logged in) and the site’s catalog.
+    </p>
+
+    <!-- (Optional) Banners for status/usage tips -->
+    <div class="page-banner">
+      <div class="alert alert--info">
+        <div><strong>Tip:</strong> Press <code>Enter</code> to send, <code>Shift+Enter</code> for a newline.</div>
+        <button class="alert__close" id="chatInfoClose" aria-label="Close">×</button>
+      </div>
+    </div>
+
+    <!-- Chat surface -->
+    <div id="chatBox" class="chat-box">
+      <div id="chatMessages" class="chat-messages">
+        <div class="message message--bot">
+          <div class="message-inner">
+            <p>Hi! Tell me what you’re in the mood for. For example: “fast-paced sci-fi with strong world-building, not too dark.”</p>
+          </div>
+        </div>
+      </div>
+      <div class="chat-input-row">
+        <textarea id="chatInput" class="chat-input" rows="2" placeholder="Type your message..."></textarea>
+        <button id="chatSend" class="btn btn--primary">Send</button>
+      </div>
+
+      <!-- Optional toggles for context
+      <div class="toggle-group" style="justify-content:flex-start;">
+          <label class="toggle-option" style="cursor:default;">
+              <input type="checkbox" id="useProfile" checked style="margin-right:8px;"> Use my profile (if logged in)
+        </label>
+        <label class="toggle-option" style="cursor:default;">
+          <input type="checkbox" id="restrictToCatalog" checked style="margin-right:8px;"> Only suggest books in catalog
+        </label>
+      </div>
+    </div> -->
+
+    <!-- Where book suggestions render -->
+    <div class="section-header" style="margin-top:22px;">
+      <h3>Suggestions</h3>
+      <div></div>
+    </div>
+    <div id="chatBookResults" class="book-grid"></div>
+  </div>
+
+</div>
+{% include 'footer.html' %}
+
+<script type="module" src="/static/js/chat_agent.js"></script>
+<script>
+  document.getElementById('chatInfoClose')?.addEventListener('click', () => {
+    const banner = document.querySelector('.page-banner');
+    if (banner) banner.style.display = 'none';
+  });
+</script>
+</body>
+</html>
