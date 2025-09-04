@@ -1168,6 +1168,52 @@ li {
   text-decoration: underline;
 }
 
+/* --- Chat UI --- */
+.chat-box { border: 1px solid var(--color-border-lighter); border-radius: 8px; padding: 12px; background: #fff; }
+.chat-messages { display: flex; flex-direction: column; gap: 10px; max-height: 380px; overflow-y: auto; padding-right: 6px; }
+
+.message { display: flex; }
+.message-inner {
+  max-width: 85%;
+  padding: 10px 12px;
+  border-radius: 12px;
+  line-height: 1.35;
+  white-space: pre-wrap;
+}
+
+.message--user { justify-content: flex-end; }
+.message--user .message-inner {
+  background: var(--color-primary);
+  color: #fff;
+  border-top-right-radius: 4px;
+}
+
+.message--bot { justify-content: flex-start; }
+.message--bot .message-inner {
+  background: #f6f7fb;
+  color: var(--color-text);
+  border: 1px solid var(--color-border-light);
+  border-top-left-radius: 4px;
+}
+
+.chat-input-row {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: 10px;
+  margin-top: 12px;
+}
+
+.chat-input {
+  width: 100%;
+  padding: 10px 12px;
+  border: 1px solid var(--color-border);
+  border-radius: 6px;
+  font-size: 1rem;
+  resize: vertical;
+  min-height: 44px;
+  max-height: 160px;
+}
+
 /* Responsive Design */
 @media (max-width: 600px) {
     .container, .login-container {
