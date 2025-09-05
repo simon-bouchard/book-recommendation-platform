@@ -3,15 +3,16 @@ from fastapi.templating import Jinja2Templates
 from fastapi.responses import RedirectResponse
 from pydantic import BaseModel
 from typing import List, Optional
-from datetime import datetime
+from datetime import datetime, timezone
+from zoneinfo import ZoneInfo
 from app.agents.web_agent import answer
-from app.auth import get_current_user  # <-- reuse existing auth helper
-import os, json, uuid
+from app.auth import get_current_user
+import os, json, uuid, time
 import redis
 
 router = APIRouter()
 templates = Jinja2Templates(directory="templates")
-templates.env.globals['now'] = datetime.utcnow  # keep existing
+templates.env.globals['now'] = datetime.utcnow
 
 # ---- Feature flag: require login for chat ----
 REQUIRE_LOGIN = os.getenv("CHAT_REQUIRE_LOGIN", "true").lower() == "true"
@@ -25,6 +26,104 @@ except Exception:
 
 CHAT_TTL = int(os.getenv("CHAT_TTL_SEC", "172800"))   # 2 days
 HIST_TURNS = int(os.getenv("CHAT_HIST_TURNS", "3"))   # last 3 exchanges
+
+# ---- Rate limit configuration (demo-friendly defaults) ----
+# Per-user
+RL_MIN_LIMIT_USER     = int(os.getenv("CHAT_LIMITS_PER_MIN_USER", "5"))    # 8/min
+RL_DAY_LIMIT_USER     = int(os.getenv("CHAT_LIMITS_PER_DAY_USER", "40"))   # 40/day
+# Anonymous fallback
+RL_MIN_LIMIT_FALLBACK = int(os.getenv("CHAT_LIMITS_PER_MIN_FALLBACK", "3"))  # 3/min
+RL_DAY_LIMIT_FALLBACK = int(os.getenv("CHAT_LIMITS_PER_DAY_FALLBACK", "10")) # 10/day
+# System-wide daily cap
+RL_DAY_LIMIT_SYSTEM   = int(os.getenv("CHAT_LIMITS_PER_DAY_SYSTEM", "250"))  # 250/day
+
+# Daily window in America/Toronto (predictable reset for your users)
+LOCAL_TZ = ZoneInfo(os.getenv("CHAT_LOCAL_TZ", "America/Toronto"))
+
+def _epoch_minute(ts: float | None = None) -> int:
+    ts = ts or time.time()
+    return int(ts // 60)
+
+def _today_local_str() -> str:
+    return datetime.now(LOCAL_TZ).strftime("%Y-%m-%d")
+
+def _incr_with_ttl(r, key: str, ttl: int) -> int:
+    """
+    Atomic INCR with TTL; ensures TTL set even under concurrency.
+    """
+    pipe = r.pipeline()
+    pipe.incr(key)
+    pipe.expire(key, ttl)
+    try:
+        val, _ = pipe.execute()
+        return int(val)
+    except Exception:
+        return 0
+
+def _rate_limit_check(request: Request, user_id: int | None):
+    """
+    Enforce:
+      - System-wide daily hard cap (all traffic)
+      - Per-user (or anon fallback) daily hard cap
+      - Per-user (or anon fallback) per-minute burst cap
+    Returns None if allowed; raises HTTPException(429) if blocked.
+    """
+    if _r is None:
+        return  # No Redis → skip limiting
+
+    ip = request.client.host if request.client else "0.0.0.0"
+    conv_id = request.cookies.get("conv_id") or "anon"
+
+    # Identity & limits
+    if user_id is not None:
+        id_key   = f"user:{user_id}"
+        day_lim  = RL_DAY_LIMIT_USER
+        min_lim  = RL_MIN_LIMIT_USER
+    else:
+        id_key   = f"conv:{conv_id}:ip:{ip}"
+        day_lim  = RL_DAY_LIMIT_FALLBACK
+        min_lim  = RL_MIN_LIMIT_FALLBACK
+
+    today  = _today_local_str()
+    minute = _epoch_minute()
+
+    # Keys
+    k_day     = f"rl:{id_key}:d:{today}"
+    k_min     = f"rl:{id_key}:m:{minute}"
+    k_sys_day = f"rl:system:d:{today}"
+
+    # INCR with TTLs (1 day + buffer; 70s minute bucket)
+    sys_day_count = _incr_with_ttl(_r, k_sys_day, 24 * 60 * 60 + 300)
+    if sys_day_count > RL_DAY_LIMIT_SYSTEM:
+        raise HTTPException(
+            status_code=429,
+            detail="The demo's daily quota has been reached. Please try again tomorrow."
+        )
+
+    day_count = _incr_with_ttl(_r, k_day, 24 * 60 * 60 + 300)
+    if day_count > day_lim:
+        raise HTTPException(
+            status_code=429,
+            detail=f"Daily chat limit reached ({day_lim} messages). Please try again tomorrow."
+        )
+
+    min_count = _incr_with_ttl(_r, k_min, 70)
+    if min_count > min_lim:
+        raise HTTPException(
+            status_code=429,
+            detail="Too many requests. Please wait ~60 seconds and try again."
+        )
+
+    # Optional: surface RL info to client for UX
+    request.state.rl_headers = {
+        "X-RateLimit-Identity": id_key,
+        "X-RateLimit-Day-Count": str(day_count),
+        "X-RateLimit-Day-Limit": str(day_lim),
+        "X-RateLimit-Min-Count": str(min_count),
+        "X-RateLimit-Min-Limit": str(min_lim),
+        "X-RateLimit-System-Day-Count": str(sys_day_count),
+        "X-RateLimit-System-Day-Limit": str(RL_DAY_LIMIT_SYSTEM),
+    }
 
 # ---------- Chat page ----------
 @router.get("/chat")
@@ -58,11 +157,20 @@ class ChatOut(BaseModel):
 
 @router.post("/chat/agent", response_model=ChatOut)
 def chat_agent(body: ChatIn, request: Request, response: Response, current_user = Depends(get_current_user)):
-    # Hard gate: block anonymous calls when login is required
+    # Login gate for API: return 401 JSON (fetch won't navigate)
     if REQUIRE_LOGIN and not current_user:
         raise HTTPException(status_code=401, detail="Please log in to use the chatbot.")
-    
-    text = body.message.strip()
+
+    # ---- RATE LIMITS (user / anon / system) ----
+    uid = getattr(current_user, "user_id", None) if current_user else None
+    _rate_limit_check(request, uid)
+
+    # Echo limit headers to client (optional UX)
+    if hasattr(request.state, "rl_headers"):
+        for k, v in request.state.rl_headers.items():
+            response.headers[k] = v
+
+    text = (body.message or "").strip()
     if not text:
         return ChatOut(reply="Ask me for book ideas or comparisons.", books=[])
 
@@ -95,8 +203,6 @@ def chat_agent(body: ChatIn, request: Request, response: Response, current_user 
 
     # Call the existing agent with composed input
     raw = answer(composed).strip()
-
-    # Strip the control prefix for display
     if raw.lower().startswith("final answer:"):
         raw = raw[len("final answer:"):].strip()
 

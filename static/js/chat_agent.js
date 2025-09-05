@@ -1,36 +1,29 @@
-// Minimal, fetch-based chat. Expects a backend POST /chat/agent that returns:
-// { reply: "…assistant text…", books: [{item_idx, title, author, year, cover_url}, ...] }
+// /static/js/chat_agent.js  (replace the whole file with this)
+import { mountBanners, showBanner } from "/static/js/flash_alert.js";
 
+// ---- DOM helpers ----
 function el(tag, className, text) {
   const e = document.createElement(tag);
   if (className) e.className = className;
-  if (text) e.textContent = text;
+  if (text != null) e.textContent = text;
   return e;
 }
 
-const chatMessages = document.getElementById("chatMessages");
-const chatInput    = document.getElementById("chatInput");
-const chatSend     = document.getElementById("chatSend");
-const useProfile   = document.getElementById("useProfile");
-const restrictToCatalog = document.getElementById("restrictToCatalog");
-const resultsGrid  = document.getElementById("chatBookResults");
-
-function appendMessage(role, text) {
+function appendMessage(container, role, text) {
   const msg = el("div", `message message--${role}`);
-  const inner = el("div", "message-inner");
-  inner.textContent = text;
+  const inner = el("div", "message-inner", text);
   msg.appendChild(inner);
-  chatMessages.appendChild(msg);
-  chatMessages.scrollTop = chatMessages.scrollHeight;
+  container.appendChild(msg);
+  container.scrollTop = container.scrollHeight;
 }
 
 function renderBooks(books = []) {
-  const grid = document.getElementById("chatBookResults");
-  if (!grid) return;            // grid is optional on the chat demo page
+  const grid = document.getElementById("chatBookResults"); // optional section
+  if (!grid) return;
   grid.innerHTML = "";
   if (!books.length) return;
 
-  books.forEach(b => {
+  for (const b of books) {
     const a = document.createElement("a");
     a.href = `/book/${encodeURIComponent(b.item_idx)}`;
     a.className = "book-card";
@@ -42,75 +35,106 @@ function renderBooks(books = []) {
     a.appendChild(img);
 
     const h3 = el("h3", "book-title");
-    const span = el("span", "book-title-text", b.title || "Unknown title");
-    h3.appendChild(span);
+    h3.appendChild(el("span", "book-title-text", b.title || "Unknown title"));
     a.appendChild(h3);
 
     if (b.author) a.appendChild(el("p", "author", b.author));
     if (b.year)   a.appendChild(el("p", "year", String(b.year)));
 
     grid.appendChild(a);
-  });
+  }
 }
 
-async function sendMessage() {
-  const text = chatInput.value.trim();
-  if (!text) return;
-
-  // show user message
-  appendMessage("user", text);
-  chatInput.value = "";
-  chatInput.focus();
-
-  // show placeholder while fetching
+// ---- Single, definitive send function ----
+async function sendChatMessage(text, messagesEl) {
+  // “Thinking…” placeholder
   const thinking = el("div", "message message--bot");
-  const inner = el("div", "message-inner");
-  inner.textContent = "Thinking…";
-  thinking.appendChild(inner);
-  chatMessages.appendChild(thinking);
-  chatMessages.scrollTop = chatMessages.scrollHeight;
+  thinking.appendChild(el("div", "message-inner", "Thinking…"));
+  messagesEl.appendChild(thinking);
+  messagesEl.scrollTop = messagesEl.scrollHeight;
 
   try {
-    const payload = {
-      message: text,
-      use_profile: !!useProfile?.checked,
-      restrict_to_catalog: !!restrictToCatalog?.checked
-    };
-
     const resp = await fetch("/chat/agent", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       credentials: "same-origin",
-      body: JSON.stringify(payload)
+      body: JSON.stringify({
+        message: text,
+        use_profile: true,            // toggles are optional; keep true by default
+        restrict_to_catalog: true
+      }),
     });
 
-    const data = await resp.json();
+    // Handle auth/rate-limit FIRST (don’t try to parse as success)
+    if (resp.status === 401) {
+      showBanner("warning", "Please log in to use the chatbot.", {
+        container: chatBannerOverlay || document.body
+      });
+      return;
+    }
+    if (resp.status === 429) {
+      const data = await resp.json().catch(() => ({}));
+      const msg = data?.detail || "Rate limit exceeded. Please try later.";
+      showBanner("warning", msg, {
+        container: chatBannerOverlay || document.body
+      });
+      return;
+    }
+    if (!resp.ok) {
+      thinking.remove();
+      showBanner("error", "Something went wrong. Please try again.");
+      return;
+    }
+
+    // Success path
+    const data = await resp.json().catch(() => ({}));
     thinking.remove();
 
     const reply = data?.reply || "Sorry, I couldn't generate a response.";
-    appendMessage("bot", reply);
+    appendMessage(messagesEl, "bot", reply);
 
-    // optional book suggestions array
-    if (Array.isArray(data?.books)) {
+    if (Array.isArray(data?.books) && data.books.length) {
       renderBooks(data.books);
       const grid = document.getElementById("chatBookResults");
-      if (grid && data.books.length) {
-        grid.scrollIntoView({ behavior: "smooth", block: "start" });
-      }
+      grid?.scrollIntoView({ behavior: "smooth", block: "start" });
     }
-
   } catch (err) {
     thinking.remove();
-    appendMessage("bot", "Something went wrong while contacting the agent.");
+    appendMessage(messagesEl, "bot", "Something went wrong while contacting the agent.");
     console.error(err);
   }
 }
 
-chatSend?.addEventListener("click", sendMessage);
+// ---- Boot ----
+window.addEventListener("DOMContentLoaded", () => {
+  // Mount any server-rendered banners (auto-hide, close buttons, etc.)
+  try { mountBanners({ autoHideMs: 0 }); } catch {}
 
-chatInput?.addEventListener("keydown", (e) => {
-  if (e.key === "Enter" && !e.shiftKey) {
-    e.preventDefault();
-    sendMessage();
-  }
+  const messagesEl = document.getElementById("chatMessages");
+  const inputEl    = document.getElementById("chatInput");
+  const sendBtn    = document.getElementById("chatSend");
+  const bannerOverlay = document.getElementById("chatBannerOverlay"); 
+
+  if (!messagesEl || !inputEl || !sendBtn) return;
+
+  // Click to send
+  sendBtn.addEventListener("click", async () => {
+    const text = (inputEl.value || "").trim();
+    if (!text) return;
+    appendMessage(messagesEl, "user", text);
+    inputEl.value = "";
+    await sendChatMessage(text, messagesEl);
+  });
+
+  // Enter to send; Shift+Enter for newline
+  inputEl.addEventListener("keydown", async (e) => {
+    if (e.key === "Enter" && !e.shiftKey) {
+      e.preventDefault();
+      const text = (inputEl.value || "").trim();
+      if (!text) return;
+      appendMessage(messagesEl, "user", text);
+      inputEl.value = "";
+      await sendChatMessage(text, messagesEl);
+    }
+  });
 });

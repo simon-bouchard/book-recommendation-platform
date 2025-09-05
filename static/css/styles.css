@@ -1178,6 +1178,7 @@ li {
   min-height: 280px;         /* fallback */
   display: flex;
   flex-direction: column;
+  position: relative;       /* for banner overlay */
 }
 
 .chat-messages {
@@ -1230,6 +1231,32 @@ li {
   resize: none;              /* prevent vertical stretching */
   min-height: 44px;
   max-height: 120px;
+}
+
+.chat-banner-area {
+  margin-bottom: 10px;
+}
+
+.chat-banner-area .alert {
+  margin-bottom: 8px;
+}
+
+.chat-banner-overlay {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  z-index: 10;               /* above messages/input */
+  display: flex;
+  justify-content: center;   /* center horizontally */
+  pointer-events: none;      /* clicks go through, except on banner itself */
+}
+
+.chat-banner-overlay .alert {
+  pointer-events: auto;      /* re-enable interaction on banner */
+  margin: 12px;
+  max-width: 90%;
+  box-shadow: 0 2px 8px rgba(0,0,0,0.2);
 }
 
 /* Responsive Design */
