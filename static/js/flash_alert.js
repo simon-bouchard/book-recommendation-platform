@@ -1,4 +1,3 @@
-// /static/js/flash_banner.js
 function setupOne(alertEl, autoHideMs) {
   const wrap = alertEl.closest(".page-banner") || alertEl;
   let timer = null;
