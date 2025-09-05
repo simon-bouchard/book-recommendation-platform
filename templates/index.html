@@ -22,6 +22,7 @@
         <div class="toggle-group" style="justify-content: center;">
             <a href="/search"><button class="btn btn--primary btn--lg">🔍 Search Books</button></a>
             <a href="/profile"><button class="btn btn--primary btn--lg">🎯 Get Recommendations</button></a>
+            <a href="/chat"><button class="btn btn--primary btn--lg">💬 Chat with the Librarian</button></a>
             <a href="/login"><button class="btn btn--primary btn--lg">👤 Log In / Sign Up</button></a>
         </div>
 
@@ -69,6 +70,46 @@
             </li>
         </ol>
     </div>
+
+    <div class="container">
+        <h2>Chat with the Librarian (Demo)</h2>
+        <p style="margin-bottom:12px;">
+            The chatbot is a demo assistant that can <strong>browse the web with limited tools</strong> to suggest books and
+            <strong>read internal documentation about this website</strong> so it can explain features and onboard new users.
+        </p>
+
+        <div style="display:grid; gap:14px; grid-template-columns:1fr; max-width:900px;">
+            <div style="background:#f8fafc; border:1px solid #e5e7eb; padding:12px 14px; border-radius:8px;">
+            <strong>What it does now</strong>
+            <ul style="margin:8px 0 0 18px;">
+                <li>Uses a small set of web tools to find book suggestions and quick references.</li>
+                <li>Answers onboarding questions using internal docs about this site (navigation, features, tips).</li>
+            </ul>
+            </div>
+
+            <div style="background:#fff7ed; border:1px solid #fed7aa; padding:12px 14px; border-radius:8px;">
+            <strong>Current demo limits</strong>
+            <ul style="margin:8px 0 0 18px;">
+                <li><em>No</em> access to your profile, interactions, or favorite subjects.</li>
+                <li><em>No</em> access to internal ML tools yet (ALS, FAISS, subject embeddings).</li>
+                <li>Basic rate limits may apply (portfolio demo).</li>
+            </ul>
+            </div>
+
+            <div style="background:#f0fdf4; border:1px solid #bbf7d0; padding:12px 14px; border-radius:8px;">
+            <strong>Roadmap (planned)</strong>
+            <ul style="margin:8px 0 0 18px;">
+                <li>Profile-aware suggestions using interactions and favorite subjects.</li>
+                <li>Direct access to internal ML engines (ALS, FAISS, attention-pooled embeddings).</li>
+                <li>A true RAG-style agent that retrieves from the site’s catalog and models, then explains the picks.</li>
+            </ul>
+            </div>
+        </div>
+
+        <div class="toggle-group" style="justify-content:flex-start; margin-top:14px;">
+            <a href="/chat"><button class="btn btn--primary btn--lg">Open Chat</button></a>
+        </div>
+        </div>
 
     <div class="container">
         <h2>Behind the Scenes</h2>
