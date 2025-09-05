@@ -1,0 +1,210 @@
+ystem overview (runtime vs training)
+
+Runtime (FastAPI + SQLAlchemy + cached ML artifacts):
+
+API/router endpoints for auth, profile, search, book details, similar items, recommendations. Uses DB DI (get_db) and cookie-JWT auth. 
+
+ModelStore (Singleton) caches everything needed at inference: embeddings, FAISS-ready normalized vectors, GBT models, ALS factors, precomputed tensors, and attention pooling strategy. Provides a one-shot preload() and hard reset().
+
+Recommendation pipeline composes a CandidateGenerator + Reranker inside a RecommendationEngine; then RecommenderStrategy chooses warm vs cold mode. 
+ 
+
+Book similarity service with interchangeable strategies (subject/ALS/hybrid) backed by FAISS/IP search. 
+
+Search engine that switches between “no query/global”, “subjects only”, and “query + subjects” strategies; orders by a precomputed Bayesian prior and paginates.
+
+Training/ops (batch, artifact promotion, remote orchestration):
+
+Automated training script starts an Azure VM, exports fresh training data, backs up DB, syncs new data, runs remote training scripts, copies trained artifacts back, atomically promotes new data, and calls the API to hot-reload models. Includes log capture. 
+
+DB backups with rotation; Slack/Healthchecks notifications via a small notify_step context manager. 
+ 
+
+Schema creation and bulk CSV → DB import pipeline (authors/books/subjects/users/interactions + computed main_subject). 
+ 
+
+2) Core domain & storage model
+
+Relational schema: books (with main_subject), authors, subjects, book_subjects, users, user_fav_subjects, interactions (ratings/comments/timestamp).
+
+Runtime feature store (local artifacts): models/data/* (embeddings, ALS, GBT pickles, attention weights, Bayesian tensor) + models/training/data/*.pkl (book & user meta, subject maps). All loaded via ModelStore.
+
+DB access via SessionLocal factory and DI helper get_db(); declarative Base.
+
+Data-engineering pattern hooks: Relational system of record + derived artifacts (feature/embedding store) cached in-process (Cache-Aside via ModelStore), with artifact promotion on successful training.
+
+3) Ingestion & schema management (Batch import)
+
+data/create_tables.py bootstraps the schema. 
+
+data/import_csvs.py performs a truncate-and-load (clears tables), bulk-loads users/authors/books/subjects, maps work_id → item_idx, imports interactions and relations, and computes main_subject by global frequency excluding “Fiction/General”. 
+
+Pattern mapping: Bulk/Batch Load, Idempotent rebuilds, Deterministic ID mapping, Derived attribute computation (main_subject) during ingest.
+
+4) Training & artifact production
+
+End-to-end orchestration: ops/automated_training.py:
+
+Auth to Azure → start VM → export local training data → DB backup → copy new_data to trainer → run remote training scripts → copy artifacts back → deallocate VM → swap new_data into main → call /admin/reload_models. 
+
+The “swap” step (move new_data/ into models/training/data/) is an atomic promotion pattern to avoid partial reads. 
+
+Hot reload: Admin endpoint triggers engines_reload.reload_all_models(), which resets Singletons and preloads them. 
+ 
+
+Pattern mapping: Workflow orchestration, Atomic promotion, Online/Offline split, Blue/Green-style artifact swap, Hot reload.
+
+5) Caching, singletons, and reloading
+
+ModelStore (Singleton) encapsulates:
+
+Lazy load & cache of book embeddings (raw + L2 normalized), Bayesian tensor, pickled book/user meta, subject mappings, GBT models, ALS embeddings (user/book), and attention strategies (plugin registry). It also exposes a preload() for warming.
+
+Reset paths: ModelStore.reset() + similarity strategy resets; API /admin/reload_models calls engines_reload.reload_all_models() to refresh all live caches. 
+ 
+
+Pattern mapping: Cache-Aside, Singleton, Hot reload (controlled invalidation), Plugin registry (attention strategies).
+
+6) Recommendation pipeline (behavioral strategies + pipeline)
+
+Strategy selection (Factory): RecommenderStrategy.get_strategy(num_ratings) chooses Warm (behavioral) vs Cold (content/priors) based on the user’s rating count. 
+
+RecommendationEngine orchestrates:
+
+build user embedding from favorite subjects (attention pooling) with fallback,
+
+candidate generation,
+
+optional reranking,
+
+clean, ordered outputs. 
+
+Candidate generators:
+
+ALS (warm): top-K by user × item ALS dot product. 
+
+Cold hybrid: mixes similarity on subject embeddings + Bayesian prior (with tiered quotas). 
+
+Rerankers (swappable): GBTColdReranker, GBTWarmReranker, NoOpReranker. Feature assembly includes decomposed embeddings, overlaps, and categorical/continuous meta; types are enforced before predict(). 
+
+Pattern mapping: Strategy, Factory, Pipelines, Feature assembly, Two-stage retrieval → rerank, Graceful degradation (NoOpReranker).
+
+7) Similarity engines (subject vs behavioral vs hybrid)
+
+SubjectSimilarityStrategy: FAISS IP search over normalized subject-pooled embeddings (attention). 
+
+ALSSimilarityStrategy: FAISS IP search over trusted pool only (min rating count) to avoid noisy items; still queries from full ALS matrix for the seed. 
+
+HybridSimilarityStrategy: aligns ALS space to subject space and blends scores with alpha, with optional low-count filtering. 
+
+Pattern mapping: Pluggable strategies, Vector search, Score blending, Data quality filters.
+
+8) Attention pooling strategies (plugin/registry)
+
+Registry (STRATEGY_REGISTRY) with multiple implementations:
+
+scalar (single weight + bias),
+
+perdim (per-dimension weights),
+
+selfattn (SAB + CLS token),
+
+selfattn_perdim (MHA + per-dim pooling).
+ModelStore loads by name via env var and frozen weights; each strategy exposes a unified forward interface.
+
+Pattern mapping: Plugin/Registry, Strategy, Configuration by environment.
+
+9) Search pipeline (query & subjects)
+
+Chooses among three strategies based on (query, subjects):
+
+no-query global list → Bayesian-ordered pagination,
+
+subjects-only → intersection via BookSubject then Bayesian order,
+
+query path → SQL ilike with optional HAVING on subjects; all return bayes-scored results with pagination flags.
+
+Pattern mapping: Strategy selection, Hybrid SQL + precomputed priors, Keyset/slice pagination logic.
+
+10) API, auth, and pagination patterns
+
+Auth: cookie-stored JWT (access_token) with get_current_user(); signup validates countries via pycountry and persists favorite subjects; login renders template errors.
+
+Profile & ratings: keyset pagination over Interaction.id for stable, efficient scroll; warm/cold status via cached user meta. 
+
+Book details: aggregates avg rating, rating count, subjects, and checks ALS availability for the UI. 
+
+Similar items: /book/{item_idx}/similar?mode=subject|als|hybrid, rejects behavioral modes if the item lacks ALS. 
+
+Recommendations: /profile/recommend with mode=auto|subject|behavioral switches strategies explicitly or via rating history. 
+
+Admin: /admin/reload_models validates secret and triggers hot reload, with exception logging. 
+
+Pattern mapping: JWT session pattern, Keyset pagination, Feature flag–like mode switching, Admin control plane.
+
+11) Ops patterns: backups, notifications, and health
+
+MySQL backups: parses creds from env/URL, runs mysqldump with safe flags, keeps last 7; prints path. 
+
+Notifications: notify_step() context manager sends Slack + Healthchecks pings with optional log tails; supports muting statuses. 
+
+Pattern mapping: Scheduled backups, Alerting/Health pings, Context-manager “step” wrapper for workflow stages.
+
+12) Utilities & helpers (data-engineering glue)
+
+User embedding: attention-pooled from favorite subjects with PAD fallback; decomposed embeddings → flat features for GBT; compute_subject_overlap feature; filter_read_books for post-retrieval hygiene.
+
+Book meta joins: get_candidate_book_df preserves candidate order, adds item_idx, attaches book embeddings via add_book_embeddings.
+
+TTL cache for subject suggestions in get_all_subject_counts.
+
+Pattern mapping: Feature engineering helpers, Cache with TTL, Order-preserving joins.
+
+Pattern cheat-sheet (how to talk about your system)
+
+Batch Ingestion → import_csvs.py (truncate-and-load; deterministic IDs; derived main_subject) 
+
+Workflow Orchestration → automated_training.py (VM lifecycle, SCP, remote runs, logs) 
+
+Atomic Promotion → swapping new_data/ into models/training/data/ after success 
+
+Cache-Aside + Singleton → ModelStore lazy loads + preload(); reset() on reload
+
+Hot Reload → /admin/reload_models → engines_reload.reload_all_models() 
+ 
+
+Two-Stage Retrieval → Candidate generator(s) then reranker (NoOp/GBT) via RecommendationEngine 
+ 
+
+Pluggable Strategies → Similarity (subject/ALS/hybrid), Attention pooling (registry), Recommender (warm/cold) 
+ 
+
+Vector Search → FAISS IP over normalized embeddings; ALS trusted pool filtering 
+
+Keyset Pagination → ratings & comments pagination by Interaction.id (stable, scalable) 
+
+Prior-aware Ranking → Bayesian tensor used in search & cold candidate mixing 
+
+Observability → Slack/Healthchecks notifications; log tail on failure 
+
+Backups & Retention → mysqldump with rotation (last 7) 
+
+How an LLM can use this to teach patterns with your code
+
+When discussing Orchestration vs. ELT, point to automated_training.py as the control plane, and export_training_data.py / remote trainers as data plane; explain atomic artifact promotion and hot reload for zero-downtime updates. 
+ 
+
+For Cache-Aside & Singletons, walk through ModelStore’s lazy loads, normalization, and resets; contrast preload() vs on-demand.
+
+For Two-stage retrieval, show how RecommendationEngine composes CandidateGenerator + Reranker, then how warm/cold Strategy is selected. 
+ 
+
+For Vector search & hybrid signals, demonstrate subject vs ALS vs hybrid similarity and trusted-pool filtering. 
+
+For Batch ingestion + idempotence, use import_csvs.py + create_tables.py to illustrate rebuilding, deterministic IDs, and derived features (main_subject). 
+ 
+
+For Keyset pagination, highlight /profile/ratings and /book/{id}/comments implementations. 
+
+If you want, I can now compress this into a one-page “context card” (super terse, bullet-only) to paste ahead of prompts in your learning session.
+

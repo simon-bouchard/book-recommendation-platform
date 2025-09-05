@@ -1,0 +1,150 @@
+PROJECT STATE (NOW)
+
+Stack: FastAPI + Jinja templates + static JS.
+
+Notable routes/files:
+
+routes/chat.py → /chat page + POST /chat/agent (returns {reply, books[]}).
+
+app/agents/web_agent.py → tiny ReAct-style agent.
+
+models/… → existing internal engines: ALS (warm), subject-attention embeddings (cold), LightGBM rerankers, candidate generators, FAISS/KNN helpers, ModelStore hot-reloads.
+
+Current “web mode” demo: librarian agent defaults to no tools for small talk; uses minimal web tools only when needed (DuckDuckGo + Wikipedia). Agent responses normalize to a single line starting with Final Answer: …. The /chat/agent endpoint strips that prefix for display.
+
+Constraints already in place: 3-tool cap, de-duped queries, deterministic temperature=0, no hallucinated titles.
+
+CONVERSATION STATE & REDIS (NOW)
+
+Goal: make the chatbot aware of the ongoing conversation instead of just the last message.
+
+How it works (server-side, no login required):
+
+On first request, the server sets a conv_id cookie (SameSite=Lax).
+
+Each turn is stored in Redis under chat:{conv_id} as a tiny JSON list of the last N exchanges (default HIST_TURNS=3; i.e., up to 3 {user, assistant} pairs).
+
+Before calling the agent, the server prepends a compact context block built from that rolling history:
+
+(Conversation so far — use only for context)
+User: …
+Assistant: …
+…
+
+
+followed by the new user message. This lets the agent refer back naturally (e.g., “the last book you mentioned…”).
+
+TTL & limits: the Redis key has a TTL (default CHAT_TTL_SEC=172800, i.e., 2 days). Only a short window is kept to control token usage.
+
+Environment variables:
+
+REDIS_URL (e.g., redis://localhost:6379/0)
+
+CHAT_TTL_SEC (default 172800)
+
+CHAT_HIST_TURNS (default 3)
+
+Failure mode: if Redis is unavailable, the system degrades to stateless (no history) but still responds normally.
+
+Security/ops: default Redis binding is local; memory is ephemeral and scoped to the browser session via cookie. No user login or DB writes involved.
+
+WHAT I WANT TO BUILD NEXT (“INTERNAL MODE”)
+
+Expose my internal engines as agent tools and add a UI/server toggle to switch the chatbot between:
+
+Web mode (current demo)
+
+Internal mode (real pipeline: ALS/FAISS/subject-embeddings + LightGBM rerankers + Bayesian cold-start)
+
+INTERNAL TOOLS TO WRAP (thin adapters; fast & deterministic)
+
+get_user_profile(user_id|username) → {is_warm, fav_subjects_idxs, …} (read-only)
+
+retrieve_candidates_warm(user_id, top_k) → [item_idx]
+
+retrieve_candidates_cold(fav_subjects_idxs, w, top_k) → [item_idx]
+
+similar_books(item_idx, mode="subject|als|hybrid", top_k) → [item_idx]
+
+rerank_candidates(user_id?, item_idxs[], mode="warm|cold", top_k_final) → [{item_idx, score}]
+
+fetch_book_meta(item_idx[]) → [{item_idx, title, author, year, subjects, cover_url}]
+
+AGENT BEHAVIOR
+
+Persona: concise virtual librarian; never invent titles; cite provenance (Web mode: URLs; Internal mode: “ALS/Subject/GBM” labels).
+
+Tool-use policy:
+
+Default: no tools for greetings/small talk.
+
+Web mode: DuckDuckGo/Wikipedia, ≤3 calls total.
+
+Internal mode: prefer internal tools, avoid web tools.
+
+Finalization rule: always produce exactly one final line starting with Final Answer: (no placeholders).
+
+SCHEMAS (STRICT)
+
+Intent JSON (agent internal; define/refine as needed):
+
+{
+  "mode": "web|internal|also_like|search",
+  "seed_title": null,
+  "seed_author": null,
+  "subjects": [],
+  "include": [],
+  "exclude": [],
+  "languages": ["en"],
+  "years": {"min": null, "max": null},
+  "num_results": 5
+}
+
+
+ChatOut (already exists):
+{"reply": str, "books": [{"item_idx": int, "title": str?, "author": str?, "year": int?, "cover_url": str?}]}
+
+NON-GOALS
+
+No DB writes from the agent. No scraping. Don’t touch auth.
+
+Don’t remove or rename existing functions; patch minimally.
+
+HOW TO COLLABORATE WITH ME
+
+When proposing code, show a surgical patch per file (file path + exact block). Keep 4-space indentation; don’t reformat unrelated lines.
+
+Start with minimal internal tools: wrap existing functions in models/ and return lightweight JSON. Then wire a source query param (web|internal) through /chat/agent → agent call.
+
+Provide quick happy-path tests (curl examples) and one rollback note.
+
+If something is ambiguous, make a conservative assumption and proceed.
+
+FIRST TASKS (DO THESE NOW)
+
+A) Define clean tool wrappers (in app/agents/internal_tools.py) that call into:
+
+WarmRecommender / ColdRecommender or candidate_generators
+
+get_similarity_strategy(mode)
+
+rerankers.LightGBM (warm/cold)
+Return plain dicts/lists with item_idx and optional score.
+
+B) Update app/agents/web_agent.py to accept a source: "web"|"internal" flag and route tool selection accordingly (default “web”).
+
+C) Update routes/chat.py:/chat/agent to accept a query/body toggle {source}, pass it to the agent, and keep its current response shape.
+
+D) Add a minimal books payload assembler that calls fetch_book_meta for any item_idx list and returns ChatOut.books.
+
+ACCEPTANCE CRITERIA
+
+/chat still loads; /chat/agent works for both source="web" and source="internal".
+
+Conversation memory: second turn can refer to the first (via Redis-backed rolling history).
+
+“hi” returns a short small-talk reply (no tools).
+
+“Recommend 3 cozy mysteries from the last 5 years” in internal mode uses internal tools only, returns 3 books with title/author/year and a librarian explanation.
+
+No existing routes broken; no function names removed.
