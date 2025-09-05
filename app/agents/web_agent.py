@@ -1,7 +1,9 @@
 import os, re
 from dotenv import load_dotenv
-
 load_dotenv()
+
+import logging
+logger = logging.getLogger(__name__)
 
 # ---- LLM: OpenAI by default ----
 from langchain_openai import ChatOpenAI
@@ -281,4 +283,5 @@ def answer(question: str) -> str:
         # Already in the right shape
         return out
     except Exception as e:
+        logger.exception("Agent error: %s", e)
         return "Final Answer: I ran into an error finishing that—mind rephrasing?"
