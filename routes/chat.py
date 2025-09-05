@@ -1,15 +1,20 @@
-from fastapi import APIRouter, Request, Response
+from fastapi import APIRouter, Request, Response, Depends, HTTPException, status
 from fastapi.templating import Jinja2Templates
+from fastapi.responses import RedirectResponse
 from pydantic import BaseModel
 from typing import List, Optional
 from datetime import datetime
 from app.agents.web_agent import answer
+from app.auth import get_current_user  # <-- reuse existing auth helper
 import os, json, uuid
 import redis
 
 router = APIRouter()
 templates = Jinja2Templates(directory="templates")
 templates.env.globals['now'] = datetime.utcnow  # keep existing
+
+# ---- Feature flag: require login for chat ----
+REQUIRE_LOGIN = os.getenv("CHAT_REQUIRE_LOGIN", "true").lower() == "true"
 
 # ---- Redis-backed conversation state (rolling history) ----
 REDIS_URL = os.getenv("REDIS_URL", "redis://localhost:6379/0")
@@ -23,7 +28,12 @@ HIST_TURNS = int(os.getenv("CHAT_HIST_TURNS", "3"))   # last 3 exchanges
 
 # ---------- Chat page ----------
 @router.get("/chat")
-def chat_page(request: Request):
+def chat_page(request: Request, current_user = Depends(get_current_user)):
+    # If login is required and user is not authenticated → redirect to login (with next)
+    if REQUIRE_LOGIN and not current_user:
+        request.session["flash_warning"] = "Please log in to use the chatbot."
+        return RedirectResponse(url="/login?next=/chat", status_code=status.HTTP_303_SEE_OTHER)
+
     return templates.TemplateResponse(
         "chatbot.html",
         {"request": request, "page": "chat"}
@@ -47,12 +57,16 @@ class ChatOut(BaseModel):
     books: List[BookOut] = []
 
 @router.post("/chat/agent", response_model=ChatOut)
-def chat_agent(body: ChatIn, request: Request, response: Response):
+def chat_agent(body: ChatIn, request: Request, response: Response, current_user = Depends(get_current_user)):
+    # Hard gate: block anonymous calls when login is required
+    if REQUIRE_LOGIN and not current_user:
+        raise HTTPException(status_code=401, detail="Please log in to use the chatbot.")
+    
     text = body.message.strip()
     if not text:
         return ChatOut(reply="Ask me for book ideas or comparisons.", books=[])
 
-    # Assign/get a conversation id cookie (no login required)
+    # Assign/get a conversation id cookie (issued only after auth passes, if required)
     conv_id = request.cookies.get("conv_id")
     if not conv_id:
         conv_id = uuid.uuid4().hex

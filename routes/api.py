@@ -35,12 +35,16 @@ load_dotenv()
 def signup_page(request: Request):
     countries = sorted([c.name for c in pycountry.countries])
     message = request.session.pop("flash_success", None)
+    error = request.session.pop("flash_error", None)
+    warning = request.session.pop("flash_warning", None)
 
-    return templates.TemplateResponse('login.html', {
-        'request': request,
-        'countries': countries,
-        'page': 'login',
-        'message': message
+    return templates.TemplateResponse("login.html", {
+        "request": request,
+        "countries": countries,
+        "page": "login",
+        "message": message,
+        "error": error,
+        "warning": warning
     })
 
 @router.get('/profile')
