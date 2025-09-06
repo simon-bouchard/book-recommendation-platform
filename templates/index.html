@@ -22,8 +22,8 @@
         <div class="toggle-group" style="justify-content: center;">
             <a href="/search"><button class="btn btn--primary btn--lg">🔍 Search Books</button></a>
             <a href="/profile"><button class="btn btn--primary btn--lg">🎯 Get Recommendations</button></a>
-            <a href="/chat"><button class="btn btn--primary btn--lg">💬 Chat with the Librarian</button></a>
             <a href="/login"><button class="btn btn--primary btn--lg">👤 Log In / Sign Up</button></a>
+            <a href="/chat"><button class="btn btn--primary btn--lg">💬 Chat with the Librarian</button></a>
         </div>
 
         <div style="background:#f1f5ff; border:1px solid #d6e4ff; padding:12px 14px; border-radius:8px; margin-top:18px; text-align:center;">
@@ -84,13 +84,13 @@
             <ul style="margin:8px 0 0 18px;">
                 <li>Uses a small set of web tools to find book suggestions and quick references.</li>
                 <li>Answers onboarding questions using internal docs about this site (navigation, features, tips).</li>
+                <li>Profile-aware suggestions using interactions and favorite subjects.</li>
             </ul>
             </div>
 
             <div style="background:#fff7ed; border:1px solid #fed7aa; padding:12px 14px; border-radius:8px;">
             <strong>Current demo limits</strong>
             <ul style="margin:8px 0 0 18px;">
-                <li><em>No</em> access to your profile, interactions, or favorite subjects.</li>
                 <li><em>No</em> access to internal ML tools yet (ALS, FAISS, subject embeddings).</li>
                 <li>Basic rate limits may apply (portfolio demo).</li>
             </ul>
@@ -99,14 +99,13 @@
             <div style="background:#f0fdf4; border:1px solid #bbf7d0; padding:12px 14px; border-radius:8px;">
             <strong>Roadmap (planned)</strong>
             <ul style="margin:8px 0 0 18px;">
-                <li>Profile-aware suggestions using interactions and favorite subjects.</li>
                 <li>Direct access to internal ML engines (ALS, FAISS, attention-pooled embeddings).</li>
                 <li>A true RAG-style agent that retrieves from the site’s catalog and models, then explains the picks.</li>
             </ul>
             </div>
         </div>
 
-        <div class="toggle-group" style="justify-content:flex-start; margin-top:14px;">
+        <div class="toggle-group" style="justify-content:center; margin:20px 0 0;">
             <a href="/chat"><button class="btn btn--primary btn--lg">Open Chat</button></a>
         </div>
         </div>
