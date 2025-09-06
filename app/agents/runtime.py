@@ -1,0 +1,133 @@
+from __future__ import annotations
+
+import json, time, uuid
+from typing import Optional, List
+from datetime import datetime
+from zoneinfo import ZoneInfo
+
+import redis
+from fastapi import Request, Response, HTTPException
+
+from app.agents.settings import settings
+
+# Single Redis client (decode to str)
+try:
+    r = redis.from_url(settings.redis_url, decode_responses=True)
+except Exception:
+    r = None  # degrade to stateless if Redis is down
+
+
+# ---- tiny helpers ----
+def _epoch_minute(ts: Optional[float] = None) -> int:
+    ts = ts or time.time()
+    return int(ts // 60)
+
+def _today_local_str(tz: ZoneInfo) -> str:
+    return datetime.now(tz).strftime("%Y-%m-%d")
+
+def _incr_with_ttl(client, key: str, ttl: int) -> int:
+    pipe = client.pipeline()
+    pipe.incr(key)
+    pipe.expire(key, ttl)
+    try:
+        val, _ = pipe.execute()
+        return int(val)
+    except Exception:
+        return 0
+
+
+# ---- public API ----
+def rate_limit_check(request: Request, user_id: Optional[int]) -> None:
+    """
+    Enforce:
+      - System-wide daily hard cap
+      - Per-user (or anon fallback) daily cap
+      - Per-user (or anon fallback) per-minute cap
+    Raises HTTPException(429) if blocked, otherwise None.
+    """
+    if r is None:
+        return  # no Redis → no limiting
+
+    tz = ZoneInfo(settings.chat_local_tz)
+
+    ip = request.client.host if request.client else "0.0.0.0"
+    conv_id = request.cookies.get("conv_id") or "anon"
+
+    if user_id is not None:
+        id_key   = f"user:{user_id}"
+        day_lim  = settings.chat_limits_per_day_user
+        min_lim  = settings.chat_limits_per_min_user
+    else:
+        id_key   = f"conv:{conv_id}:ip:{ip}"
+        day_lim  = settings.chat_limits_per_day_fallback
+        min_lim  = settings.chat_limits_per_min_fallback
+
+    today  = _today_local_str(tz)
+    minute = _epoch_minute()
+
+    k_day     = f"rl:{id_key}:d:{today}"
+    k_min     = f"rl:{id_key}:m:{minute}"
+    k_sys_day = f"rl:system:d:{today}"
+
+    # INCR with TTLs (1 day + buffer; 70s for minute)
+    sys_day_count = _incr_with_ttl(r, k_sys_day, 24 * 60 * 60 + 300)
+    if sys_day_count > settings.chat_limits_per_day_system:
+        raise HTTPException(
+            status_code=429,
+            detail="The demo's daily quota has been reached. Please try again tomorrow."
+        )
+
+    day_count = _incr_with_ttl(r, k_day, 24 * 60 * 60 + 300)
+    if day_count > day_lim:
+        raise HTTPException(
+            status_code=429,
+            detail=f"Daily chat limit reached ({day_lim} messages). Please try again tomorrow."
+        )
+
+    min_count = _incr_with_ttl(r, k_min, 70)
+    if min_count > min_lim:
+        raise HTTPException(
+            status_code=429,
+            detail="Too many requests. Please wait ~60 seconds and try again."
+        )
+
+    # Optional headers for UX
+    request.state.rl_headers = {
+        "X-RateLimit-Identity": id_key,
+        "X-RateLimit-Day-Count": str(day_count),
+        "X-RateLimit-Day-Limit": str(day_lim),
+        "X-RateLimit-Min-Count": str(min_count),
+        "X-RateLimit-Min-Limit": str(min_lim),
+        "X-RateLimit-System-Day-Count": str(sys_day_count),
+        "X-RateLimit-System-Day-Limit": str(settings.chat_limits_per_day_system),
+    }
+
+
+def ensure_conv_cookie(request: Request, response: Response) -> str:
+    """Return existing conv_id or set a new one (SameSite=Lax, 7d)."""
+    conv_id = request.cookies.get("conv_id")
+    if not conv_id:
+        conv_id = uuid.uuid4().hex
+        response.set_cookie("conv_id", conv_id, max_age=60 * 60 * 24 * 7, samesite="Lax")
+    return conv_id
+
+
+def load_history(conv_id: str) -> List[dict]:
+    """Return rolling history list from Redis (or [])."""
+    if r is None:
+        return []
+    try:
+        return json.loads(r.get(f"chat:{conv_id}") or "[]")
+    except Exception:
+        return []
+
+
+def save_history(conv_id: str, hist: List[dict]) -> None:
+    """Persist last N exchanges with TTL (no-op if Redis is down)."""
+    if r is None:
+        return
+    try:
+        key = f"chat:{conv_id}"
+        r.setex(key, settings.chat_ttl_sec, json.dumps(hist[-settings.chat_hist_turns:]))
+    except Exception:
+        pass
