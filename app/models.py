@@ -26,24 +26,23 @@ def get_all_subject_counts(db: Session):
     if _subject_cache and (now - _last_subject_fetch) < SUBJECT_CACHE_TTL:
         return _subject_cache
 
-    # Group by subject_idx (faster, indexed integer column)
+    # Group by subject_idx and order by count descending
     counts = (
         db.query(BookSubject.subject_idx, func.count().label("c"))
           .group_by(BookSubject.subject_idx)
+          .order_by(func.count().desc())
           .all()
     )
     if not counts:
         _subject_cache, _last_subject_fetch = [], now
         return _subject_cache
 
-    # Fetch names in one query
     subject_ids = [sid for sid, _ in counts]
     names = db.query(Subject.subject_idx, Subject.subject)\
               .filter(Subject.subject_idx.in_(subject_ids))\
               .all()
     name_map = {i: s for i, s in names}
 
-    # Build result list
     _subject_cache = [
         {"subject": name_map.get(sid, ""), "count": int(c)}
         for sid, c in counts
