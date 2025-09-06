@@ -1,4 +1,3 @@
-// /static/js/chat_agent.js  (replace the whole file with this)
 import { mountBanners, showBanner } from "/static/js/flash_alert.js";
 
 // ---- DOM helpers ----
@@ -47,46 +46,35 @@ function renderBooks(books = []) {
 
 // ---- Single, definitive send function ----
 async function sendChatMessage(text, messagesEl) {
-  // “Thinking…” placeholder
-  const thinking = el("div", "message message--bot");
-  thinking.appendChild(el("div", "message-inner", "Thinking…"));
+  const thinking = document.createElement("div");
+  thinking.className = "message message--bot";
+  thinking.appendChild(document.createElement("div")).className = "message-inner";
+  thinking.firstChild.textContent = "Thinking…";
   messagesEl.appendChild(thinking);
   messagesEl.scrollTop = messagesEl.scrollHeight;
+
+  const useProfile = !!document.getElementById("useProfile")?.checked;
+
+  const payload = {
+    message: text,
+    use_profile: useProfile,
+    restrict_to_catalog: true
+  };
 
   try {
     const resp = await fetch("/chat/agent", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       credentials: "same-origin",
-      body: JSON.stringify({
-        message: text,
-        use_profile: true,            // toggles are optional; keep true by default
-        restrict_to_catalog: true
-      }),
+      body: JSON.stringify(payload),
     });
 
-    // Handle auth/rate-limit FIRST (don’t try to parse as success)
-    if (resp.status === 401) {
-      showBanner("warning", "Please log in to use the chatbot.", {
-        container: chatBannerOverlay || document.body
-      });
-      return;
-    }
-    if (resp.status === 429) {
-      const data = await resp.json().catch(() => ({}));
-      const msg = data?.detail || "Rate limit exceeded. Please try later.";
-      showBanner("warning", msg, {
-        container: chatBannerOverlay || document.body
-      });
-      return;
-    }
     if (!resp.ok) {
       thinking.remove();
-      showBanner("error", "Something went wrong. Please try again.");
+      appendMessage(messagesEl, "bot", "Something went wrong while contacting the agent.");
       return;
     }
 
-    // Success path
     const data = await resp.json().catch(() => ({}));
     thinking.remove();
 
@@ -107,13 +95,37 @@ async function sendChatMessage(text, messagesEl) {
 
 // ---- Boot ----
 window.addEventListener("DOMContentLoaded", () => {
-  // Mount any server-rendered banners (auto-hide, close buttons, etc.)
   try { mountBanners({ autoHideMs: 0 }); } catch {}
 
   const messagesEl = document.getElementById("chatMessages");
   const inputEl    = document.getElementById("chatInput");
   const sendBtn    = document.getElementById("chatSend");
-  const bannerOverlay = document.getElementById("chatBannerOverlay"); 
+  const bannerOverlay = document.getElementById("chatBannerOverlay");
+
+  // New: toggles
+  const useProfileEl = document.getElementById("useProfile");
+  const restrictEl   = document.getElementById("restrictToCatalog");
+
+  // Restore persisted prefs
+  if (useProfileEl) {
+    const saved = localStorage.getItem("chat.useProfile");
+    if (saved !== null) useProfileEl.checked = saved === "true";
+    useProfileEl.addEventListener("change", () => {
+      localStorage.setItem("chat.useProfile", String(useProfileEl.checked));
+    });
+  }
+  if (restrictEl) {
+    const saved = localStorage.getItem("chat.restrictToCatalog");
+    if (saved !== null) restrictEl.checked = saved === "true";
+    restrictEl.addEventListener("change", () => {
+      localStorage.setItem("chat.restrictToCatalog", String(restrictEl.checked));
+    });
+  }
+
+  const getFlags = () => ({
+    useProfile: useProfileEl ? !!useProfileEl.checked : true,
+    restrictToCatalog: restrictEl ? !!restrictEl.checked : true,
+  });
 
   if (!messagesEl || !inputEl || !sendBtn) return;
 
@@ -123,7 +135,7 @@ window.addEventListener("DOMContentLoaded", () => {
     if (!text) return;
     appendMessage(messagesEl, "user", text);
     inputEl.value = "";
-    await sendChatMessage(text, messagesEl);
+    await sendChatMessage(text, messagesEl, getFlags());
   });
 
   // Enter to send; Shift+Enter for newline
@@ -134,7 +146,7 @@ window.addEventListener("DOMContentLoaded", () => {
       if (!text) return;
       appendMessage(messagesEl, "user", text);
       inputEl.value = "";
-      await sendChatMessage(text, messagesEl);
+      await sendChatMessage(text, messagesEl, getFlags());
     }
   });
 });
