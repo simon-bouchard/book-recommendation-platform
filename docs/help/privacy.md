@@ -5,3 +5,5 @@
 - No database writes are performed by the chatbot.  
 - User accounts, ratings, and comments (outside the chatbot) are stored securely.  
 - Some metadata may be incomplete or inconsistent. Future enrichment with external sources and LLM-based cleaning is planned to improve coverage.  
+- Website connection is secured via SSL (HTTPS) and passwords are stored securely and encrtypted.
+- No use of thrid party cookies 
