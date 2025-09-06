@@ -9,7 +9,7 @@ from time import time
 
 _subject_cache = []
 _last_subject_fetch = 0
-SUBJECT_CACHE_TTL = 1000 
+SUBJECT_CACHE_TTL = 100000
 
 pwd_context = CryptContext(schemes=['bcrypt'], deprecated='auto')
 
@@ -26,18 +26,28 @@ def get_all_subject_counts(db: Session):
     if _subject_cache and (now - _last_subject_fetch) < SUBJECT_CACHE_TTL:
         return _subject_cache
 
-    subject_counts = (
-        db.query(Subject.subject, func.count(BookSubject.subject_idx).label("count"))
-        .join(BookSubject, Subject.subject_idx == BookSubject.subject_idx)
-        .group_by(Subject.subject)
-        .order_by(func.count(BookSubject.subject_idx).desc())
-        .all()
+    # Group by subject_idx (faster, indexed integer column)
+    counts = (
+        db.query(BookSubject.subject_idx, func.count().label("c"))
+          .group_by(BookSubject.subject_idx)
+          .all()
     )
+    if not counts:
+        _subject_cache, _last_subject_fetch = [], now
+        return _subject_cache
 
+    # Fetch names in one query
+    subject_ids = [sid for sid, _ in counts]
+    names = db.query(Subject.subject_idx, Subject.subject)\
+              .filter(Subject.subject_idx.in_(subject_ids))\
+              .all()
+    name_map = {i: s for i, s in names}
+
+    # Build result list
     _subject_cache = [
-        {"subject": subject, "count": count}
-        for subject, count in subject_counts
-        if subject != "[NO_SUBJECT]"
+        {"subject": name_map.get(sid, ""), "count": int(c)}
+        for sid, c in counts
+        if name_map.get(sid) and name_map[sid] != "[NO_SUBJECT]"
     ]
     _last_subject_fetch = now
     return _subject_cache

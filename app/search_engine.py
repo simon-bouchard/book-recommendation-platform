@@ -37,9 +37,7 @@ class _BaseSearchStrategy:
     def run(self, *args, **kwargs):
         raise NotImplementedError
 
-
 class _SubjectsNoQueryStrategy(_BaseSearchStrategy):
-    # subjects + no query → ALL matches, ordered by bayes desc
     def run(self, subject_idxs, page, per_page, db):
         offset = page * per_page
 
@@ -49,36 +47,25 @@ class _SubjectsNoQueryStrategy(_BaseSearchStrategy):
               .group_by(BookSubject.item_idx)
               .all()
         )
-        valid_ids = set(b.item_idx for b in valid_books)
+        valid_ids = {b.item_idx for b in valid_books}
 
-        df = self.BOOK_META.loc[self.BOOK_META.index.intersection(valid_ids)].copy()
+        # preserve the pre-sorted global order: use .isin() mask, not .intersection()
+        df = self.BOOK_META[self.BOOK_META.index.isin(valid_ids)]
         if df.empty:
             return [], False
-
-        df["__bayes__"] = df.index.map(self._bayes)
-        df = df.sort_values(["__bayes__", "title"], ascending=[False, True], kind="mergesort").drop(columns="__bayes__")
 
         slice_df, has_next = self._paginate_df(df, offset, per_page)
         results = [self._row_to_result(i, r) for i, r in slice_df.iterrows()]
         return results, has_next
 
-
+# app/search_engine.py
 class _NoQueryGlobalStrategy(_BaseSearchStrategy):
-    # no subjects + no query → ALL books ordered by bayesian desc, paginated
     def run(self, page, per_page):
         offset = page * per_page
-
-        df = self.BOOK_META.copy()
-        if df.empty:
-            return [], False
-
-        df["__bayes__"] = df.index.map(self._bayes)
-        df = (
-            df.sort_values(["__bayes__", "title"], ascending=[False, True], kind="mergesort")
-              .drop(columns="__bayes__")
-        )
-
-        slice_df, has_next = self._paginate_df(df, offset, per_page)
+        slice_df = self.BOOK_META.iloc[offset:offset + per_page + 1]
+        has_next = len(slice_df) > per_page
+        if has_next:
+            slice_df = slice_df.iloc[:per_page]
         results = [self._row_to_result(i, r) for i, r in slice_df.iterrows()]
         return results, has_next
 

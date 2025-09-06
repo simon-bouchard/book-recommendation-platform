@@ -178,9 +178,18 @@ class ModelStore:
 
     def get_book_meta(self):
         if self._book_meta is None:
-            self._book_meta = pd.read_pickle("models/training/data/books.pkl").set_index("item_idx")
-        return self._book_meta
+            df = pd.read_pickle("models/training/data/books.pkl").set_index("item_idx")
 
+            # compute bayes aligned to item_idx
+            bay = self.get_bayesian_tensor()
+            idx2row = self.get_item_idx_to_row()
+            df["bayes"] = df.index.to_series().map(lambda i: float(bay[idx2row.get(int(i), -1)]) if idx2row.get(int(i)) is not None else float("-inf"))
+
+            # one-time stable order: bayes desc, title asc
+            self._book_meta = df.sort_values(["bayes", "title"], ascending=[False, True], kind="mergesort")
+
+        return self._book_meta
+    
     def get_user_meta(self):
         if self._user_meta is None:
             self._user_meta = pd.read_pickle("models/training/data/users.pkl").set_index("user_id")
