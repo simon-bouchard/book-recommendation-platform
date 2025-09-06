@@ -9,6 +9,9 @@ from app.agents.web_agent import answer
 from app.auth import get_current_user
 import os, json, uuid, time
 import redis
+from app.agents.user_context import fetch_user_context, format_user_context
+from app.database import get_db
+from sqlalchemy.orm import Session
 
 router = APIRouter()
 templates = Jinja2Templates(directory="templates")
@@ -156,7 +159,13 @@ class ChatOut(BaseModel):
     books: List[BookOut] = []
 
 @router.post("/chat/agent", response_model=ChatOut)
-def chat_agent(body: ChatIn, request: Request, response: Response, current_user = Depends(get_current_user)):
+def chat_agent(
+    body: ChatIn,
+    request: Request,
+    response: Response,
+    current_user = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
     # Login gate for API: return 401 JSON (fetch won't navigate)
     if REQUIRE_LOGIN and not current_user:
         raise HTTPException(status_code=401, detail="Please log in to use the chatbot.")
@@ -189,6 +198,15 @@ def chat_agent(body: ChatIn, request: Request, response: Response, current_user 
         except Exception:
             hist = []
 
+    user_context_block = ""
+    if body.use_profile and current_user:
+        try:
+            ctx = fetch_user_context(db, current_user.user_id, limit=15)
+            block = format_user_context(ctx)
+            user_context_block = f"(User profile context — may guide your answer)\n{block}\n\n"
+        except Exception:
+            user_context_block = ""
+
     # Build compact context (last N exchanges)
     ctx_lines: List[str] = []
     for turn in hist[-HIST_TURNS:]:
@@ -199,7 +217,14 @@ def chat_agent(body: ChatIn, request: Request, response: Response, current_user 
         if a:
             ctx_lines.append(f"Assistant: {a}")
     context = "\n".join(ctx_lines).strip()
-    composed = f"(Conversation so far — use only for context)\n{context}\n\nUser: {text}" if context else text
+    
+    sections = []
+    if user_context_block:
+        sections.append(user_context_block)
+    if context:
+        sections.append(f"(Conversation so far — use only for context)\n{context}\n")
+    sections.append(f"User: {text}")
+    composed = "\n\n".join(sections)
 
     # Call the existing agent with composed input
     raw = answer(composed).strip()

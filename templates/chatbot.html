@@ -19,14 +19,14 @@
       <div class="alert alert--warning" data-autohide="0">
           <div>
           <strong>Demo mode:</strong> This chatbot only uses external tools (web search, Wikipedia). 
-          It does <em>not</em> access internal data, profiles, or recommendation models.
+          It does <em>not</em> access internal db or recommendation models.
           </div>
       </div>
       </div>
 
     <h1>Book Chat</h1>  
     <p style="text-align:center; margin-top:-10px; margin-bottom:18px;">
-      Ask for recommendations in plain English. The agent can help you understand this website or act as your own virtual librarian.  
+      Ask for recommendations in plain English. The agent can help you understand this website or act as your own virtual librarian. You can also toggle the button to allow the chatbot to access some of your rating history as well as your favorite subejcts.
     </p>  
 
     <!-- (Optional) Banners for status/usage tips -->
@@ -47,16 +47,18 @@
         <button id="chatSend" class="btn btn--primary">Send</button>
       </div>
 
-      <!-- Optional toggles for context
-      <div class="toggle-group" style="justify-content:flex-start;">
-          <label class="toggle-option" style="cursor:default;">
-              <input type="checkbox" id="useProfile" checked style="margin-right:8px;"> Use my profile (if logged in)
+      <div class="toggle-group" style="justify-content:flex-start; gap:16px; margin-top:8px;">
+        <label class="toggle-option" style="cursor:default; display:flex; align-items:center;">
+          <input type="checkbox" id="useProfile" checked style="margin-right:8px;">
+          Use my profile
         </label>
-        <label class="toggle-option" style="cursor:default;">
-          <input type="checkbox" id="restrictToCatalog" checked style="margin-right:8px;"> Only suggest books in catalog
+        <!-- 
+        <label class="toggle-option" style="cursor:default; display:flex; align-items:center;">
+          <input type="checkbox" id="restrictToCatalog" checked style="margin-right:8px;">
+          Only suggest books in this catalog
         </label>
+        -->
       </div>
-    </div> -->
 
 </div>
 <!-- Where book suggestions render  
