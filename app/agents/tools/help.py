@@ -153,3 +153,9 @@ help_tools = [
         description="Keyword search across end-user help docs (docs/help). Input: a short question or keywords. Returns top sections as 'file#Section: snippet'."
     ),
 ]
+
+class SiteHelpToolkit:
+    @staticmethod
+    def as_tools():
+        # Return a fresh view; tools themselves are stateless
+        return list(help_tools)

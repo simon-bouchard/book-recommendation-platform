@@ -19,11 +19,12 @@ from models.book_similarity_engine import get_similarity_strategy
 from models.recommender_strategy import RecommenderStrategy, WarmRecommender, ColdRecommender
 from models.shared_utils import PAD_IDX, ModelStore
 
-import logging, traceback
+import traceback
 import pycountry
 from typing import List, Optional
 
-logger = logging.getLogger(__name__)
+from app.agents.logging import get_logger
+logger = get_logger(__name__)
 
 router = APIRouter()
 templates = Jinja2Templates(directory="templates")
@@ -527,5 +528,5 @@ def reload_models_endpoint(secret: str = Query(...)):
         reload_all_models()
         return {"status": "reloaded"}
     except Exception as e:
-        logging.getLogger(__name__).error("Reload failed:\n%s", traceback.format_exc())
+        logger.error("Reload failed:\n%s", traceback.format_exc())
         raise HTTPException(status_code=500, detail=f"Reload failed: {e}")

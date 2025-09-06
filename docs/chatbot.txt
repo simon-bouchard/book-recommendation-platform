@@ -6,145 +6,111 @@ Notable routes/files:
 
 routes/chat.py → /chat page + POST /chat/agent (returns {reply, books[]}).
 
-app/agents/web_agent.py → tiny ReAct-style agent.
+app/agents/web_agent.py → ReAct-style agent with external tools (DuckDuckGo, Wikipedia, OpenLibrary, local help-docs).
 
-models/… → existing internal engines: ALS (warm), subject-attention embeddings (cold), LightGBM rerankers, candidate generators, FAISS/KNN helpers, ModelStore hot-reloads.
+models/… → core ML engines: ALS (warm), ColdHybrid (subject+Bayesian), similarity strategies (subject, ALS, hybrid), attention pooling for subjects, ModelStore singleton.
 
-Current “web mode” demo: librarian agent defaults to no tools for small talk; uses minimal web tools only when needed (DuckDuckGo + Wikipedia). Agent responses normalize to a single line starting with Final Answer: …. The /chat/agent endpoint strips that prefix for display.
+Current demo:
+The agent is a virtual librarian. It defaults to no tools for greetings/small talk. For site-help questions it uses local help-docs. For external facts it may call web tools (DuckDuckGo, Wikipedia, OpenLibrary). Responses normalize to a single line starting with Final Answer:; /chat/agent strips that prefix.
 
-Constraints already in place: 3-tool cap, de-duped queries, deterministic temperature=0, no hallucinated titles.
+Constraints in place:
+3-tool cap, deduped queries, temperature=0, never invent titles.
 
 CONVERSATION STATE & REDIS (NOW)
 
-Goal: make the chatbot aware of the ongoing conversation instead of just the last message.
+On first request, server sets a conv_id cookie (SameSite=Lax).
 
-How it works (server-side, no login required):
+Each turn is stored in Redis under chat:{conv_id} as a rolling JSON list of last N turns (default 3).
 
-On first request, the server sets a conv_id cookie (SameSite=Lax).
+Before calling the agent, the server prepends:
 
-Each turn is stored in Redis under chat:{conv_id} as a tiny JSON list of the last N exchanges (default HIST_TURNS=3; i.e., up to 3 {user, assistant} pairs).
+(User profile context — if enabled; favorite subjects + recent interactions from SQL).
 
-Before calling the agent, the server prepends a compact context block built from that rolling history:
+(Conversation so far — last few turns).
 
-(Conversation so far — use only for context)
-User: …
-Assistant: …
-…
+The new user message.
 
+This lets the agent resolve follow-ups naturally (“like the second one you mentioned…”).
 
-followed by the new user message. This lets the agent refer back naturally (e.g., “the last book you mentioned…”).
+TTL: 2 days.
+Failure mode: if Redis is down, degrade to stateless.
+Security: Redis local only; no DB writes from the agent.
 
-TTL & limits: the Redis key has a TTL (default CHAT_TTL_SEC=172800, i.e., 2 days). Only a short window is kept to control token usage.
+WHAT I AM BUILDING NEXT (ML-INTEGRATED AGENT)
 
-Environment variables:
+The chatbot will become a grounded, catalog-locked RAG-style agent. Instead of inventing, it will call the same ML models already used by the website. External web tools remain, but will only be used for clearly external queries. All recommendation answers will come strictly from internal models.
 
-REDIS_URL (e.g., redis://localhost:6379/0)
+Internal tools (atomic, deterministic):
 
-CHAT_TTL_SEC (default 172800)
+User-centric recs
 
-CHAT_HIST_TURNS (default 3)
+als_recs(user_id, top_k) → ALS baseline (warm).
 
-Failure mode: if Redis is unavailable, the system degrades to stateless (no history) but still responds normally.
+cold_hybrid_recs(user_id|fav_subjects_idxs, top_k, w, tiers) → Cold hybrid subject+Bayesian.
 
-Security/ops: default Redis binding is local; memory is ephemeral and scoped to the browser session via cookie. No user login or DB writes involved.
+Item-centric sim
 
-WHAT I WANT TO BUILD NEXT (“INTERNAL MODE”)
+subject_sim(item_idx, top_k) → subject embeddings.
 
-Expose my internal engines as agent tools and add a UI/server toggle to switch the chatbot between:
+als_sim(item_idx, top_k) → ALS similarity (if available).
 
-Web mode (current demo)
+hybrid_sim(item_idx, top_k, alpha, min_count) → blend (if both available).
 
-Internal mode (real pipeline: ALS/FAISS/subject-embeddings + LightGBM rerankers + Bayesian cold-start)
+Meta join
 
-INTERNAL TOOLS TO WRAP (thin adapters; fast & deterministic)
+fetch_book_meta(item_idxs[]) → authoritative {title, author, year, cover_url}.
 
-get_user_profile(user_id|username) → {is_warm, fav_subjects_idxs, …} (read-only)
+Help/docs
 
-retrieve_candidates_warm(user_id, top_k) → [item_idx]
+help-list, help-read, help-search remain for onboarding and site explanations.
 
-retrieve_candidates_cold(fav_subjects_idxs, w, top_k) → [item_idx]
+Tool availability is gated:
 
-similar_books(item_idx, mode="subject|als|hybrid", top_k) → [item_idx]
+ALS tools are only exposed if the user/book exists in ALS.
 
-rerank_candidates(user_id?, item_idxs[], mode="warm|cold", top_k_final) → [{item_idx, score}]
+Hybrid sim only if both ALS + subject are present.
 
-fetch_book_meta(item_idx[]) → [{item_idx, title, author, year, subjects, cover_url}]
+Cold tools always available.
+Unavailable tools are simply not listed for the agent.
 
 AGENT BEHAVIOR
 
-Persona: concise virtual librarian; never invent titles; cite provenance (Web mode: URLs; Internal mode: “ALS/Subject/GBM” labels).
+Persona: concise librarian; never invents; always catalog-grounded.
 
-Tool-use policy:
+Tool policy:
 
-Default: no tools for greetings/small talk.
+No tools for greetings/small talk.
 
-Web mode: DuckDuckGo/Wikipedia, ≤3 calls total.
+For recs, prefer internal tools.
 
-Internal mode: prefer internal tools, avoid web tools.
+Web tools only if the user clearly asks for external context.
 
-Finalization rule: always produce exactly one final line starting with Final Answer: (no placeholders).
+Chaining: Agent may call multiple tools in one turn (e.g., ALS recs → then subject sim for diversity → merge/dedupe → final answer).
 
-SCHEMAS (STRICT)
+Finalization: Exactly one line starting with Final Answer: plus short explanation with provenance labels (e.g., “(source: ALS baseline)”).
 
-Intent JSON (agent internal; define/refine as needed):
-
-{
-  "mode": "web|internal|also_like|search",
-  "seed_title": null,
-  "seed_author": null,
-  "subjects": [],
-  "include": [],
-  "exclude": [],
-  "languages": ["en"],
-  "years": {"min": null, "max": null},
-  "num_results": 5
-}
-
-
-ChatOut (already exists):
-{"reply": str, "books": [{"item_idx": int, "title": str?, "author": str?, "year": int?, "cover_url": str?}]}
+Memory: Rolling Redis window and optional profile context guide tool choice; outputs always grounded in the current turn’s fetched IDs.
 
 NON-GOALS
 
-No DB writes from the agent. No scraping. Don’t touch auth.
+No DB writes.
 
-Don’t remove or rename existing functions; patch minimally.
+No scraping.
 
-HOW TO COLLABORATE WITH ME
-
-When proposing code, show a surgical patch per file (file path + exact block). Keep 4-space indentation; don’t reformat unrelated lines.
-
-Start with minimal internal tools: wrap existing functions in models/ and return lightweight JSON. Then wire a source query param (web|internal) through /chat/agent → agent call.
-
-Provide quick happy-path tests (curl examples) and one rollback note.
-
-If something is ambiguous, make a conservative assumption and proceed.
-
-FIRST TASKS (DO THESE NOW)
-
-A) Define clean tool wrappers (in app/agents/internal_tools.py) that call into:
-
-WarmRecommender / ColdRecommender or candidate_generators
-
-get_similarity_strategy(mode)
-
-rerankers.LightGBM (warm/cold)
-Return plain dicts/lists with item_idx and optional score.
-
-B) Update app/agents/web_agent.py to accept a source: "web"|"internal" flag and route tool selection accordingly (default “web”).
-
-C) Update routes/chat.py:/chat/agent to accept a query/body toggle {source}, pass it to the agent, and keep its current response shape.
-
-D) Add a minimal books payload assembler that calls fetch_book_meta for any item_idx list and returns ChatOut.books.
+No second agent or hard “mode” toggle—one agent dynamically chooses between internal and web tools.
 
 ACCEPTANCE CRITERIA
 
-/chat still loads; /chat/agent works for both source="web" and source="internal".
+/chat loads; /chat/agent works.
 
-Conversation memory: second turn can refer to the first (via Redis-backed rolling history).
+Small-talk → short reply, no tools.
 
-“hi” returns a short small-talk reply (no tools).
+Internal rec queries → only catalog results, correct provenance.
 
-“Recommend 3 cozy mysteries from the last 5 years” in internal mode uses internal tools only, returns 3 books with title/author/year and a librarian explanation.
+Site-help queries → answered via local docs.
 
-No existing routes broken; no function names removed.
+Web queries → use web tools, never for recs.
+
+Redis history allows follow-up references.
+
+All outputs end with one Final Answer: line and never invent titles.
