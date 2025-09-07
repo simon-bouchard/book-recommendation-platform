@@ -40,7 +40,7 @@ def chat_page(request: Request, current_user = Depends(get_current_user)):
 
     return templates.TemplateResponse(
         "chatbot.html",
-        {"request": request, "page": "chat"}
+        {"request": request, "page": "chat", "logged_in": bool(current_user)}
     )
 
 # ---------- Chat agent API ----------

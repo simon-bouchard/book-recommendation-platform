@@ -27,7 +27,7 @@ def _get_executor():
     return AgentExecutor(
         agent=agent,
         tools=tools,
-        verbose=False,
+        verbose=True,
         handle_parsing_errors=True,
         max_iterations=10,
         max_execution_time=300,
@@ -37,7 +37,7 @@ def _get_executor():
 def answer(question: str) -> str:
     try:
         executor = _get_executor()
-        res = executor.invoke({"input": question})
+        res = executor.invoke({"input": question}, return_intermediate_steps=True)
         out = ""
         if isinstance(res, dict):
             out = (res.get("output") or "").strip()

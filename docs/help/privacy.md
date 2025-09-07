@@ -1,6 +1,6 @@
 # Data & Privacy
 
-- No login is required to browse the site, but login is required for chatbot access.  
+- No login is required to browse the site, but login is required for personalised recommendations and full chatbot access.
 - Conversation history is stored only in memory (Redis), expires automatically, and is tied to your browser cookie.  
 - No database writes are performed by the chatbot.  
 - User accounts, ratings, and comments (outside the chatbot) are stored securely.  
