@@ -2,9 +2,17 @@ import os
 import json
 from typing import Dict
 from langchain_core.tools import Tool
+from pathlib import Path
 
 # Base path for end-user help docs
-_DOCS_PATH = os.path.join(os.path.dirname(__file__), "../../docs/help")
+_BASE = os.environ.get("HELP_DOCS_PATH")
+if _BASE:
+    _DOCS_PATH = _BASE
+else:
+    # help.py is at .../app/agents/tools/help.py
+    # parents[3] = project root
+    _DOCS_PATH = str(Path(__file__).resolve().parents[3] / "docs" / "help")
+
 _MANIFEST_PATH = os.path.join(_DOCS_PATH, "help_manifest.json")
 
 # ------------------------

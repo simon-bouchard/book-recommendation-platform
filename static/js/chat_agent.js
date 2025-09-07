@@ -11,7 +11,12 @@ function el(tag, className, text) {
 
 function appendMessage(container, role, text) {
   const msg = el("div", `message message--${role}`);
-  const inner = el("div", "message-inner", text);
+  const inner = el("div", "message-inner");
+  if (role === "bot") {
+    inner.innerHTML = renderMarkdown(text);  // render MD for bot
+  } else {
+    inner.textContent = text;                // plain text for user
+  }
   msg.appendChild(inner);
   container.appendChild(msg);
   container.scrollTop = container.scrollHeight;
@@ -106,6 +111,47 @@ function updateUsageFromHeaders(h) {
 
   const bar = ensureUsageBar();
   bar.textContent = `Today: ${dayC}/${dayL} • Per minute: ${minC}/${minL} • System: ${sysC}/${sysL}`;
+}
+
+function escapeHtml(s) {
+  return s.replace(/[&<>"']/g, (c) => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+}
+
+function renderMarkdown(md) {
+  // 1) escape everything
+  let html = escapeHtml(md);
+
+  // 2) fenced code blocks ``` ```
+  html = html.replace(/```([\s\S]*?)```/g, (_, code) => `<pre><code>${code}</code></pre>`);
+
+  // 3) inline code `code`
+  html = html.replace(/`([^`\n]+)`/g, '<code>$1</code>');
+
+  // 4) links [text](http://...)
+  html = html.replace(/\[([^\]]+)\]\((https?:\/\/[^\s)]+)\)/g, '<a href="$2" target="_blank" rel="noopener">$1</a>');
+
+  // 5) bold **text** and italic *text*
+  html = html.replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>');
+  html = html.replace(/\*([^*\n]+)\*/g, '<em>$1</em>');
+
+  // 6) headings (# to ######) at line start
+  html = html.replace(/^###### (.*)$/gm, '<h6>$1</h6>')
+             .replace(/^##### (.*)$/gm,  '<h5>$1</h5>')
+             .replace(/^#### (.*)$/gm,   '<h4>$1</h4>')
+             .replace(/^### (.*)$/gm,    '<h3>$1</h3>')
+             .replace(/^## (.*)$/gm,     '<h2>$1</h2>')
+             .replace(/^# (.*)$/gm,      '<h1>$1</h1>');
+
+  // 7) simple unordered lists: lines starting with - or *
+  html = html.replace(/(?:^|\n)([-*] .+(?:\n[-*] .+)*)/g, (block) => {
+    const items = block.trim().split(/\n/).map(line => line.replace(/^[-*] (.*)$/, '<li>$1</li>')).join('');
+    return `\n<ul>${items}</ul>`;
+  });
+
+  // 8) line breaks for single newlines (outside of code/blocks)
+  html = html.replace(/(?<!<\/h\d>|<\/li>|<\/ul>|<\/pre>)\n/g, '<br>');
+
+  return html;
 }
 
 // ---- Single, definitive send function ----

@@ -1215,6 +1215,24 @@ li {
   border-top-left-radius: 4px;
 }
 
+.message-inner pre {
+  background: #f4f4f4;
+  border: 1px solid var(--color-border-lighter);
+  border-radius: 6px;
+  padding: 10px 12px;
+  overflow-x: auto;
+  margin: 6px 0;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+}
+
+.message-inner code {
+  background: #f6f7fb;
+  border: 1px solid var(--color-border-light);
+  border-radius: 4px;
+  padding: 0 4px;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+}
+
 .chat-input-row {
   display: grid;
   grid-template-columns: 1fr auto;
