@@ -1,0 +1,40 @@
+# robots.txt for Book Recommender
+
+User-agent: *
+# Allow assets for proper rendering
+Allow: /static/
+Allow: /favicon.ico
+
+# Indexable content
+Allow: /book/
+
+# Do NOT index auth, profiles, chat, admin, or API/JSON endpoints
+Disallow: /login
+Disallow: /logout
+Disallow: /auth/
+Disallow: /profile
+Disallow: /profile/
+Disallow: /profile/update
+Disallow: /profile/ratings
+Disallow: /profile/recommend
+Disallow: /rating
+Disallow: /rating/
+Disallow: /book/*/similar
+Disallow: /book/*/comments
+Disallow: /chat
+Disallow: /chat/agent
+Disallow: /admin/
+Disallow: /search
+Disallow: /search/
+Disallow: /search/json
+Disallow: /subjects/suggestions
+
+# Prevent duplicate/query-param variants from being indexed
+Disallow: /*?
+
+# (Optional) Tame aggressive crawlers; Google ignores this
+Crawl-delay: 2
+
+# (Optional) Update to your actual domain if you publish a sitemap
+Sitemap: https://recsys.simonbouchard.space/sitemap.xml
+
