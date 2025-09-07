@@ -1,0 +1,167 @@
+{
+  "overview": {
+    "file": "overview.md",
+    "title": "Overview",
+    "description": "ML-powered book recommender; search, book pages, profile, daily retraining; portfolio demo, not a product.",
+    "keywords": [
+      "overview",
+      "about",
+      "purpose",
+      "demo",
+      "portfolio",
+      "product",
+      "features",
+      "pages"
+    ]
+  },
+  "versioning": {
+    "file": "versioning.md",
+    "title": "Versioning & Status",
+    "description": "Current features vs planned; portfolio demonstration with daily retraining; not a commercial service.",
+    "keywords": [
+      "current features",
+      "planned features",
+      "roadmap",
+      "portfolio",
+      "status",
+      "future",
+      "demo"
+    ]
+  },
+  "search": {
+    "file": "search.md",
+    "title": "Search",
+    "description": "Default Bayesian ranking; subject search stays Bayesian; title search by title similarity; optional subject filter.",
+    "keywords": [
+      "search order",
+      "ranking",
+      "bayesian ranking",
+      "title similarity",
+      "subject filter",
+      "default view"
+    ]
+  },
+  "troubleshooting": {
+    "file": "troubleshooting.md",
+    "title": "Troubleshooting",
+    "description": "Common issues: need ≥10 ratings, search ranking differences, profile edits, metadata gaps, chatbot memory expiry.",
+    "keywords": [
+      "not enough ratings",
+      "search ranking",
+      "profile update",
+      "missing metadata",
+      "lost context",
+      "cookies",
+      "memory expiry"
+    ]
+  },
+  "books": {
+    "file": "books.md",
+    "title": "Book Pages",
+    "description": "Book pages show metadata, ratings, comments, and Similar Books via Subject, ALS, or Hybrid (FAISS).",
+    "keywords": [
+      "book metadata",
+      "rate book",
+      "comments",
+      "similar books",
+      "subject similarity",
+      "als similarity",
+      "hybrid",
+      "faiss"
+    ]
+  },
+  "profile": {
+    "file": "profile.md",
+    "title": "Profile",
+    "description": "Info, stats, interactions; subject-based recs with slider; ALS recs unlock after 10 ratings.",
+    "keywords": [
+      "profile info",
+      "profile stats",
+      "edit profile",
+      "past ratings",
+      "favorite subjects",
+      "als locked",
+      "subject slider"
+    ]
+  },
+  "recommendations": {
+    "file": "recommendations.md",
+    "title": "How Recommendations Work",
+    "description": "Subject, ALS, and Hybrid recommendations with strengths/weaknesses; daily training updates.",
+    "keywords": [
+      "recommendation logic",
+      "subject recs",
+      "als recs",
+      "hybrid recs",
+      "daily training",
+      "rating thresholds"
+    ]
+  },
+  "faq": {
+    "file": "faq.md",
+    "title": "FAQ",
+    "description": "10-rating rule, daily retrain delay, similar books, metadata gaps, improving recs, chatbot memory window.",
+    "keywords": [
+      "10 ratings rule",
+      "daily retraining",
+      "similar books section",
+      "metadata gaps",
+      "improving recommendations",
+      "chatbot memory"
+    ]
+  },
+  "limits": {
+    "file": "limits.md",
+    "title": "Known Limits",
+    "description": "ALS needs ≥10 ratings; cold-start fallback; metadata gaps; daily training required; internal chatbot not yet.",
+    "keywords": [
+      "cold start",
+      "metadata gaps",
+      "daily training requirement",
+      "als threshold",
+      "internal chatbot"
+    ]
+  },
+  "chatbot": {
+    "file": "chatbot.md",
+    "title": "Chatbot",
+    "description": "Login required; Web mode demo with 'Final Answer' line; internal mode planned; memory via Redis + cookie.",
+    "keywords": [
+      "login required",
+      "web mode",
+      "final answer",
+      "internal mode planned",
+      "redis memory",
+      "cookie",
+      "conversation turns"
+    ]
+  },
+  "privacy": {
+    "file": "privacy.md",
+    "title": "Data & Privacy",
+    "description": "Login only for chatbot; chat memory in Redis + cookie; SSL; secure accounts; no third-party cookies.",
+    "keywords": [
+      "chat data retention",
+      "ssl",
+      "password security",
+      "cookies",
+      "no third party cookies",
+      "storage"
+    ]
+  },
+  "glossary": {
+    "file": "glossary.md",
+    "title": "Glossary",
+    "description": "ALS, FAISS, Bayesian popularity, subject-attention embeddings, hybrid similarity, cold-start; LightGBM deprecated.",
+    "keywords": [
+      "als",
+      "faiss",
+      "bayesian",
+      "subject embeddings",
+      "hybrid",
+      "cold start",
+      "provenance",
+      "lightgbm"
+    ]
+  }
+}
