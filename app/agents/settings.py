@@ -3,7 +3,7 @@ import os
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 class ChatSettings(BaseSettings):
-    chat_require_login: bool = True
+    chat_require_login: bool = False
     redis_url: str = "redis://localhost:6379/0"
     chat_ttl_sec: int = 172800
     chat_hist_turns: int = 3

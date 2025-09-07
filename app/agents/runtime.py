@@ -2,8 +2,9 @@ from __future__ import annotations
 
 import json, time, uuid
 from typing import Optional, List
-from datetime import datetime
+from datetime import datetime, timedelta
 from zoneinfo import ZoneInfo
+import hashlib
 
 import redis
 from fastapi import Request, Response, HTTPException
@@ -35,32 +36,46 @@ def _incr_with_ttl(client, key: str, ttl: int) -> int:
     except Exception:
         return 0
 
+def _ua_hash(user_agent: str | None) -> str:
+    """
+    Short, stable fingerprint for UA to strengthen anon identity.
+    Returns 8-hex prefix of SHA1 over a normalized UA string.
+    """
+    ua = (user_agent or "").strip().lower()
+    # normalize super-short/empty UAs
+    if len(ua) < 5:
+        ua = "na"
+    return hashlib.sha1(ua.encode("utf-8")).hexdigest()[:8]
+
+def _seconds_until_next_minute(now: datetime) -> int:
+    nxt = (now.replace(second=0, microsecond=0) + timedelta(minutes=1))
+    return max(1, int((nxt - now).total_seconds()))
+
+def _seconds_until_tomorrow(now: datetime) -> int:
+    tomorrow = (now.date() + timedelta(days=1))
+    nxt = datetime.combine(tomorrow, datetime.min.time(), tzinfo=now.tzinfo)
+    return max(1, int((nxt - now).total_seconds()))
 
 # ---- public API ----
 def rate_limit_check(request: Request, user_id: Optional[int]) -> None:
-    """
-    Enforce:
-      - System-wide daily hard cap
-      - Per-user (or anon fallback) daily cap
-      - Per-user (or anon fallback) per-minute cap
-    Raises HTTPException(429) if blocked, otherwise None.
-    """
     if r is None:
-        return  # no Redis → no limiting
+        return  # degrade open if Redis is down
 
     tz = ZoneInfo(settings.chat_local_tz)
+    now = datetime.now(tz)
 
     ip = request.client.host if request.client else "0.0.0.0"
     conv_id = request.cookies.get("conv_id") or "anon"
 
     if user_id is not None:
-        id_key   = f"user:{user_id}"
-        day_lim  = settings.chat_limits_per_day_user
-        min_lim  = settings.chat_limits_per_min_user
+        id_key  = f"user:{user_id}"
+        day_lim = settings.chat_limits_per_day_user
+        min_lim = settings.chat_limits_per_min_user
     else:
-        id_key   = f"conv:{conv_id}:ip:{ip}"
-        day_lim  = settings.chat_limits_per_day_fallback
-        min_lim  = settings.chat_limits_per_min_fallback
+        # (optionally include UA hash here if you applied step #2 earlier)
+        id_key  = f"conv:{conv_id}:ip:{ip}"
+        day_lim = settings.chat_limits_per_day_fallback
+        min_lim = settings.chat_limits_per_min_fallback
 
     today  = _today_local_str(tz)
     minute = _epoch_minute()
@@ -69,29 +84,50 @@ def rate_limit_check(request: Request, user_id: Optional[int]) -> None:
     k_min     = f"rl:{id_key}:m:{minute}"
     k_sys_day = f"rl:system:d:{today}"
 
-    # INCR with TTLs (1 day + buffer; 70s for minute)
-    sys_day_count = _incr_with_ttl(r, k_sys_day, 24 * 60 * 60 + 300)
+    # System-wide daily
+    sys_day_count = _incr_with_ttl(r, k_sys_day, 24*60*60 + 300)
     if sys_day_count > settings.chat_limits_per_day_system:
+        headers = {
+            "Retry-After": str(_seconds_until_tomorrow(now)),
+            "X-RateLimit-Block-Reason": "system_day",
+        }
         raise HTTPException(
             status_code=429,
-            detail="The demo's daily quota has been reached. Please try again tomorrow."
+            detail="The demo's daily quota has been reached. Please try again tomorrow.",
+            headers=headers
         )
 
-    day_count = _incr_with_ttl(r, k_day, 24 * 60 * 60 + 300)
+    # Per-identity daily
+    day_count = _incr_with_ttl(r, k_day, 24*60*60 + 300)
     if day_count > day_lim:
+        headers = {
+            "Retry-After": str(_seconds_until_tomorrow(now)),
+            "X-RateLimit-Block-Reason": "identity_day",
+            "X-RateLimit-Day-Limit": str(day_lim),
+            "X-RateLimit-Day-Count": str(day_count),
+        }
         raise HTTPException(
             status_code=429,
-            detail=f"Daily chat limit reached ({day_lim} messages). Please try again tomorrow."
+            detail=f"Daily chat limit reached ({day_lim} messages). Please try again tomorrow.",
+            headers=headers
         )
 
+    # Per-identity per-minute
     min_count = _incr_with_ttl(r, k_min, 70)
     if min_count > min_lim:
+        headers = {
+            "Retry-After": str(_seconds_until_next_minute(now)),
+            "X-RateLimit-Block-Reason": "identity_minute",
+            "X-RateLimit-Min-Limit": str(min_lim),
+            "X-RateLimit-Min-Count": str(min_count),
+        }
         raise HTTPException(
             status_code=429,
-            detail="Too many requests. Please wait ~60 seconds and try again."
+            detail="Too many requests. Please wait ~60 seconds and try again.",
+            headers=headers
         )
 
-    # Optional headers for UX
+    # Success headers for UX/debug (what you already had)
     request.state.rl_headers = {
         "X-RateLimit-Identity": id_key,
         "X-RateLimit-Day-Count": str(day_count),
@@ -101,8 +137,7 @@ def rate_limit_check(request: Request, user_id: Optional[int]) -> None:
         "X-RateLimit-System-Day-Count": str(sys_day_count),
         "X-RateLimit-System-Day-Limit": str(settings.chat_limits_per_day_system),
     }
-
-
+    
 def ensure_conv_cookie(request: Request, response: Response) -> str:
     """Return existing conv_id or set a new one (SameSite=Lax, 7d)."""
     conv_id = request.cookies.get("conv_id")
