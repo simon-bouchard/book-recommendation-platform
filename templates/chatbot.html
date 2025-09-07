@@ -30,12 +30,24 @@
     </p>  
 
     <!-- (Optional) Banners for status/usage tips -->
+    
+    {% if not logged_in %}
+    <div class="page-banner">
+      <div class="alert alert--warning" data-autohide="0">
+        <div>
+          <strong>Tip:</strong> You’ll have higher daily and per-minute limits if you log in.
+        </div>
+        <button class="alert__close" id="chatInfoClose" aria-label="Close">×</button>
+      </div>
+    </div>
+    {% else %}
     <div class="page-banner">
       <div class="alert alert--info" data-autohide="0">
         <div><strong>Tip:</strong> Press <code>Enter</code> to send, <code>Shift+Enter</code> for a newline.</div>  
         <button class="alert__close" id="chatInfoClose" aria-label="Close">×</button>
       </div>  
     </div>  
+    {% endif %}
 
     <!-- Chat surface -->
     <div id="chatBox" class="chat-box">
@@ -48,10 +60,12 @@
       </div>
 
       <div class="toggle-group" style="justify-content:flex-start; gap:16px; margin-top:8px;">
+        {% if logged_in %}
         <label class="toggle-option" style="cursor:default; display:flex; align-items:center;">
           <input type="checkbox" id="useProfile" checked style="margin-right:8px;">
           Use my profile
         </label>
+        {% endif %}
         <!-- 
         <label class="toggle-option" style="cursor:default; display:flex; align-items:center;">
           <input type="checkbox" id="restrictToCatalog" checked style="margin-right:8px;">

@@ -56,6 +56,9 @@ def chat_agent(
     if REQUIRE_LOGIN and not current_user:
         raise HTTPException(status_code=401, detail="Please log in to use the chatbot.")
 
+    # Assign/get a conversation id cookie (issued only after auth passes, if required)
+    conv_id = ensure_conv_cookie(request, response)
+    
     # ---- RATE LIMITS (user / anon / system) ----
     uid = getattr(current_user, "user_id", None) if current_user else None
     rate_limit_check(request, uid)
@@ -69,9 +72,6 @@ def chat_agent(
     if not text:
         return ChatOut(reply="Ask me for book ideas or comparisons.", books=[])
 
-    # Assign/get a conversation id cookie (issued only after auth passes, if required)
-    conv_id = ensure_conv_cookie(request, response)
-    
     # Load short history from Redis
     hist = load_history(conv_id)
 
