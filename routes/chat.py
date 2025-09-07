@@ -3,7 +3,7 @@ from fastapi.templating import Jinja2Templates
 from fastapi.responses import RedirectResponse
 from datetime import datetime
 from zoneinfo import ZoneInfo
-from app.auth import get_current_user
+from routes.auth import get_current_user
 from sqlalchemy.orm import Session
 from app.agents.web_agent import answer
 from app.database import get_db
