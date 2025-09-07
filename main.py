@@ -11,7 +11,7 @@ from fastapi_limiter.depends import RateLimiter
 import redis.asyncio as redis
 
 from routes.api import router 
-from app.auth import router as auth_router
+from routes.auth import router as auth_router
 from routes import chat
 
 import os

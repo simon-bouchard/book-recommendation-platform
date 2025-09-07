@@ -10,7 +10,7 @@ from datetime import datetime
 from sqlalchemy import func, desc, case
 from sqlalchemy.orm import Session, joinedload
 
-from app.auth import get_current_user
+from routes.auth import get_current_user
 from app.database import get_db
 from app.table_models import Book, User, Interaction, BookSubject, Subject, UserFavSubject
 from app.models import get_all_subject_counts, clean_float_values
