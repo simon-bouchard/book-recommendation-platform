@@ -100,7 +100,6 @@ class ScalarAttentionStrategy(AttentionPoolingStrategy):
 class PerDimAttentionStrategy(AttentionPoolingStrategy):
     def __init__(self, path: str):
         super().__init__()
-        print('Using PerDimAttentionStrategy')
         state = torch.load(path, map_location="cpu")
 
         self.subject_emb = nn.Embedding.from_pretrained(
@@ -131,7 +130,6 @@ class PerDimAttentionStrategy(AttentionPoolingStrategy):
 class SelfAttentionStrategy(AttentionPoolingStrategy):
     def __init__(self, path: str):
         super().__init__()
-        print("Using SelfAttentionStrategy (SAB+CLS)")
         state = torch.load(path, map_location="cpu")
 
         # required keys from the new training saver

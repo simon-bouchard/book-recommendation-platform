@@ -16,6 +16,19 @@ _llm = ChatOpenAI(model="gpt-4o-mini", temperature=0, timeout=30)
 from app.agents.prompts import AGENT_PROMPT
 from app.agents.tools import ToolRegistry, InternalToolGates
 
+import re
+
+def _extract_final_answer_from_error(e) -> str:
+    """
+    On a parsing error, DO NOT emit a Final Answer. Instruct the agent to continue.
+    This keeps the chain alive so it can call return_book_ids next.
+    """
+    return (
+        "PARSING_ERROR: You emitted prose or malformed output. "
+        "Continue the chain. You MUST either call a tool next or, if you are done, "
+        "first call return_book_ids with a JSON list of item_idx, then write Final Answer."
+    )
+
 def _get_executor(current_user=None, db=None, user_num_ratings: Optional[int] = None):
     registry = ToolRegistry(
         web=True,
@@ -33,7 +46,7 @@ def _get_executor(current_user=None, db=None, user_num_ratings: Optional[int] = 
         agent=agent,
         tools=tools,
         verbose=True,
-        handle_parsing_errors=True,
+        handle_parsing_errors=_extract_final_answer_from_error,
         max_iterations=10,
         max_execution_time=300,
         early_stopping_method="force",
