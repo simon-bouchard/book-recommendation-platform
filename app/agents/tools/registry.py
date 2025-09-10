@@ -1,4 +1,4 @@
-# app/agents/tool_registry.py
+# app/agents/tools/registry.py
 from __future__ import annotations
 
 from dataclasses import dataclass
@@ -9,6 +9,8 @@ from langchain_core.tools import Tool
 # External + docs
 from .web import build_web_tools, WebToolState
 from .help import SiteHelpToolkit
+from .internal_tools import make_als_pool_tool, make_return_book_ids_tool
+
 
 @dataclass
 class InternalToolGates:
@@ -40,18 +42,12 @@ class ToolRegistry:
         gated by InternalToolGates. For now, internal tools are not exposed unless
         `internal_enabled=True` is passed explicitly.
     """
-
-    def __init__(
-        self,
-        web: bool = True,
-        help: bool = True,
-        gates: Optional[InternalToolGates] = None,
-    ) -> None:
+    def __init__(self, web=True, help=True, gates=None, ctx_user=None, ctx_db=None):
         self.web_enabled = web
         self.help_enabled = help
-        self.gates = gates or InternalToolGates()  # internal disabled by default
-
-        # Per-request dedupe state for web tools
+        self.gates = gates or InternalToolGates()
+        self._ctx_user = ctx_user
+        self._ctx_db = ctx_db
         self._web_state = WebToolState()
 
     # -------- Public API --------
@@ -100,8 +96,6 @@ class ToolRegistry:
 
         # Helper: quick warm check
         def _is_warm() -> Optional[bool]:
-            if gates.user_has_als is not None:
-                return bool(gates.user_has_als)
             if gates.user_num_ratings is not None:
                 return gates.user_num_ratings >= gates.warm_threshold
             return None  # unknown
@@ -111,11 +105,17 @@ class ToolRegistry:
         # ---- User-centric recs ----
         # ALS recs → only if warm is explicitly True
         if warm is True:
-            tools.append(Tool(
-                name="als_recs",
-                func=lambda s: _na("als_recs"),
-                description="Personalised recommendations for a warm user (ALS). Input: 'user_id|top_k'."
-            ))
+            if hasattr(self, "_ctx_user") and hasattr(self, "_ctx_db"):
+                tools.append(Tool(
+                    name="als_recs",
+                    func=make_als_pool_tool(self._ctx_user, self._ctx_db),
+                    description=(
+                        "ALS warm-user pool. Input: 'top_k' (default 100). "
+                        "Returns JSON array of book dicts with "
+                        "{item_idx,title,author,year,cover_id,isbn,book_avg_rating,book_num_ratings,score}."
+                    ),
+                ))
+
         # ColdHybrid recs → only if warm is explicitly False
         if warm is False:
             tools.append(Tool(
@@ -148,11 +148,10 @@ class ToolRegistry:
                 description="Blend subject and ALS similarities. Input: 'item_idx|top_k|alpha|min_count'."
             ))
 
-        # ---- Meta join ----
         tools.append(Tool(
-            name="fetch_book_meta",
-            func=lambda s: _na("fetch_book_meta"),
-            description="Return canonical {title, author, year, cover_url} for given item_idx list. Input: '1,2,3,...'."
+            name="return_book_ids",
+            func=make_return_book_ids_tool(),
+            description="Finalize chosen books. Input: JSON list or comma-separated item_idx. Returns {'book_ids':[...]}."
         ))
 
         return tools
