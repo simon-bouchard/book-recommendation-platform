@@ -30,12 +30,10 @@ class ColdHybridCandidateGenerator(CandidateGenerator):
         bayesian_tensor = store.get_bayesian_tensor()
 
         if use_only_bayesian:
-            print("Using only Bayesian candidates")
             top_k = top_k_bayes + top_k_sim + top_k_mixed
             idx_bayes = torch.topk(torch.tensor(bayesian_tensor), top_k).indices
             return [book_ids[i] for i in idx_bayes.tolist()]
 
-        print("Using hybrid candidates")
         # Compute similarity and hybrid scores
         user_emb_tensor = normalize_vector(user_emb.detach().to(torch.float32).view(-1))
         sim_scores = torch.matmul(torch.from_numpy(book_embs).to(torch.float32), user_emb_tensor)
@@ -72,7 +70,6 @@ class ColdHybridCandidateGenerator(CandidateGenerator):
 
 class ALSCandidateGenerator(CandidateGenerator):
     def generate(self, user_id: int, user_emb: np.ndarray = None, top_k: int = 500, db: Session = None, **kwargs) -> list[int]:
-        print("Using ALS candidate generator")
         user_als_embs, book_als_embs, user_id_to_als_row, book_row_to_item_idx = ModelStore().get_als_embeddings()
 
         if user_id not in user_id_to_als_row:

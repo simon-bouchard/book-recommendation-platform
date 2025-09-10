@@ -43,8 +43,9 @@ def get_all_subject_counts(db: Session):
               .all()
     name_map = {i: s for i, s in names}
 
+    # return subject_idx too (and drop placeholders)
     _subject_cache = [
-        {"subject": name_map.get(sid, ""), "count": int(c)}
+        {"subject_idx": int(sid), "subject": name_map.get(sid, ""), "count": int(c)}
         for sid, c in counts
         if name_map.get(sid) and name_map[sid] != "[NO_SUBJECT]"
     ]

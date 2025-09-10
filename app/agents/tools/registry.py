@@ -9,8 +9,8 @@ from langchain_core.tools import Tool
 # External + docs
 from .web import build_web_tools, WebToolState
 from .help import SiteHelpToolkit
-from .internal_tools import make_als_pool_tool, make_return_book_ids_tool
-
+from .internal_tools import make_als_pool_tool, make_return_book_ids_tool, make_subject_hybrid_pool_tool
+from .subject_search import make_subject_id_search_tool
 
 @dataclass
 class InternalToolGates:
@@ -117,11 +117,26 @@ class ToolRegistry:
                 ))
 
         # ColdHybrid recs → only if warm is explicitly False
-        if warm is False:
+        if hasattr(self, "_ctx_user") and hasattr(self, "_ctx_db"):
             tools.append(Tool(
-                name="cold_hybrid_recs",
-                func=lambda s: _na("cold_hybrid_recs"),
-                description="Cold-user recommendations via subject+Bayesian hybrid. Input: 'user_id|top_k|w|tiers' or 'fav_subjects_idxs=[...]|top_k|w|tiers'."
+                name="subject_hybrid_pool",
+                func=make_subject_hybrid_pool_tool(self._ctx_user, self._ctx_db),
+                description=(
+                    "Subject+Bayesian mixed pool (exclude-read on). Input: '' (use profile) "
+                    "or JSON with {'top_k':200,'fav_subjects_idxs':[...]} to override subjects. "
+                    "Returns JSON array of book dicts with "
+                    "{item_idx,title,author,year,cover_id,isbn,book_avg_rating,book_num_ratings,score}."
+                ),
+            ))
+            tools.append(Tool(
+                name="subject_id_search",
+                func=make_subject_id_search_tool(self._ctx_db),
+                description=(
+                    "Resolve free-text subject phrases to subject indices (for use with subject_hybrid_pool). "
+                    "Input (JSON only): {'phrases': ['history','military history'], 'top_k': 4}. "
+                    "Output (JSON): [{'phrase':'history','candidates':[{'subject_idx':1669,'subject':'History','score':0.96}, ...]}, ...]. "
+                    "Rules: Action Input must be valid JSON (no trailing words)."
+                ),
             ))
 
         # ---- Item-centric sim ----
