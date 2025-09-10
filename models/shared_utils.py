@@ -66,6 +66,12 @@ def get_user_embedding(fav_subjects_idxs: list[int], strategy: str = "") -> tupl
 
     return pooled, is_fallback
 
+def clean_row(row):
+    return {
+        k: None if (isinstance(v, float) and (v != v or v == float("inf") or v == float("-inf"))) else v
+        for k, v in row.items()
+    }
+
 def get_candidate_book_df(candidate_ids: list[int]) -> pd.DataFrame:
     BOOK_META = ModelStore().get_book_meta()
     # Select and preserve order
