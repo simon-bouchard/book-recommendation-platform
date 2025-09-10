@@ -1,7 +1,7 @@
 from sqlalchemy.orm import Session
 from models.candidate_generators import CandidateGenerator
 from models.rerankers import Reranker
-from models.shared_utils import get_user_embedding
+from models.shared_utils import get_user_embedding, clean_row
 from typing import Any
 
 class RecommendationEngine:
@@ -42,11 +42,5 @@ class RecommendationEngine:
         cols = ["item_idx", "title", "score", "book_avg_rating", "book_num_ratings",
                 "cover_id", "author", "year", "isbn"]
         df = top_df[cols].copy()
-
-        def clean_row(row):
-            return {
-                k: None if (isinstance(v, float) and (v != v or v == float("inf") or v == float("-inf"))) else v
-                for k, v in row.items()
-            }
 
         return [clean_row(row) for row in df.to_dict(orient="records")]
