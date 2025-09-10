@@ -12,9 +12,8 @@ class BookOut(BaseModel):
     title: Optional[str] = None
     author: Optional[str] = None
     year: Optional[int] = None
-    cover_url: Optional[str] = None
-
-
+    cover_id: Optional[str] = None
+    
 class ChatOut(BaseModel):
     reply: str
     books: List[BookOut] = Field(default_factory=list)

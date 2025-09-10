@@ -9,8 +9,9 @@ from app.agents.web_agent import answer
 from app.database import get_db
 from app.agents.schemas import ChatIn, ChatOut, BookOut
 from app.agents.context_builder import build_composed_input
-from app.agents.runtime import rate_limit_check, ensure_conv_cookie, load_history, save_history
+from app.agents.runtime import rate_limit_check, ensure_conv_cookie, load_history, save_history, normalize_visible_reply, extract_book_ids_from_steps, build_books_from_ids
 from app.agents.logging import get_logger
+from models.shared_utils import get_user_num_ratings
 
 logger = get_logger(__name__)
 router = APIRouter()
@@ -85,13 +86,31 @@ def chat_agent(
         hist_turns=HIST_TURNS,
     )
 
+    user_num_ratings = 0
+    if current_user and hasattr(current_user, "user_id"):
+        user_num_ratings = get_user_num_ratings(current_user.user_id)
+            
     # Call the agent
-    raw = answer(composed).strip()
-    if raw[:13].lower() == "final answer:":
-        result = raw[13:].lstrip()
-    
-    # Save back last N exchanges with TTL
-    hist.append({"u": text, "a": raw})
-    save_history(conv_id, hist)
+    res = answer(
+        composed,
+        current_user=current_user,
+        db=db,
+        user_num_ratings=user_num_ratings
+    )
 
-    return ChatOut(reply=result, books=[])
+    raw_text = (res.get("text") or "").strip()
+    steps = res.get("intermediate_steps") or []
+
+    # 1) Clean visible reply (no 'Final Answer:' label)
+    reply_text = normalize_visible_reply(raw_text)
+
+    # 2) Read IDs from the tool call in intermediate_steps
+    ids = extract_book_ids_from_steps(steps)
+
+    # 3) Resolve IDs → BookOut via BOOK_META singleton
+    books = build_books_from_ids(ids)
+
+    # Save history and return
+    hist.append({"u": text, "a": reply_text})
+    save_history(conv_id, hist)
+    return ChatOut(reply=reply_text, books=books)

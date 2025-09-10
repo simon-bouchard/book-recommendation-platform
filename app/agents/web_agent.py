@@ -1,3 +1,4 @@
+from typing import Optional, List, Dict, Any
 from dotenv import load_dotenv
 load_dotenv()
 
@@ -15,11 +16,28 @@ _llm = ChatOpenAI(model="gpt-4o-mini", temperature=0, timeout=30)
 from app.agents.prompts import AGENT_PROMPT
 from app.agents.tools import ToolRegistry, InternalToolGates
 
-def _get_executor():
+import re
+
+def _extract_final_answer_from_error(e) -> str:
+    """
+    On a parsing error, DO NOT emit a Final Answer. Instruct the agent to continue.
+    This keeps the chain alive so it can call return_book_ids next.
+    """
+    return (
+        "PARSING_ERROR: You emitted prose or malformed output. "
+        "Continue the chain. You MUST either call a tool next or, if you are done, "
+        "first call return_book_ids with a JSON list of item_idx, then write Final Answer."
+    )
+
+def _get_executor(current_user=None, db=None, user_num_ratings: Optional[int] = None):
     registry = ToolRegistry(
         web=True,
         help=True,
-        gates=InternalToolGates(internal_enabled=False)
+        gates=InternalToolGates(internal_enabled=True,  # flip on when you want ML tools
+                                user_num_ratings=user_num_ratings,
+                                warm_threshold=10),
+        ctx_user=current_user,
+        ctx_db=db,
     )
     tools = registry.get_tools()
     agent = create_react_agent(_llm, tools, AGENT_PROMPT)
@@ -28,16 +46,19 @@ def _get_executor():
         agent=agent,
         tools=tools,
         verbose=True,
-        handle_parsing_errors=True,
+        handle_parsing_errors=_extract_final_answer_from_error,
         max_iterations=10,
         max_execution_time=300,
         early_stopping_method="force",
+        return_intermediate_steps=True,
     )
 
-def answer(question: str) -> str:
+def answer(question: str, current_user=None, db=None, user_num_ratings: Optional[int] = None) -> Dict[str, Any]:
     try:
-        executor = _get_executor()
-        res = executor.invoke({"input": question}, return_intermediate_steps=True)
+        executor = _get_executor(current_user=current_user, db=db, user_num_ratings=user_num_ratings)
+        res = executor.invoke({"input": question})
+
+        # Visible text (keep your current behavior)
         out = ""
         if isinstance(res, dict):
             out = (res.get("output") or "").strip()
@@ -45,17 +66,15 @@ def answer(question: str) -> str:
             out = res.strip()
 
         if not out or out.lower().startswith("agent stopped"):
-            return "Final Answer: I’m here and ready to chat—what would you like to talk about?"
+            out = "Final Answer: I’m here and ready to chat—what would you like to talk about?"
 
-        if not out.startswith("Final Answer:"):
-            import re
-            m = re.search(r"Final Answer:\s*(.+)", out, flags=re.S)
-            if m:
-                return "Final Answer: " + m.group(1).strip()
-            else:
-                return "Final Answer: " + out
+        if "Final Answer:" not in out:
+            out = "Final Answer: " + out
 
-        return out
+        # Return text + raw intermediate steps (for runtime.py to process)
+        steps: List = res.get("intermediate_steps") if isinstance(res, dict) else []
+        return {"text": out, "intermediate_steps": steps}
+
     except Exception as e:
         logger.exception("Agent error: %s", e)
-        return "Final Answer: I ran into an error finishing that—mind rephrasing?"
+        return {"text": "Final Answer: I ran into an error finishing that—mind rephrasing?", "intermediate_steps": []}
