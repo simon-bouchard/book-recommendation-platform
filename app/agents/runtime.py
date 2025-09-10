@@ -1,22 +1,24 @@
 from __future__ import annotations
 
 import json, time, uuid
-from typing import Optional, List
+from typing import Optional, Any, Callable, Dict, Iterable, List, Tuple
 from datetime import datetime, timedelta
 from zoneinfo import ZoneInfo
 import hashlib
+import re
 
 import redis
 from fastapi import Request, Response, HTTPException
 
+from app.agents.schemas import BookOut
 from app.agents.settings import settings
+from models.shared_utils import ModelStore
 
 # Single Redis client (decode to str)
 try:
     r = redis.from_url(settings.redis_url, decode_responses=True)
 except Exception:
     r = None  # degrade to stateless if Redis is down
-
 
 # ---- tiny helpers ----
 def _epoch_minute(ts: Optional[float] = None) -> int:
@@ -55,6 +57,89 @@ def _seconds_until_tomorrow(now: datetime) -> int:
     tomorrow = (now.date() + timedelta(days=1))
     nxt = datetime.combine(tomorrow, datetime.min.time(), tzinfo=now.tzinfo)
     return max(1, int((nxt - now).total_seconds()))
+
+# ---- Internal tool -----
+_FA = "final answer:"
+
+def normalize_visible_reply(raw_text: str) -> str:
+    s = (raw_text or "").strip()
+    lo = s.lower()
+    if lo.startswith(_FA):
+        return s[len(_FA):].lstrip()
+    return s
+
+def extract_book_ids_from_steps(steps: List[Any]) -> List[int]:
+    if not isinstance(steps, list):
+        return []
+
+    def _get_action_and_obs(step):
+        if isinstance(step, (list, tuple)) and len(step) == 2:
+            return step[0], step[1]
+        if isinstance(step, dict):
+            return step.get("action"), step.get("observation")
+        return None, None
+
+    def _get_tool_and_input(action):
+        if action is None:
+            return None, None
+        name = getattr(action, "tool", None) or getattr(action, "tool_name", None)
+        inp  = getattr(action, "tool_input", None)
+        if name is None and isinstance(action, dict):
+            name = action.get("tool") or action.get("tool_name")
+            inp  = action.get("tool_input")
+        return (name.lower() if isinstance(name, str) else name), inp
+
+    for step in reversed(steps):
+        action, observation = _get_action_and_obs(step)
+        tool_name, tool_input = _get_tool_and_input(action)
+        if tool_name == "return_book_ids":
+            if isinstance(observation, str):
+                try:
+                    obj = json.loads(observation)
+                    ids = obj.get("book_ids", [])
+                    return [int(x) for x in ids if str(x).strip() != ""]
+                except Exception:
+                    pass
+            if isinstance(tool_input, str) and tool_input.strip().startswith("["):
+                try:
+                    ids = json.loads(tool_input)
+                    return [int(x) for x in ids if str(x).strip() != ""]
+                except Exception:
+                    pass
+            return []
+    return []
+
+def build_books_from_ids(ids: Iterable[int]) -> List[BookOut]:
+    ids = list(dict.fromkeys(int(i) for i in ids))  # de-dup, preserve order
+    if not ids:
+        return []
+
+    BOOK_META = ModelStore().get_book_meta()  # pd.DataFrame indexed by item_idx
+    # Select & keep order
+    rows = BOOK_META.loc[BOOK_META.index.intersection(ids)].copy()
+    rows["__sort"] = rows.index.map({idx: i for i, idx in enumerate(ids)})
+    rows = rows.sort_values("__sort").drop(columns="__sort")
+
+    out: List[BookOut] = []
+    id_set = set(rows.index)
+
+    # First, add all present rows (preserving the requested order)
+    for i in ids:
+        if i in id_set:
+            r = rows.loc[i]
+            year_val = r.get("year")
+            out.append(BookOut(
+                item_idx=int(i),
+                title=r.get("title"),
+                author=r.get("author"),
+                year=(int(year_val) if year_val is not None else None),
+                cover_id=(str(r.get("cover_id")) if r.get("cover_id") is not None else None),
+            ))
+        else:
+            # Still return a minimal object so the UI can render gracefully
+            out.append(BookOut(item_idx=int(i), title=None, author=None, year=None, cover_id=None))
+
+    return out
 
 # ---- public API ----
 def rate_limit_check(request: Request, user_id: Optional[int]) -> None:
