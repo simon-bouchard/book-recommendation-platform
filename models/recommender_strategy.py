@@ -35,7 +35,6 @@ class WarmRecommender(RecommenderStrategy):
         self.engine = RecommendationEngine(ALSCandidateGenerator(), NoOpReranker())
 
     def recommend(self, user, db: Session, top_k: int, **kwargs) -> list[dict]:
-        print('warm')
         return self.engine.recommend(user, top_k=top_k, db=db, **kwargs)
 
 class ColdRecommender(RecommenderStrategy):
@@ -43,5 +42,4 @@ class ColdRecommender(RecommenderStrategy):
         self.engine = RecommendationEngine(ColdHybridCandidateGenerator(), NoOpReranker())
 
     def recommend(self, user, db: Session, top_k: int, **kwargs) -> list[dict]:
-        print('cold')
         return self.engine.recommend(user, top_k=top_k, db=db, **kwargs)

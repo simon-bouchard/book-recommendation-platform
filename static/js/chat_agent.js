@@ -22,34 +22,6 @@ function appendMessage(container, role, text) {
   container.scrollTop = container.scrollHeight;
 }
 
-function renderBooks(books = []) {
-  const grid = document.getElementById("chatBookResults"); // optional section
-  if (!grid) return;
-  grid.innerHTML = "";
-  if (!books.length) return;
-
-  for (const b of books) {
-    const a = document.createElement("a");
-    a.href = `/book/${encodeURIComponent(b.item_idx)}`;
-    a.className = "book-card";
-    a.setAttribute("aria-label", b.title || "Book");
-
-    const img = el("img", "book-cover-img");
-    img.src = b.cover_url || "/static/placeholder.png";
-    img.alt = b.title ? `Cover of ${b.title}` : "Book cover";
-    a.appendChild(img);
-
-    const h3 = el("h3", "book-title");
-    h3.appendChild(el("span", "book-title-text", b.title || "Unknown title"));
-    a.appendChild(h3);
-
-    if (b.author) a.appendChild(el("p", "author", b.author));
-    if (b.year)   a.appendChild(el("p", "year", String(b.year)));
-
-    grid.appendChild(a);
-  }
-}
-
 // ---- Rate-limit UX helpers ----
 function setDisabled(on) {
   const sendBtn = document.getElementById("chatSend");
@@ -184,8 +156,25 @@ async function sendChatMessage(text, messagesEl) {
       const reply = data?.reply || "Sorry, I couldn't generate a response.";
       appendMessage(messagesEl, "bot", reply);
       if (Array.isArray(data?.books) && data.books.length) {
-        renderBooks(data.books);
-        document.getElementById("chatBookResults")?.scrollIntoView({ behavior: "smooth", block: "start" });
+        const gridHost = document.getElementById("chatBookResults");
+        if (gridHost) {
+          // Avoid nested .book-grid .book-grid
+          gridHost.classList.remove("book-grid");
+          gridHost.innerHTML = ""; // let the shared renderer take over
+
+          // Reuse the exact renderer used by the book page
+          const mod = await import("/static/js/paginated_books.js");
+          mod.setupPaginatedBookDisplay({
+            books: data.books,
+            containerId: "chatBookResults",
+            // Chat view doesn't need buttons; render all at once with shared card markup
+            manualPagination: true,
+            scrollOnFirstRender: true
+          });
+
+          // Make sure users see the section
+          gridHost.scrollIntoView({ behavior: "smooth", block: "start" });
+        }
       }
       setDisabled(false);
       return;

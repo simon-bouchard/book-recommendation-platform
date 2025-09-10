@@ -66,6 +66,12 @@ def get_user_embedding(fav_subjects_idxs: list[int], strategy: str = "") -> tupl
 
     return pooled, is_fallback
 
+def clean_row(row):
+    return {
+        k: None if (isinstance(v, float) and (v != v or v == float("inf") or v == float("-inf"))) else v
+        for k, v in row.items()
+    }
+
 def get_candidate_book_df(candidate_ids: list[int]) -> pd.DataFrame:
     BOOK_META = ModelStore().get_book_meta()
     # Select and preserve order
@@ -102,6 +108,21 @@ def add_book_embeddings(df: pd.DataFrame) -> pd.DataFrame:
 
     book_emb_df = pd.DataFrame(book_emb_data, columns=[f"book_emb_{i}" for i in range(dim)])
     return pd.concat([df.reset_index(drop=True), book_emb_df], axis=1)
+
+def get_user_num_ratings(user_id: int) -> int:
+    """
+    Return the number of ratings for a user as recorded in the model's user_meta.
+    This keeps gating aligned with the currently loaded model artifacts.
+    Falls back to 0 if the user is missing.
+    """
+    try:
+        meta = ModelStore().get_user_meta()
+        if user_id in meta.index:
+            val = meta.loc[user_id].get("user_num_ratings")
+            return int(val) if val is not None else 0
+    except Exception:
+        pass
+    return 0
 
 # -------------------------------
 # Singleton Model Loader
