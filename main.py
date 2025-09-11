@@ -18,6 +18,7 @@ import os
 from datetime import datetime
 
 app = FastAPI()
+"""
 ALLOWED_ORIGINS = [
     "simonbouchard.space",
     "www.simonbouchard.space",
@@ -71,7 +72,7 @@ async def _init_rl():
 @app.get("/api/health", dependencies=[Depends(RateLimiter(times=10, seconds=60))])
 async def health():
     return {"ok": True}
-
+"""
 app.mount('/static', StaticFiles(directory='static'), name='static')
 
 app.add_middleware(SessionMiddleware, secret_key=os.getenv("SECRET_KEY"))
