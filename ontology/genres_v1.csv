@@ -1,0 +1,31 @@
+genre_idx,slug,display
+1,fantasy,Fantasy
+2,science-fiction,Science Fiction
+3,horror,Horror
+4,mystery-detective,Mystery / Detective
+5,thriller-suspense,Thriller / Suspense
+6,romance,Romance
+7,historical-fiction,Historical Fiction
+8,adventure,Adventure
+9,western,Western
+10,literary-fiction,Literary Fiction
+11,graphic-novels-comics,Graphic Novels / Comics
+12,anime-manga,Anime / Manga
+13,biography-memoir,Biography / Memoir
+14,history,History
+15,politics,Politics
+16,philosophy,Philosophy
+17,religion-spirituality,Religion / Spirituality
+18,psychology-self-help,Psychology / Self-Help
+19,science-nature,Science & Nature
+20,technology-computing,Technology / Computing
+21,business-economics,Business / Economics
+22,health-wellness,Health / Wellness
+23,travel,Travel
+24,true-crime,True Crime
+25,essays-journalism,Essays / Journalism
+26,young-adult,Young Adult (YA)
+27,childrens,Children’s
+28,poetry,Poetry
+29,drama-plays,Drama / Plays
+30,anthology-short-stories,Anthology / Short Stories
