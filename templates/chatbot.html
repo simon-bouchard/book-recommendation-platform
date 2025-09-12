@@ -18,15 +18,17 @@
       <div class="page-banner">
       <div class="alert alert--warning" data-autohide="0">
           <div>
-          <strong>Demo mode:</strong> This chatbot only uses external tools (web search, Wikipedia). 
-          It does <em>not</em> access internal db or recommendation models.
+          <strong>Early access:</strong> This chatbot is still learning. It can already pull from a mix of public sources and 
+           a few internal tools, but its coverage and accuracy aren’t complete yet.
           </div>
       </div>
       </div>
 
     <h1>Book Chat</h1>  
     <p style="text-align:center; margin-top:-10px; margin-bottom:18px;">
-      Ask for recommendations in plain English. The agent can help you understand this website or act as your own virtual librarian. You can also toggle the button to allow the chatbot to access some of your rating history as well as your favorite subejcts.
+      Ask in plain English. You can request book recommendations, compare titles, or ask about how this website works (features, limits, account, etc.).
+      If you’re logged in, you can toggle <em>Use my profile</em> to let the agent consider a small slice of your rating history and favorite subjects.
+      Press <code>Enter</code> to send and <code>Shift+Enter</code> for a new line.
     </p>  
 
     <!-- (Optional) Banners for status/usage tips -->
@@ -39,13 +41,6 @@
         </div>
         <button class="alert__close" id="chatInfoClose" aria-label="Close">×</button>
       </div>
-    </div>
-    {% else %}
-    <div class="page-banner">
-      <div class="alert alert--info" data-autohide="0">
-        <div><strong>Tip:</strong> Press <code>Enter</code> to send, <code>Shift+Enter</code> for a newline.</div>  
-        <button class="alert__close" id="chatInfoClose" aria-label="Close">×</button>
-      </div>  
     </div>  
     {% endif %}
 
