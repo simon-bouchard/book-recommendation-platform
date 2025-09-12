@@ -1,0 +1,63 @@
+Enrichment & Future RAG Integration (Updated)
+
+Purpose
+Assign consistent, high-quality tags to every book in the catalog (~170k items), making later retrieval more robust.
+
+Ontology
+
+Subjects: free-form, proposed directly by the LLM. Stored as-is (with minor normalization). Standardization/clustering can be added later if needed.
+
+Tones: fixed curated list (~55 items across pacing, mood, intensity, humor, style, accessibility).
+
+Vibe: short free text (≤15 tokens).
+
+Enrichment Flow
+
+LLM proposal step – the model suggests plausible subjects, selects up to 3 tones from the fixed list, and generates a vibe.
+
+Validation – server ensures:
+
+subjects are non-empty strings
+
+tone IDs are valid (≤3)
+
+vibe is ≤15 tokens
+
+JSON parseable.
+Failed cases retry once, then escalate to a larger model.
+
+Output fields stored per book:
+
+{ "subjects": [...], "tone_ids": [...], "vibe": "...", "tags_version": "v1", "scores": {...} }
+
+Integration into the Chatbot (Future RAG Tool)
+
+Embedding build:
+
+"{title} — {author} | subjects: subj1, subj2, ... | tones: tone1, tone2, ... | vibe: ..."
+
+
+(no years, no warnings).
+
+Indexing: FAISS/HNSW vector index over enriched book texts.
+
+New tool:
+book_semantic_search(query, top_k) → retrieves books based on semantic similarity between user’s query and enriched tag/vibe vectors.
+
+Agent routing:
+
+Cold user or vibe-style queries → semantic tool.
+
+Warm users → intersect or rerank ALS results with semantic results.
+
+Provenance: chatbot ends each answer with
+
+Final Answer: ... (source: ALS + semantic index)
+
+What this gives you
+
+Offline enrichment: every book tagged with free-form subjects, fixed tones, and vibe strings.
+
+Online retrieval: a robust semantic search tool in the chatbot that handles complex, vibe-based queries while staying catalog-grounded.
+
+Flexibility: ontology-lite now (only tones fixed), with option to cluster/normalize subjects later.

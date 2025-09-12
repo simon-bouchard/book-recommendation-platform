@@ -3,14 +3,22 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from typing import List, Optional
+import json
 
 from langchain_core.tools import Tool
 
 # External + docs
 from .web import build_web_tools, WebToolState
 from .help import SiteHelpToolkit
-from .internal_tools import make_als_pool_tool, make_return_book_ids_tool, make_subject_hybrid_pool_tool
+from .internal_tools import (
+    make_als_pool_tool,
+    make_return_book_ids_tool,
+    make_subject_hybrid_pool_tool,
+)
 from .subject_search import make_subject_id_search_tool
+# New semantic tool
+from .semantic_search import book_semantic_search
+
 
 @dataclass
 class InternalToolGates:
@@ -36,6 +44,7 @@ class ToolRegistry:
     Always returns:
       - Web tools (DuckDuckGo, Wikipedia, OpenLibrary)
       - Help tools (help-list, help-read, help-search)
+      - Semantic search (book_semantic_search)
 
     Optionally returns (future):
       - Internal ML tools (ALS recs, ColdHybrid, subject/ALS/hybrid sim, fetch_book_meta)
@@ -59,7 +68,32 @@ class ToolRegistry:
 
         if self.help_enabled:
             tools.extend(SiteHelpToolkit.as_tools())
-            
+
+        # --- Semantic index search (always available) ---
+        # Accepts either:
+        #  - JSON: {"query":"...", "top_k": 200}
+        #  - raw string: treated as the query; top_k defaults to 200
+        def _semantic_wrapper(s: str):
+            q, k = s, 200
+            try:
+                obj = json.loads(s)
+                if isinstance(obj, dict):
+                    q = obj.get("query", "")
+                    k = int(obj.get("top_k", 200))
+            except Exception:
+                pass
+            return book_semantic_search(query=q, top_k=k)
+
+        tools.append(Tool(
+            name="book_semantic_search",
+            func=_semantic_wrapper,
+            description=(
+                "Semantic search over enriched tags/vibes. "
+                "Input: JSON {'query': 'free text', 'top_k': 200} OR plain string (the query). "
+                "Returns a list of {'book_id', 'score', 'meta'}."
+            ),
+        ))
+
         if self._should_expose_internal():
             tools.extend(self._build_internal_tools())
 
@@ -80,7 +114,7 @@ class ToolRegistry:
         for LangChain Tool API. Prefer compact, deterministic inputs.
 
         Expected inputs (JSON or pipe-format — your choice later):
-          - als_recs:          "user_id|top_k"
+          - als_recs:          "top_k"
           - cold_hybrid_recs:  "user_id|top_k|w|tiers" or "fav_subjects_idxs=[...]|top_k|w|tiers"
           - subject_sim:       "item_idx|top_k"
           - als_sim:           "item_idx|top_k"
@@ -103,20 +137,18 @@ class ToolRegistry:
         warm = _is_warm()
 
         # ---- User-centric recs ----
-        # ALS recs → only if warm is explicitly True
         if warm is True:
             if hasattr(self, "_ctx_user") and hasattr(self, "_ctx_db"):
                 tools.append(Tool(
                     name="als_recs",
                     func=make_als_pool_tool(self._ctx_user, self._ctx_db),
                     description=(
-                        "ALS warm-user pool. Input: 'top_k' (default 100). "
+                        "ALS warm-user pool. Input: 'top_k' (default 200). "
                         "Returns JSON array of book dicts with "
                         "{item_idx,title,author,year,cover_id,isbn,book_avg_rating,book_num_ratings,score}."
                     ),
                 ))
 
-        # ColdHybrid recs → only if warm is explicitly False
         if hasattr(self, "_ctx_user") and hasattr(self, "_ctx_db"):
             tools.append(Tool(
                 name="subject_hybrid_pool",
@@ -140,23 +172,18 @@ class ToolRegistry:
             ))
 
         # ---- Item-centric sim ----
-        # subject_sim is always allowed (subject embeddings exist for all books)
         tools.append(Tool(
             name="subject_sim",
             func=lambda s: _na("subject_sim"),
             description="Find similar books by subject-embedding similarity. Input: 'item_idx|top_k'."
         ))
 
-        # als_sim requires ALS for this book (when known)
         if gates.book_has_als is True:
             tools.append(Tool(
                 name="als_sim",
                 func=lambda s: _na("als_sim"),
                 description="Find similar books by ALS behavioral similarity. Input: 'item_idx|top_k'."
             ))
-
-        # hybrid_sim requires both (subject is assumed; ALS must be available if known)
-        if gates.book_has_als is True:
             tools.append(Tool(
                 name="hybrid_sim",
                 func=lambda s: _na("hybrid_sim"),

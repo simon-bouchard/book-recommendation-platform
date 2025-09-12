@@ -1,0 +1,56 @@
+tone_id,slug,display_name,bucket
+1,slow-burn,Slow Burn,Pacing / Energy
+2,steady,Steady,Pacing / Energy
+3,measured,Measured,Pacing / Energy
+4,brisk,Brisk,Pacing / Energy
+5,page-turner,Page Turner,Pacing / Energy
+6,fast-paced,Fast Paced,Pacing / Energy
+7,action-packed,Action Packed,Pacing / Energy
+8,cozy,Cozy,Mood / Atmosphere
+9,whimsical,Whimsical,Mood / Atmosphere
+10,charming,Charming,Mood / Atmosphere
+11,heartwarming,Heartwarming,Mood / Atmosphere
+12,bittersweet,Bittersweet,Mood / Atmosphere
+13,nostalgic,Nostalgic,Mood / Atmosphere
+14,melancholic,Melancholic,Mood / Atmosphere
+15,somber,Somber,Mood / Atmosphere
+16,bleak,Bleak,Mood / Atmosphere
+17,dark,Dark,Mood / Atmosphere
+18,eerie,Eerie,Mood / Atmosphere
+19,ominous,Ominous,Mood / Atmosphere
+20,atmospheric,Atmospheric,Mood / Atmosphere
+21,suspenseful,Suspenseful,Mood / Atmosphere
+22,hopeful,Hopeful,Mood / Atmosphere
+23,uplifting,Uplifting,Mood / Atmosphere
+24,inspiring,Inspiring,Mood / Atmosphere
+25,gentle,Gentle,Intensity / Emotional Weight
+26,tender,Tender,Intensity / Emotional Weight
+27,poignant,Poignant,Intensity / Emotional Weight
+28,raw,Raw,Intensity / Emotional Weight
+29,gritty,Gritty,Intensity / Emotional Weight
+30,stark,Stark,Intensity / Emotional Weight
+31,intense,Intense,Intensity / Emotional Weight
+32,harrowing,Harrowing,Intensity / Emotional Weight
+33,violent,Violent,Intensity / Emotional Weight
+34,disturbing,Disturbing,Intensity / Emotional Weight
+35,witty,Witty,Humor
+36,dry,Dry,Humor
+37,satirical,Satirical,Humor
+38,sarcastic,Sarcastic,Humor
+39,ironic,Ironic,Humor
+40,absurdist,Absurdist,Humor
+41,slapstick,Slapstick,Humor
+42,darkly-humorous,Darkly Humorous,Humor
+43,lyrical,Lyrical,Style / Language
+44,poetic,Poetic,Style / Language
+45,ornate,Ornate,Style / Language
+46,lush,Lush,Style / Language
+47,evocative,Evocative,Style / Language
+48,spare,Spare,Style / Language
+49,punchy,Punchy,Style / Language
+50,minimalist,Minimalist,Style / Language
+51,experimental,Experimental,Style / Language
+52,breezy,Breezy,Accessibility / Complexity
+53,accessible,Accessible,Accessibility / Complexity
+54,layered,Layered,Accessibility / Complexity
+55,cerebral,Cerebral,Accessibility / Complexity
