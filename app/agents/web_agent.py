@@ -46,7 +46,7 @@ def _get_executor(current_user=None, db=None, user_num_ratings: Optional[int] = 
     return AgentExecutor(
         agent=agent,
         tools=tools,
-        verbose=True,  # KEEP verbose=True so all the classic prints are produced
+        verbose=True,
         handle_parsing_errors=_extract_final_answer_from_error,
         max_iterations=10,
         max_execution_time=300,
