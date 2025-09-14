@@ -10,7 +10,7 @@ from app.database import get_db
 from app.agents.schemas import ChatIn, ChatOut, BookOut
 from app.agents.context_builder import build_composed_input
 from app.agents.runtime import rate_limit_check, ensure_conv_cookie, load_history, save_history, normalize_visible_reply, extract_book_ids_from_steps, build_books_from_ids
-from app.agents.logging import get_logger
+from app.agents.logging import get_logger, chatbot_logger
 from models.shared_utils import get_user_num_ratings
 
 logger = get_logger(__name__)
@@ -31,10 +31,8 @@ RL_DAY_LIMIT_FALLBACK = settings.chat_limits_per_day_fallback
 RL_DAY_LIMIT_SYSTEM   = settings.chat_limits_per_day_system
 LOCAL_TZ = ZoneInfo(settings.chat_local_tz)
 
-# ---------- Chat page ----------
 @router.get("/chat")
 def chat_page(request: Request, current_user = Depends(get_current_user)):
-    # If login is required and user is not authenticated → redirect to login (with next)
     if REQUIRE_LOGIN and not current_user:
         request.session["flash_warning"] = "Please log in to use the chatbot."
         return RedirectResponse(url="/login?next=/chat", status_code=status.HTTP_303_SEE_OTHER)
@@ -44,7 +42,6 @@ def chat_page(request: Request, current_user = Depends(get_current_user)):
         {"request": request, "page": "chat", "logged_in": bool(current_user)}
     )
 
-# ---------- Chat agent API ----------
 @router.post("/chat/agent", response_model=ChatOut)
 def chat_agent(
     body: ChatIn,
@@ -53,18 +50,13 @@ def chat_agent(
     current_user = Depends(get_current_user),
     db: Session = Depends(get_db)
 ):
-    # Login gate for API: return 401 JSON (fetch won't navigate)
     if REQUIRE_LOGIN and not current_user:
         raise HTTPException(status_code=401, detail="Please log in to use the chatbot.")
 
-    # Assign/get a conversation id cookie (issued only after auth passes, if required)
     conv_id = ensure_conv_cookie(request, response)
-    
-    # ---- RATE LIMITS (user / anon / system) ----
+
     uid = getattr(current_user, "user_id", None) if current_user else None
     rate_limit_check(request, uid)
-
-    # Echo limit headers to client (optional UX)
     if hasattr(request.state, "rl_headers"):
         for k, v in request.state.rl_headers.items():
             response.headers[k] = v
@@ -73,10 +65,12 @@ def chat_agent(
     if not text:
         return ChatOut(reply="Ask me for book ideas or comparisons.", books=[])
 
-    # Load short history from Redis
-    hist = load_history(conv_id)
+    # request boundary in chatbot log
+    chatbot_logger.info("request_start", extra={"extra": {
+        "conv_id": conv_id, "uid": uid, "use_profile": bool(body.use_profile), "q_preview": text[:160]
+    }})
 
-    # Build the composed input (profile + history + new message)
+    hist = load_history(conv_id)
     composed = build_composed_input(
         db=db,
         user_id=uid,
@@ -89,8 +83,8 @@ def chat_agent(
     user_num_ratings = 0
     if current_user and hasattr(current_user, "user_id"):
         user_num_ratings = get_user_num_ratings(current_user.user_id)
-            
-    # Call the agent
+
+    # --- FIX: no conv_id / uid passed to answer() ---
     res = answer(
         composed,
         current_user=current_user,
@@ -101,16 +95,15 @@ def chat_agent(
     raw_text = (res.get("text") or "").strip()
     steps = res.get("intermediate_steps") or []
 
-    # 1) Clean visible reply (no 'Final Answer:' label)
     reply_text = normalize_visible_reply(raw_text)
-
-    # 2) Read IDs from the tool call in intermediate_steps
     ids = extract_book_ids_from_steps(steps)
-
-    # 3) Resolve IDs → BookOut via BOOK_META singleton
     books = build_books_from_ids(ids)
 
-    # Save history and return
     hist.append({"u": text, "a": reply_text})
     save_history(conv_id, hist)
+
+    chatbot_logger.info("request_end", extra={"extra": {
+        "conv_id": conv_id, "uid": uid, "num_books": len(books), "reply_len": len(reply_text), "ids": ids[:12]
+    }})
+
     return ChatOut(reply=reply_text, books=books)

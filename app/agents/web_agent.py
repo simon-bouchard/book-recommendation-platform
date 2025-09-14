@@ -1,8 +1,9 @@
+# app/agents/web_agent.py
 from typing import Optional, List, Dict, Any
 from dotenv import load_dotenv
 load_dotenv()
 
-from app.agents.logging import get_logger
+from app.agents.logging import get_logger, capture_agent_console_and_httpx
 logger = get_logger(__name__)
 
 # ---- LLM: OpenAI by default ----
@@ -45,7 +46,7 @@ def _get_executor(current_user=None, db=None, user_num_ratings: Optional[int] = 
     return AgentExecutor(
         agent=agent,
         tools=tools,
-        verbose=True,
+        verbose=True,  # KEEP verbose=True so all the classic prints are produced
         handle_parsing_errors=_extract_final_answer_from_error,
         max_iterations=10,
         max_execution_time=300,
@@ -56,7 +57,10 @@ def _get_executor(current_user=None, db=None, user_num_ratings: Optional[int] = 
 def answer(question: str, current_user=None, db=None, user_num_ratings: Optional[int] = None) -> Dict[str, Any]:
     try:
         executor = _get_executor(current_user=current_user, db=db, user_num_ratings=user_num_ratings)
-        res = executor.invoke({"input": question})
+
+        # Capture EXACT verbose stream + httpx logs and append to logs/chatbot.log
+        with capture_agent_console_and_httpx():
+            res = executor.invoke({"input": question})
 
         # Visible text (keep your current behavior)
         out = ""
