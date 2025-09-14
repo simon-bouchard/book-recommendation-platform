@@ -20,6 +20,7 @@ logs/*
 tree.py
 test.py
 /prompts
+.vscode/
 
 #Junk
 __pycache__/
