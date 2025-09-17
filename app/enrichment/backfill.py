@@ -1,129 +1,98 @@
-# app/enrichment/backfill.py
-import csv, json, os, sys, time
+# app/enrichment/backfill_parallel.py
+import os, json, time
 from pathlib import Path
-from typing import Iterable, Set, Dict, Any, List
+from typing import Dict, Any, Set, Iterable, List
+from concurrent.futures import ThreadPoolExecutor, as_completed
+from queue import Queue
+from threading import Thread
 
 from sqlalchemy.orm import Session
 from app.database import SessionLocal
 from app.table_models import Book, Author
 
-from app.enrichment.prompts import SYSTEM, USER_TEMPLATE
-from app.enrichment.postprocess import (
-    render_tone_slugs, render_genre_slugs, clean_subjects,
-)
-from app.enrichment.validator import validate_payload
-from app.enrichment.llm_client import call_enrichment_llm, ensure_enrichment_ready
+# Reuse your existing enrichment components
+from app.enrichment.prompts import SYSTEM, USER_TEMPLATE  # prompt templates 
+from app.enrichment.postprocess import clean_subjects      # subject cleanup 
+from app.enrichment.validator import validate_payload      # schema/validation   
+from app.enrichment.llm_client import ensure_enrichment_ready, call_enrichment_llm  # warmup + LLM call  
+from app.enrichment.runner import load_tones, load_genres  # tone/genre loaders  
 
 ROOT = Path(__file__).resolve().parents[2]
-TONES_CSV = ROOT / "ontology" / "tones_v1.csv"
-GENRES_CSV = ROOT / "ontology" / "genres_v1.csv"
-OUT_JSONL  = ROOT / "data" / "enrichment_v1.jsonl"
+OUT_JSONL = ROOT / "data" / "enrichment_v1.jsonl"
 
-def _load_csv_rows(p: Path) -> List[dict]:
-    rows: List[dict] = []
-    with open(p, newline="", encoding="utf-8") as f:
-        rows.extend(csv.DictReader(f))
-    return rows
-
-def _load_taxonomies():
-    tone_rows = _load_csv_rows(TONES_CSV)
-    genre_rows = _load_csv_rows(GENRES_CSV)
-
-    tone_slugs = render_tone_slugs(tone_rows)
-    slug2id = {r["slug"]: int(r["tone_id"]) for r in tone_rows}
-    valid_tone_ids = {int(r["tone_id"]) for r in tone_rows}
-
-    genre_slugs_line = render_genre_slugs(genre_rows)
-    valid_genre_slugs = {r["slug"] for r in genre_rows}
-    return tone_slugs, slug2id, valid_tone_ids, genre_slugs_line, valid_genre_slugs
-
-def _iter_failed_work_ids(jsonl_path: Path) -> Set[str]:
-    """
-    Collect work_ids that need backfill: any last-seen line with "error",
-    or missing/invalid required fields. Uses the *last* line per work_id.
-    Only returns string work_ids (never item_idx).
-    """
-    needs: Set[str] = set()
+# ---- helpers (same logic as your single-thread backfill) ----
+def _iter_failed_ids(jsonl_path: Path) -> Set[str | int]:
+    needs = set()
     if not jsonl_path.exists():
         return needs
-
     last: Dict[str, Dict[str, Any]] = {}
     with open(jsonl_path, "r", encoding="utf-8") as f:
         for line in f:
             line = line.strip()
-            if not line:
-                continue
+            if not line: continue
             try:
                 obj = json.loads(line)
             except Exception:
                 continue
             bid = obj.get("book_id")
-            if not isinstance(bid, str) or not bid.strip():
-                # If it isn't a non-empty string, ignore it (we only backfill work_id)
-                continue
-            last[bid] = obj
-
-    for wid, obj in last.items():
+            if bid is None: continue
+            last[str(bid)] = obj
+    for k, obj in last.items():
         if "error" in obj:
-            needs.add(wid); continue
+            needs.add(obj["book_id"]); continue
         if not isinstance(obj.get("subjects", []), list):
-            needs.add(wid); continue
+            needs.add(obj["book_id"]); continue
         if not isinstance(obj.get("tone_ids", []), list):
-            needs.add(wid); continue
+            needs.add(obj["book_id"]); continue
         if not (isinstance(obj.get("genre"), str) and obj["genre"]):
-            needs.add(wid); continue
+            needs.add(obj["book_id"]); continue
     return needs
 
-def _iter_books_by_work_ids(db: Session, work_ids: Set[str]) -> Iterable[dict]:
-    """
-    Yield records strictly by Book.work_id. Any rows with NULL/empty work_id are skipped.
-    """
-    if not work_ids:
-        return []
-    q = (
-        db.query(Book)
-        .join(Author, isouter=True)
-        .filter(Book.work_id.in_(work_ids))
-    )
-    for b in q:
-        if not b.work_id:
-            continue
-        yield {
-            "work_id": b.work_id,                  # enforce work_id only
-            "title": b.title or "",
-            "author": b.author.name if b.author else "",
-            "description": b.description or "",
-        }
+def _iter_books_by_ids(db: Session, ids: Set[str | int]) -> Iterable[dict]:
+    if not ids: return []
+    # partition by type to keep queries efficient
+    str_ids = [str(x) for x in ids if not isinstance(x, int)]
+    int_ids = [int(x) for x in ids if isinstance(x, int)]
 
-def _enrich_one(rec,
-                slug2id, valid_tone_ids, valid_genre_slugs,
-                tone_slugs, genre_slugs_line) -> Dict[str, Any]:
+    if str_ids:
+        for b, a in (
+            db.query(Book, Author).outerjoin(Author, Book.author_idx == Author.author_idx)
+              .filter(Book.work_id.in_(str_ids))
+        ):
+            yield {"book_id": b.work_id, "title": b.title or "", "author": (a.name if a else "") or "", "description": b.description or ""}
+
+    if int_ids:
+        for b, a in (
+            db.query(Book, Author).outerjoin(Author, Book.author_idx == Author.author_idx)
+              .filter(Book.item_idx.in_(int_ids))
+        ):
+            yield {"book_id": int(b.item_idx), "title": b.title or "", "author": (a.name if a else "") or "", "description": b.description or ""}
+
+def _enrich_one(rec, slug2id, valid_tone_ids, valid_genre_slugs, tone_slugs, genre_slugs_line):
     user = USER_TEMPLATE.format(
         title=rec["title"],
         author=rec["author"],
         description=rec["description"],
         tone_instructions=f"Fixed tones: [{tone_slugs}]",
         genre_instructions=f"Fixed genres: [{genre_slugs_line}]",
-        noisy_subjects_block="",  # backfill path doesn't inject hints
+        noisy_subjects_block="",  # no hints for backfill
     )
     raw = call_enrichment_llm(SYSTEM, user)
 
-    # Map tone slugs → ids if necessary (same as main runner)
+    # normalize tone_ids like runner
     tone_ids = raw.get("tone_ids")
     if not tone_ids or any(isinstance(t, str) for t in tone_ids):
         mapped = []
         for t in raw.get("tone_ids", []):
-            if isinstance(t, int):
-                mapped.append(t)
-            elif isinstance(t, str) and t in slug2id:
-                mapped.append(slug2id[t])
+            if isinstance(t, int): mapped.append(t)
+            elif isinstance(t, str) and t in slug2id: mapped.append(slug2id[t])
         raw["tone_ids"] = mapped
 
     data = validate_payload(raw, valid_tone_ids, valid_genre_slugs)
     data.subjects = clean_subjects(data.subjects)[:8]
 
     return {
-        "book_id": rec["work_id"],   # strictly work_id
+        "book_id": rec["book_id"],   # stays whatever you selected (int item_idx or string work_id)
         "subjects": data.subjects,
         "tone_ids": data.tone_ids,
         "genre": data.genre,
@@ -132,38 +101,68 @@ def _enrich_one(rec,
         "scores": {}
     }
 
-def main(sleep_s: float = 0.0) -> Dict[str, int]:
-    # Fail fast on auth/quota/network before doing any work
+# ---- writer thread to serialize file appends ----
+def _writer_thread(outfile: Path, q: Queue):
+    with open(outfile, "a", encoding="utf-8") as f:
+        while True:
+            item = q.get()
+            if item is None:
+                break
+            f.write(json.dumps(item, ensure_ascii=False) + "\n")
+            q.task_done()
+
+def main(workers: int = 2, sleep_s: float = 0.0) -> Dict[str, int]:
+    # Fail fast (auth/quota/network)
     ensure_enrichment_ready()
 
-    tone_slugs, slug2id, valid_tone_ids, genre_slugs_line, valid_genre_slugs = _load_taxonomies()
+    tone_rows, tone_slugs, valid_tone_ids, slug2id = load_tones()
+    genre_rows, genre_slugs_line, valid_genre_slugs = load_genres()
 
-    need_work_ids = _iter_failed_work_ids(OUT_JSONL)
-    if not need_work_ids:
-        print("No failed or invalid rows to backfill (by work_id).")
-        return {"ok": 0, "err": 0, "skipped": 0}
+    need_ids = _iter_failed_ids(OUT_JSONL)
+    if not need_ids:
+        print("No failed/invalid rows to backfill.")
+        return {"ok": 0, "err": 0}
 
-    ok, err = 0, 0
+    # Low-impact defaults for a 6 vCPU box that’s also serving web:
+    #  - I/O-bound workload → threads are fine
+    #  - Start with 2–3 workers; increase carefully if latency stays low
+    workers = max(1, int(os.getenv("ENRICH_WORKERS", workers)))
+
     OUT_JSONL.parent.mkdir(parents=True, exist_ok=True)
-    with SessionLocal() as db, open(OUT_JSONL, "a", encoding="utf-8") as f_out:
-        for rec in _iter_books_by_work_ids(db, need_work_ids):
-            try:
-                out = _enrich_one(rec, slug2id, valid_tone_ids, valid_genre_slugs, tone_slugs, genre_slugs_line)
-                f_out.write(json.dumps(out, ensure_ascii=False) + "\n")
-                ok += 1
-                if sleep_s:
-                    time.sleep(sleep_s)
-            except Exception as e:
-                f_out.write(json.dumps({
-                    "book_id": rec["work_id"],   # still the same work_id key
-                    "error": str(e),
-                    "tags_version": "v1"
-                }, ensure_ascii=False) + "\n")
-                err += 1
-    return {"ok": ok, "err": err, "skipped": 0}
+    ok = err = 0
+
+    # writer
+    q = Queue(maxsize=1000)
+    wt = Thread(target=_writer_thread, args=(OUT_JSONL, q), daemon=True); wt.start()
+
+    def task(rec):
+        try:
+            out = _enrich_one(rec, slug2id, valid_tone_ids, valid_genre_slugs, tone_slugs, genre_slugs_line)
+            q.put(out)
+            if sleep_s: time.sleep(sleep_s)
+            return True
+        except Exception as e:
+            q.put({"book_id": rec["book_id"], "error": str(e), "tags_version": "v1"})
+            return False
+
+    with SessionLocal() as db, ThreadPoolExecutor(max_workers=workers) as ex:
+        futures = []
+        for rec in _iter_books_by_ids(db, need_ids):
+            futures.append(ex.submit(task, rec))
+        for fut in as_completed(futures):
+            if fut.result(): ok += 1
+            else: err += 1
+
+    # drain writer
+    q.join()
+    q.put(None); wt.join(timeout=5)
+
+    return {"ok": ok, "err": err}
 
 if __name__ == "__main__":
+    # Default: 2 workers, gentle pacing via ENRICH_SLEEP_S if set
+    workers = int(os.getenv("ENRICH_WORKERS", "2"))
     sleep_s = float(os.getenv("ENRICH_SLEEP_S", "0.0"))
-    res = main(sleep_s=sleep_s)
+    res = main(workers=workers, sleep_s=sleep_s)
     print(res)
-    sys.exit(0 if res["err"] == 0 else 2)
+    import sys; sys.exit(0 if res["err"] == 0 else 2)
