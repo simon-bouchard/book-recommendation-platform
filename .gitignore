@@ -7,8 +7,11 @@
 /models/training/logs/
 data/backups/db/
 *.sql.gz
-data/*.gz
+data/*
 logs/*
+enrich.out
+enrich.err
+backfill.out
 
 # Model artifacts
 *.pickle
