@@ -6,7 +6,7 @@ from sqlalchemy.orm import Session
 from app.database import SessionLocal
 from app.table_models import Book
 
-ROOT = Path(__file__).resolve().parents[1]
+ROOT = Path(__file__).resolve().parents[3]
 SRC = ROOT / "data" / "enrichment_v1.jsonl"
 OUT = ROOT / "data" / "enrichment_v1.item_idx.jsonl"
 
@@ -30,35 +30,50 @@ def load_last_per_work_id(p: Path):
     return last
 
 def main():
+    # Load last record per work_id from source once
     last = load_last_per_work_id(SRC)
     if not last:
         print("No work_id-keyed records found.")
         return 0
 
+    # Preload all work_id -> item_idx mappings in one query
+    with SessionLocal() as db:
+        rows = db.query(Book.work_id, Book.item_idx).all()
+        mapping = {wid: idx for (wid, idx) in rows if wid and idx is not None}
+
     ok = err = 0
-    with SessionLocal() as db, OUT.open("w", encoding="utf-8") as out:
+    with OUT.open("w", encoding="utf-8") as out:
         for wid, rec in last.items():
-            # lookup item_idx
-            b: Book | None = db.query(Book).filter(Book.work_id == wid).first()
-            if not b or b.item_idx is None:
+            idx = mapping.get(wid)
+            if idx is None:
                 # preserve an explicit error row so it can be found later
-                out.write(json.dumps({"book_id": wid, "error": "Missing item_idx for work_id", "tags_version": rec.get("tags_version","v1")}) + "\n")
+                out.write(json.dumps({
+                    "book_id": wid,
+                    "error": "Missing item_idx for work_id",
+                    "tags_version": rec.get("tags_version", "v1")
+                }) + "\n")
                 err += 1
                 continue
+
             # rewrite with int book_id
             if "error" in rec:
-                out.write(json.dumps({"book_id": int(b.item_idx), "error": rec["error"], "tags_version": rec.get("tags_version","v1")}) + "\n")
+                out.write(json.dumps({
+                    "book_id": int(idx),
+                    "error": rec["error"],
+                    "tags_version": rec.get("tags_version", "v1")
+                }) + "\n")
             else:
                 out.write(json.dumps({
-                    "book_id": int(b.item_idx),
+                    "book_id": int(idx),
                     "subjects": rec.get("subjects", []),
                     "tone_ids": rec.get("tone_ids", []),
                     "genre": rec.get("genre"),
-                    "vibe": rec.get("vibe",""),
-                    "tags_version": rec.get("tags_version","v1"),
+                    "vibe": rec.get("vibe", ""),
+                    "tags_version": rec.get("tags_version", "v1"),
                     "scores": rec.get("scores", {})
                 }, ensure_ascii=False) + "\n")
             ok += 1
+
     print({"rewritten": ok, "missing_item_idx": err, "output": str(OUT)})
     return 0 if err == 0 else 2
 
