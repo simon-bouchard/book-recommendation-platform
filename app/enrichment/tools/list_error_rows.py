@@ -1,20 +1,16 @@
-# app/enrichment/tools/list_error_rows_by_workid.py
+# app/enrichment/tools/list_last_errors.py
 from pathlib import Path
 from collections import OrderedDict
 import json, csv
 
-from sqlalchemy.orm import Session
 from app.database import SessionLocal
 from app.table_models import Book, Author
 
-ROOT = Path(__file__).resolve().parents[2]
-SRC = ROOT / "data" / "enrichment_v1.jsonl"
-OUT = ROOT / "data" / "error_rows_by_workid.csv"
+SRC = Path("data/enrichment_v1.jsonl")   # change if your file is elsewhere
+OUT = Path("data/last_error_rows.csv")
 
-def _load_last_per_workid(p: Path):
-    last = OrderedDict()
-    if not p.exists():
-        return last
+def load_last_per_work_id(p: Path):
+    last = OrderedDict()  # preserves arrival order; we overwrite per work_id
     with p.open(encoding="utf-8") as f:
         for line in f:
             line = line.strip()
@@ -24,33 +20,44 @@ def _load_last_per_workid(p: Path):
                 obj = json.loads(line)
             except Exception:
                 continue
-            bid = obj.get("book_id")
-            # keep only work_id-shaped keys (strings)
-            if isinstance(bid, str) and bid:
-                last[bid] = obj
+            wid = obj.get("book_id")
+            if isinstance(wid, str) and wid:   # STRICT: work_id strings only
+                last[wid] = obj
     return last
 
 def main():
-    last = _load_last_per_workid(SRC)
-    rows = []
+    if not SRC.exists():
+        print(f"Missing: {SRC}")
+        return 2
+
+    last = load_last_per_work_id(SRC)
+    error_wids = [wid for wid, obj in last.items() if isinstance(obj, dict) and ("error" in obj)]
+
     with SessionLocal() as db:
-        for wid, rec in last.items():
-            if "error" not in rec:
-                continue
-            b_a = (db.query(Book, Author)
-                     .outerjoin(Author, Book.author_idx == Author.author_idx)
-                     .filter(Book.work_id == wid)
-                     .first())
-            title = (b_a[0].title if b_a else "") or ""
-            author = (b_a[1].name if (b_a and b_a[1]) else "") or ""
-            rows.append({"work_id": wid, "title": title, "author": author, "error": rec["error"]})
+        q = (db.query(Book, Author)
+               .outerjoin(Author, Book.author_idx == Author.author_idx)
+               .filter(Book.work_id.in_(error_wids)))
+        rows = []
+        for b, a in q.all():
+            wid = str(b.work_id)
+            err = last[wid].get("error", "")
+            rows.append({
+                "work_id": wid,
+                "title": b.title or "",
+                "author": (a.name if a else "") or "",
+                "error": err
+            })
 
     OUT.parent.mkdir(parents=True, exist_ok=True)
     with OUT.open("w", encoding="utf-8", newline="") as f:
         w = csv.DictWriter(f, fieldnames=["work_id","title","author","error"])
         w.writeheader()
         w.writerows(rows)
-    print(f"Wrote {len(rows)} rows to {OUT}")
+
+    print(f"Total work_ids seen: {len(last)}")
+    print(f"Errors (last per work_id): {len(error_wids)}")
+    print(f"Wrote: {OUT}")
 
 if __name__ == "__main__":
-    main()
+    raise SystemExit(main())
+

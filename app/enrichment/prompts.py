@@ -1,6 +1,6 @@
 # app/enrichment/prompts.py
 SYSTEM = """You assign tags to books. Never invent facts.
-Return strict JSON only, no markdown.
+Return strict JSON only, no markdown. **All fields must be written in English, even when the book title/description is not in English. Keep outputs concise.**
 
 You MAY receive a list of 'noisy subject hints' harvested from internal metadata.
 Treat them as WEAK, possibly incorrect signals. Prefer the book info (title/author/description)
@@ -26,10 +26,10 @@ DESCRIPTION: {description}
 {genre_instructions}
 
 Rules:
-- subjects: up to 8 short noun phrases (free-form, 1–4 words). No years, no audience labels.
+- subjects: up to 8 short noun phrases (free-form, 1–4 words), **in English**.
 - tones: up to 3 from the fixed list (slugs).
 - genre: exactly 1 from the fixed list (slug).
-- vibe: <= 15 tokens, free text.
+- **vibe: ≤ 12 words (and ≤ 20 tokens), in English; be concise.**
 - subjects MUST be unique (no duplicates or near-duplicates); prefer concrete, domain-specific phrases.
 - Avoid using generic filler like “readers”, “background”, “primer”, “excellent”, “book”, “story”.
 - Avoid repeating the same stem across different subjects (e.g., “Greek gods” vs “Greek deities” → keep one).
@@ -40,6 +40,14 @@ Rules:
   * Prefer the DESCRIPTION and your knowledge. Use hints only if they clearly align with the book.
   * Never copy process/admin tags (e.g., "translation to X", "works by Y", "study guides", "juvenile literature", "in literature", "in art").
   * If hints conflict with the description or your knowledge, IGNORE the hints.
+- **If the book is non-English (e.g., title/description not in English), still write subjects and vibe in English. It’s OK to include a subject like "French language" or "German literature" if relevant to the content.**
+- Map specific topics to the closest existing genre:
+  astrology, tarot, feng shui → religion-spirituality
+  astronomy (amateur/pro) → science-nature
+  public speaking, personal image, seduction, happiness → psychology-self-help
+  spelling/ESL/grammar/kanji → language-learning
+
+Note: The book’s title/description may be non-English. **Write all outputs in English.**
 
 Return JSON:
 {{"subjects": [...], "tone_ids": [], "genre": "", "vibe": ""}}
