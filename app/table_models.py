@@ -1,7 +1,14 @@
-from sqlalchemy import Column, Integer, String, Float, Boolean, ForeignKey, DateTime, Text, UniqueConstraint
+from sqlalchemy import (
+    Column, Integer, String, Float, Boolean, ForeignKey, DateTime, Text, UniqueConstraint
+)
 from sqlalchemy.orm import relationship
 from datetime import datetime
 from app.database import Base
+
+
+# =========================
+# Core (existing)
+# =========================
 
 class Author(Base):
     __tablename__ = 'authors'
@@ -15,6 +22,7 @@ class Author(Base):
     alternate_names = Column(Text, nullable=True)
 
     books = relationship('Book', back_populates='author')
+
 
 class Book(Base):
     __tablename__ = 'books'
@@ -37,19 +45,23 @@ class Book(Base):
     interactions = relationship('Interaction', back_populates='book')
     subjects = relationship('BookSubject', back_populates='book')
     author = relationship('Author', back_populates='books')
-    tones = relationship("BookTone", back_populates="book")
-    genre = relationship("BookGenre", back_populates="book", uselist=False)
-    vibe  = relationship("BookVibe",  back_populates="book", uselist=False)
-    llm_subjects = relationship("BookLLMSubject", back_populates="book")
+
+    # --- Enrichment relations (added) ---
+    tones = relationship('BookTone', back_populates='book', cascade="all, delete-orphan", passive_deletes=True)
+    genre = relationship('BookGenre', back_populates='book', uselist=False, cascade="all, delete-orphan", passive_deletes=True)
+    vibe  = relationship('BookVibe',  back_populates='book', uselist=False, cascade="all, delete-orphan", passive_deletes=True)
+    llm_subjects = relationship('BookLLMSubject', back_populates='book', cascade="all, delete-orphan", passive_deletes=True)
+
 
 class Subject(Base):
     __tablename__ = 'subjects'
 
     subject_idx = Column(Integer, primary_key=True, index=True)
     subject = Column(String(255), unique=True, nullable=False)
-    
+
     books = relationship('BookSubject', back_populates='subject', lazy='dynamic')
     favorited_by = relationship('UserFavSubject', back_populates='subject', lazy='dynamic')
+
 
 class BookSubject(Base):
     __tablename__ = 'book_subjects'
@@ -60,6 +72,7 @@ class BookSubject(Base):
 
     book = relationship('Book', back_populates='subjects')
     subject = relationship('Subject', back_populates='books')
+
 
 class User(Base):
     __tablename__ = 'users'
@@ -78,6 +91,7 @@ class User(Base):
     interactions = relationship('Interaction', back_populates='user')
     favorite_subjects = relationship('UserFavSubject', back_populates='user')
 
+
 class UserFavSubject(Base):
     __tablename__ = 'user_fav_subjects'
 
@@ -87,6 +101,7 @@ class UserFavSubject(Base):
 
     user = relationship('User', back_populates='favorite_subjects')
     subject = relationship('Subject', back_populates='favorited_by')
+
 
 class Interaction(Base):
     __tablename__ = 'interactions'
@@ -103,44 +118,58 @@ class Interaction(Base):
     user = relationship("User", back_populates="interactions")
     book = relationship("Book", back_populates="interactions")
 
-# --- Ontology tables (normalized lookup) ---
+
+# =========================
+# Enrichment: Ontologies
+# =========================
 
 class Tone(Base):
     __tablename__ = "tones"
-    # Keep IDs identical to ontology CSV (stable integer keys)
-    tone_id = Column(Integer, primary_key=True)              # e.g., 1..N
-    slug = Column(String(100), unique=True, nullable=False)  # canonical slug
-    name = Column(String(200), nullable=True)                # optional display name
+    tone_id = Column(Integer, primary_key=True)                 # matches ontology integer IDs
+    slug = Column(String(100), unique=True, nullable=False)     # canonical slug
+    name = Column(String(200), nullable=True)                   # optional display name
 
     books = relationship("BookTone", back_populates="tone", lazy="dynamic")
 
 
 class Genre(Base):
     __tablename__ = "genres"
-    # Genres are naturally keyed by slug; keep it as PK for 3NF
-    slug = Column(String(100), primary_key=True)             # canonical slug
-    name = Column(String(200), nullable=True)                # optional display name
+    slug = Column(String(100), primary_key=True)                # canonical slug
+    name = Column(String(200), nullable=True)
 
     books = relationship("BookGenre", back_populates="genre", lazy="dynamic")
 
 
 class Vibe(Base):
     __tablename__ = "vibes"
-    # Vibes are free text but we still deduplicate to normalize storage
     vibe_id = Column(Integer, primary_key=True, autoincrement=True)
-    text = Column(Text, unique=True, nullable=False)
+    text = Column(String(512), unique=True, nullable=False)     # short text (≤ ~20 tokens)
 
     books = relationship("BookVibe", back_populates="vibe", lazy="dynamic")
 
 
-# --- Link tables (fully normalized; no version/timestamps) ---
+# =========================
+# Enrichment: LLM Subjects (separate namespace)
+# =========================
+
+class LLMSubject(Base):
+    __tablename__ = "llm_subjects"
+    llm_subject_idx = Column(Integer, primary_key=True, autoincrement=True)
+    subject = Column(String(255), unique=True, nullable=False)  # normalized phrase (lower/trimmed)
+
+    books = relationship("BookLLMSubject", back_populates="subject", lazy="dynamic")
+
+
+# =========================
+# Enrichment: Link Tables
+# =========================
 
 class BookTone(Base):
     __tablename__ = "book_tones"
-    id = Column(Integer, primary_key=True, autoincrement=True)
 
-    item_idx = Column(Integer, ForeignKey("books.item_idx"), index=True, nullable=False)
-    tone_id  = Column(Integer, ForeignKey("tones.tone_id"),  index=True, nullable=False)
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    item_idx = Column(Integer, ForeignKey("books.item_idx", onupdate="CASCADE", ondelete="CASCADE"), index=True, nullable=False)
+    tone_id  = Column(Integer, ForeignKey("tones.tone_id", onupdate="CASCADE", ondelete="RESTRICT"), index=True, nullable=False)
 
     __table_args__ = (UniqueConstraint("item_idx", "tone_id", name="uq_book_tone"),)
 
@@ -150,9 +179,10 @@ class BookTone(Base):
 
 class BookGenre(Base):
     __tablename__ = "book_genres"
-    # Exactly one genre per book (per current enrichment rules)
-    item_idx   = Column(Integer, ForeignKey("books.item_idx"), primary_key=True)
-    genre_slug = Column(String(100), ForeignKey("genres.slug"), nullable=False, index=True)
+
+    # one genre per book
+    item_idx   = Column(Integer, ForeignKey("books.item_idx", onupdate="CASCADE", ondelete="CASCADE"), primary_key=True)
+    genre_slug = Column(String(100), ForeignKey("genres.slug", onupdate="CASCADE", ondelete="RESTRICT"), nullable=False, index=True)
 
     book  = relationship("Book", back_populates="genre")
     genre = relationship("Genre", back_populates="books")
@@ -160,31 +190,37 @@ class BookGenre(Base):
 
 class BookVibe(Base):
     __tablename__ = "book_vibes"
-    # Exactly one vibe per book (short free text, deduped through Vibe)
-    item_idx = Column(Integer, ForeignKey("books.item_idx"), primary_key=True)
-    vibe_id  = Column(Integer, ForeignKey("vibes.vibe_id"), nullable=False, index=True)
+
+    # one vibe per book (text deduped via Vibe)
+    item_idx = Column(Integer, ForeignKey("books.item_idx", onupdate="CASCADE", ondelete="CASCADE"), primary_key=True)
+    vibe_id  = Column(Integer, ForeignKey("vibes.vibe_id", onupdate="CASCADE", ondelete="RESTRICT"), nullable=False, index=True)
 
     book = relationship("Book", back_populates="vibe")
     vibe = relationship("Vibe", back_populates="books")
 
 
-class LLMSubject(Base):
-    __tablename__ = "llm_subjects"
-    # Canonicalized subject text is stored once and referenced via an integer key
-    llm_subject_idx = Column(Integer, primary_key=True, autoincrement=True)
-    subject = Column(String(255), unique=True, nullable=False)  # normalized (lowercased/trimmed) phrase
-
-    books = relationship("BookLLMSubject", back_populates="subject", lazy="dynamic")
-
-
 class BookLLMSubject(Base):
     __tablename__ = "book_llm_subjects"
-    id = Column(Integer, primary_key=True, autoincrement=True)
 
-    item_idx = Column(Integer, ForeignKey("books.item_idx"), index=True, nullable=False)
-    llm_subject_idx = Column(Integer, ForeignKey("llm_subjects.llm_subject_idx"), index=True, nullable=False)
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    item_idx = Column(Integer, ForeignKey("books.item_idx", onupdate="CASCADE", ondelete="CASCADE"), index=True, nullable=False)
+    llm_subject_idx = Column(Integer, ForeignKey("llm_subjects.llm_subject_idx", onupdate="CASCADE", ondelete="RESTRICT"), index=True, nullable=False)
 
     __table_args__ = (UniqueConstraint("item_idx", "llm_subject_idx", name="uq_book_llm_subject"),)
 
     book = relationship("Book", back_populates="llm_subjects")
     subject = relationship("LLMSubject", back_populates="books")
+
+
+# =========================
+# (Optional) Persist LLM failures separately
+# =========================
+
+class EnrichmentError(Base):
+    __tablename__ = "enrichment_errors"
+
+    item_idx = Column(Integer, ForeignKey("books.item_idx", onupdate="CASCADE", ondelete="CASCADE"), primary_key=True)
+    error = Column(Text, nullable=False)
+
+    book = relationship("Book", viewonly=True)
+
