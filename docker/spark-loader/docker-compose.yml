@@ -1,0 +1,24 @@
+services:
+  spark-loader:
+    build:
+      context: ./docker/spark-loader
+      dockerfile: Dockerfile
+    image: spark-loader:local
+
+    # Mount your repo so the script + data are visible
+    volumes:
+      - ..:/app:rw
+
+    # Reuse the same env file your systemd app already uses
+    env_file:
+      - /etc/bookrec.env
+
+    # If MySQL is on the same Linux host, uncomment:
+    # network_mode: "host"
+
+    working_dir: /app
+
+    # Explicit command so failures bubble up
+    command: >
+      bash -lc "python /app/load_enrichment_to_sql.py"
+
