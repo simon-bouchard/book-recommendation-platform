@@ -3,7 +3,7 @@ from pyspark.sql import SparkSession, functions as F, types as T
 
 # ---- config ----
 INPUT = "data/enrichment_v1.item_idx.jsonl"  # or data/enrichment_v1.jsonl
-JDBC_URL = os.getenv("JDBC_URL", "jdbc:mysql://dbhost:3306/bookrec?useSSL=false&allowPublicKeyRetrieval=true")
+JDBC_URL = os.getenv("JDBC_URL", "")
 JDBC_USER = os.getenv("JDBC_USER", "bookrec")
 JDBC_PASS = os.getenv("JDBC_PASS", "secret")
 JDBC_PROPS = {"user": JDBC_USER, "password": JDBC_PASS, "driver": "com.mysql.cj.jdbc.Driver"}
