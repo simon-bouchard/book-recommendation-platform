@@ -10,7 +10,7 @@ except Exception:
 
 DEEPINFRA_API_KEY = os.getenv("DEEPINFRA_API_KEY")
 DEEPINFRA_BASE_URL = os.getenv("DEEPINFRA_BASE_URL", "https://api.deepinfra.com/v1/openai")
-DEEPINFRA_MODEL = os.getenv("DEEPINFRA_MODEL", "Meta-Llama-3.1-8B-Instruct-Turbo")
+DEEPINFRA_MODEL = os.getenv("DEEPINFRA_MODEL", "Meta-Llama-3.1-70B-Instruct-Turbo")
 
 # NEW: if set to "1", do NOT fall back to get_llm(); require DeepInfra to work
 ENRICH_FORCE_DEEPINFRA = os.getenv("ENRICH_FORCE_DEEPINFRA", "0") == "1"

@@ -44,8 +44,11 @@ Rules:
 - Map specific topics to the closest existing genre:
   astrology, tarot, feng shui → religion-spirituality
   astronomy (amateur/pro) → science-nature
-  public speaking, personal image, seduction, happiness → psychology-self-help
-  spelling/ESL/grammar/kanji → language-learning
+  public speaking, personal image, happiness, self-improvement → psychology-self-help
+  spelling / ESL / grammar / kanji → language-learning
+  sports, fitness, outdoor activities, games (excluding board/puzzles) → lifestyle
+  fashion, beauty, hair, weddings, crafts, home guides → lifestyle
+  humor, comic “rules”, joke collections → lifestyle
 
 Note: The book’s title/description may be non-English. **Write all outputs in English.**
 
