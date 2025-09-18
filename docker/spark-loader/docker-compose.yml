@@ -1,24 +1,26 @@
+# docker/spark-loader/docker-compose.yml
 services:
   spark-loader:
     build:
-      context: ./docker/spark-loader
+      context: .
       dockerfile: Dockerfile
     image: spark-loader:local
 
-    # Mount your repo so the script + data are visible
     volumes:
-      - ..:/app:rw
+      - ../..:/app:rw
 
-    # Reuse the same env file your systemd app already uses
     env_file:
       - /etc/bookrec.env
 
-    # If MySQL is on the same Linux host, uncomment:
-    # network_mode: "host"
+    # If using 127.0.0.1 in JDBC_URL with local MySQL:
+    network_mode: "host"
 
     working_dir: /app
 
-    # Explicit command so failures bubble up
+    # Make the JDBC driver visible to Spark
+    environment:
+      - PYSPARK_SUBMIT_ARGS=--driver-class-path /opt/jdbc/mysql-connector-j-8.4.0.jar --jars /opt/jdbc/mysql-connector-j-8.4.0.jar pyspark-shell
+
     command: >
-      bash -lc "python /app/load_enrichment_to_sql.py"
+      bash -lc "python /app/spark_apps/load_enrichment_to_sql.py"
 

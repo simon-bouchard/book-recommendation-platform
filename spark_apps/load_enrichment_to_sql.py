@@ -66,6 +66,14 @@ vibe_texts = vibes_raw.select(F.col("vibe_text").alias("text")).dropDuplicates()
 vibe_texts.write.mode("overwrite").option("truncate", "true") \
     .jdbc(JDBC_URL, "tmp_vibes_load", properties=JDBC_PROPS)
 
+# --- write links for book->vibe (staging with item_idx + text) ---
+book_vibes_staging = vibes_raw.select(
+    "item_idx", F.col("vibe_text")
+).dropDuplicates(["item_idx"])
+
+book_vibes_staging.write.mode("overwrite").option("truncate", "true") \
+    .jdbc(JDBC_URL, "tmp_book_vibes_load", properties=JDBC_PROPS)
+
 # --- write links (staging first) ---
 tones.write.mode("overwrite").option("truncate", "true") \
     .jdbc(JDBC_URL, "tmp_book_tones_load", properties=JDBC_PROPS)
@@ -85,8 +93,25 @@ errors_out.write.mode("overwrite").option("truncate", "true") \
 
 # --- finalize via JDBC MERGE/UPSERT using SQL (ran once per batch) ---
 # We stay in Spark but execute SQL against MySQL to do idempotent merges.
-import pymysql
-conn = pymysql.connect(host="dbhost", user=JDBC_USER, password=JDBC_PASS, database="bookrec")
+import os, pymysql
+from urllib.parse import urlparse
+
+jdbc_url = os.getenv("JDBC_URL", "jdbc:mysql://127.0.0.1:3306/bookrec_db")
+# Strip the 'jdbc:' prefix so urlparse can understand it
+parsed = urlparse(jdbc_url.replace("jdbc:", "", 1))
+
+host = parsed.hostname or "127.0.0.1"
+port = parsed.port or 3306
+db_name = (parsed.path.lstrip("/") or "bookrec_db")
+
+conn = pymysql.connect(
+    host=host,
+    port=port,
+    user=JDBC_USER,
+    password=JDBC_PASS,
+    database=db_name,
+    charset="utf8mb4",
+)
 cur = conn.cursor()
 
 # LLM subjects dictionary
@@ -95,26 +120,21 @@ INSERT IGNORE INTO llm_subjects(subject)
 SELECT DISTINCT llm_subject FROM tmp_llm_subjects_load
 """)
 
-# Vibes dictionary
+# Vibes dictionary (ensure deduped vibe texts exist)
 cur.execute("""
 INSERT IGNORE INTO vibes(text)
 SELECT DISTINCT text FROM tmp_vibes_load
 """)
 
-# Book -> Vibe (resolve vibe_id)
+# Book -> Vibe (resolve vibe_id from deduped text)
 cur.execute("""
 INSERT INTO book_vibes(item_idx, vibe_id)
-SELECT v2.item_idx, v.vibe_id
-FROM (
-  SELECT DISTINCT item_idx, vibe_text FROM (
-    SELECT item_idx, vibe as vibe_text FROM (SELECT * FROM json_table('[0]', '$[*]' COLUMNS()) as hack) as q  -- placeholder
-  ) as x
-) as v2
-JOIN tmp_vibes_load tv ON tv.text = v2.vibe_text
-JOIN vibes v ON v.text = tv.text
+SELECT b.item_idx, v.vibe_id
+FROM tmp_book_vibes_load b
+JOIN vibes v ON v.text = b.vibe_text
 ON DUPLICATE KEY UPDATE vibe_id = VALUES(vibe_id)
-""")  # NB: For MySQL <8 JSON_TABLE isn't available; we already staged vibe_texts, so better:
-cur.execute("DELETE FROM book_vibes WHERE item_idx IN (SELECT item_idx FROM tmp_book_genres_load)")  # optional clean
+""")
+
 
 # Book -> Genre (one per book)
 cur.execute("""

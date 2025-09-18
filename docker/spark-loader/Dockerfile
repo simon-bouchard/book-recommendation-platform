@@ -1,8 +1,8 @@
 FROM python:3.10-slim
 
-# Java for Spark + certs
+# Java 21 for Spark + certs
 RUN apt-get update && apt-get install -y --no-install-recommends \
-    openjdk-17-jre-headless curl ca-certificates \
+    openjdk-21-jre-headless curl ca-certificates \
   && rm -rf /var/lib/apt/lists/*
 
 # Python deps for the Spark job
@@ -19,10 +19,8 @@ RUN mkdir -p /opt/jdbc && \
 ENV SPARK_CLASSPATH=/opt/jdbc/mysql-connector-j-${MYSQL_JDBC_VERSION}.jar
 
 # Java home for Spark
-ENV JAVA_HOME=/usr/lib/jvm/java-17-openjdk-amd64
+ENV JAVA_HOME=/usr/lib/jvm/java-21-openjdk-amd64
 
 WORKDIR /app
-
-# Default command (compose overrides too)
 CMD ["bash", "-lc", "python /app/load_enrichment_to_sql.py"]
 
