@@ -1,6 +1,7 @@
 # app/agents/settings.py
 import os
 from pydantic_settings import BaseSettings, SettingsConfigDict
+from typing import Any
 
 class ChatSettings(BaseSettings):
     chat_require_login: bool = False
@@ -24,12 +25,32 @@ class ChatSettings(BaseSettings):
     deepinfra_api_key: str | None = os.getenv("DEEPINFRA_API_KEY")
     deepinfra_base_url: str = os.getenv("DEEPINFRA_BASE_URL", "https://api.deepinfra.com/v1/openai")
 
+    embedder: Any = None  # callable: List[str] -> np.ndarray [n, d]
+
     model_config = SettingsConfigDict(
         env_file=os.getenv("ENV_FILE", ".env"),
         extra="ignore",
+        arbitrary_types_allowed=True
     )
 
+# ---- Embedding factory ----
+from sentence_transformers import SentenceTransformer
+import numpy as np
+
+def _make_default_embedder():
+    """
+    Returns a callable: List[str] -> np.ndarray [n, d]
+    Uses a cached sentence-transformers model by default.
+    """
+    model = SentenceTransformer("sentence-transformers/all-MiniLM-L6-v2")
+
+    def _emb(texts: list[str]) -> np.ndarray:
+        return model.encode(texts, convert_to_numpy=True).astype("float32")
+
+    return _emb
+
 settings = ChatSettings()
+settings.embedder = _make_default_embedder()
 
 # ---- LLM factory ----
 from langchain_openai import ChatOpenAI
