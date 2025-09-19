@@ -1,5 +1,116 @@
-Enrichment jobs currently output JSONL files with validated fields (subjects, tone_ids, genre, vibe, tags_version). These files serve as the bronze layer. Apache Spark reads the compacted JSONL (keyed by item_idx), separates valid vs. error rows, and transforms the data into normalized relational tables (book_subjects, book_tones, book_genres, book_vibes). Spark writes these results into the silver layer (structured storage for training/analytics) and supports further processing into gold features (subject embeddings, Bayesian stats, etc.).
+# Big Data-ification of the Enrichment Pipeline — Definitive Plan (for implementation assistants)
 
-The roadmap adds Kafka as the ingestion layer. Enrichment jobs will publish results as events (enrich.results) instead of, or alongside, file writes. Spark Structured Streaming (or a Kafka sink) will persist raw events into object storage as the bronze layer. Spark will then consume from Kafka topics rather than JSON files, apply the same validation and normalization, and write to SQL and Delta/Iceberg. Kafka will also provide dead-letter topics for invalid payloads, replay support, and compaction for re-enrichment keyed by (item_idx, tags_version).
+## Goal
+Unify batch and streaming for book enrichment, make ingestion/reprocessing robust, and keep serving stable while new builds are produced. Preserve idempotency and enable backfills without bumping semantic “versions”.
 
-This design unifies batch and streaming: Spark is the transformation and load engine, while Kafka provides transport, buffering, retries, and real-time ingestion.
+---
+
+## Architectural Style
+- **Kappa-style**: one streaming pipeline handles both real-time and historical replay.
+- **Layers**:
+  - **Bronze**: Kafka topics (durable log; replayable).
+  - **Silver**: normalized SQL tables (tones/genres/vibes/subjects + errors) via Spark Structured Streaming.
+  - **Gold**: downstream features (subject embeddings, Bayesian stats, etc.) in Delta/Iceberg or exported artifacts.
+
+---
+
+## Event Contracts (Bronze)
+- **Topics**
+  - `enrich.results.v1` — validated enrichment results.
+  - `enrich.errors.v1` — structured failures (DLQ).
+- **Key**: `"{item_idx}:{tags_version}"`.
+- **Value (JSON)** — Success:
+  - `item_idx:int`, `subjects:list[str]≤8`, `tone_ids:list[int]≤3`, `genre:str`, `vibe:str≤20 tokens`,
+  - `tags_version:str`, optional `scores:{}`, **(optional for debugging)** `title`, `author` (bounded length).
+- **Value (JSON)** — Error (DLQ):
+  - `item_idx` (or `work_id` during legacy), `tags_version`, `ts`, `stage`, `error_code`, `error_field?`, `error_msg`,
+  - `title?`, `author?`, `attempted?` (bounded: subjects/tone_ids/genre/vibe),
+  - optional run metadata (`run_id`, `model`, `provider`, `prompt_version`, `latency_ms`).
+
+**Topic settings**
+- `enrich.results.v1`: `cleanup.policy=compact,delete`; `min.compaction.lag.ms≈1h`; `retention.ms≈3–30d`; 6–12 partitions.
+- `enrich.errors.v1`: `cleanup.policy=delete`; `retention.ms≈14–30d`.
+
+---
+
+## Stream Processing (Kafka → Silver via Spark)
+- **Source**: Structured Streaming `readStream` from both topics.
+- **Trigger**: micro-batch every 30–60s; backpressure via `maxOffsetsPerTrigger`.
+- **Transform** (same logic as existing batch job):
+  - Explode/dedupe → staging DataFrames:
+    - `book_tones`, `book_genres`, `vibes` + `book_vibes`, `llm_subjects` + `book_llm_subjects`.
+  - Project errors to staging: `enrichment_errors` (keep structured columns).
+- **Load**: `foreachBatch`:
+  - Write staging via JDBC (overwrite/truncate temp tables).
+  - Execute **same** SQL upserts as today (INSERT IGNORE / ON DUPLICATE KEY UPDATE).
+- **Semantics**: at-least-once from Kafka; **idempotent upserts** yield effective exactly-once at the sink.
+- **Checkpointing**: stable `checkpointLocation`; consumer group e.g., `cg.enrichment.sql.v1`.
+
+---
+
+## Silver Schema (authoritative tables)
+- Dimension/dictionary tables: `vibes(text)`, `llm_subjects(subject)`, (tones/genres preseeded).
+- Link tables: `book_vibes(item_idx,vibe_id)`, `book_genres(item_idx,genre_slug)`, `book_tones(item_idx,tone_id)`, `book_llm_subjects(item_idx,llm_subject_idx)`.
+- Errors: `enrichment_errors(item_idx PK, first_seen_at, last_seen_at, occurrence_count, stage, error_code, error_field, error_msg, tags_version, title?, author?, attempted JSON?)`.
+
+---
+
+## Error Handling & Observability
+- **Taxonomy**:
+  - `stage`: `fetch|llm_invoke|llm_parse|validate|postprocess|produce|consume|sql_merge`.
+  - `error_code`: controlled list (`INVALID_GENRE`, `INVALID_TONE_ID`, `VIBE_TOO_LONG`, `JSON_PARSE`, `HTTP_401`, `RATE_LIMIT`, `TIMEOUT`, `DB_TIMEOUT`, `UNKNOWN`).
+- **Payload Caps**: truncate strings (title/author ≤256, vibe ≤128, subject ≤48 chars each).
+- **DLQ Retention**: 14–30 days.
+- **Dashboards**: error rate by stage/code; consumer lag; SQL commit latency; top offenders (24h/7d).
+
+---
+
+## Backfills & Replay
+- **Targeted**: query `enrichment_errors` (or consume DLQ) → re-enrich → publish to `enrich.results.v1` (same key). Compaction makes latest truth win.
+- **Full replay**: restart with `startingOffsets=earliest` + `availableNow`; idempotent merges prevent duplication.
+- **Legacy files**: allowed during cutover; compactor maps `work_id→item_idx` if needed.
+
+---
+
+## Embedding of Per-Book “Semantic Dict” (Downstream, slow path)
+**We embed one dictionary per book** (title/author + enrichment outputs) to create the vector matrix for semantic search.
+
+- **Versioning (supports backfills without version bumps)**
+  - `tags_version` — enrichment semantics (ontology/prompt), e.g., `v1`.
+  - `embed_version` — embedding model/preproc, e.g., `emb_v1`.
+  - `build_id` — sealed snapshot of vectors for a given `(tags_version, embed_version)`.
+  - `run_id` — in-progress job ID (not used for serving).
+
+- **Process**
+  - **Micro-batch embedding during the run** (not per event): batches of 64–256, 2–4 workers on training box; rate-limited.
+  - **Fingerprint** per item: hash of normalized dict + language + preproc + model + pooling; only embed when missing or fingerprint changed.
+  - **Coverage & QC**: track `% done` for `(run_id_new, embed_version)`; basic checks (dim, stats, drift samples).
+  - **Promotion** (**blue/green**): serve from `(tags_version_current, embed_version_current, build_id_current)` until new build is complete & warm-loaded; then atomically flip pointer to `(tags_version, embed_version, build_id_new)`.
+  - **Indexing**: build (or rebuild) the ANN index at end (fast for you) or incrementally; promotion happens only when all artifacts are ready.
+  - **Optional delta overlay**: if needed for fresh arrivals, maintain small overlay vectors on top of the current build; fold into next build.
+
+- **Serving/Training**
+  - Serving reads `current_build` pointer; warm-swap in-memory handle before flip; rollback by switching pointer back.
+  - Training consumes a frozen snapshot tagged with `build_id` for reproducibility.
+
+---
+
+## Security & Ops
+- **Kafka**: SASL_SSL if cross-host; per-producer quotas.
+- **MySQL**: least-privilege account for staging/upserts.
+- **Resource Control**: tune `maxOffsetsPerTrigger`; keep micro-batches small/frequent; avoid hammering DB.
+- **Cutover**:
+  1) Dual-write (Kafka + JSONL) and dual-load (batch + stream) briefly.
+  2) Validate parity & dashboards.
+  3) Make the stream primary loader.
+  4) Retire JSONL path after 5–7 days green.
+
+---
+
+## Acceptance Criteria
+- New enrichment events land in silver within ≤2 minutes under normal load.
+- Replays are deterministic; no duplicate links due to idempotent merges.
+- DLQ entries contain `title/author` and attempted fields for ≥90% of failures.
+- Embedding builds promote only when coverage and QC pass; serving is uninterrupted.
+- Backfills within the same version are shipped as **new build_ids** (no version bump required).
+
