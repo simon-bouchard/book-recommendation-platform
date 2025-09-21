@@ -5,7 +5,7 @@ from datetime import datetime
 from zoneinfo import ZoneInfo
 from routes.auth import get_current_user
 from sqlalchemy.orm import Session
-from app.agents.web_agent import answer
+from app.agents.orchestrator.conductor import Conductor
 from app.database import get_db
 from app.agents.schemas import ChatIn, ChatOut, BookOut
 from app.agents.context_builder import build_composed_input
@@ -85,7 +85,7 @@ def chat_agent(
         user_num_ratings = get_user_num_ratings(current_user.user_id)
 
     # --- FIX: no conv_id / uid passed to answer() ---
-    res = answer(
+    res = Conductor().run(
         composed,
         current_user=current_user,
         db=db,
