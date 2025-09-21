@@ -8,16 +8,16 @@ import json
 from langchain_core.tools import Tool
 
 # External + docs
-from .web import build_web_tools, WebToolState
+from .external.web import build_web_tools, WebToolState
 from .help import SiteHelpToolkit
-from .internal_tools import (
+from .recsys.internal_tools import (
     make_als_pool_tool,
     make_return_book_ids_tool,
     make_subject_hybrid_pool_tool,
 )
-from .subject_search import make_subject_id_search_tool
+from .recsys.subject_search import make_subject_id_search_tool
 # New semantic tool
-from .semantic_search import book_semantic_search
+from .recsys.semantic_search import book_semantic_search
 
 
 @dataclass
