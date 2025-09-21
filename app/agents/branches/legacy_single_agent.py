@@ -14,7 +14,7 @@ _llm = ChatOpenAI(model="gpt-4o-mini", temperature=0, timeout=30)
 # from langchain_groq import ChatGroq
 # _llm = ChatGroq(model="llama-3.1-70b-versatile", temperature=0, timeout=30)
 
-from app.agents.prompts import AGENT_PROMPT
+from app.agents.prompts.legacy_prompt import AGENT_PROMPT
 from app.agents.tools import ToolRegistry, InternalToolGates
 
 import re
