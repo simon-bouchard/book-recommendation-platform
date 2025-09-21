@@ -2,7 +2,7 @@ from __future__ import annotations
 from typing import Any, Dict
 
 from app.agents.base import BaseLLMAgent
-
+from app.agents.settings import settings
 
 class WebLLMAgent(BaseLLMAgent):
     """
@@ -18,6 +18,7 @@ class WebLLMAgent(BaseLLMAgent):
             internal=False,
             # optional final filter — registry should already only give these
             allowed_names={"web-search", "Wikipedia", "openlibrary-search", "openlibrary-work"},
+            llm_tier="large",
         )
 
     def run(self, text: str) -> Dict[str, Any]:

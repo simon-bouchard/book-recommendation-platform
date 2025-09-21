@@ -2,7 +2,7 @@ from __future__ import annotations
 from typing import Any, Dict
 
 from app.agents.base import BaseLLMAgent
-
+from app.agents.settings import settings
 
 class DocsLLMAgent(BaseLLMAgent):
     """
@@ -18,6 +18,7 @@ class DocsLLMAgent(BaseLLMAgent):
             internal=False,
             allowed_names={"help-read"},
             docs_manifest=True,  # inject manifest into prompt once
+            llm_tier="large",
         )
 
     def run(self, text: str) -> Dict[str, Any]:

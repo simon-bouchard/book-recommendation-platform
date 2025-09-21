@@ -55,7 +55,7 @@ class RouterLLM:
         Loads the router system prompt and obtains an LLM instance from the runtime.
         """
         self.system_prompt = read_prompt("router.system.md")
-        self.llm = get_llm()
+        self.llm = get_llm(tier="small", json_mode=True, temperature=0, timeout=15)
 
     def _chat(self, messages: List[Dict[str, str]]) -> str:
         """

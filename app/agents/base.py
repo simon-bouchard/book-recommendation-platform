@@ -9,7 +9,7 @@ from langchain.prompts import ChatPromptTemplate, MessagesPlaceholder
 from langchain_core.tools import Tool
 
 from app.agents.prompts.loader import read_prompt
-from app.agents.runtime import get_llm
+from app.agents.settings import get_llm
 from app.agents.tools.registry import ToolRegistry, InternalToolGates
 from app.agents.tools.help import SiteHelpToolkit  # used only when docs_manifest=True
 
@@ -50,16 +50,23 @@ class BaseLLMAgent:
     def __init__(
         self,
         *,
-        policy_name: str,                    # e.g., "web.system.md" | "docs.system.md" | "recsys.system.md"
+        policy_name: str,
         web: bool = False,
         docs: bool = False,
         internal: bool = False,
         gates: Optional[InternalToolGates] = None,
         ctx_user: Any = None,
         ctx_db: Any = None,
-        allowed_names: Optional[Iterable[str]] = None,  # optional belts-and-suspenders
-        docs_manifest: bool = False,         # inject inline manifest between markers for Docs policy
+        allowed_names: Optional[Iterable[str]] = None,
+        docs_manifest: bool = False,
+        llm_model: Optional[str] = None,
+        llm_tier: Optional[str] = None,
+        llm_temperature: float = 0.0,
+        llm_timeout: int = 30,
+        llm_json_mode: bool = False,
+        llm_max_tokens: Optional[int] = None,
     ) -> None:
+
         # 1) Build toolset via the registry (registry is the single source of truth)
         self.registry = ToolRegistry(
             web=web,
@@ -92,7 +99,15 @@ class BaseLLMAgent:
         system = f"{persona}\n\n{policy}".strip()
 
         # 3) Build ReAct prompt + executor (consistent across agents)
-        self.llm = get_llm()
+        self.llm = get_llm(
+            model=llm_model,
+            tier=llm_tier,
+            temperature=llm_temperature,
+            timeout=llm_timeout,
+            json_mode=llm_json_mode,
+            max_tokens=llm_max_tokens,
+        )
+
         self.prompt = ChatPromptTemplate.from_messages([
             ("system", system),
             ("human", "{input}"),

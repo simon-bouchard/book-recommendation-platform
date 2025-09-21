@@ -3,7 +3,7 @@ from typing import Any, Dict, Optional
 
 from app.agents.base import BaseLLMAgent
 from app.agents.tools.registry import InternalToolGates
-
+from app.agents.settings import settings
 
 class RecsysLLMAgent(BaseLLMAgent):
     """
@@ -32,6 +32,7 @@ class RecsysLLMAgent(BaseLLMAgent):
             gates=gates,
             ctx_user=current_user,
             ctx_db=db,
+            llm_tier="large",
             allowed_names={
                 "als_recs",
                 "subject_hybrid_pool",
