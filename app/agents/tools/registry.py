@@ -1,13 +1,11 @@
-# app/agents/tools/registry.py
 from __future__ import annotations
 
-from dataclasses import dataclass
-from typing import List, Optional
 import json
+from dataclasses import dataclass
+from typing import Any, Dict, List, Optional, Tuple
 
 from langchain_core.tools import Tool
 
-# External + docs
 from .external.web import build_web_tools, WebToolState
 from .help import SiteHelpToolkit
 from .recsys.internal_tools import (
@@ -16,63 +14,224 @@ from .recsys.internal_tools import (
     make_subject_hybrid_pool_tool,
 )
 from .recsys.subject_search import make_subject_id_search_tool
-# New semantic tool
 from .recsys.semantic_search import book_semantic_search
 
 
 @dataclass
 class InternalToolGates:
     """
-    Gating signals for internal tools (future use).
-    - internal_enabled: global on/off switch (demo: keep False)
-    - user_num_ratings: used to decide warm/cold for ALS user recs (>= warm_threshold => warm)
-    - user_has_als: explicit flag when you know ALS exists for this user_id
-    - book_has_als: explicit flag when you know ALS exists for a specific book
-    - warm_threshold: ratings needed to be considered "warm"
+    Controls exposure and heuristics for internal tools.
     """
     internal_enabled: bool = False
     user_num_ratings: Optional[int] = None
-    user_has_als: Optional[bool] = None
-    book_has_als: Optional[bool] = None
     warm_threshold: int = 10
+
+
+@dataclass
+class ToolEntry:
+    """
+    Catalog entry with category and the concrete LangChain Tool.
+    """
+    name: str
+    category: str  # "web" | "docs" | "internal"
+    tool: Tool
 
 
 class ToolRegistry:
     """
-    Central tool palette builder.
+    Builds a categorized tool catalog and returns enabled tools according to flags and gates.
 
-    Always returns:
-      - Web tools (DuckDuckGo, Wikipedia, OpenLibrary)
-      - Help tools (help-list, help-read, help-search)
-      - Semantic search (book_semantic_search)
+    Categories
+      - "web": External browsing / public metadata
+      - "docs": Site help documentation
+      - "internal": Recommendation-system tools (incl. semantic search)
 
-    Optionally returns (future):
-      - Internal ML tools (ALS recs, ColdHybrid, subject/ALS/hybrid sim, fetch_book_meta)
-        gated by InternalToolGates. For now, internal tools are not exposed unless
-        `internal_enabled=True` is passed explicitly.
+    Flags
+      - web: enable/disable all "web" tools
+      - docs: enable/disable all "docs" tools
+      - internal: enable/disable all "internal" tools
+
+    Gates
+      - Further restricts which internal tools are exposed depending on warm/cold
+        and available contexts (user/db).
     """
-    def __init__(self, web=True, help=True, gates=None, ctx_user=None, ctx_db=None):
-        self.web_enabled = web
-        self.help_enabled = help
-        self.gates = gates or InternalToolGates()
-        self._ctx_user = ctx_user
-        self._ctx_db = ctx_db
-        self._web_state = WebToolState()
 
-    # -------- Public API --------
+    def __init__(
+        self,
+        *,
+        web: bool = True,
+        docs: bool = True,
+        internal: bool = False,
+        gates: Optional[InternalToolGates] = None,
+        ctx_user: Any = None,
+        ctx_db: Any = None,
+    ) -> None:
+        """
+        Initialize the registry with capability flags, gates, and optional contexts.
+        """
+        self.web_enabled = web
+        self.docs_enabled = docs
+        self.internal_enabled = internal
+        self.gates = gates or InternalToolGates()
+        self.ctx_user = ctx_user
+        self.ctx_db = ctx_db
+        self._web_state = WebToolState()
+        self._catalog: List[ToolEntry] = []
+        self._built = False
+
     def get_tools(self) -> List[Tool]:
-        tools: List[Tool] = []
+        """
+        Return the list of enabled Tool objects according to flags and gates.
+        """
+        if not self._built:
+            self._catalog = self._build_catalog()
+            self._built = True
+        return [e.tool for e in self._catalog if self._is_enabled(e)]
+
+    def get_catalog(self) -> List[Tuple[str, str]]:
+        """
+        Return (name, category) pairs for all cataloged tools.
+        """
+        if not self._built:
+            self._catalog = self._build_catalog()
+            self._built = True
+        return [(e.name, e.category) for e in self._catalog]
+
+    def _is_enabled(self, entry: ToolEntry) -> bool:
+        """
+        Evaluate category-level flags and per-tool internal gates.
+        """
+        if entry.category == "web":
+            return self.web_enabled
+        if entry.category == "docs":
+            return self.docs_enabled
+        if entry.category == "internal":
+            return self.internal_enabled and self._gate_internal(entry.name)
+        return False
+
+    def _gate_internal(self, tool_name: str) -> bool:
+        """
+        Apply internal gating per tool name and available contexts.
+        """
+        if not self.gates.internal_enabled:
+            return False
+
+        is_warm = None
+        if self.gates.user_num_ratings is not None:
+            is_warm = self.gates.user_num_ratings >= self.gates.warm_threshold
+
+        if tool_name == "als_recs":
+            return bool(is_warm) and (self.ctx_user is not None) and (self.ctx_db is not None)
+
+        if tool_name in {"subject_hybrid_pool", "subject_id_search"}:
+            return (self.ctx_user is not None) and (self.ctx_db is not None)
+
+        if tool_name in {"book_semantic_search", "return_book_ids"}:
+            return True
+
+        return True
+
+    def _build_catalog(self) -> List[ToolEntry]:
+        """
+        Construct the full tool catalog once, attaching categories to each entry.
+        """
+        catalog: List[ToolEntry] = []
 
         if self.web_enabled:
-            tools.extend(build_web_tools(self._web_state))
+            for t in build_web_tools(self._web_state):
+                catalog.append(ToolEntry(name=t.name, category="web", tool=t))
 
-        if self.help_enabled:
-            tools.extend(SiteHelpToolkit.as_tools())
+        if self.docs_enabled:
+            for t in SiteHelpToolkit.as_tools():
+                catalog.append(ToolEntry(name=t.name, category="docs", tool=t))
 
-        # --- Semantic index search (always available) ---
-        # Accepts either:
-        #  - JSON: {"query":"...", "top_k": 200}
-        #  - raw string: treated as the query; top_k defaults to 200
+        if self.internal_enabled or self.gates.internal_enabled:
+            catalog.extend(self._build_internal_entries())
+
+        return catalog
+
+    def _build_internal_entries(self) -> List[ToolEntry]:
+        """
+        Create internal tool entries (including semantic search).
+        """
+        entries: List[ToolEntry] = []
+
+        # Semantic search is internal
+        entries.append(ToolEntry(
+            name="book_semantic_search",
+            category="internal",
+            tool=self._make_semantic_tool(),
+        ))
+
+        if self._gate_internal("als_recs"):
+            entries.append(ToolEntry(
+                name="als_recs",
+                category="internal",
+                tool=Tool(
+                    name="als_recs",
+                    func=make_als_pool_tool(self.ctx_user, self.ctx_db),
+                    description=(
+                        "ALS warm-user candidate pool. "
+                        "Input: string 'top_k' (default 200). "
+                        "Output: JSON array of book dicts "
+                        "{item_idx,title,author,year,cover_id,isbn,book_avg_rating,book_num_ratings,score}."
+                    ),
+                ),
+            ))
+
+        if self._gate_internal("subject_hybrid_pool"):
+            entries.append(ToolEntry(
+                name="subject_hybrid_pool",
+                category="internal",
+                tool=Tool(
+                    name="subject_hybrid_pool",
+                    func=make_subject_hybrid_pool_tool(self.ctx_user, self.ctx_db),
+                    description=(
+                        "Subject+Bayesian mixed pool with exclude-read. "
+                        "Input: '' to use profile or JSON "
+                        "{'top_k':200,'fav_subjects_idxs':[...],'w':0.5..0.9}. "
+                        "Output: JSON array of book dicts "
+                        "{item_idx,title,author,year,cover_id,isbn,book_avg_rating,book_num_ratings,score}."
+                    ),
+                ),
+            ))
+
+        if self._gate_internal("subject_id_search"):
+            entries.append(ToolEntry(
+                name="subject_id_search",
+                category="internal",
+                tool=Tool(
+                    name="subject_id_search",
+                    func=make_subject_id_search_tool(self.ctx_db),
+                    description=(
+                        "Resolve free-text subject phrases to subject indices. "
+                        "Input (JSON only): {'phrases': ['history','military history'], 'top_k': 4}. "
+                        "Output (JSON): [{'phrase':'history','candidates':[{'subject_idx':1669,'subject':'History','score':0.96}, ...]}, ...]."
+                    ),
+                ),
+            ))
+
+        if self._gate_internal("return_book_ids"):
+            entries.append(ToolEntry(
+                name="return_book_ids",
+                category="internal",
+                tool=Tool(
+                    name="return_book_ids",
+                    func=make_return_book_ids_tool(),
+                    description=(
+                        "Finalize chosen recommendations. "
+                        "Input: JSON list or comma-separated item_idx. "
+                        "Output: {'book_ids':[...]}."
+                    ),
+                ),
+            ))
+
+        return entries
+
+    def _make_semantic_tool(self) -> Tool:
+        """
+        Create the internal semantic search tool with a flexible input wrapper.
+        """
         def _semantic_wrapper(s: str):
             q, k = s, 200
             try:
@@ -82,118 +241,15 @@ class ToolRegistry:
                     k = int(obj.get("top_k", 200))
             except Exception:
                 pass
+        # Return from outer scope to keep Tool construction clean after parsing
             return book_semantic_search(query=q, top_k=k)
 
-        tools.append(Tool(
+        return Tool(
             name="book_semantic_search",
             func=_semantic_wrapper,
             description=(
-                "Semantic search over enriched tags/vibes. "
-                "Input: JSON {'query': 'free text', 'top_k': 200} OR plain string (the query). "
-                "Returns a list of {'book_id', 'score', 'meta'}."
+                "Semantic search over internal embeddings (seeding/identification). "
+                "Input: JSON {'query': 'free text', 'top_k': 200} or plain string. "
+                "Output: list of candidate book objects with similarity scores and metadata."
             ),
-        ))
-
-        if self._should_expose_internal():
-            tools.extend(self._build_internal_tools())
-
-        return tools
-
-    # -------- Decision logic for internal tools --------
-    def _should_expose_internal(self) -> bool:
-        # Global kill-switch (demo mode keeps internal hidden)
-        if not self.gates.internal_enabled:
-            return False
-        # If you later want to require any specific condition globally, add here.
-        return True
-
-    # -------- Internal tools (future; currently stubs if enabled) --------
-    def _build_internal_tools(self) -> List[Tool]:
-        """
-        Build internal tool objects. These are INPUT-SCHEMA'D as plain strings
-        for LangChain Tool API. Prefer compact, deterministic inputs.
-
-        Expected inputs (JSON or pipe-format — your choice later):
-          - als_recs:          "top_k"
-          - cold_hybrid_recs:  "user_id|top_k|w|tiers" or "fav_subjects_idxs=[...]|top_k|w|tiers"
-          - subject_sim:       "item_idx|top_k"
-          - als_sim:           "item_idx|top_k"
-          - hybrid_sim:        "item_idx|top_k|alpha|min_count"
-          - fetch_book_meta:   "item_idx1,item_idx2,..."
-        """
-        gates = self.gates
-        tools: List[Tool] = []
-
-        # Helper: not-available placeholder
-        def _na(name: str) -> str:
-            return f"[Internal] {name} unavailable in this demo."
-
-        # Helper: quick warm check
-        def _is_warm() -> Optional[bool]:
-            if gates.user_num_ratings is not None:
-                return gates.user_num_ratings >= gates.warm_threshold
-            return None  # unknown
-
-        warm = _is_warm()
-
-        # ---- User-centric recs ----
-        if warm is True:
-            if hasattr(self, "_ctx_user") and hasattr(self, "_ctx_db"):
-                tools.append(Tool(
-                    name="als_recs",
-                    func=make_als_pool_tool(self._ctx_user, self._ctx_db),
-                    description=(
-                        "ALS warm-user pool. Input: 'top_k' (default 200). "
-                        "Returns JSON array of book dicts with "
-                        "{item_idx,title,author,year,cover_id,isbn,book_avg_rating,book_num_ratings,score}."
-                    ),
-                ))
-
-        if hasattr(self, "_ctx_user") and hasattr(self, "_ctx_db"):
-            tools.append(Tool(
-                name="subject_hybrid_pool",
-                func=make_subject_hybrid_pool_tool(self._ctx_user, self._ctx_db),
-                description=(
-                    "Subject+Bayesian mixed pool (exclude-read on). Input: '' (use profile) "
-                    "or JSON with {'top_k':200,'fav_subjects_idxs':[...]} to override subjects. "
-                    "Returns JSON array of book dicts with "
-                    "{item_idx,title,author,year,cover_id,isbn,book_avg_rating,book_num_ratings,score}."
-                ),
-            ))
-            tools.append(Tool(
-                name="subject_id_search",
-                func=make_subject_id_search_tool(self._ctx_db),
-                description=(
-                    "Resolve free-text subject phrases to subject indices (for use with subject_hybrid_pool). "
-                    "Input (JSON only): {'phrases': ['history','military history'], 'top_k': 4}. "
-                    "Output (JSON): [{'phrase':'history','candidates':[{'subject_idx':1669,'subject':'History','score':0.96}, ...]}, ...]. "
-                    "Rules: Action Input must be valid JSON (no trailing words)."
-                ),
-            ))
-
-        # ---- Item-centric sim ----
-        tools.append(Tool(
-            name="subject_sim",
-            func=lambda s: _na("subject_sim"),
-            description="Find similar books by subject-embedding similarity. Input: 'item_idx|top_k'."
-        ))
-
-        if gates.book_has_als is True:
-            tools.append(Tool(
-                name="als_sim",
-                func=lambda s: _na("als_sim"),
-                description="Find similar books by ALS behavioral similarity. Input: 'item_idx|top_k'."
-            ))
-            tools.append(Tool(
-                name="hybrid_sim",
-                func=lambda s: _na("hybrid_sim"),
-                description="Blend subject and ALS similarities. Input: 'item_idx|top_k|alpha|min_count'."
-            ))
-
-        tools.append(Tool(
-            name="return_book_ids",
-            func=make_return_book_ids_tool(),
-            description="Finalize chosen books. Input: JSON list or comma-separated item_idx. Returns {'book_ids':[...]}."
-        ))
-
-        return tools
+        )
