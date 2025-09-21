@@ -1,116 +1,166 @@
-PROJECT STATE (NOW)
+Multi-Agent System Plan (Expanded)
+Keep (re-use unchanged components)
 
-Stack: FastAPI + Jinja templates + static JS.
+HTTP boundary:
+routes/chat.py remains the single FastAPI entrypoint. It continues to handle rate-limits, cookies, history persistence, and response formatting. The outward API contract (ChatOut(reply, books[])) does not change.
 
-Notable routes/files:
+It still calls normalize_visible_reply, extract_book_ids_from_steps, and build_books_from_ids to produce book cards.
 
-routes/chat.py → /chat page + POST /chat/agent (returns {reply, books[]}).
+It still logs request_start and request_end events with conv_id and uid.
 
-app/agents/web_agent.py → ReAct-style agent with external tools (DuckDuckGo, Wikipedia, OpenLibrary, local help-docs).
+Context building:
+context_builder.py + user_context.py for composing user profile context and recent interaction snippets. Only the Recsys branch will use this. Docs and Web branches receive raw user text only.
 
-models/… → core ML engines: ALS (warm), ColdHybrid (subject+Bayesian), similarity strategies (subject, ALS, hybrid), attention pooling for subjects, ModelStore singleton.
+Settings:
+settings.py continues to centralize LLM/provider toggles, embedding factory, Redis URL, rate limits. Extend it later with new Conductor/Router knobs (timeouts, budgets, critic toggle).
 
-Current demo:
-The agent is a virtual librarian. It defaults to no tools for greetings/small talk. For site-help questions it uses local help-docs. For external facts it may call web tools (DuckDuckGo, Wikipedia, OpenLibrary). Responses normalize to a single line starting with Final Answer:; /chat/agent strips that prefix.
+Tooling surface:
+ToolRegistry + existing tool modules (web.py, help.py, internal_tools.py, semantic_search.py, subject_search.py). These remain the authoritative adapters for external and internal capabilities.
 
-Constraints in place:
-3-tool cap, deduped queries, temperature=0, never invent titles.
+Prompt rules:
+The strict AGENT_PROMPT stays as the backbone of the Recsys agent. It enforces the “internal tool → return_book_ids → Final Answer” ritual, the subject/ALS/semantic chooser, and the retry rule for subject pools.
 
-CONVERSATION STATE & REDIS (NOW)
+Change (split responsibilities)
 
-On first request, server sets a conv_id cookie (SameSite=Lax).
+Replace the single web_agent.py with a Conductor + Router + three branch agents.
 
-Each turn is stored in Redis under chat:{conv_id} as a rolling JSON list of last N turns (default 3).
+The Router is very light: it inspects the raw user text (and possibly a warm/cold signal via user_num_ratings) and returns "recsys" | "web" | "docs".
 
-Before calling the agent, the server prepends:
+The Conductor calls Router, dispatches to the appropriate branch, and handles any optional Web-for-enrichment merge.
 
-(User profile context — if enabled; favorite subjects + recent interactions from SQL).
+Profile context (build_composed_input) is not used in Router. It is only built and consumed inside the Recsys branch.
 
-(Conversation so far — last few turns).
+New files
 
-The new user message.
+app/agents/conductor.py — Orchestration entrypoint. Calls Router, dispatches to the chosen branch agent, optionally merges Web enrichment into Recsys answers, returns a unified ConductorResponse.
 
-This lets the agent resolve follow-ups naturally (“like the second one you mentioned…”).
+app/agents/router.py — Deterministic branch classifier. Very simple rules mapping user text patterns to "recsys", "web", or "docs".
 
-TTL: 2 days.
-Failure mode: if Redis is down, degrade to stateless.
-Security: Redis local only; no DB writes from the agent.
+app/agents/contracts.py — Typed result envelopes (RecsysResult, WebResult, DocsResult, ConductorResponse) for testing/log stability.
 
-WHAT I AM BUILDING NEXT (ML-INTEGRATED AGENT)
+app/agents/budget.py — Per-request budget ledger (max tool calls, max elapsed time). Conductor checks before dispatching tools.
 
-The chatbot will become a grounded, catalog-locked RAG-style agent. Instead of inventing, it will call the same ML models already used by the website. External web tools remain, but will only be used for clearly external queries. All recommendation answers will come strictly from internal models.
+app/agents/tools_adapters.py — Async wrappers around existing tool factories, with timeouts and span logging. Conductor calls these, not LangChain primitives.
 
-Internal tools (atomic, deterministic):
+app/telemetry/tracing.py — OpenTelemetry integration. One span per conductor, router, branch, and tool call. Attach conv_id and budget counters.
 
-User-centric recs
+(later) app/agents/critic.py — Optional validator for provenance (e.g. Recsys outputs must include IDs, Web outputs must include citations, Docs outputs must come from help-read).
 
-als_recs(user_id, top_k) → ALS baseline (warm).
+Branch agents
+Recsys branch
 
-cold_hybrid_recs(user_id|fav_subjects_idxs, top_k, w, tiers) → Cold hybrid subject+Bayesian.
+Input: full composed input (profile + history + raw user text).
 
-Item-centric sim
+Tools: ALS (als_recs), Subject hybrid (subject_hybrid_pool + subject_id_search), Semantic search (book_semantic_search, seeding only), and return_book_ids.
 
-subject_sim(item_idx, top_k) → subject embeddings.
+Rules:
 
-als_sim(item_idx, top_k) → ALS similarity (if available).
+Must call at least one internal tool, then finalize with return_book_ids.
 
-hybrid_sim(item_idx, top_k, alpha, min_count) → blend (if both available).
+Semantic search only for seeding or identification; never a finalizer.
 
-Meta join
+Retry subject_hybrid_pool once with higher w if initial pool is too popularity-heavy.
 
-fetch_book_meta(item_idxs[]) → authoritative {title, author, year, cover_url}.
+LLM curates from a bounded shortlist (union by item_idx, capped per tool) and chooses 4–12 before return_book_ids. No numeric fusion outside the tools.
 
-Help/docs
+Web branch
 
-help-list, help-read, help-search remain for onboarding and site explanations.
+Input: raw user text only.
 
-Tool availability is gated:
+Tools: web-search, Wikipedia, OpenLibrary.
 
-ALS tools are only exposed if the user/book exists in ALS.
+Rules:
 
-Hybrid sim only if both ALS + subject are present.
+For facts, “what is / who wrote / latest / compare / links”.
 
-Cold tools always available.
-Unavailable tools are simply not listed for the agent.
+Never outputs item_idx.
 
-AGENT BEHAVIOR
+May run in parallel with Recsys for enrichment (short blurbs, publication info), but only Recsys supplies IDs.
 
-Persona: concise librarian; never invents; always catalog-grounded.
+Docs branch
 
-Tool policy:
+Input: raw user text only.
 
-No tools for greetings/small talk.
+Tools: help-manifest, help-read.
 
-For recs, prefer internal tools.
+Rules:
 
-Web tools only if the user clearly asks for external context.
+For onboarding and “how does this site work” questions.
 
-Chaining: Agent may call multiple tools in one turn (e.g., ALS recs → then subject sim for diversity → merge/dedupe → final answer).
+Deterministic path: manifest → choose alias → help-read.
 
-Finalization: Exactly one line starting with Final Answer: plus short explanation with provenance labels (e.g., “(source: ALS baseline)”).
+No Web or internal tools enabled here.
 
-Memory: Rolling Redis window and optional profile context guide tool choice; outputs always grounded in the current turn’s fetched IDs.
+Router agent
 
-NON-GOALS
+Input: raw user text (+ optional user_num_ratings warm/cold signal).
 
-No DB writes.
+Rules:
 
-No scraping.
+“profile, ratings, chatbot, portfolio, how does X work” → Docs.
 
-No second agent or hard “mode” toggle—one agent dynamically chooses between internal and web tools.
+“what is, who wrote, compare, best/top/latest, fresh info” → Web.
 
-ACCEPTANCE CRITERIA
+“recommend, subject, tone, vibe, forgot the title” → Recsys.
 
-/chat loads; /chat/agent works.
+Output: compact plan object, e.g. {"target":"recsys","intent":"recommend"}.
 
-Small-talk → short reply, no tools.
+Candidate fusion (inside Recsys only)
 
-Internal rec queries → only catalog results, correct provenance.
+Do not interleave blindly. Select tools based on intent (ALS for warm, Subject for subject cues, Semantic for free-text seeding).
 
-Site-help queries → answered via local docs.
+Each tool returns a pool of book dicts (item_idx, title, author, etc.).
 
-Web queries → use web tools, never for recs.
+Build a union by item_idx, collapse overlaps, and cap the total count (intent-aware caps).
 
-Redis history allows follow-up references.
+For each candidate, create a micro-card: {item_idx | title — author | src:[ALS/SUBJ/SEM] | hints}.
 
-All outputs end with one Final Answer: line and never invent titles.
+Present these compact cards to the LLM for curation.
+
+LLM applies the prompt rules (curation, diversity, retry if needed) and must call return_book_ids.
+
+Observability
+
+Keep capture_agent_console_and_httpx to pipe raw LangChain + httpx traces into logs/chatbot.log.
+
+Add structured spans for conductor, router, each branch, and each tool call.
+
+Attach conv_id, uid, plan, and budget counters as attributes in both logs and traces.
+
+Config
+
+Extend ChatSettings with:
+
+enable_critic, app_max_tools, internal_timeout_ms, web_timeout_ms, router_debug_mode, app_latency_ms.
+
+Migration path
+
+PR-1 (scaffolding, no user-visible change)
+
+Add Conductor, Router, Contracts, Budget, Adapters, Telemetry stubs.
+
+Switch /chat/agent from web_agent.answer to Conductor.run, but delegate everything to the current single agent (as Recsys).
+
+Keep output identical to today.
+
+PR-2 (true MAS)
+
+Enable Web and Docs branches with gated tool registries.
+
+Router chooses branch.
+
+Recsys agent enforces internal tool + return_book_ids.
+
+Web returns snippets + citations.
+
+Docs returns onboarding answers.
+
+Add provenance and branch timings to logs.
+
+Future evolution
+
+Split Recsys into multiple sub-agents (ALS-specialist, Subject-specialist, Semantic-specialist) coordinated by a local planner.
+
+Add Critic to validate provenance and polish tone.
+
+Extend Router to handle hybrid Web+Recsys enrichment plans explicitly.
