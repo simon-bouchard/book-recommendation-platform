@@ -4,7 +4,7 @@ from typing import Any, Dict, Optional
 
 # PR-1: delegate mode (no behavior change)
 # We call the existing legacy agent exactly as before.
-from app.agents.web_agent import answer as legacy_answer  # do not move this in PR-1
+from app.agents.branches.legacy_single_agent import answer as legacy_answer  # do not move this in PR-1
 
 class Conductor:
     """
