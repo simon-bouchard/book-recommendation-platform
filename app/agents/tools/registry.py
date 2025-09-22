@@ -15,6 +15,7 @@ from .recsys.internal_tools import (
 )
 from .recsys.subject_search import make_subject_id_search_tool
 from .recsys.semantic_search import book_semantic_search
+from .user_context import UserContextToolkit
 
 
 @dataclass
@@ -25,6 +26,7 @@ class InternalToolGates:
     internal_enabled: bool = False
     user_num_ratings: Optional[int] = None
     warm_threshold: int = 10
+    profile_allowed: bool = False
 
 
 @dataclass
@@ -113,9 +115,6 @@ class ToolRegistry:
         """
         Apply internal gating per tool name and available contexts.
         """
-        if not self.gates.internal_enabled:
-            return False
-
         is_warm = None
         if self.gates.user_num_ratings is not None:
             is_warm = self.gates.user_num_ratings >= self.gates.warm_threshold
@@ -128,6 +127,13 @@ class ToolRegistry:
 
         if tool_name in {"book_semantic_search", "return_book_ids"}:
             return True
+
+        if tool_name in {"user-profile", "recent-interactions"}:
+            return (
+                self.gates.profile_allowed
+                and (self.ctx_user is not None)
+                and (self.ctx_db is not None)
+            )
 
         return True
 
@@ -145,7 +151,7 @@ class ToolRegistry:
             for t in SiteHelpToolkit.as_tools():
                 catalog.append(ToolEntry(name=t.name, category="docs", tool=t))
 
-        if self.internal_enabled or self.gates.internal_enabled:
+        if self.internal_enabled:
             catalog.extend(self._build_internal_entries())
 
         return catalog
@@ -225,6 +231,19 @@ class ToolRegistry:
                     ),
                 ),
             ))
+
+        # User context tools (exposed only with consent + user/db context)
+        if self._gate_internal("user-profile") or self._gate_internal("recent-interactions"):
+            for t in UserContextToolkit.as_tools(
+                ctx_user=self.ctx_user,
+                ctx_db=self.ctx_db,
+                consent=self.gates.profile_allowed,
+            ):
+                entries.append(ToolEntry(
+                    name=t.name,
+                    category="internal",
+                    tool=t,
+                ))
 
         return entries
 
