@@ -73,7 +73,7 @@ def get_provider() -> Dict[str, Any]:
             "name": "deepinfra",
             "base_url": settings.deepinfra_base_url,
             "api_key": settings.deepinfra_api_key,
-            "default_model": settings.deepinfra_model,
+            "default_model": settings.llm_model_medium,
         }
 
     # Fallback: OpenAI
@@ -81,7 +81,7 @@ def get_provider() -> Dict[str, Any]:
         "name": "openai",
         "base_url": settings.openai_base_url,  # may be None (uses library default)
         "api_key": settings.openai_api_key,
-        "default_model": settings.openai_model,
+        "default_model": settings.llm_model_medium,
     }
 
 def get_model_for_tier(tier: str) -> str:

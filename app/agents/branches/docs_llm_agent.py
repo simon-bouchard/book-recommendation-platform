@@ -18,7 +18,7 @@ class DocsLLMAgent(BaseLLMAgent):
             internal=False,
             allowed_names={"help-read"},
             docs_manifest=True,  # inject manifest into prompt once
-            llm_tier="large",
+            llm_tier="medium",
         )
 
     def run(self, text: str) -> Dict[str, Any]:

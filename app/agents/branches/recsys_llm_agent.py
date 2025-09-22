@@ -18,11 +18,12 @@ class RecsysLLMAgent(BaseLLMAgent):
         db: Any = None,
         user_num_ratings: Optional[int] = None,
         warm_threshold: int = 10,
+        allow_profile: bool = False,
     ) -> None:
         gates = InternalToolGates(
-            internal_enabled=True,
             user_num_ratings=user_num_ratings,
             warm_threshold=warm_threshold,
+            profile_allowed=bool(allow_profile),
         )
         super().__init__(
             policy_name="recsys.system.md",
@@ -39,6 +40,8 @@ class RecsysLLMAgent(BaseLLMAgent):
                 "subject_id_search",
                 "book_semantic_search",
                 "return_book_ids",
+                "user-profile", 
+                "recent-interactions"
             },
         )
 

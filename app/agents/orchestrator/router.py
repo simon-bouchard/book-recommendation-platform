@@ -6,7 +6,7 @@ from dataclasses import dataclass
 from typing import Any, Dict, List, Optional
 
 from app.agents.prompts.loader import read_prompt
-from app.agents.runtime import get_llm
+from app.agents.settings import get_llm
 
 
 ALLOWED_TARGETS = {"recsys", "web", "docs", "respond"}
