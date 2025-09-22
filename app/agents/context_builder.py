@@ -1,5 +1,5 @@
 # app/agents/context_builder.py
-from typing import List, Optional
+from typing import List, Optional, Dict
 from sqlalchemy.orm import Session
 from app.agents.user_context import fetch_user_context, format_user_context
 
@@ -39,3 +39,47 @@ def build_composed_input(
     sections.append(f"User: {user_text.strip()}")
 
     return "\n\n".join(sections)
+
+def get_router_view(
+    history: List[Dict],
+    k_user: int = 2,
+    max_chars: int = 2000,
+) -> str:
+    """
+    Return a compact slice for routing: the last K USER utterances only (newest last),
+    joined by newlines. No assistant messages, no profile, hard-capped by max_chars.
+    """
+    if not history or k_user <= 0:
+        return ""
+
+    # Collect last k_user non-empty user messages, newest→oldest
+    collected: List[str] = []
+    for turn in reversed(history):
+        u = (turn.get("u") or "").strip()
+        if u:
+            collected.append(u)
+            if len(collected) >= k_user:
+                break
+
+    # Reverse to oldest→newest; join
+    lines = list(reversed(collected))
+    text = "\n".join(lines)
+
+    # Enforce hard cap (trim from the front to keep most recent context intact)
+    if max_chars > 0 and len(text) > max_chars:
+        text = text[-max_chars:]
+
+    return text
+
+
+def get_branch_view(
+    history: List[Dict],
+    hist_turns: int,
+) -> List[Dict]:
+    """
+    Return the last N (user, assistant) turns for branch composition.
+    Structure matches what build_composed_input expects.
+    """
+    if not history or hist_turns <= 0:
+        return []
+    return history[-hist_turns:]
