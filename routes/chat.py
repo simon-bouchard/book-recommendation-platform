@@ -7,9 +7,9 @@ from routes.auth import get_current_user
 from sqlalchemy.orm import Session
 from app.agents.orchestrator.conductor import Conductor
 from app.database import get_db
-from app.agents.schemas import ChatIn, ChatOut, BookOut
-from app.agents.context_builder import build_composed_input
+from app.agents.schemas import ChatIn, ChatOut
 from app.agents.runtime import rate_limit_check, ensure_conv_cookie, load_history, save_history, normalize_visible_reply, extract_book_ids_from_steps, build_books_from_ids
+from app.agents.context_builder import build_composed_input
 from app.agents.logging import get_logger, chatbot_logger
 from models.shared_utils import get_user_num_ratings
 
@@ -96,7 +96,9 @@ def chat_agent(
     steps = res.get("intermediate_steps") or []
 
     reply_text = normalize_visible_reply(raw_text)
-    ids = extract_book_ids_from_steps(steps)
+
+    legacyish_steps = [{"tool": c.name, "input": c.args} for c in (res.tool_calls or [])]
+    ids = extract_book_ids_from_steps(legacyish_steps) or []
     books = build_books_from_ids(ids)
 
     hist.append({"u": text, "a": reply_text})
@@ -106,4 +108,10 @@ def chat_agent(
         "conv_id": conv_id, "uid": uid, "num_books": len(books), "reply_len": len(reply_text), "ids": ids[:12]
     }})
 
-    return ChatOut(reply=reply_text, books=books)
+    return ChatOut(
+        target=res.target,
+        text=reply_text,
+        books=books,
+        steps=res.tool_calls,
+        citations=res.citations,
+    )

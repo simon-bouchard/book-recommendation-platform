@@ -1,24 +1,15 @@
+# app/agents/orchestrator/router.py
 from __future__ import annotations
 
 import json
 import re
-from dataclasses import dataclass
 from typing import Any, Dict, List, Optional
 
 from app.agents.prompts.loader import read_prompt
 from app.agents.settings import get_llm
-
+from app.agents.schemas import RoutePlan  # <-- use your pydantic schema
 
 ALLOWED_TARGETS = {"recsys", "web", "docs", "respond"}
-
-
-@dataclass(frozen=True)
-class RoutePlan:
-    """
-    Final router decision returned to the Conductor.
-    """
-    target: str
-    reason: str
 
 
 def _extract_first_json_block(text: str) -> Optional[Dict[str, Any]]:
@@ -55,6 +46,7 @@ class RouterLLM:
         Loads the router system prompt and obtains an LLM instance from the runtime.
         """
         self.system_prompt = read_prompt("router.system.md")
+        # small tier, deterministic, ask model to aim for JSON (json_mode if your get_llm supports it)
         self.llm = get_llm(tier="small", json_mode=True, temperature=0, timeout=15)
 
     def _chat(self, messages: List[Dict[str, str]]) -> str:
@@ -63,16 +55,13 @@ class RouterLLM:
         Supports LangChain-style .invoke or a callable returning a response object or string.
         """
         llm = self.llm
-        resp = None
         if hasattr(llm, "invoke"):
             resp = llm.invoke(messages)
         elif callable(llm):
             resp = llm(messages)
         else:
             raise RuntimeError("LLM object is not invokable")
-        if hasattr(resp, "content"):
-            return str(resp.content)
-        return str(resp)
+        return str(getattr(resp, "content", resp))
 
     def _validate(self, obj: Dict[str, Any]) -> Optional[RoutePlan]:
         """
