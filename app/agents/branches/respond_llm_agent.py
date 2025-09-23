@@ -4,6 +4,7 @@ from langchain.prompts import ChatPromptTemplate
 from app.agents.prompts.loader import read_prompt
 from app.agents.settings import get_llm
 from app.agents.schemas import AgentResult
+from app.agents.logging import capture_agent_console_and_httpx
 
 class RespondLLMAgent:
     """
@@ -23,7 +24,9 @@ class RespondLLMAgent:
 
     def run(self, composed_input: str) -> AgentResult:
         msg = self.prompt.format_messages(input=composed_input or "")
-        out = self.llm.invoke(msg)
+        with capture_agent_console_and_httpx():
+            out = self.llm.invoke(msg)
+
         text = getattr(out, "content", str(out)) or ""
         return AgentResult(
             target="respond",

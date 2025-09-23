@@ -8,6 +8,7 @@ from typing import Any, Dict, List, Optional
 from app.agents.prompts.loader import read_prompt
 from app.agents.settings import get_llm
 from app.agents.schemas import RoutePlan  # <-- use your pydantic schema
+from app.agents.logging import capture_agent_console_and_httpx
 
 ALLOWED_TARGETS = {"recsys", "web", "docs", "respond"}
 
@@ -55,13 +56,13 @@ class RouterLLM:
         Supports LangChain-style .invoke or a callable returning a response object or string.
         """
         llm = self.llm
-        if hasattr(llm, "invoke"):
-            resp = llm.invoke(messages)
-        elif callable(llm):
-            resp = llm(messages)
-        else:
-            raise RuntimeError("LLM object is not invokable")
-        return str(getattr(resp, "content", resp))
+        with capture_agent_console_and_httpx():
+            if hasattr(llm, "invoke"):
+                resp = llm.invoke(messages)
+            elif callable(llm):
+                resp = llm(messages)
+            else:
+                raise RuntimeError("LLM object is not invokable")
 
     def _validate(self, obj: Dict[str, Any]) -> Optional[RoutePlan]:
         """

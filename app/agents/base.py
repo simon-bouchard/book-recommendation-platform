@@ -10,6 +10,7 @@ from app.agents.prompts.loader import read_prompt
 from app.agents.settings import get_llm
 from app.agents.tools.registry import ToolRegistry, InternalToolGates
 from app.agents.tools.help import SiteHelpToolkit
+from app.agents.logging import get_logger, capture_agent_console_and_httpx
 
 from app.agents.schemas import (
     AgentResult,
@@ -147,6 +148,8 @@ class BaseLLMAgent:
         else:
             text = inp.user_text
 
-        result = self.exec.invoke({"input": text or ""})
+        with capture_agent_console_and_httpx():
+            result = self.exec.invoke({"input": text or ""})
+
         steps = self._serialize_steps(result.get("intermediate_steps"))
         return self.finalize(text or "", result, steps)

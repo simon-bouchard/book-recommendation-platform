@@ -3,7 +3,7 @@ from typing import Any, Dict, Optional
 
 from app.agents.base import BaseLLMAgent
 from app.agents.tools.registry import InternalToolGates
-from app.agents.settings import settings
+from app.agents.schemas import AgentResult
 
 class RecsysLLMAgent(BaseLLMAgent):
     """
@@ -45,19 +45,26 @@ class RecsysLLMAgent(BaseLLMAgent):
             },
         )
 
-    def finalize(self, input_text: str, raw_result: Dict[str, Any], steps: list[Dict[str, Any]]) -> Dict[str, Any]:
-        """
-        If the model failed to call return_book_ids, append a direct instruction
-        and retry once. Otherwise return result as-is.
-        """
-        if any(s.get("tool") == "return_book_ids" for s in steps):
-            return {"text": raw_result.get("output", ""), "intermediate_steps": steps}
-        retry_input = (
-            f"{input_text}\n\nImportant: finalize now by calling return_book_ids with 4–12 curated IDs."
-        )
-        retry = self.exec.invoke({"input": retry_input})
-        retry_steps = self._serialize_steps(retry.get("intermediate_steps"))
-        return {"text": retry.get("output", ""), "intermediate_steps": retry_steps}
+    def finalize(self, input_text: str, raw_result: Dict[str, Any], steps: List[Dict[str, Any]]) -> AgentResult:
+        # If already finalized correctly:
+        if any((s.get("tool") == "return_book_ids") for s in steps or []):
+            text = (raw_result.get("output") or "").strip()
+            return AgentResult(
+                target="recsys",
+                text=text,
+                success=bool(text),
+                tool_calls=self._steps_to_tool_calls(steps),
+                policy_version=self.policy_version,
+            )
 
-    def run(self, composed: str) -> Dict[str, Any]:
-        return super().run(composed)
+        # Retry once to force finalization
+        retry = self.exec.invoke({"input": f"{input_text}\n\nImportant: finalize now by calling return_book_ids with 4–12 curated IDs."})
+        retry_steps = self._serialize_steps(retry.get("intermediate_steps"))
+        text = (retry.get("output") or "").strip()
+        return AgentResult(
+            target="recsys",
+            text=text,
+            success=bool(text),
+            tool_calls=self._steps_to_tool_calls(retry_steps),
+            policy_version=self.policy_version,
+        )
