@@ -87,13 +87,16 @@ class BaseLLMAgent:
         # Build ReAct prompt
         prompt = ChatPromptTemplate.from_messages(
             [
-                ("system", system),
-                MessagesPlaceholder(variable_name="agent_scratchpad"),
+                ("system",
+                system
+                + "\n\nYou can use the following tools:\n{tools}\n"
+                "When a tool is helpful, call it. If not, answer directly."),
+                MessagesPlaceholder(variable_name="history"),
                 ("human", "{input}"),
+                MessagesPlaceholder(variable_name="agent_scratchpad"),
             ]
         )
-        agent = create_react_agent(self.llm, tools, prompt)
-        self.exec: AgentExecutor = AgentExecutor(agent=agent, tools=tools, verbose=False)
+        self.exec = AgentExecutor(agent=create_react_agent(self.llm, tools, prompt), tools=tools, verbose=False)
 
     # --- Utilities ------------------------------------------------------------
 
@@ -119,6 +122,16 @@ class BaseLLMAgent:
             calls.append(ToolCall(name=name, args=args))
         return calls
 
+    @staticmethod
+    def _to_history_msgs(hist: List[Dict[str, str]]) -> List[tuple[str, str]]:
+        msgs: List[tuple[str, str]] = []
+        for t in hist or []:
+            u = (t.get("u") or "").strip()
+            a = (t.get("a") or "").strip()
+            if u: msgs.append(("human", u))
+            if a: msgs.append(("ai", a))
+        return msgs
+
     # --- Overridables ---------------------------------------------------------
 
     def finalize(self, input_text: str, raw_result: Dict[str, Any], steps: List[Dict[str, Any]]) -> AgentResult:
@@ -139,17 +152,14 @@ class BaseLLMAgent:
     # --- Public API -----------------------------------------------------------
 
     def run(self, inp: Union[str, TurnInput]) -> AgentResult:
-        """
-        Execute a single turn. Accepts either a raw string (for compatibility)
-        or a TurnInput. Returns AgentResult.
-        """
         if isinstance(inp, str):
-            text = inp
+            text, history_msgs = inp, []
         else:
             text = inp.user_text
+            history_msgs = self._to_history_msgs(inp.full_history)
 
         with capture_agent_console_and_httpx():
-            result = self.exec.invoke({"input": text or ""})
+            result = self.exec.invoke({"input": text or "", "history": history_msgs})
 
         steps = self._serialize_steps(result.get("intermediate_steps"))
         return self.finalize(text or "", result, steps)
