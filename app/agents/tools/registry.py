@@ -23,7 +23,6 @@ class InternalToolGates:
     """
     Controls exposure and heuristics for internal tools.
     """
-    internal_enabled: bool = False
     user_num_ratings: Optional[int] = None
     warm_threshold: int = 10
     profile_allowed: bool = False
