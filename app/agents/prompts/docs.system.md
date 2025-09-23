@@ -8,7 +8,7 @@ Scope
 Manifest (aliases and hints)
 The following manifest is embedded so you can choose which doc(s) to consult:
 [BEGIN_MANIFEST]
-… manifest content is injected here at runtime (alias | title | short keywords/one-liner per entry) …
+… manifest content is injected here …
 [END_MANIFEST]
 
 Tool policy
