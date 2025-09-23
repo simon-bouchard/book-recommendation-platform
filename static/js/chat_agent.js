@@ -137,7 +137,9 @@ async function sendChatMessage(text, messagesEl) {
   messagesEl.scrollTop = messagesEl.scrollHeight;
 
   const useProfile = !!document.getElementById("useProfile")?.checked;
-  const payload = { message: text, use_profile: useProfile, restrict_to_catalog: true };
+
+  // FIX 1: use ChatIn schema → user_text
+  const payload = { user_text: text, use_profile: useProfile };
 
   try {
     setDisabled(true);
@@ -148,31 +150,30 @@ async function sendChatMessage(text, messagesEl) {
       body: JSON.stringify(payload),
     });
 
-    // Success → normal path; also show usage from headers
     if (resp.ok) {
       updateUsageFromHeaders(resp.headers);
       const data = await resp.json().catch(() => ({}));
+
       thinking.remove();
-      const reply = data?.reply || "Sorry, I couldn't generate a response.";
+
+      // FIX 2: ChatOut uses 'text' (not 'reply')
+      const reply = (data && typeof data.text === "string" ? data.text : "Sorry, I couldn't generate a response.");
       appendMessage(messagesEl, "bot", reply);
+
       if (Array.isArray(data?.books) && data.books.length) {
         const gridHost = document.getElementById("chatBookResults");
         if (gridHost) {
-          // Avoid nested .book-grid .book-grid
           gridHost.classList.remove("book-grid");
-          gridHost.innerHTML = ""; // let the shared renderer take over
+          gridHost.innerHTML = "";
 
-          // Reuse the exact renderer used by the book page
           const mod = await import("/static/js/paginated_books.js");
           mod.setupPaginatedBookDisplay({
             books: data.books,
             containerId: "chatBookResults",
-            // Chat view doesn't need buttons; render all at once with shared card markup
             manualPagination: true,
             scrollOnFirstRender: true
           });
 
-          // Make sure users see the section
           gridHost.scrollIntoView({ behavior: "smooth", block: "start" });
         }
       }
@@ -180,7 +181,6 @@ async function sendChatMessage(text, messagesEl) {
       return;
     }
 
-    // Unauthorized (if login enabled)
     if (resp.status === 401) {
       thinking.remove();
       showBanner("warning", "Please log in to use the chatbot.", { autoHideMs: 7000, container: CHAT_CONTAINER });
@@ -189,7 +189,6 @@ async function sendChatMessage(text, messagesEl) {
       return;
     }
 
-    // Rate limited → reason + Retry-After
     if (resp.status === 429) {
       thinking.remove();
       const reason = resp.headers.get("X-RateLimit-Block-Reason") || "unknown";
@@ -199,20 +198,17 @@ async function sendChatMessage(text, messagesEl) {
         const j = await resp.json();
         if (j?.detail) detail = j.detail;
       } catch {}
-      // minute vs day/system
       if (reason === "identity_minute") {
         startCountdown(retryAfter, "You are sending messages too quickly");
       } else if (reason === "identity_day" || reason === "system_day") {
         showStopForDay(detail);
       } else {
-        // unknown → safe fallback
         startCountdown(retryAfter, detail);
       }
       appendMessage(messagesEl, "bot", detail);
       return;
     }
 
-    // Other errors
     thinking.remove();
     showBanner("danger", `Error ${resp.status}: ${resp.statusText || "Something went wrong."}`, { autoHideMs: 7000, container: CHAT_CONTAINER });
     appendMessage(messagesEl, "bot", "Something went wrong while contacting the agent.");
@@ -220,8 +216,7 @@ async function sendChatMessage(text, messagesEl) {
 
   } catch (err) {
     thinking.remove();
-    showBanner("danger", "Network error. Please try again.", { autoHideMs: 7000, container: CHAT_CONTAINER
-     });
+    showBanner("danger", "Network error. Please try again.", { autoHideMs: 7000, container: CHAT_CONTAINER });
     appendMessage(messagesEl, "bot", "Something went wrong while contacting the agent.");
     setDisabled(false);
     console.error(err);
