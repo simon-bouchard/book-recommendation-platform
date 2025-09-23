@@ -7,7 +7,7 @@ from typing import Any, Dict, List, Optional
 
 from app.agents.prompts.loader import read_prompt
 from app.agents.settings import get_llm
-from app.agents.schemas import RoutePlan  # <-- use your pydantic schema
+from app.agents.schemas import RoutePlan, TurnInput 
 from app.agents.logging import capture_agent_console_and_httpx
 
 ALLOWED_TARGETS = {"recsys", "web", "docs", "respond"}
@@ -64,6 +64,18 @@ class RouterLLM:
             else:
                 raise RuntimeError("LLM object is not invokable")
 
+        if isinstance(resp, str):
+            return resp
+        content = getattr(resp, "content", None)  # LangChain BaseMessage
+        if isinstance(content, str):
+            return content
+        if isinstance(resp, dict):
+            # Fallbacks for odd providers
+            for k in ("content", "text", "message"):
+                if isinstance(resp.get(k), str):
+                    return resp[k]
+        return str(resp)
+
     def _validate(self, obj: Dict[str, Any]) -> Optional[RoutePlan]:
         """
         Validates a parsed JSON object and returns a RoutePlan if valid.
@@ -101,22 +113,22 @@ class RouterLLM:
         obj = _extract_first_json_block(content)
         return self._validate(obj) if obj is not None else None
 
-    def classify(self, text: str, user_num_ratings: Optional[int] = None) -> RoutePlan:
+    def classify(self, inp: TurnInput) -> RoutePlan:
         """
         Routes a single user message to one target branch.
-        Uses a primary LLM call and, if parsing fails, a single repair retry.
-        Returns 'respond' with a parse-failed reason if both attempts fail.
+        Accepts TurnInput for a uniform contract.
         """
+        user_text = (inp.user_text or "").strip()
         messages = [
             {"role": "system", "content": self.system_prompt},
-            {"role": "user", "content": text or ""},
+            {"role": "user", "content": user_text},
         ]
         content = self._chat(messages)
         obj = _extract_first_json_block(content)
         plan = self._validate(obj) if obj is not None else None
         if plan is not None:
             return plan
-        repaired = self._repair_retry(text or "", content or "")
+        repaired = self._repair_retry(user_text, content or "")
         if repaired is not None:
             return repaired
         return RoutePlan(target="respond", reason="router: parse-failed-after-retry")

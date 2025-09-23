@@ -1,7 +1,8 @@
 # app/agents/context_builder.py
-from typing import List, Optional, Dict
+from typing import List, Optional, Dict, Any, Tuple
 from sqlalchemy.orm import Session
 from app.agents.user_context import fetch_user_context, format_user_context
+from app.agents.schemas import TurnInput
 
 def build_composed_input(
     db: Optional[Session],
@@ -83,3 +84,53 @@ def get_branch_view(
     if not history or hist_turns <= 0:
         return []
     return history[-hist_turns:]
+
+# context_builder.py
+def make_router_input(history: list[dict], user_text: str, k_user: int = 2) -> TurnInput:
+    short_view = get_router_view(history, k_user=k_user).strip()
+    current = user_text.strip()
+
+    if short_view:
+        merged = (
+            "[LAST_USER_MESSAGES]\n"
+            f"{short_view}\n"
+            "[/LAST_USER_MESSAGES]\n"
+            "[CURRENT]\n"
+            f"{current}\n"
+            "[/CURRENT]"
+        )
+    else:
+        merged = current
+
+    return TurnInput(
+        user_text=merged,
+        full_history=[],
+    )
+
+def make_branch_input(
+    history: list[dict],
+    user_text: str,
+    hist_turns: int,
+    use_profile: bool,
+    user_num_ratings: int | None,
+    db=None,
+    current_user=None,
+    conv_id=None,
+    uid=None,
+) -> TurnInput:
+    """
+    Standard TurnInput for branch agents.
+    """
+    full_view = get_branch_view(history, hist_turns=hist_turns)
+    return TurnInput(
+        user_text=user_text.strip(),
+        full_history=full_view,
+        profile_allowed=use_profile,
+        user_num_ratings=user_num_ratings,
+        ctx={
+            "db": db,
+            "current_user": current_user,
+            "conv_id": conv_id,
+            "uid": uid,
+        },
+    )

@@ -259,7 +259,7 @@ class ToolRegistry:
                     k = int(obj.get("top_k", 200))
             except Exception:
                 pass
-        # Return from outer scope to keep Tool construction clean after parsing
+            # Return from outer scope to keep Tool construction clean after parsing
             return book_semantic_search(query=q, top_k=k)
 
         return Tool(

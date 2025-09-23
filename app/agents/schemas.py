@@ -50,7 +50,6 @@ class RoutePlan(BaseModel):
 class TurnInput(BaseModel):
     schema: SchemaVersion = "v1"
     user_text: str
-    short_history: List[Dict[str, str]] = Field(default_factory=list)
     full_history: List[Dict[str, str]] = Field(default_factory=list)
     profile_allowed: bool = False
     user_num_ratings: Optional[int] = None
