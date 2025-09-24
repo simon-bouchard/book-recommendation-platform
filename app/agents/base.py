@@ -1,16 +1,21 @@
+# app/agents/base.py (updated sections)
 from __future__ import annotations
 
 from typing import Any, Dict, Iterable, List, Optional, Sequence, Set, Union
+import os
 
 from langchain.agents import AgentExecutor, create_react_agent
-from langchain.prompts import ChatPromptTemplate, MessagesPlaceholder
+from langchain.prompts import ChatPromptTemplate, MessagesPlaceholder, PromptTemplate
 from langchain_core.tools import Tool
+from langchain_core.messages import HumanMessage, AIMessage
+from langchain.agents.format_scratchpad.openai_tools import format_to_openai_tool_messages
 
 from app.agents.prompts.loader import read_prompt
 from app.agents.settings import get_llm
 from app.agents.tools.registry import ToolRegistry, InternalToolGates
 from app.agents.tools.help import SiteHelpToolkit
-from app.agents.logging import get_logger, capture_agent_console_and_httpx
+from app.agents.logging import get_logger, capture_agent_console_and_httpx, LogCallbackHandler, append_chatbot_log
+from langchain_core.callbacks import StdOutCallbackHandler
 
 from app.agents.schemas import (
     AgentResult,
@@ -60,14 +65,23 @@ class BaseLLMAgent:
         # Build system prompt (persona + policy), optional docs manifest injection
         persona = read_prompt("persona.system.md")
         policy = read_prompt(policy_name)
+        final_answer = read_prompt("final_answer.system.md")
+
         if docs_manifest:
             manifest_tool = next((t for t in SiteHelpToolkit.as_tools() if t.name == "help-manifest"), None)
             manifest_json = manifest_tool.func("") if manifest_tool else "{}"
-            policy = policy.replace(
-                "[BEGIN_MANIFEST]\n… manifest content is injected here …\n[END_MANIFEST]",
-                f"[BEGIN_MANIFEST]\n{_render_manifest_lines(manifest_json)}\n[END_MANIFEST]"
-            )
-        system = f"{persona}\n\n{policy}".strip()
+            manifest_lines = _render_manifest_lines(manifest_json) or "(no docs found)"
+
+            placeholder = "[BEGIN_MANIFEST]\n… manifest content is injected here …\n[END_MANIFEST]"
+            injected_section = f"[BEGIN_MANIFEST]\n{manifest_lines}\n[END_MANIFEST]"
+
+            if placeholder in policy:
+                policy = policy.replace(placeholder, injected_section)
+            else:
+                # Fallback: append a visible section at the end of the policy
+                policy = f"{policy}\n\nAvailable documentation (aliases):\n{manifest_lines}"
+
+        system = f"{persona}\n\n{policy}\n\n{final_answer}".strip()
         self.policy_version = f"{policy_name}"
 
         # Build tools via registry and filter to allowed_names
@@ -84,19 +98,64 @@ class BaseLLMAgent:
             if not self.allowed_names or t.name in self.allowed_names:
                 tools.append(t)
 
-        # Build ReAct prompt
-        prompt = ChatPromptTemplate.from_messages(
-            [
-                ("system",
-                system
-                + "\n\nYou can use the following tools:\n{tools}\n"
-                "When a tool is helpful, call it. If not, answer directly."),
-                MessagesPlaceholder(variable_name="history"),
-                ("human", "{input}"),
-                MessagesPlaceholder(variable_name="agent_scratchpad"),
-            ]
+        # Keep a human-readable tools block and names for prompt rendering + logging
+        self._tool_str = "\n".join([f"{t.name}: {getattr(t, 'description', '')}" for t in tools])
+        self._tool_names = ", ".join([t.name for t in tools])
+
+        # Enhanced callbacks for better logging
+        self._callbacks = [
+            LogCallbackHandler(f"agent.{policy_name}"),
+        ]
+        
+        # Add stdout callback only if LOG_VERBOSE is enabled
+        if os.getenv("LOG_VERBOSE", "").lower() in ("1", "true", "yes"):
+            self._callbacks.append(StdOutCallbackHandler())
+
+        # 1) Flatten history to a single text block (like legacy)
+        def _history_to_text(hist_list):
+            lines = []
+            for t in (hist_list or []):
+                u = (t.get("u") or "").strip()
+                a = (t.get("a") or "").strip()
+                if u:
+                    lines.append(f"User: {u}")
+                if a:
+                    lines.append(f"Assistant: {a}")
+            return "\n".join(lines)
+
+        self._history_to_text = _history_to_text  # stash helper on the instance
+
+        # 2) Build a *text* PromptTemplate with a string scratchpad
+        template = (
+            f"{system}\n\n"
+            "You can use the following tools:\n{tools}\n"
+            "Tool names: {tool_names}\n"
+            "When a tool is helpful, call it. If not, answer directly.\n\n"
+            "Conversation so far:\n{history}\n\n"
+            "Question: {input}\n\n"
+            "{agent_scratchpad}"
         )
-        self.exec = AgentExecutor(agent=create_react_agent(self.llm, tools, prompt), tools=tools, verbose=False)
+        prompt = PromptTemplate(
+            template=template,
+            input_variables=["tools", "tool_names", "history", "input", "agent_scratchpad"],
+        )
+
+        self._prompt = prompt
+
+        agent = create_react_agent(self.llm, tools, prompt)
+
+        # 3) Plain AgentExecutor (no scratchpad formatter needed for string pad)
+        callbacks = self._callbacks
+        self.exec = AgentExecutor.from_agent_and_tools(
+            agent=agent,
+            tools=tools,
+            verbose=True,  # This enables the Thought/Action/Observation logging
+            handle_parsing_errors=True,
+            return_intermediate_steps=True,
+            callbacks=callbacks,
+            max_iterations=10,  # Prevent infinite loops
+            max_execution_time=60,  # Timeout after 60 seconds
+        )
 
     # --- Utilities ------------------------------------------------------------
 
@@ -105,12 +164,30 @@ class BaseLLMAgent:
         out: List[Dict[str, Any]] = []
         for s in steps or []:
             try:
-                tool = s.get("tool") if isinstance(s, dict) else getattr(s, "tool", None)
-                inp = s.get("tool_input") if isinstance(s, dict) else getattr(s, "tool_input", None)
-                log = s.get("log") if isinstance(s, dict) else getattr(s, "log", None)
-                out.append({"tool": tool, "input": inp, "log": log})
-            except Exception:
-                continue
+                if isinstance(s, (list, tuple)) and len(s) >= 2:
+                    # (AgentAction, observation) tuple format
+                    action, observation = s[0], s[1]
+                    tool = getattr(action, "tool", None) or getattr(action, "tool_name", None)
+                    inp = getattr(action, "tool_input", None)
+                    log = getattr(action, "log", None)
+                    out.append({
+                        "tool": tool,
+                        "input": inp,
+                        "log": log,
+                        "observation": str(observation)[:500] + "..." if len(str(observation)) > 500 else str(observation)
+                    })
+                elif isinstance(s, dict):
+                    # Dict format
+                    tool = s.get("tool") or s.get("tool_name")
+                    inp = s.get("tool_input")
+                    log = s.get("log")
+                    obs = s.get("observation", "")
+                    out.append({"tool": tool, "input": inp, "log": log, "observation": str(obs)})
+                else:
+                    # Fallback for unknown formats
+                    out.append({"tool": "unknown", "input": str(s), "log": "", "observation": ""})
+            except Exception as e:
+                out.append({"tool": "error", "input": str(e), "log": "", "observation": ""})
         return out
 
     @staticmethod
@@ -123,13 +200,15 @@ class BaseLLMAgent:
         return calls
 
     @staticmethod
-    def _to_history_msgs(hist: List[Dict[str, str]]) -> List[tuple[str, str]]:
-        msgs: List[tuple[str, str]] = []
+    def _to_history_msgs(hist: List[Dict[str, str]]) -> List[Any]:
+        msgs = []
         for t in hist or []:
             u = (t.get("u") or "").strip()
             a = (t.get("a") or "").strip()
-            if u: msgs.append(("human", u))
-            if a: msgs.append(("ai", a))
+            if u:
+                msgs.append(HumanMessage(content=u))
+            if a:
+                msgs.append(AIMessage(content=a))
         return msgs
 
     # --- Overridables ---------------------------------------------------------
@@ -153,13 +232,56 @@ class BaseLLMAgent:
 
     def run(self, inp: Union[str, TurnInput]) -> AgentResult:
         if isinstance(inp, str):
-            text, history_msgs = inp, []
+            text = inp
+            hist_text = ""
         else:
             text = inp.user_text
-            history_msgs = self._to_history_msgs(inp.full_history)
+            # Convert rolling history to the legacy text block for the prompt slot
+            hist_text = self._history_to_text(inp.full_history)
 
-        with capture_agent_console_and_httpx():
-            result = self.exec.invoke({"input": text or "", "history": history_msgs})
+        # Log the agent execution start
+        append_chatbot_log(f"\n=== {self.policy_name.upper()} AGENT START ===")
+        append_chatbot_log(f"User Input: {text}")
+        if hist_text:
+            append_chatbot_log(f"History: {hist_text}")
+
+        # Optionally log the fully rendered prompt (enable with LOG_PROMPT=1)
+        if self._prompt is not None and os.getenv("LOG_PROMPT", "").lower() in ("1", "true", "yes"):
+            try:
+                rendered = self._prompt.format(
+                    tools=self._tool_str,
+                    tool_names=self._tool_names,
+                    history=hist_text,
+                    input=text or "",
+                    agent_scratchpad="",
+                )
+                append_chatbot_log(f"[FULL_PROMPT]\n{rendered}\n[/FULL_PROMPT]")
+            except Exception as e:
+                append_chatbot_log(f"[PROMPT_ERROR] {e}")
+
+        # Capture verbose console + library logs into logs/chatbot.log
+        try:
+            with capture_agent_console_and_httpx():
+                result = self.exec.invoke(
+                    {"input": text or "", "history": hist_text},
+                    config={"callbacks": self._callbacks}
+                )
+        except Exception as e:
+            append_chatbot_log(f"[AGENT_ERROR] {str(e)}")
+            # Return error result
+            return AgentResult(
+                target="respond",
+                text=f"I encountered an error while processing your request: {str(e)}",
+                success=False,
+                tool_calls=[],
+                policy_version=self.policy_version,
+            )
 
         steps = self._serialize_steps(result.get("intermediate_steps"))
+        
+        # Log the agent execution end
+        append_chatbot_log(f"Agent Output: {result.get('output', '')}")
+        append_chatbot_log(f"Steps Count: {len(steps)}")
+        append_chatbot_log(f"=== {self.policy_name.upper()} AGENT END ===\n")
+
         return self.finalize(text or "", result, steps)

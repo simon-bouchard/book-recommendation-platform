@@ -26,9 +26,9 @@ class ChatSettings(BaseSettings):
     deepinfra_api_key: Optional[str] = os.getenv("DEEPINFRA_API_KEY")
     deepinfra_base_url: str = os.getenv("DEEPINFRA_BASE_URL", "https://api.deepinfra.com/v1/openai")
 
-    llm_model_small: str = os.getenv("LLM_MODEL_SMALL", "Meta-Llama-3.1-8B-Instruct-Turbo")
-    llm_model_medium: str = os.getenv("LLM_MODEL_MEDIUM", "Meta-Llama-3.1-70B-Instruct-Turbo")
-    llm_model_large: str = os.getenv("LLM_MODEL_LARGE", "gpt-4o")
+    llm_model_small: str = os.getenv("LLM_MODEL_SMALL", "meta-llama/Meta-Llama-3.1-8B-Instruct")
+    llm_model_medium: str = os.getenv("LLM_MODEL_MEDIUM", "meta-llama/Meta-Llama-3.1-70B-Instruct")
+    llm_model_large: str = os.getenv("LLM_MODEL_LARGE", "meta-llama/Meta-Llama-3.1-70B-Instruct")
 
     # Embedding hook (callable: List[str] -> np.ndarray [n, d])
     embedder: Any = None
