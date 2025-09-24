@@ -102,7 +102,7 @@ help_tools = [
     Tool(
         name="help-read",
         func=_read_doc,
-        description="Read an end-user help doc by alias or filename (e.g., 'overview' or 'overview.md')."
+        description="Read an end-user help doc by alias or filename (e.g., overview or overview.md). Do not include quotes."
     ),
 ]
 
