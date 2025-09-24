@@ -61,51 +61,55 @@ def chat_agent(
         for k, v in request.state.rl_headers.items():
             response.headers[k] = v
 
-    text = (body.message or "").strip()
+    # NOTE: ChatIn uses 'user_text'
+    text = (body.user_text or "").strip()
     if not text:
-        return ChatOut(reply="Ask me for book ideas or comparisons.", books=[])
+        return ChatOut(text="Ask me for book ideas or comparisons.", target="respond", books=[])
 
-    # request boundary in chatbot log
     chatbot_logger.info("request_start", extra={"extra": {
         "conv_id": conv_id, "uid": uid, "use_profile": bool(body.use_profile), "q_preview": text[:160]
     }})
 
+    # Load rolling history
     hist = load_history(conv_id)
-    composed = build_composed_input(
-        db=db,
-        user_id=uid,
-        use_profile=body.use_profile,
-        history=hist,
-        user_text=text,
-        hist_turns=HIST_TURNS,
-    )
 
+    # Warm/cold signal
     user_num_ratings = 0
     if current_user and hasattr(current_user, "user_id"):
         user_num_ratings = get_user_num_ratings(current_user.user_id)
 
-    # --- FIX: no conv_id / uid passed to answer() ---
+    # ---- Multi-agent run ----
     res = Conductor().run(
-        composed,
+        history=hist,
+        user_text=text,
+        use_profile=bool(body.use_profile),
         current_user=current_user,
         db=db,
-        user_num_ratings=user_num_ratings
+        user_num_ratings=user_num_ratings,
+        hist_turns=HIST_TURNS,
+        conv_id=conv_id,
+        uid=uid,
+        force_target=body.force_target,
     )
 
-    raw_text = (res.get("text") or "").strip()
-    steps = res.get("intermediate_steps") or []
+    reply_text = normalize_visible_reply(res.text or "")
 
-    reply_text = normalize_visible_reply(raw_text)
+    # Prefer explicit book_ids if provided by the branch (e.g., recsys)
+    ids = list(res.book_ids or [])
+    if not ids:
+        # Fallback: legacy-style extraction from tool calls
+        legacyish_steps = [{"tool": c.name, "input": c.args} for c in (res.tool_calls or [])]
+        ids = extract_book_ids_from_steps(legacyish_steps) or []
 
-    legacyish_steps = [{"tool": c.name, "input": c.args} for c in (res.tool_calls or [])]
-    ids = extract_book_ids_from_steps(legacyish_steps) or []
     books = build_books_from_ids(ids)
 
+    # Update history
     hist.append({"u": text, "a": reply_text})
     save_history(conv_id, hist)
 
     chatbot_logger.info("request_end", extra={"extra": {
-        "conv_id": conv_id, "uid": uid, "num_books": len(books), "reply_len": len(reply_text), "ids": ids[:12]
+        "conv_id": conv_id, "uid": uid, "target": res.target, "num_books": len(books),
+        "reply_len": len(reply_text), "ids": ids[:12]
     }})
 
     return ChatOut(
