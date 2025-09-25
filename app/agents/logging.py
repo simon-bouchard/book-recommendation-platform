@@ -2,6 +2,7 @@
 import logging
 import os
 import io
+import sys
 from contextlib import contextmanager, redirect_stdout, redirect_stderr
 from typing import Dict, Any, Tuple, List, Optional, Union
 from logging.handlers import RotatingFileHandler
@@ -9,6 +10,7 @@ from langchain.callbacks.base import BaseCallbackHandler
 from langchain.schema import LLMResult
 from langchain_core.agents import AgentAction, AgentFinish
 from langchain_core.messages import BaseMessage
+from langchain_core.prompt_values import PromptValue
 from datetime import datetime
 
 # -------- Normal app logger (unchanged) --------
@@ -77,12 +79,29 @@ _LOGGER_NAMES_TO_CAPTURE: List[str] = [
     "langchain_core", 
     "langchain_community",
     "httpx",
-    "openai",
+    "openai", 
     "urllib3",
     "agent",
     "agent.input",
     "chatbot",
 ]
+
+def _should_capture_logger(logger_name: str) -> bool:
+    """Check if we should capture logs from this logger based on config."""
+    # Always capture errors
+    if os.getenv("LOG_LEVEL", "INFO").upper() == "ERROR":
+        return False
+        
+    # HTTP-related loggers
+    if logger_name in ["httpx", "openai", "urllib3"]:
+        return os.getenv("LOG_HTTP", "1").lower() in ("1", "true", "yes")
+    
+    # LangChain loggers  
+    if logger_name.startswith("langchain"):
+        return os.getenv("LOG_CHAINS", "1").lower() in ("1", "true", "yes")
+    
+    # Default: capture if not silent mode
+    return True
 
 @contextmanager
 def capture_agent_console_and_httpx():
@@ -93,6 +112,11 @@ def capture_agent_console_and_httpx():
     Nothing leaks into normal app logs during capture. On exit, the buffered
     text is appended verbatim to logs/chatbot.log.
     """
+    # Skip capture entirely in silent mode
+    if os.getenv("LOG_LEVEL", "INFO").upper() == "ERROR":
+        yield
+        return
+        
     buf = io.StringIO()
 
     # Prepare a formatter that matches your normal console format (so httpx lines look identical)
@@ -104,6 +128,9 @@ def capture_agent_console_and_httpx():
 
     try:
         for name in _LOGGER_NAMES_TO_CAPTURE:
+            if not _should_capture_logger(name):
+                continue
+                
             lg = logging.getLogger(name)
             saved[name] = (lg.level, list(lg.handlers), lg.propagate)
 
@@ -118,7 +145,11 @@ def capture_agent_console_and_httpx():
             handlers[name] = stream_handler
 
         # Redirect stdout/stderr so AgentExecutor(verbose=True) banners & traces are captured
-        with redirect_stdout(buf), redirect_stderr(buf):
+        # But only if verbose logging is enabled
+        if os.getenv("LOG_VERBOSE", "1").lower() in ("1", "true", "yes"):
+            with redirect_stdout(buf), redirect_stderr(buf):
+                yield
+        else:
             yield
 
     finally:
@@ -155,8 +186,26 @@ class LogCallbackHandler(BaseCallbackHandler):
         super().__init__()
         self.name = name
         
-    def _log_event(self, event_type: str, content: str) -> None:
-        """Log an event with timestamp and formatting."""
+    def _should_log_component(self, component: str) -> bool:
+        """Check if a specific component should be logged based on env vars."""
+        component_map = {
+            "tools": "LOG_TOOLS",
+            "chains": "LOG_CHAINS", 
+            "http": "LOG_HTTP",
+            "verbose": "LOG_VERBOSE"
+        }
+        
+        env_var = component_map.get(component.lower())
+        if not env_var:
+            return True  # Default to logging unknown components
+        
+        return os.getenv(env_var, "1").lower() in ("1", "true", "yes")
+        
+    def _log_event(self, event_type: str, content: str, component: str = "general") -> None:
+        """Log an event with timestamp and formatting, respecting component flags."""
+        if not self._should_log_component(component):
+            return
+            
         timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
         formatted = f"{timestamp} INFO {self.name} | [{event_type.upper()}]\n{content}\n"
         append_chatbot_log(formatted)
@@ -165,79 +214,167 @@ class LogCallbackHandler(BaseCallbackHandler):
         self, serialized: Dict[str, Any], prompts: List[str], **kwargs: Any
     ) -> None:
         """Log when LLM starts processing."""
-        prompt_text = "\n---PROMPT---\n".join(prompts) if prompts else "No prompts"
-        self._log_event("llm_start", f"Model: {serialized.get('name', 'unknown')}\n{prompt_text}")
+        if not self._should_log_component("http"):
+            return
+            
+        try:
+            # Handle different prompt formats
+            if isinstance(prompts, list) and prompts:
+                if all(isinstance(p, str) for p in prompts):
+                    # List of strings
+                    prompt_text = "\n---PROMPT---\n".join(prompts)
+                else:
+                    # List of prompt objects
+                    prompt_texts = []
+                    for p in prompts:
+                        if hasattr(p, 'text'):
+                            prompt_texts.append(p.text)
+                        else:
+                            prompt_texts.append(str(p))
+                    prompt_text = "\n---PROMPT---\n".join(prompt_texts)
+            else:
+                prompt_text = str(prompts) if prompts else "No prompts"
+            
+            # Truncate very long prompts
+            if len(prompt_text) > 2000:
+                prompt_text = prompt_text[:2000] + "...[truncated]"
+                
+            model_name = "unknown"
+            if isinstance(serialized, dict):
+                model_name = serialized.get("name", serialized.get("model", "unknown"))
+                
+            self._log_event("llm_start", f"Model: {model_name}\n{prompt_text}", "http")
+        except Exception as e:
+            self._log_event("llm_start", f"LLM start (parse error: {e})", "http")
 
     def on_llm_end(self, response: LLMResult, **kwargs: Any) -> None:
         """Log LLM response."""
-        try:
-            # Extract text from LLMResult
-            texts = []
-            for generation in response.generations:
-                for gen in generation:
-                    if hasattr(gen, 'text'):
-                        texts.append(gen.text)
-                    elif hasattr(gen, 'message') and hasattr(gen.message, 'content'):
-                        texts.append(gen.message.content)
+        if not self._should_log_component("http"):
+            return
             
-            response_text = "\n---RESPONSE---\n".join(texts) if texts else str(response)
-            self._log_event("llm_end", response_text)
+        try:
+            # Extract text from LLMResult - handle different structures
+            texts = []
+            
+            if hasattr(response, 'generations') and response.generations:
+                for generation_list in response.generations:
+                    if isinstance(generation_list, list):
+                        for gen in generation_list:
+                            if hasattr(gen, 'text') and gen.text:
+                                texts.append(gen.text)
+                            elif hasattr(gen, 'message') and hasattr(gen.message, 'content'):
+                                texts.append(gen.message.content)
+                            else:
+                                texts.append(str(gen))
+                    else:
+                        texts.append(str(generation_list))
+            
+            if texts:
+                response_text = "\n---RESPONSE---\n".join(texts)
+            else:
+                # Fallback - try to get any text from the response
+                response_text = str(response)
+            
+            # Truncate very long responses
+            if len(response_text) > 1500:
+                response_text = response_text[:1500] + "...[truncated]"
+                
+            self._log_event("llm_end", response_text, "http")
         except Exception as e:
-            self._log_event("llm_end", f"Error extracting response: {e}\n{response}")
+            self._log_event("llm_end", f"LLM end (parse error: {e})\nResponse: {str(response)[:500]}", "http")
 
     def on_llm_error(self, error: Union[Exception, KeyboardInterrupt], **kwargs: Any) -> None:
         """Log LLM errors."""
-        self._log_event("llm_error", str(error))
+        self._log_event("llm_error", str(error), "http")
 
     def on_chain_start(
         self, serialized: Dict[str, Any], inputs: Dict[str, Any], **kwargs: Any
     ) -> None:
         """Log chain start."""
-        chain_name = serialized.get("name", "unknown_chain")
-        input_str = "\n".join(f"{k}: {v}" for k, v in inputs.items())
-        self._log_event("chain_start", f"Chain: {chain_name}\nInputs:\n{input_str}")
+        if not self._should_log_component("chains"):
+            return
+            
+        try:
+            # Handle serialized being None or not a dict
+            if isinstance(serialized, dict):
+                chain_name = serialized.get("name", "unknown_chain")
+            else:
+                chain_name = str(serialized) if serialized else "unknown_chain"
+            
+            # Handle inputs being different types
+            if isinstance(inputs, dict):
+                input_str = "\n".join(f"{k}: {str(v)[:200]}..." if len(str(v)) > 200 else f"{k}: {v}" 
+                                    for k, v in inputs.items())
+            else:
+                input_str = str(inputs)[:500] + "..." if len(str(inputs)) > 500 else str(inputs)
+                
+            self._log_event("chain_start", f"Chain: {chain_name}\nInputs:\n{input_str}", "chains")
+        except Exception as e:
+            # Fallback logging to avoid breaking execution
+            self._log_event("chain_start", f"Chain start (parse error: {e})", "chains")
 
     def on_chain_end(self, outputs: Dict[str, Any], **kwargs: Any) -> None:
         """Log chain end."""
-        output_str = "\n".join(f"{k}: {v}" for k, v in outputs.items())
-        self._log_event("chain_end", f"Outputs:\n{output_str}")
+        if not self._should_log_component("chains"):
+            return
+            
+        try:
+            # Handle different output types - could be dict, AgentFinish, StringPromptValue, etc.
+            if isinstance(outputs, dict):
+                output_str = "\n".join(f"{k}: {str(v)[:200]}..." if len(str(v)) > 200 else f"{k}: {v}" 
+                                     for k, v in outputs.items())
+            elif hasattr(outputs, 'return_values'):
+                # AgentFinish object
+                output_str = f"AgentFinish: {outputs.return_values}"
+            elif hasattr(outputs, 'text'):
+                # StringPromptValue or similar
+                text = outputs.text[:500] + "..." if len(outputs.text) > 500 else outputs.text
+                output_str = f"Prompt: {text}"
+            else:
+                # Fallback to string representation
+                output_str = str(outputs)[:500] + "..." if len(str(outputs)) > 500 else str(outputs)
+                
+            self._log_event("chain_end", f"Outputs:\n{output_str}", "chains")
+        except Exception as e:
+            # Fallback logging to avoid breaking execution
+            self._log_event("chain_end", f"Chain end (parse error: {e})", "chains")
 
     def on_chain_error(self, error: Union[Exception, KeyboardInterrupt], **kwargs: Any) -> None:
         """Log chain errors."""
-        self._log_event("chain_error", str(error))
+        self._log_event("chain_error", str(error), "chains")
 
     def on_tool_start(
         self, serialized: Dict[str, Any], input_str: str, **kwargs: Any
     ) -> None:
         """Log tool execution start."""
         tool_name = serialized.get("name", "unknown_tool")
-        self._log_event("tool_start", f"Tool: {tool_name}\nInput: {input_str}")
+        self._log_event("tool_start", f"Tool: {tool_name}\nInput: {input_str}", "tools")
 
     def on_tool_end(self, output: str, **kwargs: Any) -> None:
         """Log tool execution end."""
         # Truncate very long outputs for readability
         display_output = output[:1000] + "..." if len(output) > 1000 else output
-        self._log_event("tool_end", f"Output: {display_output}")
+        self._log_event("tool_end", f"Output: {display_output}", "tools")
 
     def on_tool_error(self, error: Union[Exception, KeyboardInterrupt], **kwargs: Any) -> None:
         """Log tool errors."""
-        self._log_event("tool_error", str(error))
+        self._log_event("tool_error", str(error), "tools")
 
     def on_agent_action(self, action: AgentAction, **kwargs: Any) -> None:
         """Log agent actions (Thought/Action/Action Input)."""
         content = f"Tool: {action.tool}\nTool Input: {action.tool_input}"
         if hasattr(action, 'log') and action.log:
             content += f"\nFull Log:\n{action.log}"
-        self._log_event("agent_action", content)
+        self._log_event("agent_action", content, "general")
 
     def on_agent_finish(self, finish: AgentFinish, **kwargs: Any) -> None:
         """Log agent finish."""
         content = f"Return Values: {finish.return_values}"
         if hasattr(finish, 'log') and finish.log:
             content += f"\nFinal Log:\n{finish.log}"
-        self._log_event("agent_finish", content)
+        self._log_event("agent_finish", content, "general")
 
     def on_text(self, text: str, **kwargs: Any) -> None:
         """Log arbitrary text (often Thought/Observation parts)."""
-        if text.strip():
-            self._log_event("text", text)
+        if text.strip() and self._should_log_component("verbose"):
+            self._log_event("text", text, "verbose")
