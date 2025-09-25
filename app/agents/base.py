@@ -1,20 +1,22 @@
-# app/agents/base.py (updated sections)
+# Updated base.py using the SystemPromptLLM wrapper
+
 from __future__ import annotations
 
 from typing import Any, Dict, Iterable, List, Optional, Sequence, Set, Union
 import os
 
 from langchain.agents import AgentExecutor, create_react_agent
-from langchain.prompts import ChatPromptTemplate, MessagesPlaceholder, PromptTemplate
+from langchain.prompts import PromptTemplate
 from langchain_core.tools import Tool
 from langchain_core.messages import HumanMessage, AIMessage
-from langchain.agents.format_scratchpad.openai_tools import format_to_openai_tool_messages
+from langchain import hub
 
 from app.agents.prompts.loader import read_prompt
 from app.agents.settings import get_llm
 from app.agents.tools.registry import ToolRegistry, InternalToolGates
-from app.agents.tools.help import SiteHelpToolkit
+from app.agents.tools.help import SiteHelpToolkit, render_manifest_for_prompt
 from app.agents.logging import get_logger, capture_agent_console_and_httpx, LogCallbackHandler, append_chatbot_log
+from app.agents.llm_wrapper import create_system_prompt_llm  # Import our wrapper
 from langchain_core.callbacks import StdOutCallbackHandler
 
 from app.agents.schemas import (
@@ -22,21 +24,6 @@ from app.agents.schemas import (
     ToolCall,
     TurnInput,
 )
-
-def _render_manifest_lines(manifest_json: str) -> str:
-    try:
-        import json
-        data = json.loads(manifest_json or "{}")
-    except Exception:
-        data = {}
-    items = data.get("items") or []
-    lines = []
-    for it in items:
-        title = it.get("title", "").strip()
-        desc = it.get("desc", "").strip()
-        if title:
-            lines.append(f"- {title}: {desc}")
-    return "\n".join(lines)
 
 class BaseLLMAgent:
     """
@@ -59,7 +46,6 @@ class BaseLLMAgent:
         docs_manifest: bool = False,
     ) -> None:
         self.policy_name = policy_name
-        self.llm = get_llm(tier=llm_tier)
         self.allowed_names = allowed_names or set()
 
         # Build system prompt (persona + policy), optional docs manifest injection
@@ -68,9 +54,8 @@ class BaseLLMAgent:
         final_answer = read_prompt("final_answer.system.md")
 
         if docs_manifest:
-            manifest_tool = next((t for t in SiteHelpToolkit.as_tools() if t.name == "help-manifest"), None)
-            manifest_json = manifest_tool.func("") if manifest_tool else "{}"
-            manifest_lines = _render_manifest_lines(manifest_json) or "(no docs found)"
+            # Load+render manifest directly (no LLM tool call)
+            manifest_lines = render_manifest_for_prompt() or "(no docs found)"
 
             placeholder = "[BEGIN_MANIFEST]\n… manifest content is injected here …\n[END_MANIFEST]"
             injected_section = f"[BEGIN_MANIFEST]\n{manifest_lines}\n[END_MANIFEST]"
@@ -81,7 +66,13 @@ class BaseLLMAgent:
                 # Fallback: append a visible section at the end of the policy
                 policy = f"{policy}\n\nAvailable documentation (aliases):\n{manifest_lines}"
 
-        system = f"{persona}\n\n{policy}\n\n{final_answer}".strip()
+        # Create the complete system prompt
+        system_prompt = f"{persona}\n\n{policy}\n\n{final_answer}".strip()
+        
+        # Get base LLM and wrap it with system prompt injection
+        base_llm = get_llm(tier=llm_tier)
+        self.llm = create_system_prompt_llm(base_llm, system_prompt)
+        
         self.policy_version = f"{policy_name}"
 
         # Build tools via registry and filter to allowed_names
@@ -111,7 +102,52 @@ class BaseLLMAgent:
         if os.getenv("LOG_VERBOSE", "").lower() in ("1", "true", "yes"):
             self._callbacks.append(StdOutCallbackHandler())
 
-        # 1) Flatten history to a single text block (like legacy)
+        # Use the standard ReAct prompt from LangChain
+        try:
+            # Try to get the standard ReAct prompt from the hub
+            prompt = hub.pull("hwchase17/react")
+        except Exception:
+            # Fallback to manual template if hub is unavailable
+            template = """Answer the following questions as best you can. You have access to the following tools:
+
+{tools}
+
+Use the following format:
+
+Question: the input question you must answer
+Thought: you should always think about what to do
+Action: the action to take, should be one of [{tool_names}]
+Action Input: the input to the action
+Observation: the result of the action
+... (this Thought/Action/Action Input/Observation can repeat N times)
+Thought: I now know the final answer
+Final Answer: the final answer to the original input question
+
+Begin!
+
+Question: {input}
+Thought:{agent_scratchpad}"""
+            
+            prompt = PromptTemplate.from_template(template)
+
+        self._prompt = prompt
+
+        # Create the ReAct agent with our wrapped LLM
+        agent = create_react_agent(self.llm, tools, prompt)
+
+        # Create the executor
+        self.exec = AgentExecutor.from_agent_and_tools(
+            agent=agent,
+            tools=tools,
+            verbose=True,  # This enables the Thought/Action/Observation logging
+            handle_parsing_errors=True,
+            return_intermediate_steps=True,
+            callbacks=self._callbacks,
+            max_iterations=10,  # Prevent infinite loops
+            max_execution_time=60,  # Timeout after 60 seconds
+        )
+
+        # Helper for history conversion
         def _history_to_text(hist_list):
             lines = []
             for t in (hist_list or []):
@@ -123,41 +159,9 @@ class BaseLLMAgent:
                     lines.append(f"Assistant: {a}")
             return "\n".join(lines)
 
-        self._history_to_text = _history_to_text  # stash helper on the instance
+        self._history_to_text = _history_to_text
 
-        # 2) Build a *text* PromptTemplate with a string scratchpad
-        template = (
-            f"{system}\n\n"
-            "You can use the following tools:\n{tools}\n"
-            "Tool names: {tool_names}\n"
-            "When a tool is helpful, call it. If not, answer directly.\n\n"
-            "Conversation so far:\n{history}\n\n"
-            "Question: {input}\n\n"
-            "{agent_scratchpad}"
-        )
-        prompt = PromptTemplate(
-            template=template,
-            input_variables=["tools", "tool_names", "history", "input", "agent_scratchpad"],
-        )
-
-        self._prompt = prompt
-
-        agent = create_react_agent(self.llm, tools, prompt)
-
-        # 3) Plain AgentExecutor (no scratchpad formatter needed for string pad)
-        callbacks = self._callbacks
-        self.exec = AgentExecutor.from_agent_and_tools(
-            agent=agent,
-            tools=tools,
-            verbose=True,  # This enables the Thought/Action/Observation logging
-            handle_parsing_errors=True,
-            return_intermediate_steps=True,
-            callbacks=callbacks,
-            max_iterations=10,  # Prevent infinite loops
-            max_execution_time=60,  # Timeout after 60 seconds
-        )
-
-    # --- Utilities ------------------------------------------------------------
+    # --- Utilities (keep existing methods) ------------------------------------------------------------
 
     @staticmethod
     def _serialize_steps(steps: Iterable[Any]) -> List[Dict[str, Any]]:
@@ -199,20 +203,6 @@ class BaseLLMAgent:
             calls.append(ToolCall(name=name, args=args))
         return calls
 
-    @staticmethod
-    def _to_history_msgs(hist: List[Dict[str, str]]) -> List[Any]:
-        msgs = []
-        for t in hist or []:
-            u = (t.get("u") or "").strip()
-            a = (t.get("a") or "").strip()
-            if u:
-                msgs.append(HumanMessage(content=u))
-            if a:
-                msgs.append(AIMessage(content=a))
-        return msgs
-
-    # --- Overridables ---------------------------------------------------------
-
     def finalize(self, input_text: str, raw_result: Dict[str, Any], steps: List[Dict[str, Any]]) -> AgentResult:
         """
         Default finalize: return the model text + serialized steps.
@@ -236,8 +226,13 @@ class BaseLLMAgent:
             hist_text = ""
         else:
             text = inp.user_text
-            # Convert rolling history to the legacy text block for the prompt slot
+            # Convert rolling history to text and prepend to input
             hist_text = self._history_to_text(inp.full_history)
+
+        # Combine history with current input for better context
+        full_input = text
+        if hist_text:
+            full_input = f"Previous conversation:\n{hist_text}\n\nCurrent question: {text}"
 
         # Log the agent execution start
         append_chatbot_log(f"\n=== {self.policy_name.upper()} AGENT START ===")
@@ -245,25 +240,11 @@ class BaseLLMAgent:
         if hist_text:
             append_chatbot_log(f"History: {hist_text}")
 
-        # Optionally log the fully rendered prompt (enable with LOG_PROMPT=1)
-        if self._prompt is not None and os.getenv("LOG_PROMPT", "").lower() in ("1", "true", "yes"):
-            try:
-                rendered = self._prompt.format(
-                    tools=self._tool_str,
-                    tool_names=self._tool_names,
-                    history=hist_text,
-                    input=text or "",
-                    agent_scratchpad="",
-                )
-                append_chatbot_log(f"[FULL_PROMPT]\n{rendered}\n[/FULL_PROMPT]")
-            except Exception as e:
-                append_chatbot_log(f"[PROMPT_ERROR] {e}")
-
         # Capture verbose console + library logs into logs/chatbot.log
         try:
             with capture_agent_console_and_httpx():
                 result = self.exec.invoke(
-                    {"input": text or "", "history": hist_text},
+                    {"input": full_input},
                     config={"callbacks": self._callbacks}
                 )
         except Exception as e:
@@ -284,4 +265,4 @@ class BaseLLMAgent:
         append_chatbot_log(f"Steps Count: {len(steps)}")
         append_chatbot_log(f"=== {self.policy_name.upper()} AGENT END ===\n")
 
-        return self.finalize(text or "", result, steps)
+        return self.finalize(full_input, result, steps)
