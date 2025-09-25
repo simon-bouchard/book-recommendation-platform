@@ -16,6 +16,7 @@ Decision rules
 - Prefer docs for questions about how the site works, policies, or when the user addresses “you” about capabilities/behavior.
 - Use respond only for light acknowledgements where tools add no value.
 - If ambiguous between recsys and web and the message mentions an explicit year **> 2004** or words like “latest/new releases,” choose web. Otherwise prefer recsys.
+- The [CURRENT] message is the primary signal. Use [LAST_USER_MESSAGES] only if the current message contains pronouns or references like “more of that,” “same author,” or “like before.” Do not let older topics override the current request.
 
 Output (STRICT JSON only; no prose, no code fences)
 {
