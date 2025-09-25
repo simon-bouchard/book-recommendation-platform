@@ -14,7 +14,6 @@ else:
     _DOCS_PATH = str(Path(__file__).resolve().parents[3] / "docs" / "help")
 
 _MANIFEST_PATH = os.path.join(_DOCS_PATH, "help_manifest.json")
-
 # ------------------------
 # Manifest loading
 # ------------------------
@@ -88,7 +87,7 @@ def _read_doc(name: str) -> str:
     if not path:
         return f"[HelpDocs] Unknown doc '{name}'. Use 'help-manifest' to see available aliases."
     txt = _read_file(path)
-    return txt[:5000] if txt else f"[HelpDocs] File empty or not readable: {os.path.basename(path)}"
+    return txt if txt else f"[HelpDocs] File empty or not readable: {os.path.basename(path)}"
 
 # ------------------------
 # Exposed tools
@@ -110,3 +109,40 @@ class SiteHelpToolkit:
     @staticmethod
     def as_tools():
         return list(help_tools)
+
+
+def load_manifest_dict() -> Dict[str, Dict]:
+    """
+    Return a shallow copy of the normalized help manifest (alias -> meta).
+    Safe to use in prompts or other modules without going through tools.
+    """
+    return dict(_MANIFEST or {})
+
+def render_manifest_for_prompt(max_items: int | None = None, include_keywords: bool = False) -> str:
+    """
+    Render a compact, prompt-friendly list of available help docs.
+    Format: "- <alias> — <title>: <description> [keywords: k1, k2]"
+    """
+    man = load_manifest_dict()
+    if not man:
+        return "(no docs found)"
+
+    # Stable ordering: by alias
+    aliases = sorted(man.keys())
+    if max_items is not None:
+        aliases = aliases[:max_items]
+
+    lines = []
+    for alias in aliases:
+        meta = man.get(alias, {}) or {}
+        title = (meta.get("title") or alias).strip()
+        desc = (meta.get("description") or "").strip()
+        kw = meta.get("keywords") or []
+        # Base line
+        line = f"- {alias} — {title}"
+        if desc:
+            line += f": {desc}"
+        if include_keywords and kw:
+            line += f" [keywords: {', '.join(map(str, kw))}]"
+        lines.append(line)
+    return "\n".join(lines)
