@@ -28,7 +28,7 @@ class ChatSettings(BaseSettings):
 
     llm_model_small: str = os.getenv("LLM_MODEL_SMALL", "meta-llama/Meta-Llama-3.1-8B-Instruct")
     llm_model_medium: str = os.getenv("LLM_MODEL_MEDIUM", "meta-llama/Meta-Llama-3.1-70B-Instruct")
-    llm_model_large: str = os.getenv("LLM_MODEL_LARGE", "meta-llama/Meta-Llama-3.1-70B-Instruct")
+    llm_model_large: str = os.getenv("LLM_MODEL_LARGE", "openai/gpt-4")
 
     # Embedding hook (callable: List[str] -> np.ndarray [n, d])
     embedder: Any = None
@@ -107,38 +107,74 @@ def get_llm(
 ):
     """
     Return a LangChain Chat model for the active provider.
-    - Provider is decided by env (LLM_PROVIDER).
-    - Agents can override model + tuning at construction time via kwargs.
+    Auto-routes provider if the selected model clearly belongs to OpenAI.
     """
     p = get_provider()
-    selected_model = model or (get_model_for_tier(tier) if tier else p["default_model"])
 
-    # Assemble base args; keep explicit knobs first, extras under model_kwargs.
+    # Resolve explicit -> tier -> provider default
+    resolved = model or get_model_for_tier(tier) or p.get("default_model")
+    if not resolved:
+        raise RuntimeError(
+            "No LLM model configured. Set model=..., or LLM_MODEL_SMALL/MEDIUM/LARGE, "
+            "or provider.default_model."
+        )
+
+    # Important: make it a real string, NOT the class `str`
+    selected_model = str(resolved)
+
+    # Defensive guard: blow up early if something is off
+    if not isinstance(selected_model, str) or selected_model is str:
+        raise TypeError(f"Resolved model must be a string, got: {type(resolved)!r} ({resolved!r})")
+
+    # Identify if this looks like an OpenAI-family model
+    wants_openai = selected_model.startswith(("gpt-", "o3", "openai/"))
+
+    provider_name = p["name"]
+    base_url = p["base_url"]
+    api_key = p["api_key"]
+
+    if provider_name == "deepinfra" and wants_openai:
+        # Try to switch to OpenAI if possible
+        if settings.openai_api_key:
+            provider_name = "openai"
+            base_url = settings.openai_base_url  # can be None (uses SDK default)
+            api_key = settings.openai_api_key
+
+            # Normalize common openai/* prefixes
+            if selected_model.startswith("openai/"):
+                selected_model = selected_model.split("/", 1)[1]
+        else:
+            # No OpenAI key, stay on DeepInfra but pick a valid DeepInfra model
+            selected_model = p["default_model"]
+
+    # Assemble base args
     init_kwargs: Dict[str, Any] = {
         "model": selected_model,
         "temperature": float(temperature),
         "timeout": int(timeout),
-        "api_key": p["api_key"],
-        "base_url": p["base_url"],
+        "api_key": api_key,
+        "base_url": base_url,
     }
 
-    # Optional common knobs
     if max_tokens is not None:
         init_kwargs["max_tokens"] = int(max_tokens)
     if seed is not None:
         init_kwargs["seed"] = int(seed)
 
-    # JSON bias (for router/structured outputs)
+    # JSON (if backend supports it; harmless if ignored)
     if json_mode:
-        # ChatOpenAI accepts response_format for JSON responses in OpenAI-compatible SDKs.
-        # If unsupported by the backend, it will be ignored safely.
         init_kwargs.setdefault("model_kwargs", {})
         init_kwargs["model_kwargs"]["response_format"] = {"type": "json_object"}
 
-    # Merge caller-supplied model_kwargs last (takes precedence within model_kwargs only)
     if model_kwargs:
         mk = dict(init_kwargs.get("model_kwargs", {}))
         mk.update(model_kwargs)
         init_kwargs["model_kwargs"] = mk
+
+    # Debug prints (show effective config)
+    print(f"DEBUG get_llm: provider={provider_name}")
+    print(f"DEBUG get_llm: model={init_kwargs['model']}")
+    print(f"DEBUG get_llm: base_url={init_kwargs.get('base_url') or 'sdk_default'}")
+    print(f"DEBUG get_llm: api_key_present={bool(init_kwargs.get('api_key'))}")
 
     return ChatOpenAI(**init_kwargs)
