@@ -7,6 +7,7 @@ from app.agents.orchestrator.router import RouterLLM
 from app.agents.branches.web_llm_agent import WebLLMAgent
 from app.agents.branches.docs_llm_agent import DocsLLMAgent
 from app.agents.branches.recsys_llm_agent import RecsysLLMAgent
+from app.agents.branches.langgraph_recsys import RecsysLangGraphAgent
 from app.agents.branches.respond_llm_agent import RespondLLMAgent
 from app.agents.context_builder import make_router_input, make_branch_input
 
@@ -37,7 +38,7 @@ class Conductor:
         if target == "docs":
             return DocsLLMAgent()
         if target == "recsys":
-            return RecsysLLMAgent(
+            return RecsysLangGraphAgent(
                 current_user=current_user,
                 db=db,
                 user_num_ratings=user_num_ratings,
