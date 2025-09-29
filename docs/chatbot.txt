@@ -1,166 +1,193 @@
-Multi-Agent System Plan (Expanded)
-Keep (re-use unchanged components)
-
-HTTP boundary:
-routes/chat.py remains the single FastAPI entrypoint. It continues to handle rate-limits, cookies, history persistence, and response formatting. The outward API contract (ChatOut(reply, books[])) does not change.
-
-It still calls normalize_visible_reply, extract_book_ids_from_steps, and build_books_from_ids to produce book cards.
-
-It still logs request_start and request_end events with conv_id and uid.
-
-Context building:
-context_builder.py + user_context.py for composing user profile context and recent interaction snippets. Only the Recsys branch will use this. Docs and Web branches receive raw user text only.
-
-Settings:
-settings.py continues to centralize LLM/provider toggles, embedding factory, Redis URL, rate limits. Extend it later with new Conductor/Router knobs (timeouts, budgets, critic toggle).
-
-Tooling surface:
-ToolRegistry + existing tool modules (web.py, help.py, internal_tools.py, semantic_search.py, subject_search.py). These remain the authoritative adapters for external and internal capabilities.
-
-Prompt rules:
-The strict AGENT_PROMPT stays as the backbone of the Recsys agent. It enforces the “internal tool → return_book_ids → Final Answer” ritual, the subject/ALS/semantic chooser, and the retry rule for subject pools.
-
-Change (split responsibilities)
-
-Replace the single web_agent.py with a Conductor + Router + three branch agents.
-
-The Router is very light: it inspects the raw user text (and possibly a warm/cold signal via user_num_ratings) and returns "recsys" | "web" | "docs".
-
-The Conductor calls Router, dispatches to the appropriate branch, and handles any optional Web-for-enrichment merge.
-
-Profile context (build_composed_input) is not used in Router. It is only built and consumed inside the Recsys branch.
-
-New files
-
-app/agents/conductor.py — Orchestration entrypoint. Calls Router, dispatches to the chosen branch agent, optionally merges Web enrichment into Recsys answers, returns a unified ConductorResponse.
-
-app/agents/router.py — Deterministic branch classifier. Very simple rules mapping user text patterns to "recsys", "web", or "docs".
-
-app/agents/contracts.py — Typed result envelopes (RecsysResult, WebResult, DocsResult, ConductorResponse) for testing/log stability.
-
-app/agents/budget.py — Per-request budget ledger (max tool calls, max elapsed time). Conductor checks before dispatching tools.
-
-app/agents/tools_adapters.py — Async wrappers around existing tool factories, with timeouts and span logging. Conductor calls these, not LangChain primitives.
-
-app/telemetry/tracing.py — OpenTelemetry integration. One span per conductor, router, branch, and tool call. Attach conv_id and budget counters.
-
-(later) app/agents/critic.py — Optional validator for provenance (e.g. Recsys outputs must include IDs, Web outputs must include citations, Docs outputs must come from help-read).
-
-Branch agents
-Recsys branch
-
-Input: full composed input (profile + history + raw user text).
-
-Tools: ALS (als_recs), Subject hybrid (subject_hybrid_pool + subject_id_search), Semantic search (book_semantic_search, seeding only), and return_book_ids.
-
-Rules:
-
-Must call at least one internal tool, then finalize with return_book_ids.
-
-Semantic search only for seeding or identification; never a finalizer.
-
-Retry subject_hybrid_pool once with higher w if initial pool is too popularity-heavy.
-
-LLM curates from a bounded shortlist (union by item_idx, capped per tool) and chooses 4–12 before return_book_ids. No numeric fusion outside the tools.
-
-Web branch
-
-Input: raw user text only.
-
-Tools: web-search, Wikipedia, OpenLibrary.
-
-Rules:
-
-For facts, “what is / who wrote / latest / compare / links”.
-
-Never outputs item_idx.
-
-May run in parallel with Recsys for enrichment (short blurbs, publication info), but only Recsys supplies IDs.
-
-Docs branch
-
-Input: raw user text only.
-
-Tools: help-manifest, help-read.
-
-Rules:
-
-For onboarding and “how does this site work” questions.
-
-Deterministic path: manifest → choose alias → help-read.
-
-No Web or internal tools enabled here.
-
-Router agent
-
-Input: raw user text (+ optional user_num_ratings warm/cold signal).
-
-Rules:
-
-“profile, ratings, chatbot, portfolio, how does X work” → Docs.
-
-“what is, who wrote, compare, best/top/latest, fresh info” → Web.
-
-“recommend, subject, tone, vibe, forgot the title” → Recsys.
-
-Output: compact plan object, e.g. {"target":"recsys","intent":"recommend"}.
-
-Candidate fusion (inside Recsys only)
-
-Do not interleave blindly. Select tools based on intent (ALS for warm, Subject for subject cues, Semantic for free-text seeding).
-
-Each tool returns a pool of book dicts (item_idx, title, author, etc.).
-
-Build a union by item_idx, collapse overlaps, and cap the total count (intent-aware caps).
-
-For each candidate, create a micro-card: {item_idx | title — author | src:[ALS/SUBJ/SEM] | hints}.
-
-Present these compact cards to the LLM for curation.
-
-LLM applies the prompt rules (curation, diversity, retry if needed) and must call return_book_ids.
-
-Observability
-
-Keep capture_agent_console_and_httpx to pipe raw LangChain + httpx traces into logs/chatbot.log.
-
-Add structured spans for conductor, router, each branch, and each tool call.
-
-Attach conv_id, uid, plan, and budget counters as attributes in both logs and traces.
-
-Config
-
-Extend ChatSettings with:
-
-enable_critic, app_max_tools, internal_timeout_ms, web_timeout_ms, router_debug_mode, app_latency_ms.
-
-Migration path
-
-PR-1 (scaffolding, no user-visible change)
-
-Add Conductor, Router, Contracts, Budget, Adapters, Telemetry stubs.
-
-Switch /chat/agent from web_agent.answer to Conductor.run, but delegate everything to the current single agent (as Recsys).
-
-Keep output identical to today.
-
-PR-2 (true MAS)
-
-Enable Web and Docs branches with gated tool registries.
-
-Router chooses branch.
-
-Recsys agent enforces internal tool + return_book_ids.
-
-Web returns snippets + citations.
-
-Docs returns onboarding answers.
-
-Add provenance and branch timings to logs.
-
-Future evolution
-
-Split Recsys into multiple sub-agents (ALS-specialist, Subject-specialist, Semantic-specialist) coordinated by a local planner.
-
-Add Critic to validate provenance and polish tone.
-
-Extend Router to handle hybrid Web+Recsys enrichment plans explicitly.
+Context and System Overview
+You are tasked with migrating a FastAPI-based book recommendation chatbot system from ReAct agents to LangGraph agents while applying clean architecture principles. The system currently has:
+
+A working FastAPI backend with sophisticated ML recommendation models
+ReAct-based agents that parse tool execution steps in a brittle way
+Mixed concerns where HTTP endpoints handle business logic
+Complex book ID extraction from agent execution steps
+Multiple agent types: recommendation, web search, docs, and response agents
+
+Current Pain Points:
+
+Book recommendations aren't properly extracted from LangGraph agents
+Complex step-by-step parsing that breaks easily
+Mixed abstractions in the agent system
+Tight coupling between HTTP layer and agent execution
+
+Migration Goal: Refactor only the app/agents/ folder to use LangGraph with clean architecture, while keeping all other systems (routes, models, database, etc.) unchanged.
+Current Agent Folder Structure
+app/agents/
+├── base.py                    # BaseLLMAgent (ReAct-based)
+├── branches/                  # Individual agent implementations
+├── orchestrator/              # Conductor and Router
+├── tools/                     # Tool registry and implementations
+├── prompts/                   # System prompts
+├── runtime.py                 # Book ID extraction utilities
+├── schemas.py                 # Data schemas
+├── settings.py                # Configuration
+└── logging.py                 # Logging utilities
+Phase Instructions for LLM Implementation
+Phase 1: Agent Domain Layer Design
+Task: Create domain entities and interfaces for the agent system that separate business logic from infrastructure concerns.
+Requirements:
+
+Design clean domain entities for agent execution state, requests, and results
+Create abstract interfaces that define what an agent should do (not how)
+Design a result processor that handles book ID extraction logic cleanly
+Ensure backward compatibility with existing AgentResult schema
+Create value objects for agent configuration and capabilities
+
+Key Design Principles:
+
+Domain entities should not depend on LangGraph or any specific framework
+Business rules for book recommendation processing should be explicit
+Agent interfaces should be technology-agnostic
+Result processing should be deterministic and testable
+
+Deliverables:
+
+Domain entity classes for agent execution
+Abstract agent interface
+Result processor service
+Configuration value objects
+Clear separation between domain and infrastructure concerns
+
+Phase 2: LangGraph Infrastructure Implementation
+Task: Create LangGraph-based agent implementations that replace the current ReAct system while maintaining the same external interface.
+Requirements:
+
+Build a base LangGraph agent class that implements the domain interface
+Design proper state management for LangGraph workflows (not step-based)
+Create specific implementations for each agent type (recsys, web, docs, response)
+Implement proper error handling and recovery within graph execution
+Ensure deterministic book ID extraction from final states (not steps)
+
+Technical Constraints:
+
+Must work with existing tool implementations
+Should handle async execution properly
+Must maintain compatibility with current Conductor interface
+Error states should be recoverable and logged appropriately
+
+Agent-Specific Requirements:
+
+Recommendation Agent: Multi-node workflow with analysis, search, curation, and response nodes
+Web Agent: Search and synthesis workflow with external API calls
+Docs Agent: Simple lookup and formatting workflow
+Response Agent: Single-node conversational response
+
+Deliverables:
+
+Base LangGraph agent class
+Four specific agent implementations
+State management patterns
+Error handling strategies
+Integration with existing tool system
+
+Phase 3: Tool System Modernization
+Task: Simplify the tool system by removing LangChain wrapper complexity while maintaining all existing functionality.
+Requirements:
+
+Replace LangChain Tool wrappers with native function interfaces
+Maintain all existing tool gating and permission logic
+Simplify tool argument handling (remove complex string/JSON parsing)
+Create a cleaner tool manager that works with LangGraph
+Preserve all existing tool implementations (semantic search, ALS, etc.)
+
+Migration Strategy:
+
+Keep existing tool functions but remove wrapper layers
+Maintain backward compatibility during transition
+Simplify input/output handling
+Preserve security and access control features
+
+Deliverables:
+
+Simplified tool manager class
+Native function interfaces for all tools
+Preserved gating and permission system
+Clean integration with LangGraph agents
+
+Phase 4: Orchestrator Integration
+Task: Modify the Conductor to work with new LangGraph agents while maintaining exact API compatibility with existing routes.
+Requirements:
+
+Create an agent factory that instantiates appropriate LangGraph agents
+Maintain existing Conductor interface (same method signatures)
+Implement feature flags for gradual migration
+Preserve existing router functionality
+Ensure proper context passing to agents
+
+Backward Compatibility:
+
+Same input parameters to Conductor.run()
+Same output format (AgentResult)
+No changes required to routes/chat.py
+Gradual rollout capability with environment flags
+
+Deliverables:
+
+Agent factory with proper dependency injection
+Modified Conductor with feature flag support
+Preserved router integration
+Migration strategy implementation
+
+Phase 5: Migration and Validation Strategy
+Task: Design and implement a safe migration approach that allows testing and rollback.
+Requirements:
+
+Feature flag system for enabling new agents individually
+Comprehensive testing strategy for each agent type
+Performance monitoring and comparison tools
+Rollback procedures if issues arise
+Validation that book recommendations work correctly
+
+Safety Measures:
+
+A/B testing capability between old and new agents
+Detailed logging for comparison
+Automated tests for each agent type
+Performance benchmarks
+User experience validation
+
+Monitoring Requirements:
+
+Track book ID extraction success rates
+Monitor response times and error rates
+Compare recommendation quality between systems
+Log any compatibility issues
+
+Deliverables:
+
+Feature flag implementation
+Testing framework for agents
+Migration runbook
+Monitoring and alerting setup
+Rollback procedures
+
+Implementation Guidelines for Each Phase
+Code Quality Standards:
+
+Follow SOLID principles throughout
+Use dependency injection for testability
+Implement proper error handling and logging
+Write comprehensive docstrings and type hints
+Create unit tests for domain logic
+
+Architecture Principles:
+
+Keep domain logic separate from infrastructure
+Use interfaces to define contracts
+Avoid circular dependencies
+Maintain single responsibility for each class
+Ensure loose coupling between components
+
+Migration Safety:
+
+Never break existing APIs during migration
+Test each phase thoroughly before proceeding
+Maintain backward compatibility throughout
+Have rollback plans for each phase
+Monitor system health continuously
+
+Your implementation should result in a cleaner, more maintainable agent system that properly handles book recommendations while preserving all existing functionality and improving the overall code quality.
