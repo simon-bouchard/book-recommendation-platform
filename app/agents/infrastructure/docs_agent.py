@@ -1,0 +1,50 @@
+# app/agents/infrastructure/docs_agent.py
+"""
+Documentation search agent with access to internal help docs.
+"""
+from app.agents.domain.entities import AgentConfiguration, AgentCapability
+from app.agents.prompts.loader import read_prompt
+from .base_langgraph_agent import BaseLangGraphAgent
+
+
+class DocsAgent(BaseLangGraphAgent):
+    """
+    Agent specialized in searching internal documentation.
+    
+    Has access to:
+    - Documentation search
+    - Help article lookup
+    """
+    
+    def __init__(self):
+        # Build configuration
+        configuration = AgentConfiguration(
+            policy_name="docs.system.md",
+            capabilities=frozenset([AgentCapability.DOCUMENT_SEARCH]),
+            allowed_tools=frozenset([
+                "docs_search",
+                "help_lookup"
+            ]),
+            llm_tier="small",
+            timeout_seconds=30,
+            max_iterations=3  # Simple lookup tasks
+        )
+        
+        super().__init__(configuration)
+    
+    def _get_system_prompt(self) -> str:
+        """Load docs-specific system prompt."""
+        persona = read_prompt("persona.system.md")
+        policy = read_prompt("docs.system.md")
+        
+        # Optionally inject docs manifest
+        from app.agents.tools.help import render_manifest_for_prompt
+        manifest = render_manifest_for_prompt()
+        
+        if manifest:
+            policy = f"{policy}\n\nAvailable Documentation:\n{manifest}"
+        
+        return f"{persona}\n\n{policy}".strip()
+    
+    def _get_target_category(self) -> str:
+        return "docs"
