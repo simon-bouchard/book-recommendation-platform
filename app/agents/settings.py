@@ -171,10 +171,4 @@ def get_llm(
         mk.update(model_kwargs)
         init_kwargs["model_kwargs"] = mk
 
-    # Debug prints (show effective config)
-    print(f"DEBUG get_llm: provider={provider_name}")
-    print(f"DEBUG get_llm: model={init_kwargs['model']}")
-    print(f"DEBUG get_llm: base_url={init_kwargs.get('base_url') or 'sdk_default'}")
-    print(f"DEBUG get_llm: api_key_present={bool(init_kwargs.get('api_key'))}")
-
     return ChatOpenAI(**init_kwargs)
