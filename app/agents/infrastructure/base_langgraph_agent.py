@@ -6,6 +6,8 @@ import json
 import time
 from typing import Dict, Any, Literal, Optional
 from abc import abstractmethod
+import signal
+from contextlib import contextmanager
 
 from langgraph.graph import StateGraph, END
 from langchain_core.messages import HumanMessage
@@ -22,6 +24,33 @@ from app.agents.settings import get_llm
 from app.agents.tools.registry import ToolRegistry, InternalToolGates
 from app.agents.logging import append_chatbot_log
 from .tool_executor import ToolExecutor
+
+class TimeoutException(Exception):
+    """Raised when execution exceeds timeout."""
+    pass
+
+@contextmanager
+def execution_timeout(seconds: int):
+    """
+    Context manager for hard timeout enforcement (Unix only).
+    For Windows, this becomes a no-op.
+    """
+    def timeout_handler(signum, frame):
+        raise TimeoutException(f"Execution exceeded {seconds}s timeout")
+    
+    # Only works on Unix-like systems
+    if hasattr(signal, 'SIGALRM'):
+        old_handler = signal.signal(signal.SIGALRM, timeout_handler)
+        signal.alarm(seconds)
+        try:
+            yield
+        finally:
+            signal.alarm(0)
+            signal.signal(signal.SIGALRM, old_handler)
+    else:
+        # Windows - no timeout enforcement at this level
+        # Fallback to iteration-based checks
+        yield
 
 
 class BaseLangGraphAgent(BaseAgent):
@@ -494,6 +523,7 @@ class BaseLangGraphAgent(BaseAgent):
             f"\n{'='*60}\n"
             f"{self.__class__.__name__.upper()} EXECUTION START\n"
             f"Query: {request.user_text[:100]}...\n"
+            f"Timeout: {self.configuration.timeout_seconds}s\n"
             f"{'='*60}"
         )
         
@@ -505,56 +535,71 @@ class BaseLangGraphAgent(BaseAgent):
         )
         
         try:
-            # Run the graph
-            result = self.graph.invoke(state)
-            
-            # LangGraph may return dict or object - handle both
-            if isinstance(result, dict):
-                final_state = AgentExecutionState(
-                    status=ExecutionStatus(result.get("status", "completed")),
-                    input_text=result.get("input_text", ""),
-                    conversation_history=result.get("conversation_history", []),
-                    tool_executions=result.get("tool_executions", []),
-                    reasoning_steps=result.get("reasoning_steps", []),
-                    intermediate_outputs=result.get("intermediate_outputs", {}),
-                    error_message=result.get("error_message"),
-                    start_time=result.get("start_time", time.time()),
-                    end_time=result.get("end_time"),
+            # Wrap graph execution with hard timeout
+            with execution_timeout(self.configuration.timeout_seconds):
+                result = self.graph.invoke(state)
+
+                # LangGraph may return dict or object - handle both
+                if isinstance(result, dict):
+                    final_state = AgentExecutionState(
+                        status=ExecutionStatus(result.get("status", "completed")),
+                        input_text=result.get("input_text", ""),
+                        conversation_history=result.get("conversation_history", []),
+                        tool_executions=result.get("tool_executions", []),
+                        reasoning_steps=result.get("reasoning_steps", []),
+                        intermediate_outputs=result.get("intermediate_outputs", {}),
+                        error_message=result.get("error_message"),
+                        start_time=result.get("start_time", time.time()),
+                        end_time=result.get("end_time"),
+                    )
+                else:
+                    final_state = result
+                
+                # Extract results using domain processor
+                books = self.result_processor.extract_book_recommendations(final_state)
+                text = self.result_processor.format_response_text(final_state)
+                citations = self.result_processor.extract_citations(final_state)
+                
+                # Build response
+                response = AgentResponse(
+                    text=text,
+                    target_category=self._get_target_category(),
+                    success=final_state.status == ExecutionStatus.COMPLETED,
+                    book_recommendations=books,
+                    citations=citations,
+                    execution_state=final_state,
+                    policy_version=self.configuration.policy_name,
                 )
-            else:
-                final_state = result
+                
+                append_chatbot_log(
+                    f"\n{'='*60}\n"
+                    f"EXECUTION COMPLETE\n"
+                    f"Books: {len(books)}, Tools: {len(final_state.tool_executions)}, "
+                    f"Time: {final_state.execution_time_ms}ms\n"
+                    f"{'='*60}\n"
+                )
+                
+                return response
+                
+        except TimeoutException as e:
+            append_chatbot_log(
+                f"\n[HARD TIMEOUT] {str(e)}\n"
+                f"Partial state: {len(state.tool_executions)} tools executed, "
+                f"{len(state.reasoning_steps)} iterations\n"
+            )
             
-            # Extract results using domain processor
-            books = self.result_processor.extract_book_recommendations(final_state)
-            text = self.result_processor.format_response_text(final_state)
-            citations = self.result_processor.extract_citations(final_state)
+            # Return partial results if possible
+            final_answer = self._synthesize_answer_from_tools(state) if state.tool_executions else \
+                        "I'm taking too long to respond. Please try rephrasing your request."
             
-            # Extract results using domain processor
-            books = self.result_processor.extract_book_recommendations(final_state)
-            text = self.result_processor.format_response_text(final_state)
-            citations = self.result_processor.extract_citations(final_state)
-            
-            # Build response
-            response = AgentResponse(
-                text=text,
+            return AgentResponse(
+                text=final_answer,
                 target_category=self._get_target_category(),
-                success=final_state.status == ExecutionStatus.COMPLETED,
-                book_recommendations=books,
-                citations=citations,
-                execution_state=final_state,
+                success=False,
+                execution_state=state,
                 policy_version=self.configuration.policy_name,
             )
-            
-            append_chatbot_log(
-                f"\n{'='*60}\n"
-                f"EXECUTION COMPLETE\n"
-                f"Books: {len(books)}, Tools: {len(final_state.tool_executions)}, "
-                f"Time: {final_state.execution_time_ms}ms\n"
-                f"{'='*60}\n"
-            )
-            
-            return response
-            
+
         except Exception as e:
             append_chatbot_log(f"\n[EXECUTION ERROR] {str(e)}\n")
             
