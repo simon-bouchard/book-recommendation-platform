@@ -91,7 +91,7 @@ class AgentExecutionState:
         if self.end_time is None:
             return None
         return int((self.end_time - self.start_time) * 1000)
-    
+
     def add_tool_execution(self, execution: ToolExecution) -> None:
         """Add a tool execution record."""
         self.tool_executions.append(execution)

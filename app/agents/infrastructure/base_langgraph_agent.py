@@ -37,6 +37,8 @@ class BaseLangGraphAgent(BaseAgent):
     def __init__(self, configuration, ctx_user=None, ctx_db=None):
         super().__init__(configuration)
         
+        self.llm = get_llm(tier=configuration.llm_tier, temperature=0.0)
+
         # Tool system
         self.registry = self._create_tool_registry(ctx_user, ctx_db)
         self.tool_executor = ToolExecutor(self.registry)
@@ -504,7 +506,28 @@ class BaseLangGraphAgent(BaseAgent):
         
         try:
             # Run the graph
-            final_state = self.graph.invoke(state)
+            result = self.graph.invoke(state)
+            
+            # LangGraph may return dict or object - handle both
+            if isinstance(result, dict):
+                final_state = AgentExecutionState(
+                    status=ExecutionStatus(result.get("status", "completed")),
+                    input_text=result.get("input_text", ""),
+                    conversation_history=result.get("conversation_history", []),
+                    tool_executions=result.get("tool_executions", []),
+                    reasoning_steps=result.get("reasoning_steps", []),
+                    intermediate_outputs=result.get("intermediate_outputs", {}),
+                    error_message=result.get("error_message"),
+                    start_time=result.get("start_time", time.time()),
+                    end_time=result.get("end_time"),
+                )
+            else:
+                final_state = result
+            
+            # Extract results using domain processor
+            books = self.result_processor.extract_book_recommendations(final_state)
+            text = self.result_processor.format_response_text(final_state)
+            citations = self.result_processor.extract_citations(final_state)
             
             # Extract results using domain processor
             books = self.result_processor.extract_book_recommendations(final_state)
