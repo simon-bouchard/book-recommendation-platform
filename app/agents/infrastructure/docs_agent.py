@@ -37,14 +37,16 @@ class DocsAgent(BaseLangGraphAgent):
         persona = read_prompt("persona.system.md")
         policy = read_prompt("docs.system.md")
         
-        # Optionally inject docs manifest
-        from app.agents.tools.help import render_manifest_for_prompt
-        manifest = render_manifest_for_prompt()
-        
-        if manifest:
-            policy = f"{policy}\n\nAvailable Documentation:\n{manifest}"
+        # Get manifest if docs_tools available
+        try:
+            from app.agents.tools.docs_tools import DocsTools
+            manifest = DocsTools().render_manifest_for_prompt(max_items=10)
+            if manifest:
+                policy = f"{policy}\n\nAvailable Documentation:\n{manifest}"
+        except Exception:
+            pass  # No manifest available
         
         return f"{persona}\n\n{policy}".strip()
-    
+
     def _get_target_category(self) -> str:
         return "docs"
