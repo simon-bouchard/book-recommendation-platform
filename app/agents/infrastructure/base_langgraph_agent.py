@@ -1,13 +1,14 @@
 # app/agents/infrastructure/base_langgraph_agent.py
 """
-Base LangGraph agent implementing ReAct pattern with clean state management.
-LLM drives tool selection; state captures results during execution.
+Base LangGraph agent implementing ReAct pattern with structured JSON output.
 """
+import json
+import time
 from typing import Dict, Any, Literal, Optional
 from abc import abstractmethod
 
 from langgraph.graph import StateGraph, END
-from langchain_core.messages import SystemMessage, HumanMessage
+from langchain_core.messages import HumanMessage
 
 from app.agents.domain.entities import (
     AgentExecutionState,
@@ -25,21 +26,16 @@ from .tool_executor import ToolExecutor
 
 class BaseLangGraphAgent(BaseAgent):
     """
-    Base agent implementing ReAct loop with LangGraph.
+    Base agent implementing ReAct loop with LangGraph and structured JSON output.
     
-    Pattern:
-        entry → reason (LLM decides) → should_continue?
-                                           ↓ continue    ↓ finalize
-                                          act         finalize → END
-                                           ↓
-                                        reason (loop)
+    Graph flow:
+        reason → [act | finalize]
+          ↑        ↓
+          └────────┘
     """
     
     def __init__(self, configuration, ctx_user=None, ctx_db=None):
         super().__init__(configuration)
-        
-        # LLM for reasoning
-        self.llm = get_llm(tier=configuration.llm_tier)
         
         # Tool system
         self.registry = self._create_tool_registry(ctx_user, ctx_db)
@@ -57,13 +53,13 @@ class BaseLangGraphAgent(BaseAgent):
         )
     
     def _create_tool_registry(self, ctx_user, ctx_db) -> ToolRegistry:
-        """Create tool registry based on agent capabilities. Override in subclasses."""
+        """Create tool registry based on agent capabilities."""
         config = self.configuration
         
         gates = InternalToolGates(
-            user_num_ratings=0,  # Will be set per request
+            user_num_ratings=0,
             warm_threshold=10,
-            profile_allowed=False  # Will be set per request
+            profile_allowed=False
         )
         
         from app.agents.domain.entities import AgentCapability
@@ -78,83 +74,66 @@ class BaseLangGraphAgent(BaseAgent):
         )
     
     def _build_graph(self) -> StateGraph:
-        """Build the ReAct loop graph."""
+        """Build simplified ReAct loop graph."""
         workflow = StateGraph(AgentExecutionState)
         
-        # Core ReAct nodes
         workflow.add_node("reason", self._reason_node)
         workflow.add_node("act", self._act_node)
         workflow.add_node("finalize", self._finalize_node)
         
-        # Flow
         workflow.set_entry_point("reason")
+        
+        # Direct conditional routing (no intermediate node)
         workflow.add_conditional_edges(
             "reason",
-            self._should_continue,
-            {
-                "continue": "act",
-                "finalize": "finalize"
-            }
+            lambda state: (
+                "finalize" if state.status == ExecutionStatus.FAILED
+                else "act" if state.intermediate_outputs.get("next_action", {}).get("type") == "tool_call"
+                else "finalize"
+            ),
         )
-        workflow.add_edge("act", "reason")  # Loop back
+        
+        workflow.add_edge("act", "reason")
         workflow.add_edge("finalize", END)
         
         return workflow.compile()
     
     def _reason_node(self, state: AgentExecutionState) -> AgentExecutionState:
         """
-        LLM decides what to do next: call a tool or provide final answer.
+        LLM decides next action using structured JSON output.
+        Includes iteration management and decision validation.
         """
-        append_chatbot_log(f"=== REASON NODE (iteration {len(state.reasoning_steps)}) ===")
+        iteration = len(state.reasoning_steps)
+        append_chatbot_log(f"=== REASON NODE (iteration {iteration}) ===")
         
-        # Check iteration limit
-        if len(state.reasoning_steps) >= 10:
-            state.intermediate_outputs["next_action"] = {"type": "finalize"}
-            state.add_reasoning_step("Max iterations reached - finalizing")
-            return state
+        # Check iteration limits
+        if not self._should_continue_iteration(state):
+            return self._force_finalize(state, "Iteration limit reached")
         
         try:
-            # Build prompt for LLM
-            prompt_parts = []
+            prompt = self._build_reasoning_prompt(state)
             
-            # System instructions
-            prompt_parts.append(self._get_system_prompt())
-            
-            # Available tools
-            prompt_parts.append("\n" + self._format_available_tools())
-            
-            # User query
-            prompt_parts.append(f"\nUser Query: {state.input_text}")
-            
-            # Previous tool results (if any)
-            if state.tool_executions:
-                prompt_parts.append("\nPrevious Tool Results:")
-                for exec in state.tool_executions[-3:]:  # Last 3 tools
-                    result_str = str(exec.result)[:500]
-                    prompt_parts.append(
-                        f"- {exec.tool_name}: {result_str}..."
-                    )
-            
-            # Instructions for next action
-            prompt_parts.append(
-                "\nDecide your next action. Respond with ONE of:\n"
-                "1. TOOL: <tool_name> <arguments> - to call a tool\n"
-                "2. ANSWER: <final response> - when ready to respond to user\n"
+            llm = get_llm(
+                tier=self.configuration.llm_tier,
+                json_mode=True,
+                temperature=0.0
             )
             
-            full_prompt = "\n".join(prompt_parts)
+            response = llm.invoke([HumanMessage(content=prompt)])
+            decision = self._parse_json_decision(response.content)
             
-            # Get LLM decision
-            messages = [HumanMessage(content=full_prompt)]
-            response = self.llm.invoke(messages)
+            append_chatbot_log(f"Decision: {json.dumps(decision, indent=2)}")
+            state.add_reasoning_step(json.dumps(decision))
             
-            decision = response.content if hasattr(response, 'content') else str(response)
-            state.add_reasoning_step(decision)
+            # Validate decision
+            if not self._is_decision_valid(state, decision):
+                return self._force_finalize(state, "Invalid decision")
             
-            append_chatbot_log(f"LLM Decision: {decision[:200]}...")
+            self._process_decision(state, decision)
             
-            # Parse decision
-            self._parse_llm_decision(state, decision)
+        except json.JSONDecodeError as e:
+            append_chatbot_log(f"JSON parse error: {e}")
+            return self._force_finalize(state, "JSON parsing failed")
             
         except Exception as e:
             append_chatbot_log(f"Error in reason node: {e}")
@@ -163,51 +142,270 @@ class BaseLangGraphAgent(BaseAgent):
         
         return state
     
-    def _parse_llm_decision(self, state: AgentExecutionState, decision: str) -> None:
-        """Parse LLM's decision and store in state."""
-        decision_upper = decision.upper().strip()
+    def _should_continue_iteration(self, state: AgentExecutionState) -> bool:
+        """Check if agent should continue iterating."""
+        # Max iterations check
+        if len(state.reasoning_steps) >= self.configuration.max_iterations:
+            append_chatbot_log("Max iterations reached")
+            return False
         
-        if decision_upper.startswith("TOOL:"):
-            # Extract tool call
-            tool_line = decision[5:].strip()
-            parts = tool_line.split(None, 1)
+        # Timeout check
+        elapsed = time.time() - state.start_time
+        if elapsed > self.configuration.timeout_seconds:
+            append_chatbot_log(f"Timeout reached ({elapsed:.1f}s)")
+            return False
+        
+        # Loop detection
+        if self._is_stuck_in_loop(state):
+            append_chatbot_log("Detected stuck loop")
+            return False
+        
+        return True
+    
+    def _is_stuck_in_loop(self, state: AgentExecutionState) -> bool:
+        """Detect if agent is calling same tool repeatedly with no progress."""
+        if len(state.tool_executions) < 3:
+            return False
+        
+        # Check last 3 tool calls
+        recent = state.tool_executions[-3:]
+        
+        # All same tool?
+        if len(set(e.tool_name for e in recent)) == 1:
+            # All same arguments?
+            args_strs = [json.dumps(e.arguments, sort_keys=True) for e in recent]
+            if len(set(args_strs)) == 1:
+                # All failed or all succeeded with same result?
+                if all(not e.succeeded for e in recent):
+                    return True
+                results = [str(e.result) for e in recent if e.succeeded]
+                if len(set(results)) == 1 and len(results) == len(recent):
+                    return True
+        
+        return False
+    
+    def _is_decision_valid(self, state: AgentExecutionState, decision: Dict[str, Any]) -> bool:
+        """Validate decision makes sense given current state."""
+        action = decision.get("action")
+        
+        if action == "tool_call":
+            tool_name = decision.get("tool")
             
-            if parts:
-                tool_name = parts[0].strip()
-                tool_args = parts[1] if len(parts) > 1 else ""
-                
-                state.intermediate_outputs["next_action"] = {
-                    "type": "tool_call",
-                    "tool": tool_name,
-                    "args": tool_args
-                }
-                append_chatbot_log(f"Parsed tool call: {tool_name}")
-            else:
-                # Malformed tool call - finalize
-                state.intermediate_outputs["next_action"] = {"type": "finalize"}
+            # Tool exists?
+            if tool_name not in self.tool_executor._tools:
+                append_chatbot_log(f"Tool '{tool_name}' not available")
+                return False
+            
+            # Redundant recommendation tool call?
+            book_ids = state.intermediate_outputs.get("book_ids", [])
+            if len(book_ids) >= 10 and self.tool_executor.is_book_recommendation_tool(tool_name):
+                append_chatbot_log(f"Already have {len(book_ids)} books, skipping redundant tool")
+                # Allow but with warning
         
-        elif decision_upper.startswith("ANSWER:"):
-            # LLM ready to provide final answer
-            answer_text = decision[7:].strip()
-            state.intermediate_outputs["final_answer"] = answer_text
-            state.intermediate_outputs["next_action"] = {"type": "finalize"}
+        return True
+    
+    def _force_finalize(self, state: AgentExecutionState, reason: str) -> AgentExecutionState:
+        """Force finalization with synthesized answer."""
+        append_chatbot_log(f"Forcing finalization: {reason}")
+        
+        # Generate answer from available data
+        if state.tool_executions:
+            answer = self._synthesize_answer_from_tools(state)
+        else:
+            answer = "I wasn't able to complete that request. Please try rephrasing your question."
+        
+        state.intermediate_outputs["final_answer"] = answer
+        state.intermediate_outputs["next_action"] = {"type": "finalize"}
+        
+        return state
+    
+    def _synthesize_answer_from_tools(self, state: AgentExecutionState) -> str:
+        """Quick synthesis when forcing finalization."""
+        try:
+            llm = get_llm(tier="small", temperature=0.1, timeout=10)
+            
+            # Summarize recent successful tool results
+            results_summary = []
+            for exec in state.tool_executions[-3:]:
+                if exec.succeeded:
+                    result_str = str(exec.result)[:200]
+                    results_summary.append(f"- {exec.tool_name}: {result_str}")
+            
+            if not results_summary:
+                return "I attempted to gather information but encountered issues."
+            
+            prompt = (
+                f"User asked: {state.input_text}\n\n"
+                f"Tool results:\n" + "\n".join(results_summary) + "\n\n"
+                f"Provide a brief, helpful response (2-3 sentences)."
+            )
+            
+            response = llm.invoke([HumanMessage(content=prompt)])
+            return response.content if hasattr(response, 'content') else str(response)
+            
+        except Exception as e:
+            append_chatbot_log(f"Synthesis failed: {e}")
+            return "I found some information but had trouble summarizing it."
+    
+    def _build_reasoning_prompt(self, state: AgentExecutionState) -> str:
+        """Build the prompt for the reasoning LLM."""
+        parts = []
+        
+        # System instructions
+        parts.append(self._get_system_prompt())
+        parts.append("\n" + "="*60)
+        
+        # Available tools with parameters
+        parts.append("\nAVAILABLE TOOLS:")
+        if self.tool_executor._tools:
+            for tool_name, tool in self.tool_executor._tools.items():
+                # Get parameter info
+                sig = tool.get_signature()
+                params = []
+                for pname, param in sig.parameters.items():
+                    if pname in ('self', 'cls'):
+                        continue
+                    param_type = getattr(param.annotation, '__name__', 'any')
+                    is_required = param.default == param.empty
+                    params.append(f"{pname}: {param_type}" + ("" if is_required else " (optional)"))
+                
+                param_str = ", ".join(params) if params else "no parameters"
+                parts.append(f"- {tool_name}({param_str}): {tool.description}")
+        else:
+            parts.append("- No tools available")
+        
+        parts.append("\n" + "="*60)
+        
+        # User query
+        parts.append(f"\nUSER QUERY:\n{state.input_text}")
+        
+        # Conversation history if available
+        if state.conversation_history:
+            parts.append("\nCONVERSATION HISTORY:")
+            for turn in state.conversation_history[-2:]:
+                if 'u' in turn:
+                    parts.append(f"User: {turn['u']}")
+                if 'a' in turn:
+                    parts.append(f"Assistant: {turn['a']}")
+        
+        # Previous tool results
+        if state.tool_executions:
+            parts.append("\n" + "="*60)
+            parts.append("\nPREVIOUS TOOL RESULTS:")
+            for i, exec in enumerate(state.tool_executions[-3:], 1):
+                status = "✓ SUCCESS" if exec.succeeded else "✗ FAILED"
+                parts.append(f"\n{i}. {exec.tool_name} ({status}) [{exec.execution_time_ms}ms]")
+                
+                if exec.error:
+                    parts.append(f"   Error: {exec.error}")
+                else:
+                    result_preview = str(exec.result)[:300]
+                    if len(str(exec.result)) > 300:
+                        result_preview += "..."
+                    parts.append(f"   Result: {result_preview}")
+        
+        # Current state summary
+        book_ids = state.intermediate_outputs.get("book_ids", [])
+        if book_ids:
+            parts.append(f"\nBooks found so far: {len(book_ids)} ({book_ids[:5]}...)")
+        
+        parts.append("\n" + "="*60)
+        
+        # JSON schema instructions
+        parts.append("\nDECISION INSTRUCTIONS:")
+        parts.append("Respond with valid JSON in ONE of these formats:\n")
+        
+        parts.append("1. To call a tool:")
+        parts.append(json.dumps({
+            "action": "tool_call",
+            "tool": "tool_name",
+            "arguments": {"param1": "value1", "param2": "value2"},
+            "reasoning": "brief explanation of why you're calling this tool"
+        }, indent=2))
+        
+        parts.append("\n2. To provide final answer:")
+        parts.append(json.dumps({
+            "action": "answer",
+            "text": "your natural language response to the user",
+            "reasoning": "brief explanation of why you're ready to answer"
+        }, indent=2))
+        
+        parts.append("\nIMPORTANT RULES:")
+        parts.append("- Return ONLY valid JSON, no other text")
+        parts.append("- 'action' must be either 'tool_call' or 'answer'")
+        parts.append("- For tool_call: provide 'tool', 'arguments' (as dict), and 'reasoning'")
+        parts.append("- For answer: provide 'text' and 'reasoning'")
+        parts.append("- Arguments must match tool parameter names and types")
+        parts.append("- Don't call the same tool twice with identical arguments")
+        parts.append("- If you have sufficient information, choose 'answer' action")
+        
+        return "\n".join(parts)
+    
+    def _parse_json_decision(self, content: str) -> Dict[str, Any]:
+        """
+        Parse and validate JSON decision from LLM response.
+        Handles code fences and validates required fields.
+        """
+        content = content.strip()
+        
+        # Remove code fences if present
+        if content.startswith("```"):
+            lines = content.split("\n")
+            content = "\n".join(lines[1:-1] if lines[-1].strip() == "```" else lines[1:])
+            if content.startswith("json"):
+                content = content[4:].strip()
+        
+        # Parse JSON
+        decision = json.loads(content)
+        
+        # Validate structure
+        if not isinstance(decision, dict):
+            raise ValueError("Decision must be a JSON object")
+        
+        if "action" not in decision:
+            raise ValueError("Decision missing required 'action' field")
+        
+        action = decision["action"]
+        
+        if action == "tool_call":
+            if "tool" not in decision:
+                raise ValueError("tool_call decision missing 'tool' field")
+            if "arguments" not in decision:
+                decision["arguments"] = {}  # Default to empty args
+            if not isinstance(decision["arguments"], dict):
+                raise ValueError("'arguments' must be a JSON object/dict")
+        
+        elif action == "answer":
+            if "text" not in decision:
+                raise ValueError("answer decision missing 'text' field")
+            if not isinstance(decision["text"], str):
+                raise ValueError("'text' must be a string")
         
         else:
-            # Unclear - treat as final answer
-            state.intermediate_outputs["final_answer"] = decision
-            state.intermediate_outputs["next_action"] = {"type": "finalize"}
+            raise ValueError(f"Invalid action '{action}'. Must be 'tool_call' or 'answer'")
+        
+        return decision
     
-    def _should_continue(self, state: AgentExecutionState) -> Literal["continue", "finalize"]:
-        """Routing: continue with tool execution or finalize?"""
-        if state.status == ExecutionStatus.FAILED:
-            return "finalize"
+    def _process_decision(self, state: AgentExecutionState, decision: Dict[str, Any]) -> None:
+        """Process the parsed decision and update state accordingly."""
+        action = decision["action"]
         
-        action = state.intermediate_outputs.get("next_action", {})
+        if action == "tool_call":
+            state.intermediate_outputs["next_action"] = {
+                "type": "tool_call",
+                "tool": decision["tool"],
+                "args": decision["arguments"]  # Already a validated dict
+            }
+            
+            if "reasoning" in decision:
+                append_chatbot_log(f"Reasoning: {decision['reasoning']}")
         
-        if action.get("type") == "tool_call":
-            return "continue"
-        
-        return "finalize"
+        elif action == "answer":
+            state.intermediate_outputs["final_answer"] = decision["text"]
+            state.intermediate_outputs["next_action"] = {"type": "finalize"}
+            
+            if "reasoning" in decision:
+                append_chatbot_log(f"Reasoning: {decision['reasoning']}")
     
     def _act_node(self, state: AgentExecutionState) -> AgentExecutionState:
         """Execute the tool chosen by LLM and capture results in state."""
@@ -216,82 +414,70 @@ class BaseLangGraphAgent(BaseAgent):
         try:
             action = state.intermediate_outputs.get("next_action", {})
             tool_name = action.get("tool", "")
-            tool_args_str = action.get("args", "")
+            tool_args = action.get("args", {})  # Already a dict from JSON
             
-            # Convert string args to dict for tool executor
-            args_dict = {"input": tool_args_str}
+            if not tool_name:
+                append_chatbot_log("No tool specified in action")
+                return state
+            
+            append_chatbot_log(f"Executing: {tool_name}")
+            append_chatbot_log(f"Arguments: {json.dumps(tool_args, indent=2)}")
             
             # Execute tool
-            tool_exec = self.tool_executor.execute(tool_name, args_dict)
+            tool_exec = self.tool_executor.execute(tool_name, tool_args)
             state.add_tool_execution(tool_exec)
             
             append_chatbot_log(
-                f"Executed {tool_name}: "
-                f"{'success' if tool_exec.succeeded else 'failed'}"
+                f"Result: {'✓ success' if tool_exec.succeeded else '✗ failed'} "
+                f"({tool_exec.execution_time_ms}ms)"
             )
             
-            # 🔑 KEY: Capture book IDs immediately if this tool returns them
+            # Capture book IDs if this is a recommendation tool
             if tool_exec.succeeded and self.tool_executor.is_book_recommendation_tool(tool_name):
                 book_ids = self.tool_executor.extract_book_ids_from_result(tool_exec.result)
                 
                 if book_ids:
-                    # Accumulate book IDs (don't replace)
+                    # Accumulate book IDs (don't replace existing)
                     existing = state.intermediate_outputs.get("book_ids", [])
-                    # Dedupe while preserving order
                     seen = set(existing)
+                    new_count = 0
+                    
                     for bid in book_ids:
                         if bid not in seen:
                             existing.append(bid)
                             seen.add(bid)
+                            new_count += 1
                     
                     state.intermediate_outputs["book_ids"] = existing
-                    append_chatbot_log(f"Captured {len(book_ids)} book IDs")
+                    append_chatbot_log(
+                        f"Captured {new_count} new book IDs "
+                        f"(total: {len(existing)}, new: {book_ids[:5]}...)"
+                    )
         
         except Exception as e:
             append_chatbot_log(f"Error in act node: {e}")
-            # Don't fail - let LLM decide what to do next
+            # Don't fail completely - let agent decide what to do next
         
         return state
     
     def _finalize_node(self, state: AgentExecutionState) -> AgentExecutionState:
-        """Generate final response if needed."""
+        """Mark execution as complete. Final answer should already be in state."""
         append_chatbot_log("=== FINALIZE NODE ===")
         
-        # Check if we already have a final answer from reason node
-        if "final_answer" in state.intermediate_outputs:
-            state.mark_completed()
-            return state
-        
-        try:
-            # Generate final answer based on tool results
-            context_parts = [self._get_system_prompt()]
-            context_parts.append(f"\nUser Query: {state.input_text}")
-            
-            if state.tool_executions:
-                context_parts.append("\nTool Results:")
-                for exec in state.tool_executions:
-                    result_str = str(exec.result)[:500]
-                    context_parts.append(f"- {exec.tool_name}: {result_str}")
-            
-            context_parts.append(
-                "\nNow provide a natural, helpful response to the user based on "
-                "the tool results above."
-            )
-            
-            full_context = "\n".join(context_parts)
-            messages = [HumanMessage(content=full_context)]
-            response = self.llm.invoke(messages)
-            
-            final_text = response.content if hasattr(response, 'content') else str(response)
-            state.intermediate_outputs["final_answer"] = final_text
-            state.mark_completed()
-            
-        except Exception as e:
-            append_chatbot_log(f"Error in finalize node: {e}")
+        # Sanity check
+        if "final_answer" not in state.intermediate_outputs:
+            append_chatbot_log("WARNING: No final_answer in state - generating fallback")
             state.intermediate_outputs["final_answer"] = (
-                "I encountered an error generating the response."
+                "I apologize, I couldn't generate a proper response."
             )
-            state.mark_failed(str(e))
+        
+        state.mark_completed()
+        
+        append_chatbot_log(
+            f"Finalized: {len(state.tool_executions)} tools, "
+            f"{len(state.intermediate_outputs.get('book_ids', []))} books, "
+            f"{state.execution_time_ms}ms"
+        )
         
         return state
     
@@ -300,30 +486,13 @@ class BaseLangGraphAgent(BaseAgent):
         """Get system prompt for this agent type. Override in subclasses."""
         pass
     
-    def _format_available_tools(self) -> str:
-        """Format available tools for LLM prompt."""
-        if not self.tool_executor._tools:
-            return "Available Tools: None"
-        
-        lines = ["Available Tools:"]
-        for tool_name, tool in self.tool_executor._tools.items():
-            desc = getattr(tool, 'description', 'No description')
-            lines.append(f"- {tool_name}: {desc}")
-        
-        return "\n".join(lines)
-    
     def execute(self, request: AgentRequest) -> AgentResponse:
-        """
-        Main execution method - implements BaseAgent interface.
-        
-        Flow:
-            1. Initialize state from request
-            2. Run LangGraph workflow
-            3. Extract results using StandardResultProcessor
-            4. Return AgentResponse
-        """
+        """Main execution method - implements BaseAgent interface."""
         append_chatbot_log(
-            f"\n=== {self.__class__.__name__.upper()} EXECUTION START ==="
+            f"\n{'='*60}\n"
+            f"{self.__class__.__name__.upper()} EXECUTION START\n"
+            f"Query: {request.user_text[:100]}...\n"
+            f"{'='*60}"
         )
         
         # Initialize execution state
@@ -354,17 +523,18 @@ class BaseLangGraphAgent(BaseAgent):
             )
             
             append_chatbot_log(
-                f"Execution completed: {len(books)} books, "
-                f"{len(final_state.tool_executions)} tools used"
+                f"\n{'='*60}\n"
+                f"EXECUTION COMPLETE\n"
+                f"Books: {len(books)}, Tools: {len(final_state.tool_executions)}, "
+                f"Time: {final_state.execution_time_ms}ms\n"
+                f"{'='*60}\n"
             )
-            append_chatbot_log(f"=== EXECUTION END ===\n")
             
             return response
             
         except Exception as e:
-            append_chatbot_log(f"[EXECUTION ERROR] {str(e)}")
+            append_chatbot_log(f"\n[EXECUTION ERROR] {str(e)}\n")
             
-            # Return error response
             return AgentResponse(
                 text=f"I encountered an error: {str(e)}",
                 target_category=self._get_target_category(),

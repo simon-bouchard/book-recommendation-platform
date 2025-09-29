@@ -24,7 +24,7 @@ class ToolExecutor:
     - Automatic parameter validation
     """
     
-    def __init__(self, registry: ModernToolRegistry):
+    def __init__(self, registry: ToolRegistry):
         """
         Initialize executor with a tool registry.
         
