@@ -25,9 +25,9 @@ class DocsAgent(BaseLangGraphAgent):
                 "docs_search",
                 "help_lookup"
             ]),
-            llm_tier="small",
+            llm_tier="medium",
             timeout_seconds=30,
-            max_iterations=3  # Simple lookup tasks
+            max_iterations=5  # Simple lookup tasks
         )
         
         super().__init__(configuration)

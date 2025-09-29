@@ -25,7 +25,7 @@ class ResponseAgent(BaseLangGraphAgent):
             policy_name="persona.system.md",
             capabilities=frozenset([AgentCapability.CONVERSATIONAL]),
             allowed_tools=frozenset(),  # No tools
-            llm_tier="small",
+            llm_tier="medium",
             timeout_seconds=20,
             max_iterations=1  # Single pass
         )
