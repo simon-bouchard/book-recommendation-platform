@@ -6,6 +6,7 @@ Allows new domain-based agents to work with existing route/orchestrator code.
 from typing import List, Dict, Any
 
 from app.agents.schemas import TurnInput, AgentResult, ToolCall as LegacyToolCall, BookOut
+from app.agents.runtime import _safe_str
 from app.agents.domain.entities import (
     AgentRequest,
     AgentResponse,
@@ -80,10 +81,10 @@ class AgentAdapter:
         return [
             BookOut(
                 item_idx=rec.item_idx,
-                title=rec.title,
-                author=rec.author,
-                year=rec.year,
-                cover_id=rec.cover_id,
+                title=_safe_str(rec.title),
+                author=_safe_str(rec.author),
+                year=_safe_str(rec.year),
+                cover_id=_safe_str(rec.cover_id),
             )
             for rec in recommendations
         ]

@@ -109,6 +109,15 @@ def extract_book_ids_from_steps(steps: List[Any]) -> List[int]:
             return []
     return []
 
+def _safe_str(val) -> Optional[str]:
+    import math
+    if val is None:
+        return None
+    if isinstance(val, float) and math.isnan(val):
+        return None
+    s = str(val).strip()
+    return s or None
+
 def build_books_from_ids(ids: Iterable[int]) -> List[BookOut]:
     ids = list(dict.fromkeys(int(i) for i in ids))  # de-dup, preserve order
     if not ids:
@@ -130,10 +139,10 @@ def build_books_from_ids(ids: Iterable[int]) -> List[BookOut]:
             year_val = r.get("year")
             out.append(BookOut(
                 item_idx=int(i),
-                title=r.get("title"),
-                author=r.get("author"),
-                year=(int(year_val) if year_val is not None else None),
-                cover_id=(str(r.get("cover_id")) if r.get("cover_id") is not None else None),
+                title=_safe_str(r.get("title")),
+                author=_safe_str(r.get("author")),
+                year=_safe_str(r.get("year")),
+                cover_id=_safe_str(r.get("cover_id")),
             ))
         else:
             # Still return a minimal object so the UI can render gracefully
