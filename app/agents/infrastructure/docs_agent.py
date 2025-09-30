@@ -12,8 +12,8 @@ class DocsAgent(BaseLangGraphAgent):
     Agent specialized in searching internal documentation.
     
     Has access to:
-    - Documentation search
-    - Help article lookup
+    - help_manifest: List available help documents
+    - help_read: Read a specific help document
     """
     
     def __init__(self):
@@ -22,8 +22,8 @@ class DocsAgent(BaseLangGraphAgent):
             policy_name="docs.system.md",
             capabilities=frozenset([AgentCapability.DOCUMENT_SEARCH]),
             allowed_tools=frozenset([
-                "docs_search",
-                "help_lookup"
+                "help_manifest",  # Lists all available docs with metadata
+                "help_read"       # Reads a specific doc by alias/filename
             ]),
             llm_tier="medium",
             timeout_seconds=30,
