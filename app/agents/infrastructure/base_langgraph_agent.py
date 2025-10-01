@@ -242,6 +242,7 @@ class BaseLangGraphAgent(BaseAgent):
         if not state.tool_executions:
             return messages
         
+        # Build summary of recent tool calls
         parts = ["PREVIOUS TOOL RESULTS:"]
         
         for i, exec in enumerate(state.tool_executions[-3:], 1):
@@ -249,9 +250,7 @@ class BaseLangGraphAgent(BaseAgent):
             parts.append(f"\n{i}. {exec.tool_name} ({status}) [{exec.execution_time_ms}ms]")
             
             if exec.error:
-                # Make it clearer this is a real error
-                parts.append(f"   ERROR: {exec.error}")
-                parts.append(f"   → Do not retry with same arguments")  # ADD THIS
+                parts.append(f"   Error: {exec.error}")
             else:
                 result_preview = str(exec.result)[:300]
                 if len(str(exec.result)) > 300:
@@ -261,7 +260,7 @@ class BaseLangGraphAgent(BaseAgent):
         messages.append(HumanMessage(content="\n".join(parts)))
         
         return messages
-
+    
     def _build_current_situation(self, state: AgentExecutionState) -> str:
         """
         Build description of current situation.

@@ -156,22 +156,32 @@ class ToolExecutor:
         """
         Attempt to coerce value to target type.
         
-        Handles common conversions:
-        - str to int/float/bool
-        - JSON strings to list/dict
-        - etc.
-        
-        Args:
-            value: Value to convert
-            target_type: Target type
-            
-        Returns:
-            Converted value
-            
-        Raises:
-            ValueError: If conversion fails
+        Handles parameterized generics like list[int], dict[str, Any], etc.
         """
-        # Already correct type
+        import typing
+        
+        # Handle parameterized generics (list[int], dict[str, Any], etc.)
+        origin = typing.get_origin(target_type)
+        if origin is not None:
+            # For list[int], dict[str, Any], etc. - check the origin type only
+            # Don't validate inner types with isinstance
+            if isinstance(value, origin):
+                return value
+            
+            # Try to convert if needed
+            if origin in (list, dict) and isinstance(value, str):
+                try:
+                    parsed = json.loads(value)
+                    if isinstance(parsed, origin):
+                        return parsed
+                except json.JSONDecodeError:
+                    pass
+            
+            raise ValueError(
+                f"Cannot convert {value!r} (type {type(value).__name__}) to {origin.__name__}"
+            )
+        
+        # Non-generic types - safe to use isinstance
         if isinstance(value, target_type):
             return value
         
@@ -203,9 +213,9 @@ class ToolExecutor:
         except (ValueError, TypeError):
             raise ValueError(
                 f"Cannot convert {value!r} (type {type(value).__name__}) "
-                f"to {target_type.__name__}"
+                f"to {getattr(target_type, '__name__', str(target_type))}"
             )
-    
+
     def extract_book_ids_from_result(self, result: Any) -> list[int]:
         """
         Extract book IDs from a tool result.
