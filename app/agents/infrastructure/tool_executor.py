@@ -11,6 +11,7 @@ from typing import Dict, Any, Optional
 from app.agents.domain.entities import ToolExecution
 from app.agents.tools.registry import ToolRegistry
 from app.agents.tools.native_tool import ToolDefinition
+from app.agents.logging import append_chatbot_log
 
 
 class ToolExecutor:
@@ -82,10 +83,12 @@ class ToolExecutor:
             
         except Exception as e:
             execution_time_ms = int((time.time() - start_time) * 1000)
+            error_msg = f"{type(e).__name__}: {str(e)}"
+            append_chatbot_log(f"Tool error: {error_msg}")  # ADD THIS
             return ToolExecution(
                 tool_name=tool_name,
                 arguments=arguments,
-                error=f"{type(e).__name__}: {str(e)}",
+                error=error_msg,
                 execution_time_ms=execution_time_ms
             )
     
