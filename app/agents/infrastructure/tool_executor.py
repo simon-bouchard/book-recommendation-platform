@@ -156,15 +156,31 @@ class ToolExecutor:
         """
         Attempt to coerce value to target type.
         
-        Handles parameterized generics like list[int], dict[str, Any], etc.
+        Handles parameterized generics like list[int], dict[str, Any], Optional[X], etc.
         """
         import typing
         
-        # Handle parameterized generics (list[int], dict[str, Any], etc.)
+        # Handle Optional[X] (which is Union[X, None])
         origin = typing.get_origin(target_type)
+        
+        if origin is typing.Union:
+            # Get the non-None type from Union
+            args = typing.get_args(target_type)
+            non_none_types = [arg for arg in args if arg is not type(None)]
+            
+            # If value is None and None is allowed, that's fine
+            if value is None and type(None) in args:
+                return None
+            
+            # Try to coerce to the first non-None type
+            if non_none_types:
+                return self._coerce_type(value, non_none_types[0])
+            
+            raise ValueError(f"Cannot coerce {value!r} to {target_type}")
+        
+        # Handle other parameterized generics (list[int], dict[str, Any], etc.)
         if origin is not None:
             # For list[int], dict[str, Any], etc. - check the origin type only
-            # Don't validate inner types with isinstance
             if isinstance(value, origin):
                 return value
             
