@@ -139,7 +139,7 @@ class AgentRequest:
 
 @dataclass
 class BookRecommendation:
-    """Domain entity for a book recommendation."""
+    """Domain entity for a book recommendation with full metadata."""
     item_idx: int  # Matches existing BookOut schema naming
     title: Optional[str] = None
     author: Optional[str] = None
@@ -148,10 +148,37 @@ class BookRecommendation:
     recommendation_score: Optional[float] = None
     recommendation_reason: Optional[str] = None
     
+    # Extended metadata for curation (from tool results)
+    subjects: Optional[List[str]] = None
+    tones: Optional[List[str]] = None
+    description: Optional[str] = None
+    genre: Optional[str] = None
+    
     def is_complete(self) -> bool:
         """Check if recommendation has minimum required data."""
         return self.item_idx is not None and (self.title is not None or self.author is not None)
-
+    
+    def has_rich_metadata(self) -> bool:
+        """Check if recommendation has extended metadata for curation."""
+        return bool(self.subjects or self.tones or self.description or self.genre)
+    
+    def to_curation_dict(self) -> Dict[str, Any]:
+        """
+        Convert to dictionary format for curation agent.
+        
+        Returns dict with all available metadata, ready for JSON serialization.
+        """
+        return {
+            "item_idx": self.item_idx,
+            "title": self.title or "",
+            "author": self.author or "",
+            "year": self.year or "",
+            "subjects": self.subjects or [],
+            "tones": self.tones or [],
+            "genre": self.genre or "",
+            "description": self.description or "",
+            "score": self.recommendation_score,
+        }
 
 @dataclass
 class AgentResponse:

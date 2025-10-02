@@ -103,21 +103,30 @@ class CurationAgent:
         prepared = []
         
         for book in candidates:
-            # Truncate description if too long
-            description = book.description or ""
-            if len(description) > 200:
-                description = description[:200] + "..."
+            # Check if we have rich metadata
+            if hasattr(book, 'to_curation_dict'):
+                # Use the built-in conversion method
+                book_dict = book.to_curation_dict()
+            else:
+                # Fallback: manual extraction
+                book_dict = {
+                    "item_idx": book.item_idx,
+                    "title": book.title or "",
+                    "author": book.author or "",
+                    "year": book.year or "",
+                    "subjects": getattr(book, 'subjects', []) or [],
+                    "tones": getattr(book, 'tones', []) or [],
+                    "genre": getattr(book, 'genre', "") or "",
+                    "description": getattr(book, 'description', "") or "",
+                    "score": book.recommendation_score,
+                }
             
-            prepared.append({
-                "item_idx": book.item_idx,
-                "title": book.title or "",
-                "author": book.author or "",
-                "year": book.year or "",
-                "subjects": book.subjects or [],
-                "tones": book.tones or [],
-                "genre": book.genre or "",
-                "description": description,
-            })
+            # Truncate description if too long (token limit)
+            description = book_dict.get("description", "")
+            if description and len(description) > 200:
+                book_dict["description"] = description[:200] + "..."
+            
+            prepared.append(book_dict)
         
         return prepared
     

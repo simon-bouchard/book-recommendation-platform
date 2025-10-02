@@ -29,12 +29,21 @@ class StandardResultProcessor:
     
     def extract_book_recommendations(self, state: AgentExecutionState) -> List[BookRecommendation]:
         """
-        Extract book recommendations from execution state.
-        Uses multiple strategies to find book IDs.
+        Extract book recommendations with full metadata from execution state.
+        
+        Priority order:
+        1. book_objects (full metadata from tools) - PREFERRED
+        2. return_book_ids tool result (just IDs)
+        3. Other extraction methods (fallback)
         """
+        # Check for full book objects first (new method)
+        book_objects = state.intermediate_outputs.get("book_objects", [])
+        if book_objects:
+            return self._build_recommendations_from_objects(book_objects)
+        
+        # Fall back to old ID-only extraction
         extraction_result = self._extract_book_ids_with_confidence(state)
         
-        # Convert IDs to recommendations
         recommendations = []
         for item_idx in extraction_result.book_ids:
             recommendations.append(BookRecommendation(
@@ -43,7 +52,68 @@ class StandardResultProcessor:
             ))
         
         return recommendations
-    
+
+    def _build_recommendations_from_objects(
+        self, 
+        book_objects: List[Dict[str, Any]]
+    ) -> List[BookRecommendation]:
+        """
+        Build BookRecommendation objects from tool result dictionaries.
+        
+        Args:
+            book_objects: List of book dicts from tool results
+            
+        Returns:
+            List of BookRecommendation objects with full metadata
+        """
+        recommendations = []
+        
+        for obj in book_objects:
+            if not isinstance(obj, dict):
+                continue
+            
+            item_idx = obj.get('item_idx')
+            if item_idx is None:
+                continue
+            
+            # Extract all available fields
+            rec = BookRecommendation(
+                item_idx=int(item_idx),
+                title=obj.get('title'),
+                author=obj.get('author'),
+                year=self._safe_int(obj.get('year')),
+                cover_id=obj.get('cover_id'),
+                recommendation_score=self._safe_float(obj.get('score') or obj.get('similarity')),
+            )
+            
+            # Add extended metadata if available (not in base BookRecommendation)
+            # Store in a dict for passing to curation
+            if 'subjects' in obj or 'tones' in obj or 'description' in obj or 'genre' in obj:
+                # We need to extend BookRecommendation or store metadata separately
+                # For now, let's add these as attributes dynamically
+                rec.subjects = obj.get('subjects', [])
+                rec.tones = obj.get('tones', [])
+                rec.description = obj.get('description')
+                rec.genre = obj.get('genre')
+            
+            recommendations.append(rec)
+        
+        return recommendations
+
+    def _safe_int(self, value: Any) -> Optional[int]:
+        """Safely convert value to int."""
+        try:
+            return int(value) if value is not None else None
+        except (ValueError, TypeError):
+            return None
+
+    def _safe_float(self, value: Any) -> Optional[float]:
+        """Safely convert value to float."""
+        try:
+            return float(value) if value is not None else None
+        except (ValueError, TypeError):
+            return None
+
     def _extract_book_ids_with_confidence(self, state: AgentExecutionState) -> BookExtractionResult:
         """
         Extract book IDs using multiple strategies, returning the first successful result.

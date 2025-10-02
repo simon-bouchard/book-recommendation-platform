@@ -334,3 +334,53 @@ class ToolExecutor:
             'requires_db': tool.metadata.requires_db,
             'parameters': params,
         }
+
+    def extract_books_from_result(self, result: Any) -> list[dict]:
+        """
+        Extract full book objects (not just IDs) from tool result.
+        
+        Returns list of dicts with fields like:
+        - item_idx (required)
+        - title, author, year (optional)
+        - subjects, tones, genre (optional)
+        - description (optional)
+        - score (optional)
+        
+        Args:
+            result: Tool execution result
+            
+        Returns:
+            List of book dictionaries with available metadata
+        """
+        books = []
+        
+        try:
+            # Handle dict with 'books' or 'results' key
+            if isinstance(result, dict):
+                book_list = result.get('books') or result.get('results') or []
+                if isinstance(book_list, list):
+                    books.extend(book_list)
+                elif 'item_idx' in result:
+                    # Single book dict
+                    books.append(result)
+            
+            # Handle list of book dicts or IDs
+            elif isinstance(result, list):
+                for item in result:
+                    if isinstance(item, dict):
+                        # Book dict - take as is
+                        if 'item_idx' in item or 'book_id' in item:
+                            books.append(item)
+                    elif isinstance(item, int):
+                        # Just an ID - create minimal dict
+                        books.append({'item_idx': item})
+            
+            # Normalize field names (book_id -> item_idx)
+            for book in books:
+                if 'book_id' in book and 'item_idx' not in book:
+                    book['item_idx'] = book.pop('book_id')
+        
+        except (ValueError, TypeError, KeyError):
+            pass
+        
+        return books

@@ -545,32 +545,38 @@ class BaseLangGraphAgent(BaseAgent):
                 f"({tool_exec.execution_time_ms}ms)"
             )
             
-            # Capture book IDs if this is a recommendation tool
+            # Capture book metadata if this is a recommendation tool
             if tool_exec.succeeded and self.tool_executor.is_book_recommendation_tool(tool_name):
-                book_ids = self.tool_executor.extract_book_ids_from_result(tool_exec.result)
+                # Extract full book objects (not just IDs)
+                book_objects = self.tool_executor.extract_books_from_result(tool_exec.result)
                 
-                if book_ids:
-                    existing = state.intermediate_outputs.get("book_ids", [])
-                    seen = set(existing)
+                if book_objects:
+                    # Store in intermediate_outputs for later extraction
+                    existing_books = state.intermediate_outputs.get("book_objects", [])
+                    
+                    # Deduplicate by item_idx while preserving order and metadata
+                    seen_ids = {b.get('item_idx') for b in existing_books}
                     new_count = 0
                     
-                    for bid in book_ids:
-                        if bid not in seen:
-                            existing.append(bid)
-                            seen.add(bid)
+                    for book in book_objects:
+                        book_id = book.get('item_idx')
+                        if book_id and book_id not in seen_ids:
+                            existing_books.append(book)
+                            seen_ids.add(book_id)
                             new_count += 1
                     
-                    state.intermediate_outputs["book_ids"] = existing
+                    state.intermediate_outputs["book_objects"] = existing_books
+                    
                     append_chatbot_log(
-                        f"Captured {new_count} new book IDs "
-                        f"(total: {len(existing)})"
+                        f"Captured {new_count} new books with metadata "
+                        f"(total: {len(existing_books)})"
                     )
         
         except Exception as e:
             append_chatbot_log(f"Error in act node: {e}")
         
         return state
-    
+
     def _finalize_node(self, state: AgentExecutionState) -> AgentExecutionState:
         """Mark execution as complete."""
         append_chatbot_log("=== FINALIZE NODE ===")
