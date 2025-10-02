@@ -6,7 +6,7 @@ from typing import Optional, Any
 
 from app.agents.schemas import Target
 from app.agents.domain.interfaces import Agent
-from .recommendation_agent import RecommendationAgent
+from .recsys.recommendation_agent import RecommendationAgent
 from .web_agent import WebAgent
 from .docs_agent import DocsAgent
 from .response_agent import ResponseAgent

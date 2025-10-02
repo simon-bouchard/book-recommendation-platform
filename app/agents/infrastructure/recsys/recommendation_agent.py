@@ -5,7 +5,7 @@ Recommendation agent with access to internal book recommendation tools.
 from app.agents.domain.entities import AgentConfiguration, AgentCapability
 from app.agents.prompts.loader import read_prompt
 from app.agents.tools.registry import InternalToolGates
-from .base_langgraph_agent import BaseLangGraphAgent
+from ..base_langgraph_agent import BaseLangGraphAgent
 
 
 class RecommendationAgent(BaseLangGraphAgent):

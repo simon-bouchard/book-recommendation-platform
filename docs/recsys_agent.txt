@@ -1,0 +1,795 @@
+Detailed Implementation Plan: Two-Stage RecsysAgent
+Phase 1: Create New Components
+1.1 Create RetrievalAgent
+File: app/agents/infrastructure/retrieval_agent.py
+Extends: BaseLangGraphAgent (full ReAct loop with tools)
+Responsibilities:
+
+Tool selection (semantic_search, subject_hybrid_pool, als_recs, etc.)
+Execute multiple tool calls if needed
+Quality filtering (remove non-English, corrupted entries)
+Accumulate 30-100+ candidate books
+NO prose generation
+NO book ordering (just accumulate)
+
+Key methods:
+
+_get_system_prompt() → loads recsys.retrieval.md
+_get_target_category() → returns "recsys"
+_finalize_node() → override to skip prose generation, just package candidates
+All other ReAct loop logic inherited from BaseLangGraphAgent
+
+Output format:
+pythonAgentResponse(
+    text="",  # Empty or debug info only
+    book_recommendations=[...],  # 30-100+ candidates with full metadata
+    execution_state=state,  # Tool execution history
+    success=True,
+    ...
+)
+1.2 Create CurationAgent
+File: app/agents/infrastructure/curation_agent.py
+Does NOT extend: BaseLangGraphAgent (much simpler)
+Responsibilities:
+
+Receive candidates from RetrievalAgent
+Score each book for relevance to query
+Order books by relevance score
+Select top 6-30 books
+Generate prose describing top 8-12
+Return ordered IDs + prose
+
+Key methods:
+
+execute(request, candidates, retrieval_context) → main entry
+_build_curation_prompt(query, candidates) → construct LLM prompt
+_parse_curation_response(response) → extract IDs + prose from JSON
+_order_books(candidates, ordered_ids) → reorder BookRecommendation list
+
+Single LLM call: JSON mode asking for:
+json{
+  "book_ids": [1234, 5678, ...],  // Ordered by relevance
+  "response_text": "Here are cozy fantasies...",
+  "reasoning": "Ranked by tone match..."  // Optional debug
+}
+1.3 Modify RecommendationAgent
+File: app/agents/infrastructure/recommendation_agent.py
+Changes from current: No longer extends BaseLangGraphAgent, becomes orchestrator
+Responsibilities:
+
+Create RetrievalAgent and CurationAgent instances
+Coordinate two-stage pipeline
+Handle edge cases (no candidates, failures)
+Return final AgentResponse
+
+New structure:
+pythonclass RecommendationAgent(BaseAgent):  # Not BaseLangGraphAgent
+    def __init__(self, current_user, db, ...):
+        self.retrieval_agent = RetrievalAgent(...)
+        self.curation_agent = CurationAgent()
+    
+    def execute(self, request: AgentRequest) -> AgentResponse:
+        # Stage 1
+        retrieval_response = self.retrieval_agent.execute(request)
+        
+        if not retrieval_response.book_recommendations:
+            return self._no_candidates_fallback(request)
+        
+        # Stage 2
+        final_response = self.curation_agent.execute(
+            request=request,
+            candidates=retrieval_response.book_recommendations,
+            retrieval_context=retrieval_response.execution_state
+        )
+        
+        return final_response
+Phase 2: Create Prompts
+2.1 Retrieval Prompt
+File: app/agents/prompts/recsys.retrieval.md
+Length: ~80-100 lines
+Content structure:
+markdown# Retrieval Agent
+
+You retrieve candidate books from internal catalog using tools.
+
+## Your Job
+- Call tools to gather 30-100+ candidate books
+- Filter out non-English and corrupted entries
+- Accumulate results from multiple tools if helpful
+- Stop when you have sufficient quality candidates
+
+## DO NOT
+- Generate prose for users (that's stage 2)
+- Order or rank books (that's stage 2)
+- Call return_book_ids (not available in this stage)
+
+## Tool Selection Strategy
+[Same as current: semantic_search for vibes, subject_hybrid for subjects, etc.]
+
+## Quality Filtering Rules
+[Non-English detection, corruption patterns]
+
+## Stopping Criteria
+- Have 30+ quality candidates AND
+- Tried reasonable tool combinations for query type
+
+## Decision Format
+[JSON examples with tool calls]
+
+## Few-Shot Examples
+[3-4 examples showing multi-tool retrieval with filtering]
+2.2 Curation Prompt
+File: app/agents/prompts/recsys.curation.md
+Length: ~60-80 lines
+Content structure:
+markdown# Curation Agent
+
+You rank candidate books and write prose.
+
+## Your Job
+You receive 30-100+ candidate books. You must:
+1. Score each for relevance to user query
+2. Order them by relevance (best first)
+3. Select top 6-30 books
+4. Write prose about top 8-12 books in that order
+
+## The order you return IS the display order
+The first book_id in your list will be the first card shown.
+
+## Scoring Criteria
+- Explicit constraint match (subjects, tones, authors)
+- Query keyword/theme alignment
+- Metadata quality (complete info)
+- Diversity (avoid 3+ same author unless requested)
+
+## Output Format
+Return JSON:
+{
+  "book_ids": [1234, 5678, 9012, ...],  // 6-30 IDs, best first
+  "response_text": "Here are cozy fantasies with...",
+  "reasoning": "Ranked by tone + subject match"  // optional
+}
+
+## Prose Guidelines
+- Write about top 8-12 books only
+- Follow persona voice (warm, knowledgeable)
+- Explain WHY these match the request
+- 2-4 sentences typically
+
+## Candidate Format
+[Explain the input structure]
+
+## Few-Shot Examples
+[2-3 examples showing ranking logic and prose generation]
+Phase 3: Integration Changes
+3.1 No Changes Needed
+
+router.py - still routes to "recsys"
+conductor.py - still calls agent_factory.create_agent("recsys")
+agent_factory.py - still returns RecommendationAgent instance
+agent_adapter.py - still converts AgentResponse → AgentResult
+
+3.2 Minor Changes
+File: app/agents/infrastructure/__init__.py
+Add exports:
+pythonfrom .retrieval_agent import RetrievalAgent
+from .curation_agent import CurationAgent
+# RecommendationAgent already exported
+Phase 4: Testing Strategy
+4.1 Unit Tests
+Test RetrievalAgent independently:
+python# Input: "cozy fantasy"
+# Expected: 30+ candidates, all English, calls semantic_search
+# Output: AgentResponse with book_recommendations filled
+
+# Input: "sci-fi with time travel"
+# Expected: calls subject_id_search + subject_hybrid_pool
+# Output: 50+ candidates
+
+# Input: "recommend me something" (cold user)
+# Expected: calls subject_hybrid_pool with fav_subjects=None
+# Output: popular books
+Test CurationAgent independently:
+python# Input: 80 candidates + "cozy fantasy" query
+# Expected: Orders by relevance, returns 8-12 IDs
+# Output: Prose mentions top books in order
+
+# Input: 40 candidates + "mystery novels"
+# Expected: Filters for mystery-related, orders
+# Output: IDs start with best matches
+Test full pipeline:
+python# Input: various user queries
+# Expected: RetrievalAgent → CurationAgent → final response
+# Verify: books in response match prose order
+4.2 Edge Cases
+No candidates scenario:
+
+RetrievalAgent finds 0 books
+RecommendationAgent catches, returns fallback message
+
+Poor quality candidates:
+
+RetrievalAgent gets 100 books, all non-English
+CurationAgent must handle gracefully (return subset or fallback)
+
+Tool failures:
+
+semantic_search fails
+RetrievalAgent retries with subject_hybrid_pool
+Still accumulates some candidates
+
+Phase 5: Migration Steps
+Step 1: Create files (no deployment)
+
+retrieval_agent.py
+curation_agent.py
+recsys.retrieval.md
+recsys.curation.md
+
+Step 2: Implement and test locally
+
+Test each agent independently
+Test full pipeline
+Compare output to current RecommendationAgent
+
+Step 3: Deploy behind feature flag (optional)
+python# In agent_factory.py
+if settings.USE_TWO_STAGE_RECSYS:
+    return RecommendationAgent(...)  # New version
+else:
+    return LegacyRecommendationAgent(...)  # Current version
+Step 4: Monitor and compare
+
+Run both versions side-by-side
+Compare quality, latency, tool usage
+Look for regressions
+
+Step 5: Full cutover
+
+Remove legacy code
+Delete old recsys.system.md
+Update documentation
+
+Phase 6: Expected Improvements
+Prompt clarity:
+
+80-line retrieval prompt (tool selection only)
+60-line curation prompt (ranking only)
+vs 200-line monolith
+
+Debugging:
+
+Can see exactly which stage failed
+Retrieval problems ≠ curation problems
+Clear separation of concerns
+
+Performance tuning:
+
+Can use different LLM tiers per stage
+Retrieval: large model (tool calling)
+Curation: medium model (ranking only)
+
+Testing:
+
+Test retrieval strategies independently
+Test curation logic with known candidates
+Mock stages easily
+
+Phase 7: Potential Issues & Mitigations
+Issue: Retrieval passes too many candidates (200+)
+
+Mitigation: Add candidate limit in RetrievalAgent stopping criteria
+
+Issue: Curation takes too long with 100+ candidates
+
+Mitigation: Truncate candidate metadata, or limit to top-scored 50
+
+Issue: RetrievalAgent uses too many iterations
+
+Mitigation: Lower max_iterations for retrieval (5 instead of 7)
+
+Issue: Information loss between stages
+
+Mitigation: Pass full retrieval_context to curation for transparency
+
+Issue: Curation returns bad ordering
+
+Mitigation: Add validation, fallback to popularity order if nonsense
+
+Implementation Order Recommendation
+
+Day 1: Create retrieval_agent.py + recsys.retrieval.md, test independently
+Day 2: Create curation_agent.py + recsys.curation.md, test independently
+Day 3: Modify recommendation_agent.py to orchestrate, test full pipeline
+Day 4: Integration testing, edge cases, comparison to current system
+Day 5: Deploy behind feature flag, monitor, iterate
+
+Key Decision Points
+Before starting:
+
+Confirm tool accumulation strategy (keep all results vs selective)
+Decide on candidate count limits (30-100? 50-200?)
+Choose LLM tiers (both large? retrieval=large, curation=medium?)
+
+During implementation:
+
+How much metadata to pass to curation? (full book objects vs summary)
+Should curation see tool execution history? (helpful for reasoning)
+Timeout allocation per stage? (30s retrieval, 10s curation?)
+
+After deployment:
+
+Quality comparison (A/B test if possible)
+Latency impact (two LLM calls vs one, but simpler prompts)
+Cost impact (two calls but potentially cheaper models)
+
+This plan should give you a clear roadmap. Which phase do you want to start with?
+
+Updated Implementation Plan: Two-Stage RecsysAgent (Soft Guidance Approach)
+Core Philosophy
+Hard rules (only practical necessities):
+
+Description truncation (token limits)
+Max iterations (cost protection)
+Timeout (runaway prevention)
+
+Soft guidance (LLM decides):
+
+When to stop retrieval
+What counts as quality
+Which books to exclude
+How many books to return
+
+
+Phase 1: Component Implementation
+1.1 RetrievalAgent
+File: app/agents/infrastructure/retrieval_agent.py
+Extends: BaseLangGraphAgent (full ReAct loop)
+Responsibilities:
+
+Call tools to accumulate candidates
+Decide when sufficient candidates gathered (via LLM reasoning)
+Pass ALL accumulated results to next stage (no filtering)
+Provide retrieval context (which tools called, in what order)
+
+Key implementation points:
+
+NO _should_finalize() override - let base agent handle via reasoning
+NO quality filtering code
+Capture tool execution summary for curation stage
+
+Output:
+pythonAgentResponse(
+    text="",  # Empty
+    book_recommendations=[...],  # All accumulated books, unfiltered
+    execution_state=state,  # Contains retrieval_summary
+    success=True,
+)
+State additions:
+pythondef _finalize_node(self, state):
+    # Capture tool execution order and results
+    tool_summary = []
+    for exec in state.tool_executions:
+        if exec.succeeded and self.tool_executor.is_book_recommendation_tool(exec.tool_name):
+            book_count = len(self.tool_executor.extract_book_ids_from_result(exec.result))
+            tool_summary.append({
+                "tool": exec.tool_name,
+                "arguments": exec.arguments,
+                "book_count": book_count,
+                "order": len(tool_summary) + 1
+            })
+    
+    state.intermediate_outputs["retrieval_summary"] = tool_summary
+    state.mark_completed()
+    return state
+1.2 CurationAgent
+File: app/agents/infrastructure/curation_agent.py
+Extends: Nothing (simple class)
+Responsibilities:
+
+Score and rank candidates via LLM reasoning
+Filter poor quality books via LLM judgment
+Order final list by relevance
+Generate prose for top books
+
+Key implementation points:
+
+Receive unfiltered candidates
+Only truncate descriptions (practical token limit)
+Single LLM call with JSON output
+Pass retrieval context for informed decisions
+
+Candidate preparation (minimal processing):
+pythondef _prepare_candidates(self, candidates: List[BookRecommendation]) -> List[Dict]:
+    """Prepare candidates with truncation only."""
+    prepared = []
+    
+    for book in candidates:
+        # Truncate description if too long (token limit)
+        description = book.description or ""
+        if len(description) > 200:
+            description = description[:200] + "..."
+        
+        prepared.append({
+            "item_idx": book.item_idx,
+            "title": book.title or "",
+            "author": book.author or "",
+            "year": book.year or "",
+            "subjects": book.subjects or [],
+            "tones": book.tones or [],
+            "description": description,
+            "genre": book.genre or "",
+        })
+    
+    return prepared
+Prompt structure:
+pythondef _build_curation_prompt(self, query, candidates, retrieval_summary):
+    context = self._format_retrieval_context(retrieval_summary)
+    
+    return f"""You are curating book recommendations.
+
+USER QUERY: {query}
+
+{context}
+
+CANDIDATES ({len(candidates)} books):
+{json.dumps(candidates, indent=2)}
+
+YOUR TASK:
+1. Evaluate each book for quality and relevance
+2. Exclude/deprioritize books with poor metadata or quality issues
+3. Score remaining books for relevance (subject match, tone fit, query alignment)
+4. Order by relevance score (best first)
+5. Select 6-30 top books
+6. Write prose about top 8-12 books in that order
+
+QUALITY ASSESSMENT:
+Consider excluding books with:
+- Non-English titles (Chinese, Japanese, German, garbled unicode)
+- Missing critical metadata (no subjects to assess relevance)
+- Corrupted text (????????????)
+
+Use judgment - minimal metadata might be OK if subject match is perfect.
+
+RELEVANCE SCORING:
+- Explicit constraint match (subjects, tones, authors): 40%
+- Query theme/keyword alignment: 35%
+- Metadata completeness: 10%
+- Diversity (avoid 3+ same author unless requested): 15%
+
+OUTPUT FORMAT (JSON):
+{{
+  "book_ids": [1234, 5678, 9012, ...],  // 6-30 IDs, best first
+  "response_text": "Here are cozy fantasies...",  // About top 8-12
+  "reasoning": "optional debug info"
+}}
+
+CRITICAL: Order matters. First book_id = first card displayed.
+
+PROSE GUIDELINES:
+- Write about top 8-12 books only (even if returning more)
+- Explain WHY these match the request
+- Warm, knowledgeable tone
+- 2-4 sentences typically
+"""
+1.3 RecommendationAgent (Orchestrator)
+File: app/agents/infrastructure/recommendation_agent.py
+Changes: No longer extends BaseLangGraphAgent
+Responsibilities:
+
+Create and coordinate sub-agents
+Handle edge cases and failures
+Return final response
+
+Structure:
+pythonclass RecommendationAgent(BaseAgent):
+    def __init__(self, current_user, db, user_num_ratings, warm_threshold, allow_profile):
+        self.retrieval_agent = RetrievalAgent(
+            current_user=current_user,
+            db=db,
+            user_num_ratings=user_num_ratings,
+            allow_profile=allow_profile,
+        )
+        self.curation_agent = CurationAgent()
+    
+    def execute(self, request: AgentRequest) -> AgentResponse:
+        # Stage 1: Retrieval
+        try:
+            retrieval_response = self.retrieval_agent.execute(request)
+        except Exception as e:
+            append_chatbot_log(f"Retrieval failed: {e}")
+            return self._fallback_response(request, "retrieval_error")
+        
+        candidates = retrieval_response.book_recommendations
+        
+        # Check if we got any candidates
+        if not candidates:
+            return self._no_candidates_response(request)
+        
+        append_chatbot_log(f"Retrieval: {len(candidates)} candidates from "
+                          f"{len(retrieval_response.execution_state.tool_executions)} tools")
+        
+        # Stage 2: Curation
+        try:
+            retrieval_summary = retrieval_response.execution_state.intermediate_outputs.get(
+                "retrieval_summary", []
+            )
+            
+            final_response = self.curation_agent.execute(
+                request=request,
+                candidates=candidates,
+                retrieval_summary=retrieval_summary
+            )
+            
+            # Basic validation only
+            if not final_response.book_recommendations:
+                append_chatbot_log("Curation returned no books, using fallback")
+                return self._fallback_with_candidates(request, candidates)
+            
+            return final_response
+            
+        except Exception as e:
+            append_chatbot_log(f"Curation failed: {e}")
+            return self._fallback_with_candidates(request, candidates)
+Fallback handlers:
+pythondef _no_candidates_response(self, request):
+    return AgentResponse(
+        text="I couldn't find books matching your request in our catalog (pre-2004). "
+             "Try broader search terms or different subjects?",
+        target_category="recsys",
+        success=False,
+    )
+
+def _fallback_with_candidates(self, request, candidates):
+    """Use when curation fails - return first 10 with generic prose."""
+    return AgentResponse(
+        text="Here are some books from our catalog that might interest you.",
+        book_recommendations=candidates[:10],
+        target_category="recsys",
+        success=True,
+    )
+
+def _fallback_response(self, request, reason):
+    """Use when retrieval fails."""
+    append_chatbot_log(f"Complete fallback: {reason}")
+    return AgentResponse(
+        text="I had trouble processing your request. Please try rephrasing?",
+        target_category="recsys",
+        success=False,
+    )
+
+Phase 2: Prompts
+2.1 Retrieval Prompt
+File: app/agents/prompts/recsys.retrieval.md
+Length: ~80 lines
+Key sections:
+markdown# Retrieval Agent
+
+You retrieve candidate books using internal tools.
+
+## Your Role
+
+Call tools to accumulate candidate books for the user's query. You decide when you have sufficient candidates.
+
+## Available Tools
+
+[Same tool selection strategy as current - semantic_search, subject_hybrid_pool, als_recs, etc.]
+
+## Candidate Target
+
+AIM FOR: 60-120 candidate books
+
+This is guidance, not a requirement. Consider:
+- Query complexity (complex = more candidates helpful)
+- Quality of results (poor quality = keep trying)
+- Tool variety (tried multiple approaches?)
+
+## When to Stop (Your Judgment)
+
+Consider stopping when:
+- You have 50+ quality candidates
+- Tried reasonable tool combinations for the query type
+- Additional tools unlikely to add value
+- Have mix of results if query warrants multiple approaches
+
+Consider continuing if:
+- Candidate quality seems poor (lots of non-English, corrupted, or off-topic)
+- Only tried 1 tool and results were weak
+- Query is complex and would benefit from multiple angles
+- Haven't reached 50 candidates yet
+
+YOU decide. The numbers are guidance.
+
+## Quality Notes
+
+Don't worry about filtering bad results - the next stage handles that. Your job is gathering candidates, even if some are low-quality.
+
+## DO NOT
+
+- Generate prose (that's stage 2)
+- Order/rank books (that's stage 2)
+- Filter for quality (that's stage 2)
+- Call return_book_ids (not available)
+
+## Decision Format
+
+[JSON examples]
+
+## Few-Shot Examples
+
+[3-4 examples showing multi-tool retrieval and stopping reasoning]
+2.2 Curation Prompt
+File: app/agents/prompts/recsys.curation.md
+Length: ~70 lines
+markdown# Curation Agent
+
+You rank candidate books and write recommendation prose.
+
+## Input
+
+USER QUERY: What the user asked for
+RETRIEVAL HISTORY: Which tools were called, in what order, how many books each returned
+CANDIDATES: 30-150 books with metadata (some may be low quality)
+
+## Your Task
+
+1. Filter out poor-quality books (non-English, corrupted, no subjects)
+2. Score remaining books for relevance to user query
+3. Order by relevance score (best first)
+4. Select top 6-30 books
+5. Write prose about top 8-12 books in that order
+
+## Quality Filtering (Your Judgment)
+
+Consider excluding books with:
+- Non-English titles (Chinese characters, Japanese, German, Russian text)
+- Corrupted/garbled text (????????????, mojibake)
+- No subjects listed (can't assess relevance)
+- Missing title or author
+
+Use judgment - a book with minimal metadata but perfect subject match might still be valuable.
+
+## Relevance Scoring
+
+Weight factors:
+- Explicit constraint match (subjects, tones, authors): 40%
+- Query theme/keyword alignment: 35%
+- Metadata completeness: 10%
+- Diversity bonus (avoid 3+ same author unless requested): 15%
+
+## Retrieval Context
+
+RETRIEVAL HISTORY shows tool execution order:
+- Later tool calls may be refinements or retries
+- If agent called semantic_search (80 books) then subject_hybrid_pool (100 books), 
+  the subject results might be more targeted
+- Consider this when evaluating candidates
+
+## Output Format
+
+Return JSON:
+{{
+  "book_ids": [1234, 5678, 9012, ...],  // 6-30 IDs ordered by relevance
+  "response_text": "Here are cozy fantasies with...",
+  "reasoning": "Optional: scoring logic used"
+}}
+
+## Critical Rules
+
+THE ORDER YOU RETURN IS THE DISPLAY ORDER
+- First book_id in your list = first card shown to user
+- Your prose should describe books in that order
+- Write about top 8-12 books even if returning more IDs
+
+## Prose Guidelines
+
+- Write about top 8-12 books only
+- Explain WHY these match the request  
+- Warm, knowledgeable tone (persona voice)
+- 2-4 sentences typically
+- Don't mention item_idx or technical details
+
+## Few-Shot Examples
+
+[2-3 examples showing ranking logic, quality filtering decisions, and prose generation]
+
+Phase 3: Testing Strategy
+Unit Tests
+RetrievalAgent:
+python# Test: Agent decides to stop at 60 books
+input = "cozy fantasy"
+# Expect: semantic_search → 60 books → agent decides sufficient → stops
+
+# Test: Agent continues after poor results
+input = "obscure topic"
+# Expect: semantic_search → 20 poor books → tries subject_hybrid → 40 more → stops
+
+# Test: Multi-tool combination
+input = "historical mysteries in libraries"
+# Expect: subject_id_search + subject_hybrid_pool + semantic_search → 100+ books
+CurationAgent:
+python# Test: Filters non-English
+candidates = [80 books, 15 are Chinese/corrupted]
+# Expect: Returns 8-12 from the 65 quality books
+
+# Test: Orders by relevance
+candidates = [50 books, mix of relevant and tangential]
+query = "cozy fantasy"
+# Expect: Cozy fantasy books ranked first, others excluded or ranked low
+
+# Test: Considers retrieval context
+retrieval_summary = [
+    {"tool": "semantic_search", "book_count": 40, "order": 1},
+    {"tool": "subject_hybrid", "book_count": 80, "order": 2}
+]
+# Expect: Reasoning considers that subject_hybrid was refinement
+Integration Tests
+python# End-to-end: Normal flow
+query = "cozy fantasy with found family"
+# Expect: 
+# - Retrieval gets 60-80 books
+# - Curation returns 10 ordered IDs
+# - Prose describes top 8 in order
+# - Books match prose order
+
+# End-to-end: Cold user vague query
+query = "recommend me something"
+# Expect:
+# - Retrieval uses subject_hybrid(fav_subjects=None)
+# - Curation returns popular diverse books
+# - Prose acknowledges vagueness, suggests more details
+
+# Edge case: No candidates
+query = "2025 sci-fi releases"  # Future books
+# Expect: Retrieval finds 0, orchestrator returns no_candidates_response
+
+# Edge case: Curation fails
+query = "mysteries"
+# Retrieval succeeds with 70 books
+# Curation throws exception
+# Expect: Orchestrator catches, returns fallback_with_candidates
+
+Phase 4: Implementation Steps
+Week 1: Retrieval
+
+Create retrieval_agent.py extending BaseLangGraphAgent
+Add finalize_node override to capture retrieval_summary
+Create recsys.retrieval.md with soft guidance
+Test with various queries, verify tool execution and stopping decisions
+
+Week 2: Curation
+
+Create curation_agent.py as simple class
+Implement candidate preparation (truncation only)
+Create recsys.curation.md with quality guidance
+Test with known candidate sets, verify ordering and filtering
+
+Week 3: Integration
+
+Modify recommendation_agent.py to orchestrate
+Add fallback handlers
+Test full pipeline end-to-end
+Compare outputs to current system
+
+Week 4: Refinement
+
+Monitor real usage (if deployed)
+Adjust prompts based on failures
+Fine-tune guidance language
+Document edge cases and solutions
+
+
+Expected Behavior
+RetrievalAgent stopping decisions:
+
+"Have 65 books from semantic_search, good variety, stopping"
+"Only 30 books so far and many are off-topic, trying subject_hybrid_pool"
+"Have 95 books from two tools, sufficient candidates for curation"
+
+CurationAgent filtering decisions:
+
+"Excluding 12 non-English titles and 3 with corrupted text"
+"Book 1234 has no subjects but perfect author match - including it"
+"Ranking by subject match since query was specific about genres"
+
+This keeps the system flexible while providing clear guidance for LLM decision-making.RéessayerClaude peut faire des erreurs. Assurez-vous de vérifier ses réponses.
