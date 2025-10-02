@@ -250,16 +250,49 @@ class BaseLangGraphAgent(BaseAgent):
             parts.append(f"\n{i}. {exec.tool_name} ({status}) [{exec.execution_time_ms}ms]")
             
             if exec.error:
-                parts.append(f"   Error: {exec.error}")
+                parts.append(f"   ERROR: {exec.error}")
+                parts.append(f"   → Do not retry with same arguments")
             else:
-                result_preview = str(exec.result)[:300]
-                if len(str(exec.result)) > 300:
-                    result_preview += "..."
-                parts.append(f"   Result: {result_preview}")
+                # Get appropriate truncation limit based on tool type
+                limit = self._get_truncation_limit(exec.tool_name)
+                result_str = str(exec.result)
+                
+                if limit < float('inf') and len(result_str) > limit:
+                    parts.append(f"   Result: {result_str[:limit]}... [truncated]")
+                else:
+                    parts.append(f"   Result: {result_str}")
         
         messages.append(HumanMessage(content="\n".join(parts)))
         
         return messages
+    
+    def _get_truncation_limit(self, tool_name: str) -> int:
+        """
+        Get truncation limit for tool results.
+        
+        Override in subclasses for agent-specific limits.
+        
+        Returns:
+            Character limit (use float('inf') for no limit)
+        """
+        # Check if tool executor is available
+        if not hasattr(self, 'tool_executor'):
+            return 5000  # Safe default
+        
+        # Internal recommendation tools: no truncation needed
+        if self.tool_executor.is_book_recommendation_tool(tool_name):
+            return float('inf')  # Show full book metadata
+        
+        # Documentation tools: no truncation needed
+        if tool_name in ('help_read', 'help_manifest'):
+            return float('inf')  # Show full documentation
+        
+        # Web tools: safety limit to prevent token overflow
+        if tool_name in ('web_search', 'web_fetch'):
+            return 5000  # Reasonable limit for web content
+        
+        # Default: generous limit as safety net
+        return 8000
     
     def _build_current_situation(self, state: AgentExecutionState) -> str:
         """
