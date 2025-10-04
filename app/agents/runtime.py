@@ -241,22 +241,39 @@ def ensure_conv_cookie(request: Request, response: Response) -> str:
     return conv_id
 
 
-def load_history(conv_id: str) -> List[dict]:
+# In runtime.py
+def load_history(conv_id: str, user_id: Optional[int] = None) -> List[dict]:
     """Return rolling history list from Redis (or [])."""
     if r is None:
         return []
+    
+    # Use user_id for logged-in users, conv_id for anonymous
+    if user_id is not None:
+        key = f"chat:user:{user_id}"
+    else:
+        key = f"chat:conv:{conv_id}"
+    
     try:
-        return json.loads(r.get(f"chat:{conv_id}") or "[]")
+        return json.loads(r.get(key) or "[]")
     except Exception:
         return []
 
-
-def save_history(conv_id: str, hist: List[dict]) -> None:
-    """Persist last N exchanges with TTL (no-op if Redis is down)."""
+def save_history(
+    conv_id: str, 
+    hist: List[dict], 
+    user_id: Optional[int] = None
+) -> None:
+    """Persist last N exchanges with TTL."""
     if r is None:
         return
+    
+    # Use user_id for logged-in users, conv_id for anonymous
+    if user_id is not None:
+        key = f"chat:user:{user_id}"
+    else:
+        key = f"chat:conv:{conv_id}"
+    
     try:
-        key = f"chat:{conv_id}"
         r.setex(key, settings.chat_ttl_sec, json.dumps(hist[-settings.chat_hist_turns:]))
     except Exception:
         pass

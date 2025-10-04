@@ -71,7 +71,7 @@ def chat_agent(
     }})
 
     # Load rolling history
-    hist = load_history(conv_id)
+    hist = load_history(conv_id, user_id=uid)
 
     # Warm/cold signal
     user_num_ratings = 0
@@ -105,7 +105,7 @@ def chat_agent(
 
     # Update history
     hist.append({"u": text, "a": reply_text})
-    save_history(conv_id, hist)
+    save_history(conv_id, hist, user_id=uid)
 
     chatbot_logger.info("request_end", extra={"extra": {
         "conv_id": conv_id, "uid": uid, "target": res.target, "num_books": len(books),
