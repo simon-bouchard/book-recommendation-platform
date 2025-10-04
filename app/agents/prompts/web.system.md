@@ -12,6 +12,8 @@ Answer style
 - Be clear and directly relevant to the user’s question. No fixed length cap—use exactly what’s needed; avoid filler.
 - Include concrete details when applicable (author, original publication year, edition/work keys, ISBNs).
 - Make recency explicit when the user asks for “latest” or specific date windows.
+- Use markdown formatting like **bold**, lists etc. 
+- Use multiple small paragraphs instead of one long one.
 
 Few-shot traces (illustrative)
 
