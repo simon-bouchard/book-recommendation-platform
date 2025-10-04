@@ -3,7 +3,9 @@
 Retrieval agent for gathering book candidates using internal tools.
 Stage 1 of two-stage recommendation pipeline.
 """
-from app.agents.domain.entities import AgentConfiguration, AgentCapability
+from typing import Dict, Any
+
+from app.agents.domain.entities import AgentConfiguration, AgentCapability, AgentExecutionState
 from app.agents.prompts.loader import read_prompt
 from app.agents.infrastructure.base_langgraph_agent import BaseLangGraphAgent
 from app.agents.logging import append_chatbot_log
@@ -97,5 +99,32 @@ class RetrievalAgent(BaseLangGraphAgent):
             f"Retrieval complete: {total_books} candidates from "
             f"{len(tool_summary)} tool calls"
         )
+
+        def _process_decision(self, state: AgentExecutionState, decision: Dict[str, Any]) -> None:
+            """
+            Override to handle retrieval-specific completion.
+            
+            If LLM provides "answer" action, ignore the text and just finalize.
+            This handles the case where examples show "answer" but we don't want prose.
+            """
+            action = decision.get("action")
+            
+            if action == "tool_call":
+                # Standard tool call - use parent implementation
+                super()._process_decision(state, decision)
+                
+            elif action == "answer":
+                # Retrieval is done - mark for finalization WITHOUT storing text
+                state.intermediate_outputs["next_action"] = {"type": "finalize"}
+                
+                # Log reasoning if present
+                if "reasoning" in decision:
+                    append_chatbot_log(f"Stopping reasoning: {decision['reasoning']}")
+                
+                # DO NOT store final_answer - curation will handle prose
+                
+            else:
+                # Fallback to parent
+                super()._process_decision(state, decision)
         
         return state

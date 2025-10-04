@@ -1,4 +1,4 @@
-# app/agents/infrastructure/recsys/recommendation_agent.py
+# app/agents/infrastructure/recsys/orchestrator.py
 """
 Two-stage recommendation agent: Retrieval → Curation
 Orchestrates the pipeline without implementing agent logic itself.
@@ -111,10 +111,15 @@ class RecommendationAgent(BaseAgent):
         # Extract candidates
         candidates = retrieval_response.book_recommendations
         
+        # Safely get execution info
+        exec_state = retrieval_response.execution_state
+        tool_count = len(exec_state.tool_executions) if exec_state else 0
+        exec_time = exec_state.execution_time_ms if exec_state else 0
+        
         append_chatbot_log(
             f"Retrieval complete: {len(candidates)} candidates, "
-            f"{len(retrieval_response.execution_state.tool_executions)} tool calls, "
-            f"{retrieval_response.execution_state.execution_time_ms}ms"
+            f"{tool_count} tool calls, "
+            f"{exec_time}ms"
         )
         
         # Check if we got any candidates
@@ -139,9 +144,11 @@ class RecommendationAgent(BaseAgent):
             append_chatbot_log("\n>>> STAGE 2: CURATION <<<")
             
             # Extract retrieval context for curation agent
-            retrieval_summary = retrieval_response.execution_state.intermediate_outputs.get(
-                "retrieval_summary", []
-            )
+            retrieval_summary = []
+            if retrieval_response.execution_state:
+                retrieval_summary = retrieval_response.execution_state.intermediate_outputs.get(
+                    "retrieval_summary", []
+                )
             
             final_response = self.curation_agent.execute(
                 request=request,
@@ -172,12 +179,15 @@ class RecommendationAgent(BaseAgent):
             )
         
         # Log final stats
+        retrieval_time = retrieval_response.execution_time_ms or 0
+        curation_time = final_response.execution_time_ms or 0
+        
         append_chatbot_log(
             f"\n{'='*60}\n"
             f"RECOMMENDATION COMPLETE\n"
             f"Retrieval: {len(candidates)} candidates\n"
             f"Curation: {len(final_response.book_recommendations)} final books\n"
-            f"Total time: {retrieval_response.execution_time_ms + (final_response.execution_time_ms or 0)}ms\n"
+            f"Total time: {retrieval_time + curation_time}ms\n"
             f"{'='*60}\n"
         )
         
