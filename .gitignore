@@ -7,7 +7,9 @@
 /models/training/logs/
 data/backups/db/
 *.sql.gz
-data/*
+data/*.csv
+data/*.json
+data/*.jsonl
 logs/*
 enrich.out
 enrich.err
