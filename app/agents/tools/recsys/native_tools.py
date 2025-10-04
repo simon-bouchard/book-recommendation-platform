@@ -73,30 +73,30 @@ class InternalTools:
         """Semantic search over book embeddings."""
         
         def semantic_search(query: str, top_k: int = 200) -> list[dict]:
-            """
-            Search books using semantic similarity.
-            
-            Best for: Finding books by description, vibe, or themes.
-            
-            Args:
-                query: Free-text description of desired books
-                top_k: Number of results to return (max 200)
-                
-            Returns:
-                List of book candidates with metadata and scores
-            """
+            """Search books using semantic similarity."""
             searcher = self._get_semantic_searcher()
             top_k = max(1, min(200, top_k))
             
             try:
-                results = searcher.search(query, top_k=top_k)
-                # Rename book_id to item_idx for consistency
-                for r in results:
-                    r['item_idx'] = r.pop('book_id', None)
-                return results
+                raw_results = searcher.search(query, top_k=top_k)
+                
+                # Flatten metadata structure for consistency
+                flattened = []
+                for r in raw_results:
+                    meta = r.get('meta', {})
+                    flattened.append({
+                        'item_idx': r.get('book_id'),  # Rename to item_idx
+                        'score': r.get('score'),
+                        'title': meta.get('title'),
+                        'author': meta.get('author'),
+                        'subjects': meta.get('subjects', []),
+                        'tones': meta.get('tone_ids', []),  # Rename to tones
+                        'description': meta.get('vibe'),  # Use vibe as description
+                    })
+                
+                return flattened
             except Exception as e:
                 return [{"error": f"Semantic search failed: {e}"}]
-        
         return tool(
             name="book_semantic_search",
             description="Semantic search for books by description, vibe, or themes",

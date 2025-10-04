@@ -94,11 +94,14 @@ class RetrievalAgent(BaseLangGraphAgent):
         
         state.mark_completed()
         
-        total_books = len(state.intermediate_outputs.get("book_ids", []))
+        # Count book_objects (the rich metadata), not just IDs
+        total_books = len(state.intermediate_outputs.get("book_objects", []))
         append_chatbot_log(
-            f"Retrieval complete: {total_books} candidates from "
+            f"Retrieval complete: {total_books} candidates with metadata from "
             f"{len(tool_summary)} tool calls"
         )
+        
+        return state
 
         def _process_decision(self, state: AgentExecutionState, decision: Dict[str, Any]) -> None:
             """
