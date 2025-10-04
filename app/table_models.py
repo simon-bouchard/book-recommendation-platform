@@ -1,5 +1,5 @@
 from sqlalchemy import (
-    Column, Integer, String, Float, Boolean, ForeignKey, DateTime, Text, UniqueConstraint
+    Column, Integer, String, Float, Boolean, ForeignKey, DateTime, Text, UniqueConstraint, JSON
 )
 from sqlalchemy.orm import relationship
 from datetime import datetime
@@ -217,10 +217,129 @@ class BookLLMSubject(Base):
 # =========================
 
 class EnrichmentError(Base):
+    """
+    Structured error tracking for enrichment pipeline (DLQ).
+    Captures detailed context about failures for debugging and monitoring.
+    """
     __tablename__ = "enrichment_errors"
 
-    item_idx = Column(Integer, ForeignKey("books.item_idx", onupdate="CASCADE", ondelete="CASCADE"), primary_key=True)
-    error = Column(Text, nullable=False)
-
+    item_idx = Column(
+        Integer, 
+        ForeignKey("books.item_idx", onupdate="CASCADE", ondelete="CASCADE"), 
+        primary_key=True
+    )
+    
+    # Timestamps
+    first_seen_at = Column(DateTime, nullable=False, default=datetime.utcnow)
+    last_seen_at = Column(DateTime, nullable=False, default=datetime.utcnow, onupdate=datetime.utcnow)
+    occurrence_count = Column(Integer, nullable=False, default=1)
+    
+    # Error classification
+    stage = Column(
+        String(64), 
+        nullable=False,
+        index=True,
+        comment='fetch|llm_invoke|llm_parse|validate|postprocess|produce|consume|sql_merge'
+    )
+    error_code = Column(
+        String(64), 
+        nullable=False,
+        index=True,
+        comment='INVALID_GENRE|TIMEOUT|JSON_PARSE|etc'
+    )
+    error_field = Column(
+        String(128), 
+        nullable=True,
+        comment='Specific field that failed validation'
+    )
+    error_msg = Column(Text, nullable=False)
+    
+    # Context
+    tags_version = Column(String(32), nullable=False, default='v1')
+    title = Column(String(256), nullable=True)
+    author = Column(String(256), nullable=True)
+    attempted = Column(
+        JSON, 
+        nullable=True,
+        comment='Partial enrichment results if any'
+    )
+    
+    # Relationship
     book = relationship("Book", viewonly=True)
+    
+    __table_args__ = (
+        {'comment': 'Structured error log for enrichment pipeline (DLQ)'}
+    )
 
+# =========================
+# Phase 1: Staging Tables (used by Spark Structured Streaming)
+# =========================
+
+class TmpLLMSubjectsLoad(Base):
+    """Staging table for LLM subjects dictionary"""
+    __tablename__ = "tmp_llm_subjects_load"
+    
+    llm_subject = Column(String(128), primary_key=True)
+
+
+class TmpVibesLoad(Base):
+    """Staging table for vibes dictionary"""
+    __tablename__ = "tmp_vibes_load"
+    
+    text = Column(String(256), primary_key=True)
+
+
+class TmpBookVibesLoad(Base):
+    """Staging table for book vibes (before resolution)"""
+    __tablename__ = "tmp_book_vibes_load"
+    
+    item_idx = Column(Integer, primary_key=True)
+    vibe_text = Column(String(256), nullable=False)
+
+
+class TmpBookTonesLoad(Base):
+    """Staging table for book tones"""
+    __tablename__ = "tmp_book_tones_load"
+    
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    item_idx = Column(Integer, nullable=False, index=True)
+    tone_id = Column(Integer, nullable=False, index=True)
+    
+    __table_args__ = (UniqueConstraint("item_idx", "tone_id", name="uq_tmp_book_tone"),)
+
+
+class TmpBookGenresLoad(Base):
+    """Staging table for book genres"""
+    __tablename__ = "tmp_book_genres_load"
+    
+    item_idx = Column(Integer, primary_key=True)
+    genre_slug = Column(String(64), nullable=False)
+
+
+class TmpBookLLMSubjectsLoad(Base):
+    """Staging table for book LLM subjects"""
+    __tablename__ = "tmp_book_llm_subjects_load"
+    
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    item_idx = Column(Integer, nullable=False, index=True)
+    llm_subject = Column(String(128), nullable=False)
+    
+    __table_args__ = (UniqueConstraint("item_idx", "llm_subject", name="uq_tmp_book_llm_subject"),)
+
+
+class TmpEnrichmentErrorsLoad(Base):
+    """Staging table for enrichment errors"""
+    __tablename__ = "tmp_enrichment_errors_load"
+    
+    item_idx = Column(Integer, primary_key=True)
+    first_seen_at = Column(DateTime, nullable=True)
+    last_seen_at = Column(DateTime, nullable=True)
+    occurrence_count = Column(Integer, default=1)
+    stage = Column(String(64), nullable=True)
+    error_code = Column(String(64), nullable=True)
+    error_field = Column(String(128), nullable=True)
+    error_msg = Column(Text, nullable=True)
+    tags_version = Column(String(32), nullable=True)
+    title = Column(String(256), nullable=True)
+    author = Column(String(256), nullable=True)
+    attempted = Column(JSON, nullable=True)
