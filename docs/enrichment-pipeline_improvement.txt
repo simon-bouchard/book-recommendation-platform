@@ -1,0 +1,318 @@
+Enrichment Pipeline Modernization Plan
+Overview
+Transform the current batch-only enrichment system into a streaming-capable pipeline with quality tiering and continuous embedding. Three major workstreams that can be implemented in phases.
+
+Phase 1: Kafka Ingestion Layer (Foundation)
+Goal
+Replace direct JSONL file appends with durable Kafka topics for enrichment results and errors.
+Infrastructure Setup
+Kafka Topics:
+
+enrich.results.v1 - successful enrichment outputs
+
+Partitions: 6-12 (based on throughput)
+Retention: 7-30 days
+Cleanup policy: compact + delete (keep latest per book)
+Compression: snappy or lz4
+
+
+enrich.errors.v1 - structured error events (DLQ)
+
+Partitions: 3-6
+Retention: 14-30 days
+Cleanup policy: delete only
+
+
+
+Event Schema:
+
+Key: item_idx as string
+Value: JSON with fields: item_idx, subjects, tone_ids, genre, vibe, tags_version, scores, enrichment_quality, metadata_source, timestamp
+
+Producer Changes
+Modify enrichment workers (runner.py, backfill.py):
+
+Replace file append operations with Kafka producer calls
+Add retry logic with exponential backoff for transient failures
+Implement circuit breaker for Kafka unavailability (fallback to local queue)
+Add structured error events to DLQ topic with taxonomy: stage, error_code, error_field, error_msg
+Include request metadata: run_id, model, provider, latency_ms for observability
+
+Dual-write period:
+
+Temporarily write to both JSONL and Kafka during cutover (1 week)
+Validate parity between both outputs
+Monitor for data loss or format issues
+
+Spark Streaming Consumer
+Build Structured Streaming job:
+
+Consume from both topics with micro-batches (30-60 second triggers)
+Apply same transformation logic as current batch job: explode/dedupe for tones, subjects, genres, vibes
+Use foreachBatch to write staging tables via JDBC
+Execute same SQL upserts (INSERT IGNORE / ON DUPLICATE KEY UPDATE) for idempotent writes
+Checkpointing with stable consumer group
+
+SQL Schema Updates:
+
+Add enrichment_quality column to tracking table
+Create enrichment_errors table with structured fields
+Ensure all indexes support upsert patterns efficiently
+
+Validation & Cutover
+
+Run dual pipeline (batch + streaming) in parallel for 3-5 days
+Compare row counts, verify no duplicates or missing data
+Monitor consumer lag, processing latency, SQL commit times
+Build observability dashboard: events/sec, error rate by stage/code, consumer lag
+Switch enrichment workers to Kafka-only after validation
+Deprecate JSONL path after 1-2 weeks green
+
+
+Phase 2: Quality Tiering for Enrichment
+Goal
+Classify books by metadata quality and apply appropriate enrichment strategies to optimize cost and quality.
+Metadata Quality Assessment
+Pre-enrichment classification logic:
+
+RICH: title + author + description >50 words, substantive content
+SPARSE: title + author + short description (10-50 words) or generic content
+MINIMAL: title + author only, no usable description
+INSUFFICIENT: missing title or critical fields
+
+Detection heuristics:
+
+Description length and word count
+Pattern matching for metadata-only text (ISBN, Publisher, Edition markers)
+Language detection for non-English books
+Encoding/corruption checks
+
+Tier-Specific Enrichment Strategies
+RICH tier (target ~60-70% of catalog):
+
+Full two-stage enrichment if implementing that improvement
+Current full prompt with all ontology options
+Quality validation and self-critique
+Use primary LLM (Llama 70B or equivalent)
+
+SPARSE tier (target ~20-30% of catalog):
+
+Simplified prompt focusing on title + author inference
+Conservative genre selection
+Reduced subject count (3-5 instead of 8)
+Generic but accurate vibe templates
+Option to use cheaper/smaller model (Llama 8B)
+Mark with confidence: low
+
+MINIMAL tier (target ~5-10% of catalog):
+
+Rule-based enrichment without LLM calls
+Genre inference from title keywords (regex patterns)
+NER or keyword extraction from title for subjects
+Template-based vibe generation
+Significant cost savings on this segment
+
+Implementation in Enrichment Workers
+Add quality gate before LLM calls:
+
+Assess metadata quality first
+Branch to appropriate enrichment function
+Tag output events with enrichment_quality field
+Track coverage metrics by tier (percentage of catalog in each tier)
+
+Event schema extension:
+
+Add enrichment_quality enum field
+Add metadata_source field (internal, openlibrary, etc.)
+Optional confidence field for analytics
+
+Monitoring & Iteration
+
+Dashboard showing distribution across tiers
+Quality metrics per tier (subject specificity, vibe length, error rates)
+A/B test prompts within tiers to optimize
+Identify books that should move between tiers based on results
+
+
+Phase 3: Continuous Embedding Pipeline
+Goal
+Replace single massive batch embedding with progressive accumulation, enabling faster iteration and avoiding multi-hour blocking jobs.
+Accumulator Storage Design
+Directory structure per version:
+
+accumulator subdirectory with append-only vector batches
+Separate arrays: vectors (npy), ids (npy), metadata (json)
+SQLite fingerprint database tracking content hashes per item_idx
+Multiple batch files numbered sequentially
+
+Fingerprinting system:
+
+Hash function covering: enrichment dict content + embed_version + preprocessing params
+Skip re-embedding if fingerprint unchanged
+Enables efficient incremental processing
+
+Embedding Worker Service
+Standalone process separate from enrichment:
+
+Queries SQL for enriched books (joins across book_tones, book_subjects, etc.)
+Compares computed fingerprints against stored fingerprints
+Batches items needing embedding (256 at a time)
+Calls embedding model and appends results to accumulator
+Updates fingerprint database
+Tracks coverage statistics
+
+Scheduling options:
+
+Continuous daemon mode: runs every N minutes
+Cron-based: hourly or every few hours
+Manual trigger: for controlled runs during initial load
+
+Processing logic:
+
+Each run processes ALL books needing embedding (new or changed)
+For initial 250k load: single run processes everything in 256-item batches
+For ongoing maintenance: each run only processes deltas since last run
+Naturally reaches steady state where runs are fast
+
+Critical Fix: Tone/Genre Resolution
+Before embedding text construction:
+
+Load tones CSV and build id-to-name mapping
+Load genres CSV and build slug-to-name mapping
+Resolve tone_ids to actual tone names
+Resolve genre slug to genre name
+
+Updated embedding text format:
+
+Include resolved tone names instead of numeric IDs
+Include genre name (currently missing entirely)
+Example format: "title — author | genre: science-fiction | subjects: ... | tones: dark, atmospheric, fast-paced | vibe: ..."
+
+This fix alone could dramatically improve semantic search quality.
+Manual Index Build Process
+When accumulator reaches sufficient coverage:
+
+Run build script that loads all accumulator batches
+Concatenate vectors and deduplicate by item_idx (keep latest)
+Build FAISS HNSW index over consolidated vectors
+Save sealed build to dated directory
+Run quality checks: dimensionality, vector norms, sample queries
+
+Promotion process:
+
+Update API configuration to point to new build directory
+Restart API service to load new index
+Keep old build available for rollback
+Archive very old builds after validation period
+
+Monitoring & Operations
+Metrics to track:
+
+Embedding coverage percentage
+Embeddings per hour throughput
+Fingerprint hit rate (skipped re-embeddings)
+Accumulator size and growth rate
+Time to build index from accumulator
+
+Operational procedures:
+
+Document manual build and promotion steps
+Define coverage thresholds for triggering builds (e.g., 95%)
+Rollback procedure if new build has quality issues
+Periodic cleanup of old accumulator batches after successful builds
+
+
+Phase 4: Enhanced Enrichment Quality (Optional Refinements)
+Two-Stage Enrichment
+If quality metrics show need:
+
+Stage 1: Broad extraction generating 12-15 subject candidates, multiple tone/genre options
+Stage 2: Critical refinement selecting best 8 subjects, removing duplicates, applying quality rules
+Trade-off: 2x LLM cost vs higher quality output
+Can A/B test on subset before full rollout
+
+Prompt Improvements
+Hierarchical tone selection:
+
+Group 55 tones into 5-7 categories (pacing, mood, intensity, humor, style, accessibility)
+Have LLM first select relevant categories, then specific tones within them
+Reduces cognitive load vs presenting flat list of 55
+
+Few-shot examples:
+
+Include 2-3 exemplar enrichments showing excellent subject specificity and distinctive vibes
+Cover different book types: fiction, non-fiction, technical
+Significantly improves output quality with minimal prompt expansion
+
+Noisy subjects integration:
+
+Re-enable the noisy_subjects_block you currently disable in backfill
+Teach LLM to validate/filter: "Here are candidate subjects from metadata. Keep relevant ones and add 3-5 more"
+Better than ignoring available weak signals
+
+Post-Processing Improvements
+Semantic subject deduplication:
+
+After LLM generation, embed all proposed subjects
+Calculate pairwise similarities
+Remove near-duplicates above threshold (e.g., 0.85 similarity)
+Catches cases like "Greek mythology" vs "ancient Greek deities"
+
+Cross-field consistency validation:
+
+Flag mismatches: dark/somber tones with comedy genre
+Flag generic outputs: all subjects are broad terms, vibe is template-like
+Route flagged cases for review or re-enrichment
+
+
+Implementation Timeline Recommendation
+Week 1-2: Kafka Foundation
+
+Set up Kafka cluster/topics
+Modify enrichment workers to produce events
+Build Spark streaming consumer
+Dual-write validation period
+
+Week 3: Cutover & Stabilization
+
+Make Kafka primary ingestion path
+Monitor for issues
+Deprecate JSONL after stability confirmed
+
+Week 4-5: Quality Tiering
+
+Implement metadata assessment logic
+Build tier-specific enrichment strategies
+Deploy to enrichment workers with monitoring
+
+Week 6-7: Embedding Pipeline
+
+Build accumulator storage system
+Implement fingerprinting
+Create embedding worker service
+Fix tone/genre resolution bug
+
+Week 8: Initial Embedding Load
+
+Run embedding worker to process existing 250k enrichments
+Build first index from accumulator
+Deploy to API
+
+Week 9+: Continuous Operations
+
+Embedding worker runs on schedule
+Periodic manual index builds
+Monitor quality metrics
+Iterate on prompt improvements
+
+Total estimated timeline: 8-10 weeks for core implementation, then ongoing refinement.
+
+Success Criteria
+
+Enrichment events land in SQL within 2 minutes under normal load
+No data loss during Kafka cutover
+60%+ of catalog achieves RICH tier enrichment
+Embedding coverage reaches 95%+ within 2 weeks of enrichment
+Semantic search quality improves measurably (tone/genre now in embeddings)
+Index builds complete in <3 hours
+System handles ongoing enrichment at steady state (hundreds/thousands new books per week)
