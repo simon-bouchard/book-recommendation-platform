@@ -7,6 +7,10 @@ import csv, time, os, sys
 from pathlib import Path
 from sqlalchemy.orm import Session
 
+# Add project root to Python path
+ROOT = Path(__file__).resolve().parents[2]
+sys.path.insert(0, str(ROOT))
+
 from app.enrichment.prompts import SYSTEM, USER_TEMPLATE
 from app.enrichment.postprocess import (
     render_tone_slugs, render_genre_slugs, clean_subjects,
@@ -22,7 +26,6 @@ import logging
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-ROOT = Path(__file__).resolve().parents[2]
 TONES_CSV = ROOT / "ontology" / "tones_v1.csv"
 GENRES_CSV = ROOT / "ontology" / "genres_v1.csv"
 
