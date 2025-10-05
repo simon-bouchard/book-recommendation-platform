@@ -1,26 +1,27 @@
 # docker/spark-loader/docker-compose.yml
 services:
   spark-loader:
-    build:
-      context: .
-      dockerfile: Dockerfile
-    image: spark-loader:local
-
+    image: apache/spark:3.4.0-python3
+    
     volumes:
       - ../..:/app:rw
 
     env_file:
       - /etc/bookrec.env
 
-    # If using 127.0.0.1 in JDBC_URL with local MySQL:
     network_mode: "host"
-
     working_dir: /app
-
-    # Make the JDBC driver visible to Spark
+    
     environment:
-      - PYSPARK_SUBMIT_ARGS=--driver-class-path /opt/jdbc/mysql-connector-j-8.4.0.jar --jars /opt/jdbc/mysql-connector-j-8.4.0.jar pyspark-shell
-
+      - PYTHONPATH=/tmp/python-libs
+      - SPARK_LOCAL_DIRS=/tmp/spark-local
+    
     command: >
-      bash -lc "python /app/spark_apps/load_enrichment_to_sql.py"
-
+      bash -c "
+      pip install --target=/tmp/python-libs pymysql &&
+      mkdir -p /tmp/.ivy2 &&
+      /opt/spark/bin/spark-submit
+      --conf spark.jars.ivy=/tmp/.ivy2
+      --packages org.apache.spark:spark-sql-kafka-0-10_2.12:3.4.0,com.mysql:mysql-connector-j:8.4.0
+      /app/spark_apps/stream_enrichment_to_sql.py
+      "
