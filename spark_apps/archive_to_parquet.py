@@ -51,7 +51,7 @@ def process_results_batch(batch_df, batch_id):
         (batch_df
             .write
             .mode("append")
-            .partitionBy("tag_version", "year", "month", "day")
+            .partitionBy("tags_version", "year", "month", "day")
             .parquet("s3a://enrichment-bronze/enrich.results.v1/"))
         
         print(f"✓ Batch {batch_id} written")
