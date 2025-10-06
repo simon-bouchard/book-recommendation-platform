@@ -2,6 +2,7 @@
 """
 Spark Structured Streaming consumer for enrichment pipeline.
 Reads from Kafka topics and writes to SQL with idempotent upserts.
+FIXED: Now properly handles tags_version for versioned enrichment.
 """
 import os
 from pyspark.sql import SparkSession, functions as F, types as T
@@ -55,31 +56,31 @@ def process_results_batch(batch_df, batch_id):
     
     print(f"Processing results batch {batch_id} with {batch_df.count()} records")
     
-    # Transform to staging DataFrames (same logic as batch job)
+    # Transform to staging DataFrames - NOW INCLUDING tags_version
     
     # 1. Tones (many-to-many)
     tones = (batch_df
         .withColumn("tone_id", F.explode_outer("tone_ids"))
-        .select("item_idx", "tone_id")
+        .select("item_idx", "tone_id", "tags_version")
         .filter(F.col("tone_id").isNotNull())
         .dropDuplicates())
     
-    # 2. Genre (one per book)
+    # 2. Genre (one per book per version)
     genres = (batch_df
-        .select("item_idx", F.col("genre").alias("genre_slug"))
+        .select("item_idx", F.col("genre").alias("genre_slug"), "tags_version")
         .filter(F.col("genre_slug").isNotNull())
-        .dropDuplicates(["item_idx"]))
+        .dropDuplicates(["item_idx", "tags_version"]))
     
-    # 3. Vibe (one per book)
+    # 3. Vibe (one per book per version)
     vibes_raw = (batch_df
-        .select("item_idx", F.col("vibe").alias("vibe_text"))
+        .select("item_idx", F.col("vibe").alias("vibe_text"), "tags_version")
         .filter(F.col("vibe_text").isNotNull())
-        .dropDuplicates(["item_idx"]))
+        .dropDuplicates(["item_idx", "tags_version"]))
     
     # 4. LLM subjects (many-to-many)
     subjects = (batch_df
         .withColumn("llm_subject", F.explode_outer("subjects"))
-        .select("item_idx", "llm_subject")
+        .select("item_idx", "llm_subject", "tags_version")
         .filter(F.col("llm_subject").isNotNull())
         .withColumn("llm_subject", F.lower(F.trim(F.col("llm_subject"))))
         .filter(F.length("llm_subject") > 0)
@@ -87,25 +88,26 @@ def process_results_batch(batch_df, batch_id):
     
     # Write to staging tables
     try:
-        # Subject dictionary
+        # Subject dictionary (no version - subjects are global)
         llm_subjects_distinct = subjects.select("llm_subject").dropDuplicates()
         if not llm_subjects_distinct.isEmpty():
             llm_subjects_distinct.write.mode("overwrite").option("truncate", "true") \
                 .jdbc(JDBC_URL, "tmp_llm_subjects_load", properties=JDBC_PROPS)
         
-        # Vibe texts
+        # Vibe texts (no version - vibes are global)
         vibe_texts = vibes_raw.select(F.col("vibe_text").alias("text")).dropDuplicates()
         if not vibe_texts.isEmpty():
             vibe_texts.write.mode("overwrite").option("truncate", "true") \
                 .jdbc(JDBC_URL, "tmp_vibes_load", properties=JDBC_PROPS)
         
-        # Book vibes staging
-        book_vibes_staging = vibes_raw.select("item_idx", "vibe_text").dropDuplicates(["item_idx"])
+        # Book vibes staging (WITH tags_version)
+        book_vibes_staging = vibes_raw.select("item_idx", "vibe_text", "tags_version") \
+            .dropDuplicates(["item_idx", "tags_version"])
         if not book_vibes_staging.isEmpty():
             book_vibes_staging.write.mode("overwrite").option("truncate", "true") \
                 .jdbc(JDBC_URL, "tmp_book_vibes_load", properties=JDBC_PROPS)
         
-        # Link tables
+        # Link tables (WITH tags_version)
         if not tones.isEmpty():
             tones.write.mode("overwrite").option("truncate", "true") \
                 .jdbc(JDBC_URL, "tmp_book_tones_load", properties=JDBC_PROPS)
@@ -167,6 +169,7 @@ def process_errors_batch(batch_df, batch_id):
 def _execute_sql_merges():
     """
     Execute idempotent SQL merges from staging to final tables.
+    NOW VERSION-AWARE: Includes tags_version in all upserts.
     """
     import pymysql
     from urllib.parse import urlparse
@@ -184,44 +187,44 @@ def _execute_sql_merges():
     try:
         cur = conn.cursor()
         
-        # Subject dictionary
+        # Subject dictionary (global, no version)
         cur.execute("""
             INSERT IGNORE INTO llm_subjects(subject)
             SELECT DISTINCT llm_subject FROM tmp_llm_subjects_load
         """)
         
-        # Vibe dictionary
+        # Vibe dictionary (global, no version)
         cur.execute("""
             INSERT IGNORE INTO vibes(text)
             SELECT DISTINCT text FROM tmp_vibes_load
         """)
         
-        # Book -> Vibe
+        # Book -> Vibe (WITH tags_version)
         cur.execute("""
-            INSERT INTO book_vibes(item_idx, vibe_id)
-            SELECT b.item_idx, v.vibe_id
+            INSERT INTO book_vibes(item_idx, vibe_id, tags_version)
+            SELECT b.item_idx, v.vibe_id, b.tags_version
             FROM tmp_book_vibes_load b
             JOIN vibes v ON v.text = b.vibe_text
             ON DUPLICATE KEY UPDATE vibe_id = VALUES(vibe_id)
         """)
         
-        # Book -> Genre
+        # Book -> Genre (WITH tags_version)
         cur.execute("""
-            INSERT INTO book_genres(item_idx, genre_slug)
-            SELECT item_idx, genre_slug FROM tmp_book_genres_load
+            INSERT INTO book_genres(item_idx, genre_slug, tags_version)
+            SELECT item_idx, genre_slug, tags_version FROM tmp_book_genres_load
             ON DUPLICATE KEY UPDATE genre_slug = VALUES(genre_slug)
         """)
         
-        # Book -> Tone
+        # Book -> Tone (WITH tags_version)
         cur.execute("""
-            INSERT IGNORE INTO book_tones(item_idx, tone_id)
-            SELECT item_idx, tone_id FROM tmp_book_tones_load
+            INSERT IGNORE INTO book_tones(item_idx, tone_id, tags_version)
+            SELECT item_idx, tone_id, tags_version FROM tmp_book_tones_load
         """)
         
-        # Book -> LLM Subject
+        # Book -> LLM Subject (WITH tags_version)
         cur.execute("""
-            INSERT IGNORE INTO book_llm_subjects(item_idx, llm_subject_idx)
-            SELECT t.item_idx, s.llm_subject_idx
+            INSERT IGNORE INTO book_llm_subjects(item_idx, llm_subject_idx, tags_version)
+            SELECT t.item_idx, s.llm_subject_idx, t.tags_version
             FROM tmp_book_llm_subjects_load t
             JOIN llm_subjects s ON s.subject = t.llm_subject
         """)
