@@ -122,7 +122,7 @@ def enrich_one(
             "tone_ids": data.tone_ids,
             "genre": data.genre,
             "vibe": data.vibe,
-            "tags_version": "v1",
+            "tags_version": VERSION_TAG,
             "scores": {},
             "metadata": {
                 "latency_ms": latency_ms,
