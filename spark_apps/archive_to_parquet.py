@@ -1,21 +1,18 @@
 # spark_apps/archive_to_parquet.py
 """
-Spark Structured Streaming job to archive Kafka events to MinIO as Parquet.
-Runs alongside the main SQL consumer, purely for bronze archival.
+Archive Kafka events to MinIO using Kafka's built-in timestamp for partitioning.
 """
 import os
 from pyspark.sql import SparkSession, functions as F
-from pyspark.sql.types import StructType, StructField, StringType, IntegerType, ArrayType, MapType
+from pyspark.sql.types import StructType, StructField, StringType, IntegerType, LongType, ArrayType, MapType
 
 KAFKA_BOOTSTRAP = os.getenv("KAFKA_BOOTSTRAP_SERVERS", "localhost:9092")
 CHECKPOINT_DIR = os.getenv("SPARK_CHECKPOINT_DIR", "/tmp/spark-checkpoints/archival")
 
-# MinIO configuration (S3-compatible)
 MINIO_ENDPOINT = os.getenv("MINIO_ENDPOINT", "http://localhost:9000")
 MINIO_ACCESS_KEY = os.getenv("MINIO_ACCESS_KEY", "admin")
 MINIO_SECRET_KEY = os.getenv("MINIO_SECRET_KEY", "minio123456")
 
-# Schemas (same as SQL consumer)
 results_schema = StructType([
     StructField("item_idx", IntegerType(), False),
     StructField("subjects", ArrayType(StringType()), False),
@@ -24,14 +21,14 @@ results_schema = StructType([
     StructField("vibe", StringType(), False),
     StructField("tags_version", StringType(), False),
     StructField("scores", MapType(StringType(), StringType()), True),
-    StructField("timestamp", IntegerType(), True),
+    StructField("timestamp", LongType(), True),
     StructField("metadata", MapType(StringType(), StringType()), True),
 ])
 
 errors_schema = StructType([
     StructField("item_idx", IntegerType(), False),
     StructField("tags_version", StringType(), False),
-    StructField("timestamp", IntegerType(), True),
+    StructField("timestamp", LongType(), True),
     StructField("stage", StringType(), False),
     StructField("error_code", StringType(), False),
     StructField("error_field", StringType(), True),
@@ -42,13 +39,53 @@ errors_schema = StructType([
 ])
 
 
-def main():
-    """Archive Kafka topics to Parquet in MinIO"""
+def process_results_batch(batch_df, batch_id):
+    if batch_df.isEmpty():
+        return
     
+    count = batch_df.count()
+    print(f"\nProcessing results batch {batch_id} with {count} records")
+    batch_df.select("item_idx", "kafka_timestamp", "year", "month", "day").show(5)
+    
+    try:
+        (batch_df
+            .write
+            .mode("append")
+            .partitionBy("year", "month", "day")
+            .parquet("s3a://enrichment-bronze/enrich.results.v1/"))
+        
+        print(f"✓ Batch {batch_id} written")
+        
+    except Exception as e:
+        print(f"✗ Error: {e}")
+        raise
+
+
+def process_errors_batch(batch_df, batch_id):
+    if batch_df.isEmpty():
+        return
+    
+    count = batch_df.count()
+    print(f"\nProcessing errors batch {batch_id} with {count} records")
+    
+    try:
+        (batch_df
+            .write
+            .mode("append")
+            .partitionBy("year", "month", "day")
+            .parquet("s3a://enrichment-bronze/enrich.errors.v1/"))
+        
+        print(f"✓ Batch {batch_id} written")
+        
+    except Exception as e:
+        print(f"✗ Error: {e}")
+        raise
+
+
+def main():
     spark = (SparkSession.builder
         .appName("enrichment-bronze-archival")
         .config("spark.sql.session.timeZone", "UTC")
-        # MinIO/S3 configuration
         .config("spark.hadoop.fs.s3a.endpoint", MINIO_ENDPOINT)
         .config("spark.hadoop.fs.s3a.access.key", MINIO_ACCESS_KEY)
         .config("spark.hadoop.fs.s3a.secret.key", MINIO_SECRET_KEY)
@@ -57,26 +94,31 @@ def main():
         .config("spark.hadoop.fs.s3a.connection.ssl.enabled", "false")
         .getOrCreate())
     
-    # Read results stream
+    spark.sparkContext.setLogLevel("WARN")
+    
+    print("\n" + "="*80)
+    print("BRONZE ARCHIVAL - Using Kafka Timestamp")
+    print("="*80)
+    
+    # Read results - NO DIVISION, timestamp is already a TIMESTAMP type
     results_stream = (spark
         .readStream
         .format("kafka")
         .option("kafka.bootstrap.servers", KAFKA_BOOTSTRAP)
         .option("subscribe", "enrich.results.v1")
-        .option("startingOffsets", "earliest")  # Archive everything
-        .option("maxOffsetsPerTrigger", 10000)  # Higher throughput for archival
+        .option("startingOffsets", "earliest")
+        .option("maxOffsetsPerTrigger", 10000)
         .load()
         .select(
-            F.from_json(F.col("value").cast("string"), results_schema).alias("data")
+            F.from_json(F.col("value").cast("string"), results_schema).alias("data"),
+            F.col("timestamp").alias("kafka_timestamp")
         )
-        .select("data.*")
-        # Add partitioning columns from the timestamp field in the data
-        .withColumn("year", F.year(F.from_unixtime(F.col("timestamp") / 1000)))
-        .withColumn("month", F.month(F.from_unixtime(F.col("timestamp") / 1000)))
-        .withColumn("day", F.dayofmonth(F.from_unixtime(F.col("timestamp") / 1000)))
-    )
+        .select("data.*", "kafka_timestamp")
+        .withColumn("year", F.year(F.col("kafka_timestamp")))
+        .withColumn("month", F.month(F.col("kafka_timestamp")))
+        .withColumn("day", F.dayofmonth(F.col("kafka_timestamp"))))
     
-    # Read errors stream
+    # Read errors
     errors_stream = (spark
         .readStream
         .format("kafka")
@@ -86,42 +128,35 @@ def main():
         .option("maxOffsetsPerTrigger", 5000)
         .load()
         .select(
-            F.from_json(F.col("value").cast("string"), errors_schema).alias("data")
+            F.from_json(F.col("value").cast("string"), errors_schema).alias("data"),
+            F.col("timestamp").alias("kafka_timestamp")
         )
-        .select("data.*")
-        # Add partitioning columns
-        .withColumn("year", F.year(F.from_unixtime(F.col("timestamp") / 1000)))
-        .withColumn("month", F.month(F.from_unixtime(F.col("timestamp") / 1000)))
-        .withColumn("day", F.dayofmonth(F.from_unixtime(F.col("timestamp") / 1000)))
-    )
+        .select("data.*", "kafka_timestamp")
+        .withColumn("year", F.year(F.col("kafka_timestamp")))
+        .withColumn("month", F.month(F.col("kafka_timestamp")))
+        .withColumn("day", F.dayofmonth(F.col("kafka_timestamp"))))
     
-    # Write results to Parquet
+    # Write
     results_query = (results_stream
         .writeStream
-        .format("parquet")
-        .option("path", "s3a://enrichment-bronze/enrich.results.v1/")
-        .option("checkpointLocation", f"{CHECKPOINT_DIR}/results-parquet")
-        .partitionBy("year", "month", "day")
-        .outputMode("append")
-        .trigger(processingTime="5 minutes")  # Batch every 5 minutes
-        .start())
-    
-    # Write errors to Parquet
-    errors_query = (errors_stream
-        .writeStream
-        .format("parquet")
-        .option("path", "s3a://enrichment-bronze/enrich.errors.v1/")
-        .option("checkpointLocation", f"{CHECKPOINT_DIR}/errors-parquet")
-        .partitionBy("year", "month", "day")
+        .foreachBatch(process_results_batch)
         .outputMode("append")
         .trigger(processingTime="5 minutes")
+        .option("checkpointLocation", f"{CHECKPOINT_DIR}/results-parquet")
         .start())
     
-    print("✓ Bronze archival started")
-    print(f"  - Results → s3a://enrichment-bronze/enrich.results.v1/")
-    print(f"  - Errors → s3a://enrichment-bronze/enrich.errors.v1/")
-    print(f"  - Format: Parquet (Snappy compression)")
-    print(f"  - Partitioned by: year/month/day")
+    errors_query = (errors_stream
+        .writeStream
+        .foreachBatch(process_errors_batch)
+        .outputMode("append")
+        .trigger(processingTime="5 minutes")
+        .option("checkpointLocation", f"{CHECKPOINT_DIR}/errors-parquet")
+        .start())
+    
+    print("✓ Archival started")
+    print(f"  Results → s3a://enrichment-bronze/enrich.results.v1/")
+    print(f"  Errors  → s3a://enrichment-bronze/enrich.errors.v1/")
+    print("\n")
     
     spark.streams.awaitAnyTermination()
 

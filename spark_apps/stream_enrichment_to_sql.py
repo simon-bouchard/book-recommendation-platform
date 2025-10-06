@@ -28,14 +28,14 @@ results_schema = StructType([
     StructField("vibe", StringType(), False),
     StructField("tags_version", StringType(), False),
     StructField("scores", MapType(StringType(), StringType()), True),
-    StructField("timestamp", IntegerType(), True),
+    StructField("timestamp", LongType(), True),
     StructField("metadata", MapType(StringType(), StringType()), True),
 ])
 
 errors_schema = StructType([
     StructField("item_idx", IntegerType(), False),
     StructField("tags_version", StringType(), False),
-    StructField("timestamp", IntegerType(), True),
+    StructField("timestamp", LongType(), True),
     StructField("stage", StringType(), False),
     StructField("error_code", StringType(), False),
     StructField("error_field", StringType(), True),
