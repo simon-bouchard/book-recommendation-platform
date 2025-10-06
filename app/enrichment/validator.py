@@ -14,8 +14,12 @@ def validate_payload(payload: Dict[str, Any],
 
     # subjects: keep clean strings only
     data.subjects = [s.strip() for s in data.subjects if isinstance(s, str) and s.strip()]
+    if not data.subjects:  # ADD THIS
+        raise ValueError("subjects cannot be empty")
 
     # tones: must be valid IDs
+    if not data.tone_ids:  # ADD THIS
+        raise ValueError("tone_ids cannot be empty")
     if not all(t in valid_tone_ids for t in data.tone_ids):
         raise ValueError("Invalid tone_ids present.")
 
@@ -23,7 +27,9 @@ def validate_payload(payload: Dict[str, Any],
     if not data.genre or data.genre not in valid_genre_slugs:
         raise ValueError("Invalid or missing genre slug.")
 
-    # vibe token cap (≤ 20)
+    # vibe: non-empty and token cap (≤ 20)
+    if not data.vibe or not data.vibe.strip():  # ADD THIS
+        raise ValueError("vibe cannot be empty")
     if len(data.vibe.split()) > 20:
         raise ValueError("Vibe exceeds 20 tokens.")
 
