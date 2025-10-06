@@ -1,0 +1,31 @@
+# docker/spark-archival/docker-compose.yml
+# Spark job for archiving Kafka to MinIO as Parquet
+services:
+  spark-archival:
+    image: apache/spark:3.4.0-python3
+    container_name: spark-archival
+    
+    volumes:
+      - ../..:/app:rw
+
+    env_file:
+      - /etc/bookrec.env
+
+    network_mode: "host"
+    working_dir: /app
+    
+    environment:
+      - PYTHONPATH=/tmp/python-libs
+      - SPARK_LOCAL_DIRS=/tmp/spark-local
+      - MINIO_ENDPOINT=http://localhost:9000
+      - MINIO_ACCESS_KEY=admin
+      - MINIO_SECRET_KEY=minio123456
+    
+    command: >
+      bash -c "
+      mkdir -p /tmp/.ivy2 &&
+      /opt/spark/bin/spark-submit
+      --conf spark.jars.ivy=/tmp/.ivy2
+      --packages org.apache.spark:spark-sql-kafka-0-10_2.12:3.4.0,org.apache.hadoop:hadoop-aws:3.3.4
+      /app/spark_apps/archive_to_parquet.py
+      "
