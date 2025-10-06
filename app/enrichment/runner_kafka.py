@@ -30,6 +30,8 @@ TONES_CSV = ROOT / "ontology" / "tones_v1.csv"
 GENRES_CSV = ROOT / "ontology" / "genres_v1.csv"
 
 STOP_ON_FIRST_LLM_ERROR = os.getenv("ENRICH_STOP_ON_FIRST_LLM_ERROR", "0") == "1"
+VERSION_TAG = os.getenv("ENRICHMENT_JOB_TAG_VERSION", "v1")
+print(VERSION_TAG)
 
 def load_tones():
     rows = []

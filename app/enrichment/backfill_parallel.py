@@ -20,6 +20,7 @@ from app.enrichment.llm_client import ensure_enrichment_ready, call_enrichment_l
 from app.enrichment.runner import load_tones, load_genres
 from app.enrichment.kafka_producer import EnrichmentProducer
 
+VERSION_TAG = os.getenv("ENRICHMENT_JOB_TAG_VERSION", "v1")
 ROOT = Path(__file__).resolve().parents[2]
 OUT_JSONL = ROOT / "data" / "enrichment_v1.jsonl"
 
@@ -144,7 +145,7 @@ def _enrich_one(
             "tone_ids": data.tone_ids,
             "genre": data.genre,
             "vibe": data.vibe,
-            "tags_version": "v1",
+            "tags_version": VERSION_TAG,
             "scores": {},
             "metadata": {
                 "latency_ms": latency_ms,
