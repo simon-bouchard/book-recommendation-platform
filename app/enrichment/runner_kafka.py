@@ -77,7 +77,7 @@ def enrich_one(
     valid_genre_slugs: set,
     tone_slugs: str,
     genre_slugs_line: str,
-) -> tuple[dict, dict | None]:
+) -> tuple[dict | None, dict | None]:
     """
     Enrich a single book record.
     
@@ -136,19 +136,28 @@ def enrich_one(
         error = {
             "stage": "validate",
             "error_code": "VALIDATION_FAILED",
-            "error_msg": str(e),
-            "error_field": None,  # Could parse from message
+            "error_msg": str(e)[:512],
+            "error_field": None,
         }
         return None, error
         
     except Exception as e:
         # LLM or parsing error
+        error_str = str(e)
+        if "timeout" in error_str.lower():
+            stage, code = "llm_invoke", "TIMEOUT"
+        elif "parse" in error_str.lower() or "json" in error_str.lower():
+            stage, code = "llm_parse", "JSON_PARSE"
+        else:
+            stage, code = "llm_invoke", "LLM_ERROR"
+        
         error = {
-            "stage": "llm_invoke" if "call_enrichment_llm" in str(e) else "llm_parse",
-            "error_code": "LLM_ERROR" if "call_enrichment_llm" in str(e) else "JSON_PARSE",
-            "error_msg": str(e)[:512],
+            "stage": stage,
+            "error_code": code,
+            "error_msg": error_str[:512],
         }
         return None, error
+
 
 def main(limit: int | None = None, sleep_s: float = 0.0):
     """
@@ -165,6 +174,7 @@ def main(limit: int | None = None, sleep_s: float = 0.0):
     producer = EnrichmentProducer(enable_kafka=True)
     
     count_ok, count_err = 0, 0
+    start_time = time.time()
     
     try:
         with SessionLocal() as db:
@@ -233,7 +243,7 @@ def main(limit: int | None = None, sleep_s: float = 0.0):
                         error_field=error.get("error_field"),
                         title=rec["title"][:256],
                         author=rec["author"][:256],
-                        tags_version="v1",
+                        tags_version=VERSION_TAG,
                     )
                     count_err += 1
                     logger.error(f"✗ Failed item_idx={rec['item_idx']}: {error['error_msg']}")
@@ -242,6 +252,13 @@ def main(limit: int | None = None, sleep_s: float = 0.0):
                     if STOP_ON_FIRST_LLM_ERROR and error["stage"] in ("llm_invoke", "llm_parse"):
                         logger.error("Aborting due to LLM error (ENRICH_STOP_ON_FIRST_LLM_ERROR=1)")
                         return {"ok": count_ok, "error": count_err, "aborted": True}
+                
+                # Progress indicator
+                total = count_ok + count_err
+                if total % 10 == 0:
+                    elapsed = time.time() - start_time
+                    rate = total / elapsed if elapsed > 0 else 0
+                    logger.info(f"Progress: {total} books ({count_ok} ok, {count_err} err) | {rate:.1f}/s")
     
     finally:
         # Ensure all messages are sent before exiting
@@ -249,13 +266,63 @@ def main(limit: int | None = None, sleep_s: float = 0.0):
         producer.flush()
         producer.close()
     
-    return {"ok": count_ok, "error": count_err, "aborted": False}
+    elapsed = time.time() - start_time
+    return {"ok": count_ok, "error": count_err, "aborted": False, "elapsed_s": elapsed}
+
 
 if __name__ == "__main__":
-    res = main()
+    import argparse
+    
+    parser = argparse.ArgumentParser(description="Enrichment runner with Kafka support")
+    parser.add_argument(
+        "--limit",
+        type=int,
+        default=None,
+        help="Maximum number of books to enrich (default: all)"
+    )
+    parser.add_argument(
+        "--sleep",
+        type=float,
+        default=0.0,
+        help="Sleep duration between enrichments in seconds (for rate limiting)"
+    )
+    parser.add_argument(
+        "--version",
+        default=None,
+        help="Tags version (overrides ENRICHMENT_JOB_TAG_VERSION env var)"
+    )
+    
+    args = parser.parse_args()
+    
+    # Override version if specified
+    if args.version:
+        os.environ["ENRICHMENT_JOB_TAG_VERSION"] = args.version
+        VERSION_TAG = args.version
+    
+    logger.info("="*70)
+    logger.info("ENRICHMENT RUNNER (KAFKA MODE)")
+    logger.info("="*70)
+    logger.info(f"Version: {VERSION_TAG}")
+    logger.info(f"Limit: {args.limit or 'unlimited'}")
+    logger.info(f"Sleep: {args.sleep}s")
+    logger.info(f"Stop on LLM error: {STOP_ON_FIRST_LLM_ERROR}")
+    logger.info("="*70)
+    
+    res = main(limit=args.limit, sleep_s=args.sleep)
+    
+    logger.info("="*70)
+    logger.info("ENRICHMENT COMPLETE")
+    logger.info("="*70)
+    logger.info(f"Success: {res['ok']}")
+    logger.info(f"Errors: {res['error']}")
+    logger.info(f"Elapsed: {res.get('elapsed_s', 0):.1f}s")
+    if res.get('aborted'):
+        logger.info("Status: ABORTED")
+    logger.info("="*70)
+    
+    # Exit code
     code = 0
-    if isinstance(res, dict) and (res.get("aborted") or (res.get("ok", 0) == 0 and res.get("error", 0) > 0)):
+    if res.get("aborted") or (res.get("ok", 0) == 0 and res.get("error", 0) > 0):
         code = 2
     
-    logger.info(f"Results: {res}")
     sys.exit(code)
