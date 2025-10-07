@@ -258,66 +258,6 @@ class EnrichmentError(Base):
 # Staging Tables (UPDATED WITH tags_version)
 # =========================
 
-class TmpLLMSubjectsLoad(Base):
-    __tablename__ = "tmp_llm_subjects_load"
-    llm_subject = Column(String(128), primary_key=True)
-
-
-class TmpVibesLoad(Base):
-    __tablename__ = "tmp_vibes_load"
-    text = Column(String(256), primary_key=True)
-
-
-class TmpBookVibesLoad(Base):
-    __tablename__ = "tmp_book_vibes_load"
-    
-    item_idx = Column(Integer, nullable=False)
-    vibe_text = Column(String(256), nullable=False)
-    tags_version = Column(String(32), nullable=False, default='v1')
-    
-    __table_args__ = (
-        {'extend_existing': True},
-    )
-    
-    __mapper_args__ = {'primary_key': [item_idx, tags_version]}
-
-
-class TmpBookTonesLoad(Base):
-    __tablename__ = "tmp_book_tones_load"
-    
-    id = Column(Integer, primary_key=True, autoincrement=True)
-    item_idx = Column(Integer, nullable=False, index=True)
-    tone_id = Column(Integer, nullable=False, index=True)
-    tags_version = Column(String(32), nullable=False, default='v1')
-    
-    __table_args__ = (UniqueConstraint("item_idx", "tone_id", "tags_version", name="uq_tmp_book_tone_version"),)
-
-
-class TmpBookGenresLoad(Base):
-    __tablename__ = "tmp_book_genres_load"
-    
-    item_idx = Column(Integer, nullable=False)
-    genre_slug = Column(String(64), nullable=False)
-    tags_version = Column(String(32), nullable=False, default='v1')
-    
-    __table_args__ = (
-        {'extend_existing': True},
-    )
-    
-    __mapper_args__ = {'primary_key': [item_idx, tags_version]}
-
-
-class TmpBookLLMSubjectsLoad(Base):
-    __tablename__ = "tmp_book_llm_subjects_load"
-    
-    id = Column(Integer, primary_key=True, autoincrement=True)
-    item_idx = Column(Integer, nullable=False, index=True)
-    llm_subject = Column(String(128), nullable=False)
-    tags_version = Column(String(32), nullable=False, default='v1')
-    
-    __table_args__ = (UniqueConstraint("item_idx", "llm_subject", "tags_version", name="uq_tmp_book_llm_subject_version"),)
-
-
 class TmpEnrichmentErrorsLoad(Base):
     __tablename__ = "tmp_enrichment_errors_load"
     
