@@ -20,12 +20,19 @@ ERRORS_TOPIC = "enrich.errors.v1"
 
 # Feature flag: dual-write to both Kafka and JSONL during cutover
 DUAL_WRITE_JSONL = os.getenv("ENRICH_DUAL_WRITE_JSONL", "1") == "1"
+CUTOVER_COMPLETE = os.getenv("ENRICH_CUTOVER_COMPLETE", "0") == "1"
 JSONL_PATH = Path(os.getenv("ENRICH_JSONL_PATH", "data/enrichment_v1.jsonl"))
 
 
 class EnrichmentProducer:
     """
-    Kafka producer for enrichment events with retry logic and fallback to local queue.
+    Kafka producer for enrichment pipeline.
+    
+    Modes:
+      - Cutover (DUAL_WRITE_JSONL=1, CUTOVER_COMPLETE=0): 
+        Write to both Kafka and JSONL for validation
+      - Post-cutover (CUTOVER_COMPLETE=1):
+        Kafka only, fail fast if unavailable
     """
     
     def __init__(self, enable_kafka: bool = True):
@@ -37,10 +44,22 @@ class EnrichmentProducer:
         
         # Circuit breaker config
         self.max_failures = 3
-        self.circuit_timeout = 60  # seconds
+        self.circuit_timeout = 60
+        
+        # Validate configuration
+        if CUTOVER_COMPLETE and not self.enable_kafka:
+            raise RuntimeError(
+                "ENRICH_CUTOVER_COMPLETE=1 but Kafka is disabled. "
+                "Cannot proceed without Kafka after cutover."
+            )
         
         if self.enable_kafka:
             self._init_producer()
+        elif not DUAL_WRITE_JSONL:
+            raise RuntimeError(
+                "Kafka disabled and DUAL_WRITE_JSONL=0. "
+                "No data path available!"
+            )
     
     def _init_producer(self):
         """Initialize Kafka producer with retry logic"""
@@ -49,34 +68,32 @@ class EnrichmentProducer:
                 bootstrap_servers=KAFKA_BOOTSTRAP,
                 value_serializer=lambda v: json.dumps(v, ensure_ascii=False).encode('utf-8'),
                 key_serializer=lambda k: str(k).encode('utf-8') if k else None,
-                # Retry settings
                 retries=3,
                 retry_backoff_ms=100,
                 max_in_flight_requests_per_connection=5,
-                # Batching for efficiency
                 linger_ms=100,
                 batch_size=32768,
-                # Compression
                 compression_type='snappy',
-                # Timeouts
                 request_timeout_ms=30000,
-                # Acknowledgment
                 acks='all',
             )
             logger.info("Kafka producer initialized successfully")
         except Exception as e:
             logger.error(f"Failed to initialize Kafka producer: {e}")
+            if CUTOVER_COMPLETE:
+                raise RuntimeError(
+                    f"Cannot initialize Kafka producer after cutover: {e}"
+                )
             self.enable_kafka = False
             self.circuit_open = True
     
     def _check_circuit(self) -> bool:
-        """Check if circuit breaker should allow attempts"""
+        """Check if circuit breaker allows attempts"""
         if not self.circuit_open:
             return True
         
-        # Check if timeout has passed
         if time.time() - self.last_failure_time > self.circuit_timeout:
-            logger.info("Circuit breaker timeout passed, attempting to reconnect")
+            logger.info("Circuit breaker timeout passed, attempting reconnect")
             self.circuit_open = False
             self.failure_count = 0
             self._init_producer()
@@ -111,10 +128,13 @@ class EnrichmentProducer:
         metadata: Optional[Dict[str, Any]] = None,
     ) -> bool:
         """
-        Send successful enrichment result to Kafka.
+        Send enrichment result.
         
         Returns:
-            bool: True if sent successfully (or Kafka disabled), False if failed
+            bool: True if sent successfully
+        
+        Raises:
+            RuntimeError: If send fails post-cutover
         """
         event = {
             "item_idx": item_idx,
@@ -130,23 +150,47 @@ class EnrichmentProducer:
         if metadata:
             event["metadata"] = metadata
         
-        if not self.enable_kafka:
-            raise RuntimeError("Kafka disabled - enrichment cannot proceed")
+        # CUTOVER MODE: Dual-write for validation
+        if DUAL_WRITE_JSONL and not CUTOVER_COMPLETE:
+            self._write_jsonl(event)
         
-        if not self._check_circuit():
-            raise RuntimeError(
-                f"Circuit breaker open after {self.failure_count} failures. "
-                f"Last failure {time.time() - self.last_failure_time:.0f}s ago. "
-                "Fix Kafka before continuing."
-            )
+        # Try Kafka
+        if self.enable_kafka:
+            if not self._check_circuit():
+                msg = (
+                    f"Circuit breaker open: {self.failure_count} failures, "
+                    f"last {time.time() - self.last_failure_time:.0f}s ago"
+                )
+                if CUTOVER_COMPLETE:
+                    raise RuntimeError(f"Kafka unavailable post-cutover: {msg}")
+                else:
+                    logger.warning(f"{msg} - relying on JSONL during cutover")
+                    return True
+            
+            # ✅ FIX: Pass all required arguments
+            kafka_ok = self._send_to_kafka(RESULTS_TOPIC, item_idx, tags_version, event)
+            
+            if not kafka_ok:
+                if CUTOVER_COMPLETE:
+                    raise RuntimeError(
+                        f"Kafka send failed for item_idx={item_idx}. "
+                        "Cannot proceed after cutover."
+                    )
+                else:
+                    logger.warning(
+                        f"Kafka send failed for item_idx={item_idx} "
+                        "but JSONL has backup during cutover"
+                    )
+            
+            return kafka_ok
         
-        # Single source of truth
-        success = self._send_to_kafka(...)
-        if not success:
-            raise RuntimeError(f"Kafka send failed for item_idx={item_idx}")
+        # Kafka disabled
+        if CUTOVER_COMPLETE:
+            raise RuntimeError("Kafka disabled but cutover complete - invalid state")
         
+        logger.warning("Kafka disabled, using JSONL during cutover")
         return True
-
+    
     def send_error(
         self,
         item_idx: int,
@@ -160,20 +204,7 @@ class EnrichmentProducer:
         attempted: Optional[Dict[str, Any]] = None,
         run_metadata: Optional[Dict[str, Any]] = None,
     ) -> bool:
-        """
-        Send error event to DLQ topic.
-        
-        Args:
-            item_idx: Book item_idx
-            error_msg: Error message (truncated to 512 chars)
-            stage: Pipeline stage (fetch|llm_invoke|llm_parse|validate|postprocess|produce)
-            error_code: Error code (INVALID_GENRE, TIMEOUT, etc.)
-            error_field: Specific field that failed validation
-            title: Book title (truncated to 256 chars)
-            author: Author name (truncated to 256 chars)
-            attempted: Partial results that were attempted
-            run_metadata: Run info (run_id, model, provider, latency_ms)
-        """
+        """Send error event to DLQ"""
         event = {
             "item_idx": item_idx,
             "tags_version": tags_version,
@@ -194,14 +225,30 @@ class EnrichmentProducer:
         if run_metadata:
             event.update(run_metadata)
         
-        # Dual-write to JSONL if enabled
-        if DUAL_WRITE_JSONL:
-            jsonl_event = {"book_id": item_idx, "error": error_msg, "tags_version": tags_version}
+        # Dual-write during cutover
+        if DUAL_WRITE_JSONL and not CUTOVER_COMPLETE:
+            jsonl_event = {
+                "book_id": item_idx,
+                "error": error_msg,
+                "tags_version": tags_version
+            }
             self._write_jsonl(jsonl_event)
         
-        # Send to Kafka if enabled
-        if self.enable_kafka and self._check_circuit():
-            return self._send_to_kafka(ERRORS_TOPIC, item_idx, tags_version, event)
+        # Send to Kafka
+        if self.enable_kafka:
+            if not self._check_circuit():
+                if CUTOVER_COMPLETE:
+                    raise RuntimeError("Circuit breaker open for errors post-cutover")
+                return True
+            
+            # ✅ FIX: Pass all required arguments
+            kafka_ok = self._send_to_kafka(ERRORS_TOPIC, item_idx, tags_version, event)
+            if not kafka_ok and CUTOVER_COMPLETE:
+                raise RuntimeError(f"Error DLQ send failed for item_idx={item_idx}")
+            return kafka_ok
+        
+        if CUTOVER_COMPLETE:
+            raise RuntimeError("Kafka disabled for errors post-cutover")
         
         return True
     
@@ -211,17 +258,11 @@ class EnrichmentProducer:
         
         try:
             future = self.producer.send(topic, key=key, value=event)
-            # Wait for acknowledgment (with timeout)
             future.get(timeout=10)
             self._record_success()
             return True
             
-        except KafkaTimeoutError as e:
-            logger.warning(f"Kafka timeout for {key}: {e}")
-            self._record_failure()
-            return False
-            
-        except KafkaError as e:
+        except (KafkaTimeoutError, KafkaError) as e:
             logger.error(f"Kafka error for {key}: {e}")
             self._record_failure()
             return False
@@ -232,11 +273,10 @@ class EnrichmentProducer:
             return False
     
     def _write_jsonl(self, event: dict):
-        """Fallback/dual-write to JSONL file"""
+        """CUTOVER ONLY: Write to JSONL for validation"""
         try:
             JSONL_PATH.parent.mkdir(parents=True, exist_ok=True)
             with open(JSONL_PATH, "a", encoding="utf-8") as f:
-                # Convert to legacy format for compatibility
                 legacy_event = {
                     "book_id": event.get("item_idx"),
                     "subjects": event.get("subjects", []),
@@ -247,11 +287,15 @@ class EnrichmentProducer:
                     "scores": event.get("scores", {}),
                 }
                 if "error" in event:
-                    legacy_event = {"book_id": event["item_idx"], "error": event["error"], "tags_version": event["tags_version"]}
+                    legacy_event = {
+                        "book_id": event["item_idx"],
+                        "error": event["error"],
+                        "tags_version": event["tags_version"]
+                    }
                 
                 f.write(json.dumps(legacy_event, ensure_ascii=False) + "\n")
         except Exception as e:
-            logger.error(f"Failed to write JSONL: {e}")
+            logger.error(f"Failed to write JSONL (cutover only): {e}")
     
     def flush(self):
         """Flush any pending messages"""
