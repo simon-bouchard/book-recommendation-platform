@@ -130,16 +130,23 @@ class EnrichmentProducer:
         if metadata:
             event["metadata"] = metadata
         
-        # Dual-write to JSONL if enabled
-        if DUAL_WRITE_JSONL:
-            self._write_jsonl(event)
+        if not self.enable_kafka:
+            raise RuntimeError("Kafka disabled - enrichment cannot proceed")
         
-        # Send to Kafka if enabled
-        if self.enable_kafka and self._check_circuit():
-            return self._send_to_kafka(RESULTS_TOPIC, item_idx, tags_version, event)
+        if not self._check_circuit():
+            raise RuntimeError(
+                f"Circuit breaker open after {self.failure_count} failures. "
+                f"Last failure {time.time() - self.last_failure_time:.0f}s ago. "
+                "Fix Kafka before continuing."
+            )
         
-        return True  # Success if Kafka disabled
-    
+        # Single source of truth
+        success = self._send_to_kafka(...)
+        if not success:
+            raise RuntimeError(f"Kafka send failed for item_idx={item_idx}")
+        
+        return True
+
     def send_error(
         self,
         item_idx: int,
