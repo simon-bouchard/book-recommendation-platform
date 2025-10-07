@@ -50,9 +50,10 @@ def process_results_batch(batch_df, batch_id):
     try:
         (batch_df
             .write
+            .format("delta")
             .mode("append")
             .partitionBy("tags_version", "year", "month", "day")
-            .parquet("s3a://enrichment-bronze/enrich.results.v1/"))
+            .save("s3a://enrichment-bronze/enrich.results.v1/"))
         
         print(f"✓ Batch {batch_id} written")
         
@@ -85,6 +86,9 @@ def process_errors_batch(batch_df, batch_id):
 def main():
     spark = (SparkSession.builder
         .appName("enrichment-bronze-archival")
+        .config("spark.jars.packages", "io.delta:delta-core_2.12:2.4.0")  # <-- ADD
+        .config("spark.sql.extensions", "io.delta.sql.DeltaSparkSessionExtension")  # <-- ADD
+        .config("spark.sql.catalog.spark_catalog", "org.apache.spark.sql.delta.catalog.DeltaCatalog")
         .config("spark.sql.session.timeZone", "UTC")
         .config("spark.hadoop.fs.s3a.endpoint", MINIO_ENDPOINT)
         .config("spark.hadoop.fs.s3a.access.key", MINIO_ACCESS_KEY)
