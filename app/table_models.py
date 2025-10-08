@@ -51,6 +51,7 @@ class Book(Base):
     genre = relationship('BookGenre', back_populates='book', cascade="all, delete-orphan", passive_deletes=True)
     vibe  = relationship('BookVibe',  back_populates='book', cascade="all, delete-orphan", passive_deletes=True)
     llm_subjects = relationship('BookLLMSubject', back_populates='book', cascade="all, delete-orphan", passive_deletes=True)
+    ol_subjects = relationship('BookOLSubject', back_populates='book')
 
 
 class Subject(Base):
@@ -273,3 +274,24 @@ class TmpEnrichmentErrorsLoad(Base):
     title = Column(String(256), nullable=True)
     author = Column(String(256), nullable=True)
     attempted = Column(JSON, nullable=True)
+
+class OLSubject(Base):
+    __tablename__ = 'ol_subjects'
+
+    ol_subject_idx = Column(Integer, primary_key=True, autoincrement=True)
+    subject = Column(String(500), unique=True, nullable=False)  # VARCHAR(500) for MySQL compatibility
+
+    books = relationship('BookOLSubject', back_populates='ol_subject', lazy='dynamic')
+
+
+class BookOLSubject(Base):
+    __tablename__ = 'book_ol_subjects'
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    item_idx = Column(Integer, ForeignKey('books.item_idx'), index=True, nullable=False)
+    ol_subject_idx = Column(Integer, ForeignKey('ol_subjects.ol_subject_idx'), index=True, nullable=False)
+
+    __table_args__ = (UniqueConstraint('item_idx', 'ol_subject_idx', name='uq_book_ol_subject'),)
+
+    book = relationship('Book', back_populates='ol_subjects')
+    ol_subject = relationship('OLSubject', back_populates='books')
