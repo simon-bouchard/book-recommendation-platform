@@ -1,0 +1,37 @@
+tone_id,slug,display_name,bucket
+1,slow-burn,Slow Burn,Pacing / Energy
+2,steady,Steady,Pacing / Energy
+3,fast-paced,Fast Paced,Pacing / Energy
+4,action-packed,Action Packed,Pacing / Energy
+5,cozy,Cozy,Mood / Atmosphere
+6,whimsical,Whimsical,Mood / Atmosphere
+7,heartwarming,Heartwarming,Mood / Atmosphere
+8,bittersweet,Bittersweet,Mood / Atmosphere
+9,nostalgic,Nostalgic,Mood / Atmosphere
+10,melancholic,Melancholic,Mood / Atmosphere
+11,dark,Dark,Mood / Atmosphere
+12,eerie,Eerie,Mood / Atmosphere
+13,atmospheric,Atmospheric,Mood / Atmosphere
+14,suspenseful,Suspenseful,Mood / Atmosphere
+15,uplifting,Uplifting,Mood / Atmosphere
+16,gentle,Gentle,Intensity / Emotional Weight
+17,poignant,Poignant,Intensity / Emotional Weight
+18,gritty,Gritty,Intensity / Emotional Weight
+19,intense,Intense,Intensity / Emotional Weight
+20,harrowing,Harrowing,Intensity / Emotional Weight
+21,disturbing,Disturbing,Intensity / Emotional Weight
+22,witty,Witty,Humor
+23,dry,Dry,Humor
+24,satirical,Satirical,Humor
+25,ironic,Ironic,Humor
+26,absurdist,Absurdist,Humor
+27,darkly-humorous,Darkly Humorous,Humor
+28,lyrical,Lyrical,Style / Language
+29,evocative,Evocative,Style / Language
+30,ornate,Ornate,Style / Language
+31,spare,Spare,Style / Language
+32,experimental,Experimental,Style / Language
+33,breezy,Breezy,Accessibility / Complexity
+34,accessible,Accessible,Accessibility / Complexity
+35,layered,Layered,Accessibility / Complexity
+36,cerebral,Cerebral,Accessibility / Complexity
