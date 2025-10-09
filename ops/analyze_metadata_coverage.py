@@ -3,6 +3,8 @@
 """
 Analyze book metadata coverage to inform quality tier design.
 Shows distribution of descriptions, OL subjects, and potential tier assignments.
+
+Updated for 4-tier system: RICH, SPARSE, MINIMAL, BASIC
 """
 import os
 import sys
@@ -243,10 +245,17 @@ def analyze_basic_metadata(db: Session) -> Dict:
         'missing_critical': total_books - has_both
     }
 
+
 def _calculate_metadata_score(desc_words: int, ol_subject_count: int) -> tuple[int, str]:
     """
     Score metadata richness on combined signals.
     Returns (score, tier)
+    
+    4-Tier System:
+    - RICH (score >= 60): Full enrichment (5-8 subjects, 2-3 tones, 8-12w vibe)
+    - SPARSE (score 30-59): Focused enrichment (3-5 subjects, 0-2 tones, 4-8w vibe optional)
+    - MINIMAL (score 10-29): Basic enrichment (1-3 subjects, 0-1 tone, no vibe)
+    - BASIC (score < 10): Genre only (0-1 subject, no tones, no vibe)
     """
     score = 0
     
@@ -259,6 +268,7 @@ def _calculate_metadata_score(desc_words: int, ol_subject_count: int) -> tuple[i
         score += 20
     elif desc_words >= 10:
         score += 10
+    # < 10 words = 0 points
     
     # OL subjects contribution (max 40 points)
     if ol_subject_count >= 10:
@@ -269,35 +279,48 @@ def _calculate_metadata_score(desc_words: int, ol_subject_count: int) -> tuple[i
         score += 20
     elif ol_subject_count >= 3:
         score += 10
+    # < 3 subjects = 0 points
     
     # Assign tier based on combined score
     if score >= 60:
         return score, "RICH"
     elif score >= 30:
         return score, "SPARSE"
-    else:
+    elif score >= 10:
         return score, "MINIMAL"
+    else:
+        return score, "BASIC"
+
 
 def simulate_tier_assignment(db: Session, desc_stats: Dict, ol_stats: Dict) -> Dict:
     """
-    Simulate tier assignment based on proposed thresholds.
+    Simulate tier assignment based on 4-tier combined scoring system.
     
-    Tiers:
-    - RICH: valid description >= 50 words
-    - SPARSE: (10 <= valid description < 50 words) OR (no valid description AND has 5+ OL subjects)
-    - MINIMAL: Has title/author but doesn't meet RICH or SPARSE criteria
-    - INSUFFICIENT: Missing title or author
+    Tiers (based on combined description + OL subject score):
+    - RICH (score >= 60): Rich metadata for full enrichment
+    - SPARSE (score 30-59): Moderate metadata, focused enrichment
+    - MINIMAL (score 10-29): Limited metadata, conservative enrichment
+    - BASIC (score < 10): Very sparse metadata, genre classification only
+    - INSUFFICIENT: Missing title or author (cannot enrich)
     """
     print("\n" + "="*80)
-    print("TIER ASSIGNMENT SIMULATION")
+    print("TIER ASSIGNMENT SIMULATION (4-TIER SYSTEM)")
     print("="*80)
     
-    print("\nTier Definitions:")
-    print("  RICH:         valid description >= 50 words")
-    print("  SPARSE:       (10 <= valid description < 50 words) OR")
-    print("                (no valid description AND has 5+ OL subjects)")
-    print("  MINIMAL:      Has title/author but doesn't meet RICH/SPARSE")
-    print("  INSUFFICIENT: Missing title or author")
+    print("\nScoring System:")
+    print("  Description Points (max 60):")
+    print("    >= 100 words: 60 pts | 50-99 words: 40 pts | 20-49 words: 20 pts")
+    print("    10-19 words: 10 pts  | < 10 words: 0 pts")
+    print("\n  OL Subject Points (max 40):")
+    print("    >= 10 subjects: 40 pts | 7-9 subjects: 30 pts | 5-6 subjects: 20 pts")
+    print("    3-4 subjects: 10 pts   | < 3 subjects: 0 pts")
+    
+    print("\nTier Thresholds (Combined Score):")
+    print("  RICH (>= 60):    Full enrichment (5-8 subjects, 2-3 tones, 8-12w vibe)")
+    print("  SPARSE (30-59):  Focused enrichment (3-5 subjects, 0-2 tones, vibe optional)")
+    print("  MINIMAL (10-29): Basic enrichment (1-3 subjects, 0-1 tone, no vibe)")
+    print("  BASIC (< 10):    Genre only (0-1 subject, no tones, no vibe)")
+    print("  INSUFFICIENT:    Missing title/author (skip enrichment)")
     
     # Get all books with their metadata
     books = db.query(
@@ -313,6 +336,7 @@ def simulate_tier_assignment(db: Session, desc_stats: Dict, ol_stats: Dict) -> D
     ).all()
     
     tier_counts = defaultdict(int)
+    tier_score_ranges = defaultdict(list)  # Store scores per tier for analysis
     tier_examples = defaultdict(list)
     
     for book in books:
@@ -330,8 +354,10 @@ def simulate_tier_assignment(db: Session, desc_stats: Dict, ol_stats: Dict) -> D
         # Assign tier
         if not title or not author_idx:
             tier = 'INSUFFICIENT'
+            score = 0
         else:
             score, tier = _calculate_metadata_score(desc_words, ol_count)
+            tier_score_ranges[tier].append(score)
         
         tier_counts[tier] += 1
         
@@ -341,35 +367,46 @@ def simulate_tier_assignment(db: Session, desc_stats: Dict, ol_stats: Dict) -> D
                 'item_idx': item_idx,
                 'title': title[:60] if title else 'N/A',
                 'desc_words': desc_words,
-                'ol_subjects': ol_count
+                'ol_subjects': ol_count,
+                'score': score
             })
     
     total = len(books)
     
-    print(f"\nTier Distribution (Total: {total:,} books):")
-    print("-" * 80)
+    print(f"\n{'='*80}")
+    print(f"Tier Distribution (Total: {total:,} books)")
+    print('='*80)
     
-    for tier in ['RICH', 'SPARSE', 'MINIMAL', 'INSUFFICIENT']:
+    for tier in ['RICH', 'SPARSE', 'MINIMAL', 'BASIC', 'INSUFFICIENT']:
         count = tier_counts[tier]
         pct = count / total * 100 if total > 0 else 0
         bar = '█' * int(pct / 2)
-        print(f"  {tier:12} {count:>8,} ({pct:>5.1f}%) {bar}")
+        
+        # Show score range for this tier
+        score_info = ""
+        if tier in tier_score_ranges and tier_score_ranges[tier]:
+            scores = tier_score_ranges[tier]
+            score_info = f"  [scores: {min(scores)}-{max(scores)}, avg: {sum(scores)/len(scores):.1f}]"
+        
+        print(f"  {tier:12} {count:>8,} ({pct:>5.1f}%) {bar}{score_info}")
     
     # Show examples for each tier
     print("\n" + "="*80)
     print("EXAMPLE BOOKS BY TIER")
     print("="*80)
     
-    for tier in ['RICH', 'SPARSE', 'MINIMAL', 'INSUFFICIENT']:
+    for tier in ['RICH', 'SPARSE', 'MINIMAL', 'BASIC', 'INSUFFICIENT']:
         if tier_examples[tier]:
             print(f"\n{tier} Examples:")
             for ex in tier_examples[tier]:
-                print(f"  item_idx={ex['item_idx']:>6} | desc_words={ex['desc_words']:>4} | "
-                      f"ol_subjects={ex['ol_subjects']:>3} | {ex['title']}")
+                print(f"  item_idx={ex['item_idx']:>6} | score={ex.get('score', 0):>3} | "
+                      f"desc_words={ex['desc_words']:>4} | ol_subj={ex['ol_subjects']:>3} | "
+                      f"{ex['title']}")
     
     return {
         'total': total,
         'tier_counts': dict(tier_counts),
+        'tier_score_ranges': dict(tier_score_ranges),
         'tier_examples': dict(tier_examples)
     }
 
@@ -441,7 +478,7 @@ def analyze_coverage_overlap(db: Session) -> Dict:
 def main():
     """Run all coverage analyses"""
     print("="*80)
-    print("BOOK METADATA COVERAGE ANALYSIS")
+    print("BOOK METADATA COVERAGE ANALYSIS (4-TIER SYSTEM)")
     print("Analyzing metadata to inform quality tier design")
     print("="*80)
     
@@ -470,38 +507,77 @@ def main():
     
     print(f"\nTotal books in catalog: {total:,}")
     print(f"\nCritical metadata (title/author): {basic_stats['has_both']:,} ({basic_stats['has_both']/total*100:.1f}%)")
-    print(f"  → {basic_stats['missing_critical']:,} books need metadata fixes first")
+    print(f"  → {basic_stats['missing_critical']:,} books marked as INSUFFICIENT (skip enrichment)")
     
     print(f"\nEnrichment-ready books: {basic_stats['has_both']:,}")
     
     rich_count = tier_stats['tier_counts'].get('RICH', 0)
     sparse_count = tier_stats['tier_counts'].get('SPARSE', 0)
     minimal_count = tier_stats['tier_counts'].get('MINIMAL', 0)
+    basic_count = tier_stats['tier_counts'].get('BASIC', 0)
     
-    print(f"  RICH tier (valid desc >= 50 words): {rich_count:,} ({rich_count/total*100:.1f}%)")
-    print(f"  SPARSE tier: {sparse_count:,} ({sparse_count/total*100:.1f}%)")
-    print(f"  MINIMAL tier: {minimal_count:,} ({minimal_count/total*100:.1f}%)")
+    print(f"  RICH (score >= 60):    {rich_count:>8,} ({rich_count/total*100:>5.1f}%) - Full enrichment")
+    print(f"  SPARSE (30-59):        {sparse_count:>8,} ({sparse_count/total*100:>5.1f}%) - Focused enrichment")
+    print(f"  MINIMAL (10-29):       {minimal_count:>8,} ({minimal_count/total*100:>5.1f}%) - Basic enrichment")
+    print(f"  BASIC (< 10):          {basic_count:>8,} ({basic_count/total*100:>5.1f}%) - Genre only")
     
-    print(f"\nOL subjects boost:")
+    print(f"\nMetadata Signal Analysis:")
+    print(f"  Books with valid descriptions: {desc_stats['has_valid_description']:,} ({desc_stats['has_valid_description']/total*100:.1f}%)")
     print(f"  Books with OL subjects: {ol_stats['has_ol_subjects']:,} ({ol_stats['has_ol_subjects']/total*100:.1f}%)")
-    print(f"  Books with ONLY OL subjects (no valid desc): {overlap_stats['only_ol_subjects']:,}")
-    print(f"  → Can upgrade MINIMAL → SPARSE if 5+ OL subjects")
+    print(f"  Books with BOTH signals: {overlap_stats['both']:,} ({overlap_stats['both']/total*100:.1f}%)")
+    print(f"  Books with ONLY OL subjects: {overlap_stats['only_ol_subjects']:,} ({overlap_stats['only_ol_subjects']/total*100:.1f}%)")
+    print(f"  Books with NEITHER signal: {overlap_stats['neither']:,} ({overlap_stats['neither']/total*100:.1f}%)")
     
-    print("\nRecommendations:")
-    if rich_count / total > 0.5:
-        print("  ✓ Good description coverage - RICH tier strategy will be primary")
+    print("\nKey Insights:")
+    
+    # Insight 1: Primary tier distribution
+    high_quality = rich_count + sparse_count
+    low_quality = minimal_count + basic_count
+    
+    if high_quality > low_quality:
+        print(f"  ✓ {high_quality:,} books ({high_quality/total*100:.1f}%) in RICH/SPARSE tiers")
+        print(f"    → Good metadata coverage, tiering will improve quality")
     else:
-        print("  ⚠ Low description coverage - rely more on OL subjects for SPARSE")
+        print(f"  ⚠ {low_quality:,} books ({low_quality/total*100:.1f}%) in MINIMAL/BASIC tiers")
+        print(f"    → Many books have sparse metadata, conservative approach crucial")
     
-    if ol_stats['has_ol_subjects'] / total > 0.7:
-        print("  ✓ Excellent OL subject coverage - strong signal for SPARSE tier")
+    # Insight 2: BASIC tier size
+    if basic_count > 0.15 * total:
+        print(f"  ⚠ BASIC tier is large ({basic_count/total*100:.1f}%)")
+        print(f"    → Many books will get genre-only enrichment")
+        print(f"    → Consider if threshold adjustment needed after testing")
+    elif basic_count > 0.05 * total:
+        print(f"  ✓ BASIC tier is reasonable ({basic_count/total*100:.1f}%)")
+        print(f"    → Acceptable for very sparse metadata books")
     else:
-        print("  ⚠ Lower OL subject coverage - may need more aggressive MINIMAL strategy")
+        print(f"  ✓ BASIC tier is small ({basic_count/total*100:.1f}%)")
+        print(f"    → Most books have enough metadata for subject extraction")
     
+    # Insight 3: OL subjects boost
     if overlap_stats['only_ol_subjects'] > 0.1 * total:
-        print(f"  ✓ {overlap_stats['only_ol_subjects']:,} books rely entirely on OL subjects - "
-              "tiering is crucial")
+        print(f"  ✓ {overlap_stats['only_ol_subjects']:,} books rely entirely on OL subjects")
+        print(f"    → Combined scoring prevents these from falling to BASIC tier")
     
+    # Insight 4: Score distribution
+    if 'tier_score_ranges' in tier_stats:
+        for tier in ['RICH', 'SPARSE', 'MINIMAL', 'BASIC']:
+            if tier in tier_stats['tier_score_ranges'] and tier_stats['tier_score_ranges'][tier]:
+                scores = tier_stats['tier_score_ranges'][tier]
+                avg_score = sum(scores) / len(scores)
+                print(f"  → {tier}: avg score = {avg_score:.1f} (range: {min(scores)}-{max(scores)})")
+    
+    print("\n" + "="*80)
+    print("IMPLEMENTATION READY")
+    print("="*80)
+    print("\nNext Steps:")
+    print("  1. Review tier distribution above")
+    print("  2. Verify BASIC threshold (< 10) is appropriate")
+    print("  3. Proceed with Phase 2 implementation:")
+    print("     - Schema migrations (add ontology_version)")
+    print("     - Quality classifier module")
+    print("     - Tier-specific prompts")
+    print("     - Validator updates")
+    print("     - Runner integration")
     print("\n" + "="*80)
 
 
