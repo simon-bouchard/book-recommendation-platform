@@ -72,9 +72,10 @@ def process_errors_batch(batch_df, batch_id):
     try:
         (batch_df
             .write
+            .format("delta")
             .mode("append")
             .partitionBy("year", "month", "day")
-            .parquet("s3a://enrichment-bronze/enrich.errors.v1/"))
+            .save("s3a://enrichment-bronze/enrich.errors.v1/"))
         
         print(f"✓ Batch {batch_id} written")
         
