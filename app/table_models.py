@@ -126,18 +126,32 @@ class Interaction(Base):
 
 class Tone(Base):
     __tablename__ = "tones"
+    
     tone_id = Column(Integer, primary_key=True)
-    slug = Column(String(100), unique=True, nullable=False)
+    slug = Column(String(100), nullable=False)
     name = Column(String(200), nullable=True)
-
+    ontology_version = Column(String(32), nullable=False, default='v1', index=True)
+    
+    __table_args__ = (
+        UniqueConstraint("slug", "ontology_version", name="uq_tone_slug_version"),
+    )
+    
     books = relationship("BookTone", back_populates="tone", lazy="dynamic")
-
 
 class Genre(Base):
     __tablename__ = "genres"
-    slug = Column(String(100), primary_key=True)
+    
+    slug = Column(String(100), nullable=False)
     name = Column(String(200), nullable=True)
-
+    ontology_version = Column(String(32), nullable=False, default='v1')
+    
+    __table_args__ = (
+        {'extend_existing': True},
+    )
+    
+    # Composite primary key
+    __mapper_args__ = {'primary_key': [slug, ontology_version]}
+    
     books = relationship("BookGenre", back_populates="genre", lazy="dynamic")
 
 
@@ -183,11 +197,18 @@ class BookGenre(Base):
     __tablename__ = "book_genres"
 
     item_idx = Column(Integer, ForeignKey("books.item_idx", onupdate="CASCADE", ondelete="CASCADE"), nullable=False)
-    genre_slug = Column(String(100), ForeignKey("genres.slug", onupdate="CASCADE", ondelete="RESTRICT"), nullable=False, index=True)
+    genre_slug = Column(String(100), nullable=False)
+    genre_ontology_version = Column(String(32), nullable=False, default='v1')
     tags_version = Column(String(32), nullable=False, default='v1', index=True)
 
     __table_args__ = (
-        {'extend_existing': True},  # Allow redefining primary key
+        ForeignKeyConstraint(
+            ['genre_slug', 'genre_ontology_version'],
+            ['genres.slug', 'genres.ontology_version'],
+            onupdate="CASCADE",
+            ondelete="RESTRICT"
+        ),
+        {'extend_existing': True},
     )
     
     # Composite primary key
