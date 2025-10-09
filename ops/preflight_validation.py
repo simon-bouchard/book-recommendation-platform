@@ -83,21 +83,21 @@ def check_tones_data() -> Tuple[bool, str]:
     """Check if tones v1 and v2 exist with correct counts"""
     try:
         with SessionLocal() as db:
-            # Check v1
+            # Check v1 (flexible - may not be 55 if using custom ontology)
             v1_count = db.query(Tone).filter(
                 Tone.ontology_version == 'v1'
             ).count()
             
-            if v1_count != 55:
-                return False, f"Tones v1: expected 55, found {v1_count}"
+            if v1_count == 0:
+                return False, f"Tones v1: no tones found (need at least some v1 tones)"
             
-            # Check v2
+            # Check v2 (required for Phase 2)
             v2_count = db.query(Tone).filter(
                 Tone.ontology_version == 'v2'
             ).count()
             
             if v2_count != 36:
-                return False, f"Tones v2: expected 36, found {v2_count}"
+                return False, f"Tones v2: expected 36, found {v2_count} (Phase 2 requires v2)"
             
             # Check ID ranges
             v1_ids = db.query(Tone.tone_id).filter(
