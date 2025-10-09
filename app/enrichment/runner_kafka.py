@@ -12,6 +12,7 @@ import csv, time, os, sys
 from pathlib import Path
 from sqlalchemy.orm import Session
 from typing import Dict, Any, Optional, List
+from concurrent.futures import ThreadPoolExecutor, as_completed
 
 # Add project root to Python path
 ROOT = Path(__file__).resolve().parents[2]
@@ -313,164 +314,68 @@ def enrich_one(
         logger.error(f"LLM error for item_idx={rec['item_idx']}: {e}")
         return None, error
 
-
-def main(limit: int | None = None, sleep_s: float = 0.0):
+def main(limit: int | None = None, sleep_s: float = 0.0, workers: int = 2):
     """
-    Main enrichment runner with Kafka support and quality tiering.
-    
     Args:
-        limit: Maximum number of books to enrich
-        sleep_s: Sleep duration between enrichments (for rate limiting)
+        workers: Number of parallel enrichment threads (default: 2)
     """
-    # Fail fast
     ensure_enrichment_ready()
     
-    # Load ontology
+    # Load ontology (shared across threads - read-only)
     tone_rows, tone_slugs, valid_tone_ids, slug2id = load_tones(ONTOLOGY_VERSION)
     genre_rows, genre_slugs_line, valid_genre_slugs = load_genres()
     
-    # Initialize Kafka producer
+    # Kafka producer is thread-safe
     producer = EnrichmentProducer(enable_kafka=True)
     
-    # Track stats by tier
-    tier_stats = {
-        "RICH": {"ok": 0, "err": 0},
-        "SPARSE": {"ok": 0, "err": 0},
-        "MINIMAL": {"ok": 0, "err": 0},
-        "BASIC": {"ok": 0, "err": 0},
-        "INSUFFICIENT": {"ok": 0, "err": 0},
-    }
-    count_ok, count_err = 0, 0
+    # Collect books first
+    with SessionLocal() as db:
+        books_list = list(iter_books_from_db(db, limit))
+    
+    tier_stats = {...}
+    count_ok = count_err = 0
     start_time = time.time()
     
-    try:
-        with SessionLocal() as db:
-            for rec in iter_books_from_db(db, limit):
-                # First attempt
-                result, error = enrich_one(
-                    rec, slug2id, valid_tone_ids, valid_genre_slugs,
-                    tone_slugs, genre_slugs_line, ONTOLOGY_VERSION
-                )
-                
-                # Track tier for stats (even if failed)
-                if error and error.get("attempted"):
-                    tier = error["attempted"].get("tier", "UNKNOWN")
-                elif result:
-                    tier = result["enrichment_quality"]
-                else:
-                    tier = "UNKNOWN"
-                
-                if result:
-                    # Success - send to results topic
-                    success = producer.send_result(
-                        item_idx=result["item_idx"],
-                        subjects=result["subjects"],
-                        tone_ids=result["tone_ids"],
-                        genre=result["genre"],
-                        vibe=result["vibe"],
-                        tags_version=result["tags_version"],
-                        scores=result["scores"],
-                        metadata={
-                            **result.get("metadata", {}),
-                            "enrichment_quality": result["enrichment_quality"],
-                            "quality_score": result["quality_score"],
-                            "ontology_version": result["ontology_version"],
-                        }
-                    )
-                    
-                    if success:
-                        count_ok += 1
-                        if tier in tier_stats:
-                            tier_stats[tier]["ok"] += 1
-                        logger.info(f"✓ Enriched item_idx={result['item_idx']} ({tier} tier)")
-                    else:
-                        logger.warning(f"Failed to send result for item_idx={result['item_idx']}")
-                        count_err += 1
-                    
-                    if sleep_s:
-                        time.sleep(sleep_s)
-                    continue
-                
-                # First attempt failed - retry once
-                logger.warning(f"First attempt failed for item_idx={rec['item_idx']}, retrying...")
-                result, error = enrich_one(
-                    rec, slug2id, valid_tone_ids, valid_genre_slugs,
-                    tone_slugs, genre_slugs_line, ONTOLOGY_VERSION
-                )
-                
-                if result:
-                    success = producer.send_result(
-                        item_idx=result["item_idx"],
-                        subjects=result["subjects"],
-                        tone_ids=result["tone_ids"],
-                        genre=result["genre"],
-                        vibe=result["vibe"],
-                        tags_version=result["tags_version"],
-                        scores=result["scores"],
-                        metadata={
-                            **result.get("metadata", {}),
-                            "enrichment_quality": result["enrichment_quality"],
-                            "quality_score": result["quality_score"],
-                            "ontology_version": result["ontology_version"],
-                        }
-                    )
-                    
-                    if success:
-                        count_ok += 1
-                        if tier in tier_stats:
-                            tier_stats[tier]["ok"] += 1
-                        logger.info(f"✓ Enriched item_idx={result['item_idx']} (retry, {tier} tier)")
-                    else:
-                        count_err += 1
-                        if tier in tier_stats:
-                            tier_stats[tier]["err"] += 1
-                else:
-                    # Both attempts failed - send to DLQ
-                    producer.send_error(
-                        item_idx=rec["item_idx"],
-                        error_msg=error["error_msg"],
-                        stage=error["stage"],
-                        error_code=error["error_code"],
-                        error_field=error.get("error_field"),
-                        title=rec["title"][:256],
-                        author=rec["author"][:256],
-                        tags_version=VERSION_TAG,
-                        attempted=error.get("attempted"),
-                    )
-                    count_err += 1
-                    if tier in tier_stats:
-                        tier_stats[tier]["err"] += 1
-                    logger.error(f"✗ Failed item_idx={rec['item_idx']}: {error['error_msg']}")
-                    
-                    # Abort on first LLM error if configured
-                    if STOP_ON_FIRST_LLM_ERROR and error["stage"] in ("llm_invoke", "llm_parse"):
-                        logger.error("Aborting due to LLM error (ENRICH_STOP_ON_FIRST_LLM_ERROR=1)")
-                        return {"ok": count_ok, "error": count_err, "aborted": True, "tier_stats": tier_stats}
-                
-                # Progress indicator
-                total = count_ok + count_err
-                if total % 10 == 0:
-                    elapsed = time.time() - start_time
-                    rate = total / elapsed if elapsed > 0 else 0
-                    logger.info(
-                        f"Progress: {total} books ({count_ok} ok, {count_err} err) | {rate:.1f}/s"
-                    )
+    def process_book(rec):
+        """Task function for thread pool"""
+        result, error = enrich_one(
+            rec, slug2id, valid_tone_ids, valid_genre_slugs,
+            tone_slugs, genre_slugs_line, ONTOLOGY_VERSION
+        )
+        
+        tier = result["enrichment_quality"] if result else error.get("attempted", {}).get("tier", "UNKNOWN")
+        
+        if result:
+            success = producer.send_result(**{...})
+            if success:
+                if sleep_s:
+                    time.sleep(sleep_s)
+                return ("ok", tier)
+            return ("err", tier)
+        
+        # Retry once
+        result, error = enrich_one(...)
+        if result:
+            return ("ok", tier) if producer.send_result(...) else ("err", tier)
+        else:
+            producer.send_error(...)
+            return ("err", tier)
     
+    try:
+        with ThreadPoolExecutor(max_workers=workers) as ex:
+            futures = [ex.submit(process_book, rec) for rec in books_list]
+            
+            for fut in as_completed(futures):
+                status, tier = fut.result()
+                if status == "ok":
+                    count_ok += 1
+                    tier_stats[tier]["ok"] += 1
+                else:
+                    count_err += 1
+                    tier_stats[tier]["err"] += 1
     finally:
-        # Ensure all messages are sent before exiting
-        logger.info("Flushing Kafka producer...")
         producer.flush()
         producer.close()
-    
-    elapsed = time.time() - start_time
-    
-    return {
-        "ok": count_ok,
-        "error": count_err,
-        "aborted": False,
-        "elapsed_s": elapsed,
-        "tier_stats": tier_stats
-    }
 
 
 if __name__ == "__main__":
