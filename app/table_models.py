@@ -257,24 +257,36 @@ class BookLLMSubject(Base):
 class EnrichmentError(Base):
     __tablename__ = "enrichment_errors"
 
-    item_idx = Column(Integer, ForeignKey("books.item_idx", onupdate="CASCADE", ondelete="CASCADE"), primary_key=True)
+    # Composite PK: one error per book per version
+    item_idx = Column(Integer, nullable=False)
+    tags_version = Column(String(32), nullable=False)
     
+    __table_args__ = (
+        {'extend_existing': True},
+    )
+    __mapper_args__ = {'primary_key': [item_idx, tags_version]}
+    
+    # Temporal tracking
     first_seen_at = Column(DateTime, nullable=False, default=datetime.utcnow)
-    last_seen_at = Column(DateTime, nullable=False, default=datetime.utcnow, onupdate=datetime.utcnow)
+    last_seen_at = Column(DateTime, nullable=False, default=datetime.utcnow)
     occurrence_count = Column(Integer, nullable=False, default=1)
     
+    # Error details
     stage = Column(String(64), nullable=False, index=True)
     error_code = Column(String(64), nullable=False, index=True)
     error_field = Column(String(128), nullable=True)
     error_msg = Column(Text, nullable=False)
     
-    tags_version = Column(String(32), nullable=False, default='v1')
+    # Book context
     title = Column(String(256), nullable=True)
     author = Column(String(256), nullable=True)
     attempted = Column(JSON, nullable=True)
     
+    # NEW: Run tracking
+    last_run_id = Column(String(64), nullable=True, index=True)  # Which run it last failed in
+    run_history = Column(JSON, nullable=True)  # Array of {run_id, timestamp} if you want full history
+    
     book = relationship("Book", viewonly=True)
-
 
 # =========================
 # Staging Tables (UPDATED WITH tags_version)

@@ -191,6 +191,29 @@ def iter_books_for_full_reprocess(
             "description": b.description or "",
         }
 
+def get_or_create_run_id(db: Session, tags_version: str) -> tuple[str, str]:
+    """
+    Get the previous run_id to backfill, and create a new run_id for this run.
+    
+    Returns:
+        (previous_run_id, new_run_id)
+    """
+    import uuid
+    from datetime import datetime
+    
+    # Get the most recent run_id from errors
+    latest = db.query(EnrichmentError.last_run_id)\
+        .filter(EnrichmentError.tags_version == tags_version)\
+        .order_by(EnrichmentError.last_seen_at.desc())\
+        .first()
+    
+    previous_run_id = latest[0] if latest else None
+    
+    # Generate new run_id for this backfill
+    new_run_id = f"backfill_{datetime.utcnow().strftime('%Y%m%d_%H%M%S')}_{uuid.uuid4().hex[:8]}"
+    
+    return previous_run_id, new_run_id
+
 
 def main(
     strategy: BackfillStrategy = BackfillStrategy.SQL_ERRORS,
@@ -199,9 +222,8 @@ def main(
     dry_run: bool = False,
     **filters
 ):
-    """
-    Unified backfill entrypoint with strategy selection.
-    """
+    """Unified backfill with automatic run_id tracking."""
+    
     if not dry_run:
         ensure_enrichment_ready()
     
@@ -209,15 +231,27 @@ def main(
     genre_rows, genre_slugs_line, valid_genre_slugs = load_genres()
     
     with SessionLocal() as db:
+        # Auto-detect previous run and create new run_id
+        previous_run_id, new_run_id = get_or_create_run_id(db, VERSION_TAG)
+        
+        print(f"Previous run: {previous_run_id or 'none (first run)'}")
+        print(f"New run ID: {new_run_id}")
+        
         if strategy == BackfillStrategy.SQL_ERRORS:
-            print(f"📋 Strategy: SQL enrichment_errors (tags_version={VERSION_TAG})")
+            print(f"📋 Strategy: SQL enrichment_errors (from run {previous_run_id})")
+            
+            if not previous_run_id:
+                print("No previous run found - nothing to backfill")
+                return {"ok": 0, "err": 0}
+            
             books_iter = iter_failed_books_from_sql(
                 db,
                 tags_version=VERSION_TAG,
+                from_run_id=previous_run_id,  # ← Auto-detected!
                 error_codes=filters.get('error_codes'),
                 hours=filters.get('hours')
-            )
-        
+            )       
+
         elif strategy == BackfillStrategy.KAFKA_DLQ:
             print(f"📨 Strategy: Kafka DLQ replay (last {filters.get('hours', 24)}h)")
             books_iter = iter_failed_books_from_kafka_dlq(
@@ -266,7 +300,12 @@ def main(
             tone_slugs, genre_slugs_line
         )
         
-        if result:
+		if result:
+            # Add run_id to result metadata
+            if "metadata" not in result:
+                result["metadata"] = {}
+            result["metadata"]["run_id"] = new_run_id
+            
             success = producer.send_result(**result)
             if success:
                 if sleep_s:
@@ -292,6 +331,7 @@ def main(
                 title=rec["title"][:256],
                 author=rec["author"][:256],
                 tags_version=VERSION_TAG,
+				run_metadata={"run_id": new_run_id},
             )
             return False
     

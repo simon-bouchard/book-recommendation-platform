@@ -6,6 +6,12 @@ import csv, time, os, sys
 from pathlib import Path
 from sqlalchemy.orm import Session
 from typing import Dict, Any, Optional, List
+import uuid
+from datetime import datetime
+
+# Generate unique run identifier
+RUN_ID = f"run_{datetime.utcnow().strftime('%Y%m%d_%H%M%S')}_{uuid.uuid4().hex[:8]}"
+logger.info(f"Run ID: {RUN_ID}")
 
 ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT))
@@ -534,17 +540,22 @@ def main(limit: int | None = None, sleep_s: float = 0.0, workers: int = 1):
                     attempted = error.get("attempted", {})
                     tier = attempted.get("tier", "UNKNOWN")
                     
-                    producer.send_error(
-                        item_idx=rec["item_idx"],
-                        error_msg=error["error_msg"],
-                        stage=error["stage"],
-                        error_code=error["error_code"],
-                        error_field=error.get("error_field"),
-                        title=rec["title"][:256],
-                        author=rec["author"][:256],
-                        tags_version=os.getenv("ENRICHMENT_JOB_TAG_VERSION", "v2"),
-                        attempted=attempted,
-                    )
+					producer.send_error(
+						item_idx=rec["item_idx"],
+						error_msg=error["error_msg"],
+						stage=error["stage"],
+						error_code=error["error_code"],
+						error_field=error.get("error_field"),
+						title=rec["title"][:256],
+						author=rec["author"][:256],
+						tags_version=os.getenv("ENRICHMENT_JOB_TAG_VERSION", "v2"),
+						attempted=attempted,
+						run_metadata={
+							"run_id": RUN_ID,  
+							"model": os.getenv("DEEPINFRA_MODEL", "unknown"),
+							"timestamp": int(time.time() * 1000),
+						}
+					)
                     
                     count_err += 1
                     if tier in tier_stats:

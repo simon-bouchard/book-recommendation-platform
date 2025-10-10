@@ -257,6 +257,7 @@ def process_errors_batch(batch_df, batch_id):
         error_params = []
         for row in errors_data:
             timestamp_dt = datetime.fromtimestamp(row.timestamp / 1000) if row.timestamp else datetime.utcnow()
+            run_id = row.get("run_id")
             
             # ✅ FIX: Properly serialize attempted to JSON
             attempted_json = None
@@ -285,7 +286,8 @@ def process_errors_batch(batch_df, batch_id):
                 row.tags_version,
                 row.title[:256] if row.title else None,
                 row.author[:256] if row.author else None,
-                attempted_json,  # ✅ Valid JSON string
+                attempted_json,  
+                run_id,
             ))
         
         # Batch upsert errors
@@ -294,7 +296,7 @@ def process_errors_batch(batch_df, batch_id):
             """INSERT INTO enrichment_errors(
                    item_idx, first_seen_at, last_seen_at, occurrence_count,
                    stage, error_code, error_field, error_msg, tags_version,
-                   title, author, attempted
+                   title, author, attempted, last_run_id
                )
                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
                ON DUPLICATE KEY UPDATE
@@ -302,7 +304,8 @@ def process_errors_batch(batch_df, batch_id):
                    occurrence_count = occurrence_count + 1,
                    stage = VALUES(stage),
                    error_code = VALUES(error_code),
-                   error_msg = VALUES(error_msg)""",
+                   error_msg = VALUES(error_msg),
+                   last_run_id = VALUES(last_run_id)""",
             error_params
         )
         
