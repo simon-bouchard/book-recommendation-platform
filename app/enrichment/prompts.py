@@ -2,6 +2,7 @@
 """
 Tier-aware prompts for book enrichment with explicit vibe examples.
 """
+import json
 
 # ============================================================================
 # SYSTEM PROMPT (unchanged)
@@ -65,7 +66,7 @@ Do NOT infer or speculate. Only extract what's directly stated.""",
 Genre classification only:
 - subjects: 0-1 subject (only if obvious from title, otherwise empty array [])
 - tone_ids: MUST be empty array []
-- genre: exactly 1 genre (use "general" if unclear)
+- genre: exactly 1 genre (if truly unclear, use "essays-journalism" or "general-nonfiction" as fallback)
 - vibe: MUST be empty string "" (NO vibe for this tier)
 
 Primary goal: assign correct genre. Don't attempt to infer beyond what's explicit."""
@@ -199,46 +200,95 @@ Return JSON:
 
 
 # ============================================================================
-# LEGACY TEMPLATE (for backward compatibility during migration)
+# RETRY PROMPT (with feedback from validation failure)
 # ============================================================================
 
-USER_TEMPLATE = """Book:
+def build_retry_prompt(
+    title: str,
+    author: str,
+    description: str,
+    ol_subjects: list[str],
+    tier: str,
+    tone_slugs: str,
+    genre_slugs: str,
+    ontology_version: str,
+    feedback: dict
+) -> str:
+    """
+    Build retry prompt with specific feedback about what went wrong.
+    
+    Args:
+        ... (same as build_user_prompt)
+        feedback: Dict with:
+            - error_type: "vibe_too_short" | "vibe_too_long" | etc.
+            - error_msg: Original validation error
+            - original_response: The JSON you returned last time
+            - required_changes: Specific guidance on what to fix
+    """
+    
+    # Format catalog subjects
+    if ol_subjects:
+        ol_str = ", ".join(ol_subjects[:15])
+        if len(ol_subjects) > 15:
+            ol_str += f" (+{len(ol_subjects)-15} more)"
+        catalog_block = f"CATALOG SUBJECTS: {ol_str}"
+    else:
+        catalog_block = "CATALOG SUBJECTS: (none)"
+    
+    # Get tier instruction (simplified for retry)
+    tier_instr = TIER_INSTRUCTIONS.get(tier, TIER_INSTRUCTIONS["BASIC"])
+    
+    # Get vibe requirement
+    vibe_requirement = {
+        "RICH": "vibe: EXACTLY 8-12 words",
+        "SPARSE": "vibe: EXACTLY 4-8 words OR empty string",
+        "MINIMAL": "vibe: MUST be empty string",
+        "BASIC": "vibe: MUST be empty string"
+    }.get(tier, "vibe: \"\"")
+    
+    # Format original response
+    original_json = json.dumps(feedback["original_response"], indent=2, ensure_ascii=False)
+    
+    # Build error-specific feedback
+    error_section = f"""
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+⚠️  VALIDATION ERROR - RETRY NEEDED
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+Your previous response was rejected for this reason:
+{feedback['error_msg']}
+
+What you need to fix:
+{feedback['required_changes']}
+
+Your original response (that was rejected):
+{original_json}
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+"""
+    
+    prompt = f"""Book (RETRY ATTEMPT):
 TITLE: {title}
 AUTHOR: {author}
-DESCRIPTION: {description}
+DESCRIPTION: {description if description else "(no description available)"}
+{catalog_block}
 
-{noisy_subjects_block}
+{error_section}
 
-{tone_instructions}
-{genre_instructions}
+**What to do:**
+1. Take your original response above
+2. Fix ONLY the field(s) mentioned in the error
+3. Keep everything else the same
+4. Return the corrected JSON
 
-Rules:
-- subjects: up to 8 short noun phrases (free-form, 1–4 words), **in English**.
-- tones: up to 3 from the fixed list (slugs).
-- genre: exactly 1 from the fixed list (slug).
-- **vibe: ≤ 12 words (and ≤ 20 tokens), in English; be concise.**
-- subjects MUST be unique (no duplicates or near-duplicates); prefer concrete, domain-specific phrases.
-- Avoid using generic filler like "readers", "background", "primer", "excellent", "book", "story".
-- Avoid repeating the same stem across different subjects (e.g., "Greek gods" vs "Greek deities" → keep one).
-- Distinguish carefully between fiction and nonfiction:
-  * If the description refers to editions, introductions, primers, surveys, companions, translations, commentary, guides, or academic context, classify as nonfiction (e.g., "history").
-  * Only classify as "fantasy" if it is a fictional narrative set in a mythological or imaginary world.
-- Handling noisy subject hints:
-  * Prefer the DESCRIPTION and your knowledge. Use hints only if they clearly align with the book.
-  * Never copy process/admin tags (e.g., "translation to X", "works by Y", "study guides", "juvenile literature", "in literature", "in art").
-  * If hints conflict with the description or your knowledge, IGNORE the hints.
-- **If the book is non-English (e.g., title/description not in English), still write subjects and vibe in English. It's OK to include a subject like "French language" or "German literature" if relevant to the content.**
-- Map specific topics to the closest existing genre:
-  astrology, tarot, feng shui → religion-spirituality
-  astronomy (amateur/pro) → science-nature
-  public speaking, personal image, happiness, self-improvement → psychology-self-help
-  spelling / ESL / grammar / kanji → language-learning
-  sports, fitness, outdoor activities, games (excluding board/puzzles) → lifestyle
-  fashion, beauty, hair, weddings, crafts, home guides → lifestyle
-  humor, comic "rules", joke collections → lifestyle
+{tier_instr}
 
-Note: The book's title/description may be non-English. **Write all outputs in English.**
+**CRITICAL for {tier} tier:**
+• {vibe_requirement}
+• Count your words carefully before submitting
+• Don't change fields that were correct
 
-Return JSON:
-{{"subjects": [...], "tone_ids": [], "genre": "", "vibe": ""}}
-"""
+Return corrected JSON:
+{{"subjects": [...], "tone_ids": [...], "genre": "slug", "vibe": "corrected text or empty"}}"""
+    
+    return prompt
