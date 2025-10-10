@@ -49,7 +49,7 @@ errors_schema = StructType([
     StructField("error_msg", StringType(), False),
     StructField("title", StringType(), True),
     StructField("author", StringType(), True),
-    StructField("attempted", MapType(StringType(), StringType()), True),
+    StructField("attempted", StringType(), True),  # ✅ Changed to StringType - treat as JSON string
 ])
 
 
