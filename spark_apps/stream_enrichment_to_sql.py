@@ -49,7 +49,8 @@ errors_schema = StructType([
     StructField("error_msg", StringType(), False),
     StructField("title", StringType(), True),
     StructField("author", StringType(), True),
-    StructField("attempted", StringType(), True),  # ✅ Changed to StringType - treat as JSON string
+    StructField("attempted", StringType(), True),  
+    StructField("run_id", StringType(), True),
 ])
 
 
@@ -291,23 +292,33 @@ def process_errors_batch(batch_df, batch_id):
             ))
         
         # Batch upsert errors
-        batch_parameterized_insert(
-            cur,
-            """INSERT INTO enrichment_errors(
-                   item_idx, first_seen_at, last_seen_at, occurrence_count,
-                   stage, error_code, error_field, error_msg, tags_version,
-                   title, author, attempted, last_run_id
-               )
-               VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
-               ON DUPLICATE KEY UPDATE
-                   last_seen_at = VALUES(last_seen_at),
-                   occurrence_count = occurrence_count + 1,
-                   stage = VALUES(stage),
-                   error_code = VALUES(error_code),
-                   error_msg = VALUES(error_msg),
-                   last_run_id = VALUES(last_run_id)""",
-            error_params
-        )
+		batch_parameterized_insert(
+			cur,
+			"""INSERT INTO enrichment_errors(
+				   item_idx, first_seen_at, last_seen_at, occurrence_count,
+				   stage, error_code, error_field, error_msg, tags_version,
+				   title, author, attempted, last_run_id, run_history
+			   )
+			   VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+			   ON DUPLICATE KEY UPDATE
+				   last_seen_at = VALUES(last_seen_at),
+				   occurrence_count = occurrence_count + 1,
+				   stage = VALUES(stage),
+				   error_code = VALUES(error_code),
+				   error_msg = VALUES(error_msg),
+				   last_run_id = VALUES(last_run_id),
+				   -- ✅ Append to run_history instead of overwriting
+				   run_history = JSON_ARRAY_APPEND(
+					   COALESCE(run_history, '[]'),
+					   '$',
+					   JSON_OBJECT(
+						   'run_id', VALUES(last_run_id),
+						   'timestamp', VALUES(last_seen_at),
+						   'error_code', VALUES(error_code)
+					   )
+				   )""",
+			error_params
+		) 
         
         conn.commit()
         print(f"✓ Error batch {batch_id} committed successfully ({count} errors)\n")

@@ -48,7 +48,8 @@ def iter_failed_books_from_sql(
     db: Session,
     tags_version: str = "v1",
     error_codes: Optional[list[str]] = None,
-    hours: Optional[int] = None
+    hours: Optional[int] = None,
+    from_run_id: Optional[str] = None
 ) -> Iterable[dict]:
     """
     Query SQL for failures, then fetch FRESH book data.
@@ -58,6 +59,9 @@ def iter_failed_books_from_sql(
         EnrichmentError.tags_version == tags_version
     )
     
+    if from_run_id:
+        q = q.filter(EnrichmentError.last_run_id == from_run_id)
+
     if error_codes:
         q = q.filter(EnrichmentError.error_code.in_(error_codes))
     
