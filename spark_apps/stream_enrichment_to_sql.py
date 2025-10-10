@@ -3,7 +3,7 @@
 Spark Structured Streaming consumer for enrichment pipeline.
 Direct JDBC upserts with chunking, parameterization, and safety.
 """
-import os
+import os, json
 import time
 from pyspark.sql import SparkSession, functions as F
 from pyspark.sql.types import (
@@ -221,7 +221,6 @@ def process_results_batch(batch_df, batch_id):
         cur.close()
         conn.close()
 
-
 def process_errors_batch(batch_df, batch_id):
     """
     Process error events from DLQ with direct upsert.
@@ -259,6 +258,21 @@ def process_errors_batch(batch_df, batch_id):
         for row in errors_data:
             timestamp_dt = datetime.fromtimestamp(row.timestamp / 1000) if row.timestamp else datetime.utcnow()
             
+            # ✅ FIX: Properly serialize attempted to JSON
+            attempted_json = None
+            if row.attempted:
+                try:
+                    if isinstance(row.attempted, str):
+                        # Already a string - validate it's JSON
+                        json.loads(row.attempted)
+                        attempted_json = row.attempted
+                    else:
+                        # It's a dict/map - serialize to JSON
+                        attempted_json = json.dumps(row.attempted)
+                except (json.JSONDecodeError, TypeError) as e:
+                    print(f"  ⚠️  Invalid attempted for item_idx={row.item_idx}: {e}")
+                    attempted_json = None
+            
             error_params.append((
                 row.item_idx,
                 timestamp_dt,  # first_seen_at
@@ -271,7 +285,7 @@ def process_errors_batch(batch_df, batch_id):
                 row.tags_version,
                 row.title[:256] if row.title else None,
                 row.author[:256] if row.author else None,
-                str(row.attempted) if row.attempted else None,  # JSON as string
+                attempted_json,  # ✅ Valid JSON string
             ))
         
         # Batch upsert errors
@@ -302,7 +316,6 @@ def process_errors_batch(batch_df, batch_id):
     finally:
         cur.close()
         conn.close()
-
 
 def main():
     """
