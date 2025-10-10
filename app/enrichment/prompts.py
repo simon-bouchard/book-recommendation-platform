@@ -1,7 +1,6 @@
 # app/enrichment/prompts.py
 """
-Tier-aware prompts for book enrichment.
-Different instructions and validation rules per quality tier.
+Tier-aware prompts for book enrichment with explicit vibe examples.
 """
 
 # ============================================================================
@@ -19,7 +18,7 @@ SYSTEM = """You assign enrichment tags to books. Return strict JSON only, no mar
 
 
 # ============================================================================
-# TIER-SPECIFIC INSTRUCTIONS
+# TIER-SPECIFIC INSTRUCTIONS (WITH VIBE EXAMPLES)
 # ============================================================================
 
 TIER_INSTRUCTIONS = {
@@ -28,7 +27,13 @@ Generate comprehensive enrichment:
 - subjects: 5-8 specific, unique noun phrases - be detailed and domain-specific
 - tone_ids: 2-3 tones that capture style, pacing, and atmosphere
 - genre: exactly 1 genre
-- vibe: 8-12 word evocative phrase
+- vibe: EXACTLY 8-12 words - evocative phrase capturing the book's essence
+
+**VIBE EXAMPLES (8-12 words):**
+✓ "Sweeping historical saga exploring love and loss across generations"
+✓ "Dark psychological thriller unraveling secrets in a coastal town"
+✓ "Lyrical meditation on memory, identity, and the immigrant experience"
+✓ "Epic fantasy adventure through kingdoms torn by war and magic"
 
 Quality focus: Specificity and uniqueness. Avoid generic subjects ("book", "story", "readers"). 
 Make each subject distinct - no near-duplicates like "Greek gods" and "Greek deities".""",
@@ -38,16 +43,21 @@ Generate focused enrichment - accuracy over completeness:
 - subjects: 3-5 clear, safe choices from available information
 - tone_ids: 1-2 tones if confident, empty array [] if uncertain
 - genre: exactly 1 genre
-- vibe: 4-8 words if confident, empty string "" if uncertain
+- vibe: EXACTLY 4-8 words if confident, empty string "" if uncertain
 
-Conservative approach: Better to omit than guess. Only use catalog subjects if they clearly fit.""",
+**VIBE EXAMPLES (4-8 words):**
+✓ "Thought-provoking exploration of wartime ethics" (5 words)
+✓ "Gripping detective story with noir atmosphere" (6 words)
+✓ "Intimate portrait of family dynamics" (5 words)
+
+Conservative approach: Better to omit vibe than force it. Only use catalog subjects if they clearly fit.""",
     
     "MINIMAL": """**MINIMAL TIER** (Limited metadata available)
 Generate basic enrichment - extreme conservatism required:
 - subjects: 1-3 obvious subjects only (explicitly mentioned or clear from title)
 - tone_ids: 0-1 tone only if VERY clear, usually empty array []
 - genre: exactly 1 genre
-- vibe: MUST be empty string ""
+- vibe: MUST be empty string "" (NO vibe for this tier)
 
 Do NOT infer or speculate. Only extract what's directly stated.""",
     
@@ -56,7 +66,7 @@ Genre classification only:
 - subjects: 0-1 subject (only if obvious from title, otherwise empty array [])
 - tone_ids: MUST be empty array []
 - genre: exactly 1 genre (use "general" if unclear)
-- vibe: MUST be empty string ""
+- vibe: MUST be empty string "" (NO vibe for this tier)
 
 Primary goal: assign correct genre. Don't attempt to infer beyond what's explicit."""
 }
@@ -105,7 +115,7 @@ study guides, primers → use nonfiction genre (history, biography, etc.), NOT f
 
 
 # ============================================================================
-# USER TEMPLATE (tier-aware)
+# USER TEMPLATE (tier-aware with emphasis on vibe length)
 # ============================================================================
 
 def build_user_prompt(
@@ -118,7 +128,7 @@ def build_user_prompt(
     genre_slugs: str,
     ontology_version: str = "v2"
 ) -> str:
-    """Build tier-specific user prompt (balanced verbosity)."""
+    """Build tier-specific user prompt with explicit vibe requirements."""
     
     # Format catalog subjects (limit to 15 for token efficiency)
     if ol_subjects:
@@ -136,6 +146,14 @@ def build_user_prompt(
     tone_instr = render_tone_instructions(tone_slugs, ontology_version)
     genre_instr = render_genre_instructions(genre_slugs)
     
+    # Get vibe requirement text based on tier
+    vibe_requirement = {
+        "RICH": "vibe: EXACTLY 8-12 words (CRITICAL: count your words, vibes with <8 or >12 words will be rejected)",
+        "SPARSE": "vibe: EXACTLY 4-8 words if confident, empty string \"\" if uncertain (count your words)",
+        "MINIMAL": "vibe: MUST be empty string \"\" (no vibe for MINIMAL tier)",
+        "BASIC": "vibe: MUST be empty string \"\" (no vibe for BASIC tier)"
+    }.get(tier, "vibe: \"\"")
+    
     prompt = f"""Book:
 TITLE: {title}
 AUTHOR: {author}
@@ -144,19 +162,19 @@ DESCRIPTION: {description if description else "(no description available)"}
 
 {tier_instr}
 
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 {tone_instr}
 
 {genre_instr}
 
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 **Output Requirements:**
 • subjects: Unique noun phrases (1-4 words each), specific and distinct
 • tone_ids: Use tone IDs from list above (NOT slugs)
 • genre: Use genre slug from list above
-• vibe: Short descriptive phrase (or "" if not required)
+• {vibe_requirement}
 
 **Subject Quality Rules:**
 ✗ Avoid: generic terms (book, story, readers, background, excellent)
@@ -168,6 +186,11 @@ DESCRIPTION: {description if description else "(no description available)"}
 • Treat as hints, not facts - validate against description/knowledge
 • Ignore if they conflict with description
 • Never copy administrative tags
+
+**VIBE LENGTH CHECK (for {tier} tier):**
+{"Count your words carefully! RICH tier requires EXACTLY 8-12 words." if tier == "RICH" else ""}
+{"Count your words! SPARSE tier requires EXACTLY 4-8 words (or empty if uncertain)." if tier == "SPARSE" else ""}
+{"NO vibe allowed for this tier - use empty string." if tier in ("MINIMAL", "BASIC") else ""}
 
 Return JSON:
 {{"subjects": [...], "tone_ids": [...], "genre": "slug", "vibe": "text or empty"}}"""
