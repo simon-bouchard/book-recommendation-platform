@@ -25,7 +25,128 @@ import json
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-# ... (keep existing load_tones, load_genres, fetch_book_with_ol_subjects, iter_books_from_db functions)
+TONES_CSV = ROOT / "ontology" / "tones_v2.csv"
+GENRES_CSV = ROOT / "ontology" / "genres_v1.csv"
+
+# Behavior flags
+STOP_ON_FIRST_LLM_ERROR = os.getenv("ENRICH_STOP_ON_FIRST_LLM_ERROR", "0") == "1"
+
+# Versioning
+VERSION_TAG = os.getenv("ENRICHMENT_JOB_TAG_VERSION", "v2")
+ONTOLOGY_VERSION = os.getenv("ENRICHMENT_ONTOLOGY_VERSION", "v2")
+
+
+# ============================================================================
+# ONTOLOGY LOADERS
+# ============================================================================
+
+def load_tones(ontology_version: str = "v2"):
+    """
+    Load tones from CSV for specified ontology version.
+    
+    Args:
+        ontology_version: Which ontology version to load (v1 or v2)
+    
+    Returns:
+        (rows, slugs_str, valid_ids_set, slug_to_id_map)
+    """
+    if ontology_version == "v2":
+        csv_path = ROOT / "ontology" / "tones_v2.csv"
+    else:
+        csv_path = ROOT / "ontology" / "tones_v1.csv"
+    
+    rows = []
+    with open(csv_path, newline="", encoding="utf-8") as f:
+        for r in csv.DictReader(f):
+            rows.append(r)
+    
+    from app.enrichment.postprocess import render_tone_slugs
+    slugs = render_tone_slugs(rows)
+    valid_ids = {int(r["tone_id"]) for r in rows}
+    slug2id = {r["slug"]: int(r["tone_id"]) for r in rows}
+    
+    logger.info(f"Loaded {len(rows)} tones from {ontology_version}: IDs {min(valid_ids)}-{max(valid_ids)}")
+    
+    return rows, slugs, valid_ids, slug2id
+
+
+def load_genres():
+    """Load genres from CSV"""
+    rows = []
+    with open(GENRES_CSV, newline="", encoding="utf-8") as f:
+        for r in csv.DictReader(f):
+            rows.append(r)
+    
+    from app.enrichment.postprocess import render_genre_slugs
+    slugs_line = render_genre_slugs(rows)
+    valid_slugs = {r["slug"] for r in rows}
+    
+    logger.info(f"Loaded {len(rows)} genres")
+    
+    return rows, slugs_line, valid_slugs
+
+
+# ============================================================================
+# DATABASE QUERIES
+# ============================================================================
+
+def fetch_book_with_ol_subjects(db: Session, item_idx: int) -> Optional[Dict[str, Any]]:
+    """
+    Fetch book metadata including OL subjects.
+    
+    Args:
+        db: Database session
+        item_idx: Book item_idx
+        
+    Returns:
+        Dict with book metadata or None if not found
+    """
+    # Fetch book and author
+    result = db.query(Book, Author).outerjoin(
+        Author, Book.author_idx == Author.author_idx
+    ).filter(Book.item_idx == item_idx).first()
+    
+    if not result:
+        return None
+    
+    book, author = result
+    
+    # Fetch OL subjects
+    ol_subjects_query = db.query(OLSubject.subject).join(
+        BookOLSubject, OLSubject.ol_subject_idx == BookOLSubject.ol_subject_idx
+    ).filter(BookOLSubject.item_idx == item_idx).all()
+    
+    ol_subjects = [subj for (subj,) in ol_subjects_query]
+    
+    return {
+        "item_idx": int(book.item_idx),
+        "title": book.title or "",
+        "author": author.name if author else "",
+        "description": book.description or "",
+        "ol_subjects": ol_subjects,
+    }
+
+
+def iter_books_from_db(db: Session, limit: int | None = None):
+    """
+    Query books with item_idx and OL subjects.
+    
+    Args:
+        db: Database session
+        limit: Maximum number of books to return
+        
+    Yields:
+        Dict with book metadata
+    """
+    q = db.query(Book.item_idx).filter(Book.item_idx.isnot(None))
+    
+    if limit:
+        q = q.limit(limit)
+    
+    for (item_idx,) in q:
+        book_data = fetch_book_with_ol_subjects(db, item_idx)
+        if book_data:
+            yield book_data
 
 
 def enrich_one(
@@ -346,7 +467,7 @@ def enrich_with_retry(
 
 
 # Update main() to use enrich_with_retry instead of enrich_one
-def main(limit: int | None = None, sleep_s: float = 0.0):
+def main(limit: int | None = None, sleep_s: float = 0.0, workers: int = 1):
     """Main enrichment runner with retry logic."""
     ensure_enrichment_ready()
     
@@ -378,11 +499,10 @@ def main(limit: int | None = None, sleep_s: float = 0.0):
                 
                 if result:
                     tier = result["enrichment_quality"]
+                    retry_count = result.get("metadata", {}).get("retry_count", 0)
                     
-                    # Track retry success
-                    if result.get("metadata", {}).get("retry_count", 0) > 0:
+                    if retry_count > 0:
                         tier_stats[tier]["retry_success"] += 1
-                        logger.info(f"✓ Retry success for item_idx={result['item_idx']}")
                     
                     success = producer.send_result(
                         item_idx=result["item_idx"],
@@ -398,13 +518,17 @@ def main(limit: int | None = None, sleep_s: float = 0.0):
                     if success:
                         count_ok += 1
                         tier_stats[tier]["ok"] += 1
+                        # Compact one-liner
+                        retry_msg = " (retry)" if retry_count > 0 else ""
+                        logger.info(f"✓ item_idx={result['item_idx']} ({tier}){retry_msg}")
                     else:
                         count_err += 1
                         tier_stats[tier]["err"] += 1
+                        logger.error(f"✗ Kafka send failed: item_idx={result['item_idx']}")
                     
                     if sleep_s:
                         time.sleep(sleep_s)
-                
+
                 else:
                     # Both attempts failed
                     attempted = error.get("attempted", {})
@@ -421,17 +545,21 @@ def main(limit: int | None = None, sleep_s: float = 0.0):
                         tags_version=os.getenv("ENRICHMENT_JOB_TAG_VERSION", "v2"),
                         attempted=attempted,
                     )
+                    
                     count_err += 1
                     if tier in tier_stats:
                         tier_stats[tier]["err"] += 1
-                
-                # Progress
+                    
+                    # Compact one-liner with brief error
+                    logger.error(f"✗ item_idx={rec['item_idx']} ({tier}): {error['error_code']} - {error['error_msg'][:80]}")
+
+                # Progress indicator (keep this as-is)
                 total = count_ok + count_err
                 if total % 10 == 0:
                     elapsed = time.time() - start_time
                     rate = total / elapsed if elapsed > 0 else 0
-                    logger.info(f"Progress: {total} ({count_ok} ok, {count_err} err) | {rate:.1f}/s")
-    
+                    logger.info(f"Progress: {total} ({count_ok} ok, {count_err} err) | {rate:.1f}/s")   
+
     finally:
         producer.flush()
         producer.close()
