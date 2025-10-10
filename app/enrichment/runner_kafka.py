@@ -218,7 +218,7 @@ def enrich_one(
             "attempted": {
                 "tier": tier,
                 "score": score,
-				"raw_subjects": raw.get("subjects", []),      # All subjects, not just 3
+                "raw_subjects": raw.get("subjects", []),      # All subjects, not just 3
                 "raw_tone_ids": raw.get("tone_ids", []),      # All tones
                 "raw_genre": raw.get("genre", ""),            # Genre
                 "raw_vibe": raw.get("vibe", ""),
