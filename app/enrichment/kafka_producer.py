@@ -19,8 +19,8 @@ RESULTS_TOPIC = "enrich.results.v1"
 ERRORS_TOPIC = "enrich.errors.v1"
 
 # Feature flag: dual-write to both Kafka and JSONL during cutover
-DUAL_WRITE_JSONL = os.getenv("ENRICH_DUAL_WRITE_JSONL", "1") == "1"
-CUTOVER_COMPLETE = os.getenv("ENRICH_CUTOVER_COMPLETE", "0") == "1"
+DUAL_WRITE_JSONL = os.getenv("ENRICH_DUAL_WRITE_JSONL", "0") == "1"
+CUTOVER_COMPLETE = os.getenv("ENRICH_CUTOVER_COMPLETE", "1") == "1"
 JSONL_PATH = Path(os.getenv("ENRICH_JSONL_PATH", "data/enrichment_v1.jsonl"))
 
 

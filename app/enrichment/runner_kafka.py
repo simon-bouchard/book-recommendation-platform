@@ -1,18 +1,12 @@
-# app/enrichment/runner_kafka.py
-"""
-Enrichment runner with Kafka support and quality tiering.
-Sends results to Kafka (and optionally JSONL during dual-write period).
+# app/enrichment/runner_kafka.py - COMPLETE MULTITHREADED VERSION
 
-Updated for Phase 2: Quality Tiering
-- Assesses book metadata quality before enrichment
-- Uses tier-specific prompts and validation
-- Includes quality metadata in Kafka events
-"""
 import csv, time, os, sys
 from pathlib import Path
 from sqlalchemy.orm import Session
 from typing import Dict, Any, Optional, List
 from concurrent.futures import ThreadPoolExecutor, as_completed
+from threading import Lock
+import logging
 
 # Add project root to Python path
 ROOT = Path(__file__).resolve().parents[2]
@@ -27,29 +21,20 @@ from app.enrichment.quality_classifier import assess_book_quality
 
 from app.database import SessionLocal
 from app.table_models import Book, Author, OLSubject, BookOLSubject
-import logging
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-TONES_CSV = ROOT / "ontology" / "tones_v2.csv"  # Updated to use V2
+TONES_CSV = ROOT / "ontology" / "tones_v2.csv"
 GENRES_CSV = ROOT / "ontology" / "genres_v1.csv"
 
 STOP_ON_FIRST_LLM_ERROR = os.getenv("ENRICH_STOP_ON_FIRST_LLM_ERROR", "0") == "1"
-VERSION_TAG = os.getenv("ENRICHMENT_JOB_TAG_VERSION", "v2")  # Default to v2 for tiering
+VERSION_TAG = os.getenv("ENRICHMENT_JOB_TAG_VERSION", "v2")
 ONTOLOGY_VERSION = os.getenv("ENRICHMENT_ONTOLOGY_VERSION", "v2")
 
 
 def load_tones(ontology_version: str = "v2"):
-    """
-    Load tones from CSV for specified ontology version.
-    
-    Args:
-        ontology_version: Which ontology version to load (v1 or v2)
-    
-    Returns:
-        (rows, slugs_str, valid_ids_set, slug_to_id_map)
-    """
+    """Load tones from CSV for specified ontology version."""
     if ontology_version == "v2":
         csv_path = ROOT / "ontology" / "tones_v2.csv"
     else:
@@ -85,16 +70,7 @@ def load_genres():
 
 
 def fetch_book_with_ol_subjects(db: Session, item_idx: int) -> Optional[Dict[str, Any]]:
-    """
-    Fetch book metadata including OL subjects.
-    
-    Args:
-        db: Database session
-        item_idx: Book item_idx
-        
-    Returns:
-        Dict with book metadata or None if not found
-    """
+    """Fetch book metadata including OL subjects."""
     # Fetch book and author
     result = db.query(Book, Author).outerjoin(
         Author, Book.author_idx == Author.author_idx
@@ -122,16 +98,7 @@ def fetch_book_with_ol_subjects(db: Session, item_idx: int) -> Optional[Dict[str
 
 
 def iter_books_from_db(db: Session, limit: int | None = None):
-    """
-    Query books with item_idx and OL subjects.
-    
-    Args:
-        db: Database session
-        limit: Maximum number of books to return
-        
-    Yields:
-        Dict with book metadata
-    """
+    """Query books with item_idx and OL subjects."""
     q = db.query(Book.item_idx).filter(Book.item_idx.isnot(None))
     
     if limit:
@@ -152,25 +119,8 @@ def enrich_one(
     genre_slugs_line: str,
     ontology_version: str = "v2"
 ) -> tuple[dict | None, dict | None]:
-    """
-    Enrich a single book record with quality tiering.
-    
-    Args:
-        rec: Book record with title, author, description, ol_subjects
-        slug2id: Mapping of tone slugs to IDs
-        valid_tone_ids: Set of valid tone IDs
-        valid_genre_slugs: Set of valid genre slugs
-        tone_slugs: Comma-separated tone slugs for prompt
-        genre_slugs_line: Comma-separated genre slugs for prompt
-        ontology_version: Ontology version (v1 or v2)
-    
-    Returns:
-        (result_dict, error_dict): One will be None
-    """
-    # ========================================================================
-    # STEP 1: ASSESS QUALITY
-    # ========================================================================
-    
+    """Enrich a single book record with quality tiering."""
+    # Assessment
     assessment = assess_book_quality(
         title=rec["title"],
         author=rec["author"],
@@ -178,7 +128,6 @@ def enrich_one(
         ol_subjects=rec.get("ol_subjects", [])
     )
     
-    # Skip INSUFFICIENT tier (missing title/author)
     if not assessment.is_enrichable:
         error = {
             "stage": "quality_assessment",
@@ -198,10 +147,7 @@ def enrich_one(
         f"ol_subjects={assessment.signals.ol_subject_count})"
     )
     
-    # ========================================================================
-    # STEP 2: BUILD TIER-SPECIFIC PROMPT
-    # ========================================================================
-    
+    # Build prompt
     user_prompt = build_user_prompt(
         title=rec["title"],
         author=rec["author"],
@@ -216,14 +162,11 @@ def enrich_one(
     start_time = time.time()
     
     try:
-        # ====================================================================
-        # STEP 3: LLM CALL
-        # ====================================================================
-        
+        # LLM call
         raw = call_enrichment_llm(SYSTEM, user_prompt)
         latency_ms = int((time.time() - start_time) * 1000)
         
-        # Normalize tone_ids (slug -> id) if LLM returned slugs
+        # Normalize tone_ids
         tone_ids = raw.get("tone_ids", [])
         if not tone_ids or any(isinstance(t, str) for t in tone_ids):
             mapped = []
@@ -234,10 +177,7 @@ def enrich_one(
                     mapped.append(slug2id[t])
             raw["tone_ids"] = mapped
         
-        # ====================================================================
-        # STEP 4: TIER-AWARE VALIDATION
-        # ====================================================================
-        
+        # Validate
         data = validate_payload(
             raw, 
             valid_tone_ids, 
@@ -246,13 +186,9 @@ def enrich_one(
             ontology_version=ontology_version
         )
         
-        # Additional subject cleaning
         data.subjects = clean_subjects(data.subjects)
         
-        # ====================================================================
-        # STEP 5: BUILD RESULT
-        # ====================================================================
-        
+        # Build result
         result = {
             "item_idx": rec["item_idx"],
             "subjects": data.subjects,
@@ -261,12 +197,9 @@ def enrich_one(
             "vibe": data.vibe,
             "tags_version": VERSION_TAG,
             "scores": {},
-            
-            # NEW: Quality metadata
             "enrichment_quality": tier,
             "quality_score": score,
             "ontology_version": ontology_version,
-            
             "metadata": {
                 "latency_ms": latency_ms,
                 "model": os.getenv("DEEPINFRA_MODEL", "unknown"),
@@ -277,7 +210,6 @@ def enrich_one(
         return result, None
         
     except ValueError as e:
-        # Validation error
         error = {
             "stage": "validate",
             "error_code": "VALIDATION_FAILED",
@@ -293,7 +225,6 @@ def enrich_one(
         return None, error
         
     except Exception as e:
-        # LLM or parsing error
         error_str = str(e)
         if "timeout" in error_str.lower():
             stage, code = "llm_invoke", "TIMEOUT"
@@ -314,74 +245,223 @@ def enrich_one(
         logger.error(f"LLM error for item_idx={rec['item_idx']}: {e}")
         return None, error
 
+
 def main(limit: int | None = None, sleep_s: float = 0.0, workers: int = 2):
     """
+    Main enrichment runner with Kafka support, quality tiering, and multithreading.
+    
     Args:
-        workers: Number of parallel enrichment threads (default: 2)
+        limit: Maximum number of books to enrich
+        sleep_s: Sleep duration between enrichments (for rate limiting)
+        workers: Number of parallel worker threads
     """
+    # Fail fast
     ensure_enrichment_ready()
     
-    # Load ontology (shared across threads - read-only)
+    # Load ontology (shared, read-only - thread-safe)
     tone_rows, tone_slugs, valid_tone_ids, slug2id = load_tones(ONTOLOGY_VERSION)
     genre_rows, genre_slugs_line, valid_genre_slugs = load_genres()
     
-    # Kafka producer is thread-safe
+    # Initialize Kafka producer (thread-safe)
     producer = EnrichmentProducer(enable_kafka=True)
     
-    # Collect books first
+    # Collect books upfront (avoid DB session sharing issues)
     with SessionLocal() as db:
         books_list = list(iter_books_from_db(db, limit))
     
-    tier_stats = {...}
-    count_ok = count_err = 0
-    start_time = time.time()
+    logger.info(f"Found {len(books_list)} books to enrich")
+    logger.info(f"Using {workers} worker threads")
     
-    def process_book(rec):
-        """Task function for thread pool"""
+    # Thread-safe counters and stats
+    stats_lock = Lock()
+    tier_stats = {
+        "RICH": {"ok": 0, "err": 0},
+        "SPARSE": {"ok": 0, "err": 0},
+        "MINIMAL": {"ok": 0, "err": 0},
+        "BASIC": {"ok": 0, "err": 0},
+        "INSUFFICIENT": {"ok": 0, "err": 0},
+    }
+    count_ok = 0
+    count_err = 0
+    start_time = time.time()
+    should_abort = False  # For STOP_ON_FIRST_LLM_ERROR
+    
+    def process_book(rec: dict) -> tuple[str, str, Optional[str]]:
+        """
+        Process a single book (thread worker function).
+        
+        Returns:
+            (status, tier, error_stage) where status is "ok" or "err"
+        """
+        nonlocal should_abort
+        
+        # Check abort flag
+        if should_abort:
+            return ("aborted", "UNKNOWN", None)
+        
+        # First attempt
         result, error = enrich_one(
             rec, slug2id, valid_tone_ids, valid_genre_slugs,
             tone_slugs, genre_slugs_line, ONTOLOGY_VERSION
         )
         
-        tier = result["enrichment_quality"] if result else error.get("attempted", {}).get("tier", "UNKNOWN")
+        # Determine tier for stats
+        if error and error.get("attempted"):
+            tier = error["attempted"].get("tier", "UNKNOWN")
+        elif result:
+            tier = result["enrichment_quality"]
+        else:
+            tier = "UNKNOWN"
         
         if result:
-            success = producer.send_result(**{...})
+            # Success - send to results topic
+            success = producer.send_result(
+                item_idx=result["item_idx"],
+                subjects=result["subjects"],
+                tone_ids=result["tone_ids"],
+                genre=result["genre"],
+                vibe=result["vibe"],
+                tags_version=result["tags_version"],
+                scores=result["scores"],
+                metadata={
+                    **result.get("metadata", {}),
+                    "enrichment_quality": result["enrichment_quality"],
+                    "quality_score": result["quality_score"],
+                    "ontology_version": result["ontology_version"],
+                }
+            )
+            
             if success:
+                logger.info(f"✓ Enriched item_idx={result['item_idx']} ({tier} tier)")
                 if sleep_s:
                     time.sleep(sleep_s)
-                return ("ok", tier)
-            return ("err", tier)
+                return ("ok", tier, None)
+            else:
+                logger.warning(f"Failed to send result for item_idx={result['item_idx']}")
+                return ("err", tier, "produce")
         
-        # Retry once
-        result, error = enrich_one(...)
+        # First attempt failed - retry once
+        logger.warning(f"First attempt failed for item_idx={rec['item_idx']}, retrying...")
+        result, error = enrich_one(
+            rec, slug2id, valid_tone_ids, valid_genre_slugs,
+            tone_slugs, genre_slugs_line, ONTOLOGY_VERSION
+        )
+        
         if result:
-            return ("ok", tier) if producer.send_result(...) else ("err", tier)
+            success = producer.send_result(
+                item_idx=result["item_idx"],
+                subjects=result["subjects"],
+                tone_ids=result["tone_ids"],
+                genre=result["genre"],
+                vibe=result["vibe"],
+                tags_version=result["tags_version"],
+                scores=result["scores"],
+                metadata={
+                    **result.get("metadata", {}),
+                    "enrichment_quality": result["enrichment_quality"],
+                    "quality_score": result["quality_score"],
+                    "ontology_version": result["ontology_version"],
+                }
+            )
+            
+            if success:
+                logger.info(f"✓ Enriched item_idx={result['item_idx']} (retry, {tier} tier)")
+                return ("ok", tier, None)
+            else:
+                return ("err", tier, "produce")
         else:
-            producer.send_error(...)
-            return ("err", tier)
+            # Both attempts failed - send to DLQ
+            producer.send_error(
+                item_idx=rec["item_idx"],
+                error_msg=error["error_msg"],
+                stage=error["stage"],
+                error_code=error["error_code"],
+                error_field=error.get("error_field"),
+                title=rec["title"][:256],
+                author=rec["author"][:256],
+                tags_version=VERSION_TAG,
+                attempted=error.get("attempted"),
+            )
+            logger.error(f"✗ Failed item_idx={rec['item_idx']}: {error['error_msg']}")
+            
+            # Check if we should abort
+            if STOP_ON_FIRST_LLM_ERROR and error["stage"] in ("llm_invoke", "llm_parse"):
+                should_abort = True
+                logger.error("Setting abort flag due to LLM error")
+            
+            return ("err", tier, error["stage"])
     
     try:
-        with ThreadPoolExecutor(max_workers=workers) as ex:
-            futures = [ex.submit(process_book, rec) for rec in books_list]
+        with ThreadPoolExecutor(max_workers=workers) as executor:
+            # Submit all tasks
+            futures = {executor.submit(process_book, rec): rec for rec in books_list}
             
-            for fut in as_completed(futures):
-                status, tier = fut.result()
-                if status == "ok":
-                    count_ok += 1
-                    tier_stats[tier]["ok"] += 1
-                else:
-                    count_err += 1
-                    tier_stats[tier]["err"] += 1
+            # Process results as they complete
+            for future in as_completed(futures):
+                rec = futures[future]
+                
+                try:
+                    status, tier, error_stage = future.result()
+                    
+                    # Update stats (thread-safe)
+                    with stats_lock:
+                        if status == "ok":
+                            count_ok += 1
+                            if tier in tier_stats:
+                                tier_stats[tier]["ok"] += 1
+                        elif status == "err":
+                            count_err += 1
+                            if tier in tier_stats:
+                                tier_stats[tier]["err"] += 1
+                        elif status == "aborted":
+                            # Don't count aborted tasks
+                            pass
+                        
+                        # Progress indicator (every 10 books)
+                        total = count_ok + count_err
+                        if total % 10 == 0 and total > 0:
+                            elapsed = time.time() - start_time
+                            rate = total / elapsed if elapsed > 0 else 0
+                            logger.info(
+                                f"Progress: {total}/{len(books_list)} "
+                                f"({count_ok} ✓, {count_err} ✗) | {rate:.1f}/s"
+                            )
+                        
+                        # Check if we should abort remaining tasks
+                        if should_abort:
+                            logger.warning("Aborting remaining tasks due to LLM error")
+                            # Cancel pending futures
+                            for f in futures:
+                                if not f.done():
+                                    f.cancel()
+                            break
+                
+                except Exception as e:
+                    logger.error(f"Task exception for item_idx={rec['item_idx']}: {e}")
+                    with stats_lock:
+                        count_err += 1
+    
     finally:
+        # Ensure all messages are sent before exiting
+        logger.info("Flushing Kafka producer...")
         producer.flush()
         producer.close()
+    
+    elapsed = time.time() - start_time
+    
+    return {
+        "ok": count_ok,
+        "error": count_err,
+        "aborted": should_abort,
+        "elapsed_s": elapsed,
+        "tier_stats": tier_stats
+    }
 
 
 if __name__ == "__main__":
     import argparse
     
-    parser = argparse.ArgumentParser(description="Enrichment runner with quality tiering")
+    parser = argparse.ArgumentParser(description="Enrichment runner with quality tiering and multithreading")
     parser.add_argument(
         "--limit",
         type=int,
@@ -393,6 +473,12 @@ if __name__ == "__main__":
         type=float,
         default=0.0,
         help="Sleep duration between enrichments in seconds (for rate limiting)"
+    )
+    parser.add_argument(
+        "--workers",
+        type=int,
+        default=2,
+        help="Number of parallel worker threads (default: 2)"
     )
     parser.add_argument(
         "--version",
@@ -417,16 +503,17 @@ if __name__ == "__main__":
         ONTOLOGY_VERSION = args.ontology
     
     logger.info("="*70)
-    logger.info("ENRICHMENT RUNNER (QUALITY TIERING - PHASE 2)")
+    logger.info("ENRICHMENT RUNNER (QUALITY TIERING - MULTITHREADED)")
     logger.info("="*70)
     logger.info(f"Tags Version: {VERSION_TAG}")
     logger.info(f"Ontology Version: {ONTOLOGY_VERSION}")
     logger.info(f"Limit: {args.limit or 'unlimited'}")
     logger.info(f"Sleep: {args.sleep}s")
+    logger.info(f"Workers: {args.workers}")
     logger.info(f"Stop on LLM error: {STOP_ON_FIRST_LLM_ERROR}")
     logger.info("="*70)
     
-    res = main(limit=args.limit, sleep_s=args.sleep)
+    res = main(limit=args.limit, sleep_s=args.sleep, workers=args.workers)
     
     logger.info("="*70)
     logger.info("ENRICHMENT COMPLETE")
