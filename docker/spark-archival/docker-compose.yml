@@ -1,5 +1,4 @@
 # docker/spark-archival/docker-compose.yml
-# Spark job for archiving Kafka to MinIO as Parquet
 services:
   spark-archival:
     image: apache/spark:3.4.0-python3
@@ -26,6 +25,6 @@ services:
       mkdir -p /tmp/.ivy2 &&
       /opt/spark/bin/spark-submit
       --conf spark.jars.ivy=/tmp/.ivy2
-      --packages org.apache.spark:spark-sql-kafka-0-10_2.12:3.4.0,org.apache.hadoop:hadoop-aws:3.3.4
+      --packages org.apache.spark:spark-sql-kafka-0-10_2.12:3.4.0,org.apache.hadoop:hadoop-aws:3.3.4,io.delta:delta-core_2.12:2.4.0
       /app/spark_apps/archive_to_parquet.py
       "
