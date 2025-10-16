@@ -505,12 +505,16 @@ def main(limit: int | None = None, sleep_s: float = 0.0, workers: int = 1):
                 )
                 
                 if result:
+					if "metadata" not in result:
+                        result["metadata"] = {}
+                    result["metadata"]["run_id"] = RUN_ID
+                    
                     tier = result["enrichment_quality"]
                     retry_count = result.get("metadata", {}).get("retry_count", 0)
                     
                     if retry_count > 0:
-                        tier_stats[tier]["retry_success"] += 1
-                    
+                        tier_stats[tier]["retry_success"] += 1                   
+
                     success = producer.send_result(
                         item_idx=result["item_idx"],
                         subjects=result["subjects"],

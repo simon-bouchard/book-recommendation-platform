@@ -223,19 +223,15 @@ def process_results_batch(batch_df, batch_id):
         conn.close()
 
 def process_errors_batch(batch_df, batch_id):
-    """
-    Process error events from DLQ with direct upsert.
-    """
+    """Process error events with run_history tracking."""
     if batch_df.isEmpty():
         return
     
     count = batch_df.count()
     print(f"\n[Error Batch {batch_id}] Processing {count} error records...")
     
-    # Collect error data
     errors_data = batch_df.collect()
     
-    # Connect to database
     import pymysql
     from urllib.parse import urlparse
     from datetime import datetime
@@ -254,32 +250,37 @@ def process_errors_batch(batch_df, batch_id):
     try:
         cur = conn.cursor()
         
-        # Prepare error parameters
         error_params = []
         for row in errors_data:
             timestamp_dt = datetime.fromtimestamp(row.timestamp / 1000) if row.timestamp else datetime.utcnow()
-            run_id = row.get("run_id")
             
-            # ✅ FIX: Properly serialize attempted to JSON
+            # ✅ Extract run_id from row (now in schema)
+            run_id = row.run_id if hasattr(row, 'run_id') else None
+            
+            # Serialize attempted to JSON
             attempted_json = None
             if row.attempted:
                 try:
                     if isinstance(row.attempted, str):
-                        # Already a string - validate it's JSON
                         json.loads(row.attempted)
                         attempted_json = row.attempted
                     else:
-                        # It's a dict/map - serialize to JSON
                         attempted_json = json.dumps(row.attempted)
-                except (json.JSONDecodeError, TypeError) as e:
-                    print(f"  ⚠️  Invalid attempted for item_idx={row.item_idx}: {e}")
+                except (json.JSONDecodeError, TypeError):
                     attempted_json = None
+            
+            # ✅ Build run_history JSON for initial insert
+            run_history_json = json.dumps([{
+                "run_id": run_id,
+                "timestamp": timestamp_dt.isoformat(),
+                "error_code": row.error_code
+            }]) if run_id else None
             
             error_params.append((
                 row.item_idx,
-                timestamp_dt,  # first_seen_at
-                timestamp_dt,  # last_seen_at
-                1,  # occurrence_count
+                timestamp_dt,
+                timestamp_dt,
+                1,
                 row.stage,
                 row.error_code,
                 row.error_field,
@@ -287,41 +288,44 @@ def process_errors_batch(batch_df, batch_id):
                 row.tags_version,
                 row.title[:256] if row.title else None,
                 row.author[:256] if row.author else None,
-                attempted_json,  
+                attempted_json,
                 run_id,
+                run_history_json,  # ✅ NOW 14 values match 14 columns
             ))
         
-        # Batch upsert errors
-		batch_parameterized_insert(
-			cur,
-			"""INSERT INTO enrichment_errors(
-				   item_idx, first_seen_at, last_seen_at, occurrence_count,
-				   stage, error_code, error_field, error_msg, tags_version,
-				   title, author, attempted, last_run_id, run_history
-			   )
-			   VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
-			   ON DUPLICATE KEY UPDATE
-				   last_seen_at = VALUES(last_seen_at),
-				   occurrence_count = occurrence_count + 1,
-				   stage = VALUES(stage),
-				   error_code = VALUES(error_code),
-				   error_msg = VALUES(error_msg),
-				   last_run_id = VALUES(last_run_id),
-				   -- ✅ Append to run_history instead of overwriting
-				   run_history = JSON_ARRAY_APPEND(
-					   COALESCE(run_history, '[]'),
-					   '$',
-					   JSON_OBJECT(
-						   'run_id', VALUES(last_run_id),
-						   'timestamp', VALUES(last_seen_at),
-						   'error_code', VALUES(error_code)
-					   )
-				   )""",
-			error_params
-		) 
+        # ✅ Fixed INSERT with proper run_history handling
+        batch_parameterized_insert(
+            cur,
+            """INSERT INTO enrichment_errors(
+                   item_idx, first_seen_at, last_seen_at, occurrence_count,
+                   stage, error_code, error_field, error_msg, tags_version,
+                   title, author, attempted, last_run_id, run_history
+               )
+               VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+               ON DUPLICATE KEY UPDATE
+                   last_seen_at = VALUES(last_seen_at),
+                   occurrence_count = occurrence_count + 1,
+                   stage = VALUES(stage),
+                   error_code = VALUES(error_code),
+                   error_msg = VALUES(error_msg),
+                   last_run_id = VALUES(last_run_id),
+                   run_history = CASE
+                       WHEN run_history IS NULL THEN VALUES(run_history)
+                       ELSE JSON_ARRAY_APPEND(
+                           run_history,
+                           '$',
+                           JSON_OBJECT(
+                               'run_id', VALUES(last_run_id),
+                               'timestamp', VALUES(last_seen_at),
+                               'error_code', VALUES(error_code)
+                           )
+                       )
+                   END""",
+            error_params
+        )
         
         conn.commit()
-        print(f"✓ Error batch {batch_id} committed successfully ({count} errors)\n")
+        print(f"✓ Error batch {batch_id} committed ({count} errors)\n")
         
     except Exception as e:
         conn.rollback()
