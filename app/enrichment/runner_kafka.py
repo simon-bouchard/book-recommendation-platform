@@ -505,7 +505,7 @@ def main(limit: int | None = None, sleep_s: float = 0.0, workers: int = 1):
                 )
                 
                 if result:
-					if "metadata" not in result:
+                    if "metadata" not in result:
                         result["metadata"] = {}
                     result["metadata"]["run_id"] = RUN_ID
                     
