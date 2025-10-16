@@ -258,7 +258,11 @@ class EnrichmentError(Base):
     __tablename__ = "enrichment_errors"
 
     # Composite PK: one error per book per version
-    item_idx = Column(Integer, nullable=False)
+    item_idx = Column(
+        Integer, 
+        ForeignKey("books.item_idx", onupdate="CASCADE", ondelete="CASCADE"),  # ✅ Add FK
+        nullable=False
+    )
     tags_version = Column(String(32), nullable=False)
     
     __table_args__ = (
@@ -282,11 +286,12 @@ class EnrichmentError(Base):
     author = Column(String(256), nullable=True)
     attempted = Column(JSON, nullable=True)
     
-    # NEW: Run tracking
-    last_run_id = Column(String(64), nullable=True, index=True)  # Which run it last failed in
-    run_history = Column(JSON, nullable=True)  # Array of {run_id, timestamp} if you want full history
+    # ✅ Run tracking with history
+    last_run_id = Column(String(64), nullable=True, index=True)
+    run_history = Column(JSON, nullable=True)  # [{run_id, timestamp, error_code}, ...]
     
-    book = relationship("Book", viewonly=True)
+    # ✅ Fix relationship - now it can find the FK
+    book = relationship("Book", foreign_keys=[item_idx], viewonly=True)
 
 # =========================
 # Staging Tables (UPDATED WITH tags_version)

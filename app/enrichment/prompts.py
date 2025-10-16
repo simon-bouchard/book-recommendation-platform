@@ -66,7 +66,7 @@ Do NOT infer or speculate. Only extract what's directly stated.""",
 Genre classification only:
 - subjects: 0-1 subject (only if obvious from title, otherwise empty array [])
 - tone_ids: MUST be empty array []
-- genre: exactly 1 genre (if truly unclear, use "essays-journalism" or "general-nonfiction" as fallback)
+- genre: exactly 1 genre 
 - vibe: MUST be empty string "" (NO vibe for this tier)
 
 Primary goal: assign correct genre. Don't attempt to infer beyond what's explicit."""
