@@ -335,7 +335,7 @@ def main(
                 title=rec["title"][:256],
                 author=rec["author"][:256],
                 tags_version=VERSION_TAG,
-				run_metadata={"run_id": new_run_id},
+                run_id=new_run_id,
             )
             return False
     

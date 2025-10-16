@@ -203,6 +203,7 @@ class EnrichmentProducer:
         author: Optional[str] = None,
         attempted: Optional[Dict[str, Any]] = None,
         run_metadata: Optional[Dict[str, Any]] = None,
+        run_id: Optional[str] = None,
     ) -> bool:
         """Send error event to DLQ"""
         event = {
@@ -224,6 +225,8 @@ class EnrichmentProducer:
             event["attempted"] = attempted
         if run_metadata:
             event.update(run_metadata)
+        if run_id:
+            event["run_id"] = run_id
         
         # Dual-write during cutover
         if DUAL_WRITE_JSONL and not CUTOVER_COMPLETE:

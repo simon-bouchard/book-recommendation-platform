@@ -550,12 +550,7 @@ def main(limit: int | None = None, sleep_s: float = 0.0, workers: int = 1):
                         title=rec["title"][:256],
                         author=rec["author"][:256],
                         tags_version=os.getenv("ENRICHMENT_JOB_TAG_VERSION", "v2"),
-                        attempted=attempted,
-                        run_metadata={
-                            "run_id": RUN_ID,  
-                            "model": os.getenv("DEEPINFRA_MODEL", "unknown"),
-                            "timestamp": int(time.time() * 1000),
-                        }
+                        run_id=RUN_ID,
                     )
                     
                     count_err += 1
