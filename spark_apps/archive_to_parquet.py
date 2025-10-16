@@ -36,6 +36,7 @@ errors_schema = StructType([
     StructField("title", StringType(), True),
     StructField("author", StringType(), True),
     StructField("attempted", MapType(StringType(), StringType()), True),
+    StructField("run_id", StringType(), True),
 ])
 
 
