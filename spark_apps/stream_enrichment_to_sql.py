@@ -254,25 +254,30 @@ def process_errors_batch(batch_df, batch_id):
         for row in errors_data:
             timestamp_dt = datetime.fromtimestamp(row.timestamp / 1000) if row.timestamp else datetime.utcnow()
             
-            # ✅ Extract run_id from row (now in schema)
             run_id = row.run_id if hasattr(row, 'run_id') else None
             
             # Serialize attempted to JSON
             attempted_json = None
             if row.attempted:
                 try:
-                    if isinstance(row.attempted, str):
+                    # With MapType schema, Spark parses it as a dict
+                    if isinstance(row.attempted, dict):
                         attempted_json = json.dumps(row.attempted)
-                except (TypeError, AttributeError):
-                    # Fallback for unexpected types
+                    elif isinstance(row.attempted, str):
+                        json.loads(row.attempted)  # Validate
+                        attempted_json = row.attempted
+                except (json.JSONDecodeError, TypeError, AttributeError) as e:
                     attempted_json = None
+            else:
+                print(f"  ⚠️  attempted is None or empty")
             
-            # ✅ Build run_history JSON for initial insert
+            # Build run_history JSON
             run_history_json = json.dumps([{
                 "run_id": run_id,
                 "timestamp": timestamp_dt.isoformat(),
                 "error_code": row.error_code
             }]) if run_id else None
+            
             
             error_params.append((
                 row.item_idx,
@@ -286,12 +291,12 @@ def process_errors_batch(batch_df, batch_id):
                 row.tags_version,
                 row.title[:256] if row.title else None,
                 row.author[:256] if row.author else None,
-                attempted_json,
+                attempted_json,  # 🔍 This should have a value
                 run_id,
-                run_history_json,  # ✅ NOW 14 values match 14 columns
+                run_history_json,
             ))
         
-        # ✅ Fixed INSERT with proper run_history handling
+        # Execute INSERT
         batch_parameterized_insert(
             cur,
             """INSERT INTO enrichment_errors(
@@ -306,6 +311,7 @@ def process_errors_batch(batch_df, batch_id):
                    stage = VALUES(stage),
                    error_code = VALUES(error_code),
                    error_msg = VALUES(error_msg),
+                   attempted = VALUES(attempted),
                    last_run_id = VALUES(last_run_id),
                    run_history = CASE
                        WHEN run_history IS NULL THEN VALUES(run_history)
@@ -323,11 +329,13 @@ def process_errors_batch(batch_df, batch_id):
         )
         
         conn.commit()
-        print(f"✓ Error batch {batch_id} committed ({count} errors)\n")
+        print(f"✅ Error batch {batch_id} committed ({count} errors)\n")
         
     except Exception as e:
         conn.rollback()
-        print(f"✗ Error batch {batch_id} failed: {e}\n")
+        print(f"❌ Error batch {batch_id} failed: {e}\n")
+        import traceback
+        traceback.print_exc()
         raise
     finally:
         cur.close()
