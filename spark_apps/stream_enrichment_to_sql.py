@@ -49,7 +49,7 @@ errors_schema = StructType([
     StructField("error_msg", StringType(), False),
     StructField("title", StringType(), True),
     StructField("author", StringType(), True),
-    StructField("attempted", StringType(), True),  
+    StructField("attempted", MapType(StringType(), StringType()), True),
     StructField("run_id", StringType(), True),
 ])
 
@@ -262,11 +262,9 @@ def process_errors_batch(batch_df, batch_id):
             if row.attempted:
                 try:
                     if isinstance(row.attempted, str):
-                        json.loads(row.attempted)
-                        attempted_json = row.attempted
-                    else:
                         attempted_json = json.dumps(row.attempted)
-                except (json.JSONDecodeError, TypeError):
+                except (TypeError, AttributeError):
+                    # Fallback for unexpected types
                     attempted_json = None
             
             # ✅ Build run_history JSON for initial insert

@@ -570,6 +570,7 @@ def main(limit: int | None = None, sleep_s: float = 0.0, workers: int = 1):
                         error_field=error.get("error_field"),
                         title=rec["title"][:256],
                         author=rec["author"][:256],
+                        attempted=error.get("attempted"),
                         tags_version=os.getenv("ENRICHMENT_JOB_TAG_VERSION", "v2"),
                         run_id=RUN_ID,
                     )
