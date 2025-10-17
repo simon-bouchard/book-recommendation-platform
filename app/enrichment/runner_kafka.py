@@ -330,6 +330,9 @@ def enrich_one(
         elif "tone_ids count" in error_msg.lower():
             error_type = "tone_count_wrong"
             required_changes = extract_tone_requirement(error_msg, tier)
+        elif "invalid genre" in error_msg.lower();
+            error_type = "invalid_genre_slug"
+            required_changes = extract_genre_requirements(error_msg, tier, genre_slugs_line)
         else:
             error_type = "validation_failed"
             required_changes = error_msg
@@ -407,6 +410,19 @@ def extract_tone_requirement(error_msg: str, tier: str) -> str:
         return f"You need at least {min_t} tones (maximum {max_t}). Add more tones that fit."
     else:
         return f"You have too many tones (maximum {max_t}). Remove the least fitting ones."
+
+
+def extract_genre_requirement(error_msg: str, tier: str, genre_slugs_line: str) -> str:
+    """Build retry feedback for invalid genre errors."""
+    import re
+    match = re.search(r"Invalid genre slug: '([^']+)'", error_msg)
+    invalid_genre = match.group(1) if match else "your genre"
+    
+    return f"""The genre '{invalid_genre}' is not valid.
+
+Valid genres: {genre_slugs_line}
+
+Pick ONE exact slug from the list above (case-sensitive)."""
 
 
 def enrich_with_retry(
