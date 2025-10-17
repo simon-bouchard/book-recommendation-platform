@@ -171,11 +171,11 @@ def process_results_batch(batch_df, batch_id):
                 genre_params
             )
             print(f"    → {len(genre_params)} genre assignments")
-        
+                
         # 5. Upsert book_vibes (batch resolution of vibe_id)
         print(f"  [5/6] Upserting book vibes...")
         vibe_params = [
-            (row.item_idx, row.vibe, row.tags_version)
+            (row.item_idx, row.tags_version, row.vibe)  # ✅ FIX: Reorder to match SQL
             for row in batch_data if row.vibe
         ]
         if vibe_params:
@@ -187,14 +187,14 @@ def process_results_batch(batch_df, batch_id):
                 vibe_params
             )
             print(f"    → {len(vibe_params)} vibe assignments")
-        
+                
         # 6. Upsert book_llm_subjects (batch resolution of llm_subject_idx)
         print(f"  [6/6] Upserting book LLM subjects...")
         subject_params = []
         for row in batch_data:
             for subject in (row.subjects or []):
-                subject_params.append((row.item_idx, subject, row.tags_version))
-        
+                subject_params.append((row.item_idx, row.tags_version, subject))  # ✅ FIX: Reorder
+
         if subject_params:
             batch_parameterized_insert(
                 cur,
