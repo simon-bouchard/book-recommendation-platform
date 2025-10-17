@@ -330,9 +330,9 @@ def enrich_one(
         elif "tone_ids count" in error_msg.lower():
             error_type = "tone_count_wrong"
             required_changes = extract_tone_requirement(error_msg, tier)
-        elif "invalid genre" in error_msg.lower();
+        elif "invalid genre" in error_msg.lower():
             error_type = "invalid_genre_slug"
-            required_changes = extract_genre_requirements(error_msg, tier, genre_slugs_line)
+            required_changes = extract_genre_requirement(error_msg, tier, genre_slugs_line)
         else:
             error_type = "validation_failed"
             required_changes = error_msg
@@ -457,7 +457,8 @@ def enrich_with_retry(
         
         # Only retry if we have the original response
         if raw_response and error_type in ["vibe_too_short", "vibe_too_long", 
-                                            "subject_count_wrong", "tone_count_wrong"]:
+                                           "subject_count_wrong", "tone_count_wrong",
+                                           "invalid_genre_slug"]:
             logger.info(f"Validation failed ({error_type}), retrying with feedback...")
             
             # Build retry feedback
