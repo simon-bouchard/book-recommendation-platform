@@ -67,21 +67,52 @@ def cleanup_sql(version: str, dry_run: bool = False):
         total += count
         print(f"  {table}: {count:,}")
     
-    # Also check if subjects exist but aren't linked
+    # Check orphaned subjects (only linked to v2)
     cur.execute("""
-        SELECT COUNT(DISTINCT ls.subject) 
+        SELECT COUNT(DISTINCT ls.llm_subject_idx) 
         FROM llm_subjects ls
-        WHERE NOT EXISTS (
+        WHERE EXISTS (
             SELECT 1 FROM book_llm_subjects bls 
-            WHERE bls.llm_subject_idx = ls.llm_subject_idx
+            WHERE bls.llm_subject_idx = ls.llm_subject_idx 
+            AND bls.tags_version = %s
         )
-    """)
-    orphaned = cur.fetchone()[0]
-    if orphaned > 0:
-        print(f"  ⚠️  {orphaned} orphaned subjects in llm_subjects (not linked to any books)")
+        AND NOT EXISTS (
+            SELECT 1 FROM book_llm_subjects bls 
+            WHERE bls.llm_subject_idx = ls.llm_subject_idx 
+            AND bls.tags_version != %s
+        )
+    """, (version, version))
+    orphaned_subjects = cur.fetchone()[0]
+    
+    # Check orphaned vibes (only linked to v2)
+    cur.execute("""
+        SELECT COUNT(DISTINCT v.vibe_id) 
+        FROM vibes v
+        WHERE EXISTS (
+            SELECT 1 FROM book_vibes bv 
+            WHERE bv.vibe_id = v.vibe_id 
+            AND bv.tags_version = %s
+        )
+        AND NOT EXISTS (
+            SELECT 1 FROM book_vibes bv 
+            WHERE bv.vibe_id = v.vibe_id 
+            AND bv.tags_version != %s
+        )
+    """, (version, version))
+    orphaned_vibes = cur.fetchone()[0]
+    
+    if orphaned_subjects > 0:
+        print(f"  ⚠️  {orphaned_subjects:,} subjects only linked to {version}")
+        counts['llm_subjects'] = orphaned_subjects
+        total += orphaned_subjects
+    
+    if orphaned_vibes > 0:
+        print(f"  ⚠️  {orphaned_vibes:,} vibes only linked to {version}")
+        counts['vibes'] = orphaned_vibes
+        total += orphaned_vibes
     
     if total == 0:
-        print(f"\n✓ No v2 data found in SQL")
+        print(f"\n✅ No {version} data found in SQL")
         cur.close()
         conn.close()
         return
@@ -92,7 +123,7 @@ def cleanup_sql(version: str, dry_run: bool = False):
         conn.close()
         return
     
-    print(f"\n⚠️  About to delete {total:,} rows with tags_version='v2'")
+    print(f"\n⚠️  About to delete {total:,} rows with tags_version='{version}'")
     confirm = input("Delete? (yes/no): ")
     
     if confirm != "yes":
@@ -103,15 +134,43 @@ def cleanup_sql(version: str, dry_run: bool = False):
     
     # Delete in correct order (respecting foreign keys)
     deleted_total = 0
+    
+    # 1. Delete link tables first
     for table in tables:
-        if counts[table] > 0:
+        if counts.get(table, 0) > 0:
             cur.execute(f"DELETE FROM {table} WHERE tags_version = %s", (version,))
             deleted = cur.rowcount
             deleted_total += deleted
-            print(f"  ✓ Deleted from {table}: {deleted:,}")
+            print(f"  ✅ Deleted from {table}: {deleted:,}")
+    
+    # 2. Delete orphaned subjects (only after links are gone)
+    if orphaned_subjects > 0:
+        cur.execute("""
+            DELETE ls FROM llm_subjects ls
+            WHERE NOT EXISTS (
+                SELECT 1 FROM book_llm_subjects bls 
+                WHERE bls.llm_subject_idx = ls.llm_subject_idx
+            )
+        """)
+        deleted = cur.rowcount
+        deleted_total += deleted
+        print(f"  ✅ Deleted orphaned llm_subjects: {deleted:,}")
+    
+    # 3. Delete orphaned vibes (only after links are gone)
+    if orphaned_vibes > 0:
+        cur.execute("""
+            DELETE v FROM vibes v
+            WHERE NOT EXISTS (
+                SELECT 1 FROM book_vibes bv 
+                WHERE bv.vibe_id = v.vibe_id
+            )
+        """)
+        deleted = cur.rowcount
+        deleted_total += deleted
+        print(f"  ✅ Deleted orphaned vibes: {deleted:,}")
     
     conn.commit()
-    print(f"\n✓ SQL cleanup complete: {deleted_total:,} rows deleted")
+    print(f"\n✅ SQL cleanup complete: {deleted_total:,} rows deleted")
     
     cur.close()
     conn.close()
