@@ -192,6 +192,7 @@ DESCRIPTION: {description if description else "(no description available)"}
 {"Count your words carefully! RICH tier requires EXACTLY 8-12 words." if tier == "RICH" else ""}
 {"Count your words! SPARSE tier requires EXACTLY 4-8 words (or empty if uncertain)." if tier == "SPARSE" else ""}
 {"NO vibe allowed for this tier - use empty string." if tier in ("MINIMAL", "BASIC") else ""}
+Words are separated on spaces (not hyphens) for vibe word count.
 
 Return JSON:
 {{"subjects": [...], "tone_ids": [...], "genre": "slug", "vibe": "text or empty"}}"""
