@@ -1,40 +1,41 @@
 # app/enrichment/backfill_parallel.py
 """
+Backfill runner - processes SPECIFIC failed books.
+Uses shared core logic from app.enrichment.core
+
 Backfill strategy:
   1. SQL enrichment_errors → discovery (which books failed)
   2. SQL books table → source of truth (fetch fresh data)
   3. Kafka DLQ → optional forensics (preserve context)
 """
-import os, json, time
+import os
+import json
+import time
+import uuid
+import logging
 from pathlib import Path
-from typing import Dict, Any, Set, Iterable, Optional
+from typing import Dict, Any, Iterable, Optional
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime, timedelta
 from enum import Enum
 
 from sqlalchemy.orm import Session
 from app.database import SessionLocal
-from app.table_models import Book, Author, EnrichmentError, BookGenre
+from app.table_models import Book, Author, EnrichmentError, BookGenre, OLSubject, BookOLSubject
 
-# Enrichment components
-from app.enrichment.prompts import SYSTEM, USER_TEMPLATE
-from app.enrichment.postprocess import clean_subjects
-from app.enrichment.validator import validate_payload
-from app.enrichment.llm_client import ensure_enrichment_ready, call_enrichment_llm
-from app.enrichment.runner import load_tones, load_genres
+# Shared enrichment logic (includes loaders!)
+from app.enrichment.core import enrich_with_retry, load_tones, load_genres
+
+# Infrastructure
+from app.enrichment.llm_client import ensure_enrichment_ready
 from app.enrichment.kafka_producer import EnrichmentProducer, KAFKA_BOOTSTRAP
 
-try:
-    from app.enrichment.runner_kafka import enrich_one as _enrich_one
-except ImportError:
-    raise ImportError(
-        "enrich_one not found in runner_kafka. "
-        "Ensure runner_kafka.py exports this function."
-    )
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
 
-VERSION_TAG = os.getenv("ENRICHMENT_JOB_TAG_VERSION", "v1")
+VERSION_TAG = os.getenv("ENRICHMENT_JOB_TAG_VERSION", "v2")
+ONTOLOGY_VERSION = os.getenv("ENRICHMENT_ONTOLOGY_VERSION", "v2")
 ROOT = Path(__file__).resolve().parents[2]
-OUT_JSONL = ROOT / "data" / "enrichment_v1.jsonl"
 
 
 class BackfillStrategy(Enum):
@@ -43,6 +44,43 @@ class BackfillStrategy(Enum):
     KAFKA_DLQ = "kafka"
     FULL_REPROCESS = "full"
 
+
+# ============================================================================
+# BOOK FETCHING (with OL subjects, like runner)
+# ============================================================================
+
+def fetch_book_with_ol_subjects(db: Session, item_idx: int) -> Optional[Dict[str, Any]]:
+    """
+    Fetch book metadata including OL subjects.
+    """
+    result = db.query(Book, Author).outerjoin(
+        Author, Book.author_idx == Author.author_idx
+    ).filter(Book.item_idx == item_idx).first()
+    
+    if not result:
+        return None
+    
+    book, author = result
+    
+    # Fetch OL subjects
+    ol_subjects_query = db.query(OLSubject.subject).join(
+        BookOLSubject, OLSubject.ol_subject_idx == BookOLSubject.ol_subject_idx
+    ).filter(BookOLSubject.item_idx == item_idx).all()
+    
+    ol_subjects = [subj for (subj,) in ol_subjects_query]
+    
+    return {
+        "item_idx": int(book.item_idx),
+        "title": book.title or "",
+        "author": author.name if author else "",
+        "description": book.description or "",
+        "ol_subjects": ol_subjects,
+    }
+
+
+# ============================================================================
+# BACKFILL STRATEGIES (difference from runner: selective querying)
+# ============================================================================
 
 def iter_failed_books_from_sql(
     db: Session,
@@ -61,7 +99,7 @@ def iter_failed_books_from_sql(
     
     if from_run_id:
         q = q.filter(EnrichmentError.last_run_id == from_run_id)
-
+    
     if error_codes:
         q = q.filter(EnrichmentError.error_code.in_(error_codes))
     
@@ -74,17 +112,13 @@ def iter_failed_books_from_sql(
     if not failed_ids:
         return []
     
-    for b, a in (
-        db.query(Book, Author)
-        .outerjoin(Author, Book.author_idx == Author.author_idx)
-        .filter(Book.item_idx.in_(failed_ids))
-    ):
-        yield {
-            "item_idx": int(b.item_idx),
-            "title": b.title or "",
-            "author": a.name if a else "",
-            "description": b.description or "",
-        }
+    logger.info(f"Found {len(failed_ids)} failed book IDs from SQL")
+    
+    # Fetch full book data with OL subjects
+    for item_idx in failed_ids:
+        book_data = fetch_book_with_ol_subjects(db, item_idx)
+        if book_data:
+            yield book_data
 
 
 def iter_failed_books_from_kafka_dlq(
@@ -121,24 +155,17 @@ def iter_failed_books_from_kafka_dlq(
         
         with SessionLocal() as db:
             results = []
-            for b, a in (
-                db.query(Book, Author)
-                .outerjoin(Author, Book.author_idx == Author.author_idx)
-                .filter(Book.item_idx.in_(pending_ids))
-            ):
-                results.append({
-                    "item_idx": int(b.item_idx),
-                    "title": b.title or "",
-                    "author": a.name if a else "",
-                    "description": b.description or "",
-                })
+            for item_idx in pending_ids:
+                book_data = fetch_book_with_ol_subjects(db, item_idx)
+                if book_data:
+                    results.append(book_data)
             return results
     
     try:
         for msg in consumer:
             count += 1
             if count > max_messages:
-                print(f"  Reached max_messages limit ({max_messages})")
+                logger.info(f"Reached max_messages limit ({max_messages})")
                 break
             
             error_event = msg.value
@@ -161,9 +188,9 @@ def iter_failed_books_from_kafka_dlq(
         
         for book in flush_batch():
             yield book
-            
+    
     except Exception as e:
-        print(f"  Kafka consumer error: {e}")
+        logger.error(f"Kafka consumer error: {e}")
     finally:
         consumer.close()
 
@@ -176,7 +203,7 @@ def iter_books_for_full_reprocess(
     """
     Full catalog reprocess (nuclear option).
     """
-    q = db.query(Book, Author).outerjoin(Author, Book.author_idx == Author.author_idx)
+    q = db.query(Book.item_idx)
     
     if exclude_successful:
         enriched_ids = {
@@ -187,13 +214,11 @@ def iter_books_for_full_reprocess(
         if enriched_ids:
             q = q.filter(~Book.item_idx.in_(enriched_ids))
     
-    for b, a in q:
-        yield {
-            "item_idx": int(b.item_idx),
-            "title": b.title or "",
-            "author": a.name if a else "",
-            "description": b.description or "",
-        }
+    for (item_idx,) in q:
+        book_data = fetch_book_with_ol_subjects(db, item_idx)
+        if book_data:
+            yield book_data
+
 
 def get_or_create_run_id(db: Session, tags_version: str) -> tuple[str, str]:
     """
@@ -202,9 +227,6 @@ def get_or_create_run_id(db: Session, tags_version: str) -> tuple[str, str]:
     Returns:
         (previous_run_id, new_run_id)
     """
-    import uuid
-    from datetime import datetime
-    
     # Get the most recent run_id from errors
     latest = db.query(EnrichmentError.last_run_id)\
         .filter(EnrichmentError.tags_version == tags_version)\
@@ -219,6 +241,10 @@ def get_or_create_run_id(db: Session, tags_version: str) -> tuple[str, str]:
     return previous_run_id, new_run_id
 
 
+# ============================================================================
+# MAIN BACKFILL
+# ============================================================================
+
 def main(
     strategy: BackfillStrategy = BackfillStrategy.SQL_ERRORS,
     workers: int = 2,
@@ -231,40 +257,40 @@ def main(
     if not dry_run:
         ensure_enrichment_ready()
     
-    tone_rows, tone_slugs, valid_tone_ids, slug2id = load_tones()
+    tone_rows, tone_slugs, valid_tone_ids, slug2id = load_tones(ONTOLOGY_VERSION)
     genre_rows, genre_slugs_line, valid_genre_slugs = load_genres()
     
     with SessionLocal() as db:
         # Auto-detect previous run and create new run_id
         previous_run_id, new_run_id = get_or_create_run_id(db, VERSION_TAG)
         
-        print(f"Previous run: {previous_run_id or 'none (first run)'}")
-        print(f"New run ID: {new_run_id}")
+        logger.info(f"Previous run: {previous_run_id or 'none (first run)'}")
+        logger.info(f"New run ID: {new_run_id}")
         
         if strategy == BackfillStrategy.SQL_ERRORS:
-            print(f"📋 Strategy: SQL enrichment_errors (from run {previous_run_id})")
+            logger.info(f"📋 Strategy: SQL enrichment_errors (from run {previous_run_id})")
             
             if not previous_run_id:
-                print("No previous run found - nothing to backfill")
+                logger.info("No previous run found - nothing to backfill")
                 return {"ok": 0, "err": 0}
             
             books_iter = iter_failed_books_from_sql(
                 db,
                 tags_version=VERSION_TAG,
-                from_run_id=previous_run_id,  # ← Auto-detected!
+                from_run_id=previous_run_id,
                 error_codes=filters.get('error_codes'),
                 hours=filters.get('hours')
-            )       
-
+            )
+        
         elif strategy == BackfillStrategy.KAFKA_DLQ:
-            print(f"📨 Strategy: Kafka DLQ replay (last {filters.get('hours', 24)}h)")
+            logger.info(f"📨 Strategy: Kafka DLQ replay (last {filters.get('hours', 24)}h)")
             books_iter = iter_failed_books_from_kafka_dlq(
                 tags_version=VERSION_TAG,
                 hours=filters.get('hours', 24)
             )
         
         elif strategy == BackfillStrategy.FULL_REPROCESS:
-            print(f"🔄 Strategy: Full reprocess (exclude_successful={filters.get('exclude_successful', True)})")
+            logger.info(f"🔄 Strategy: Full reprocess (exclude_successful={filters.get('exclude_successful', True)})")
             books_iter = iter_books_for_full_reprocess(
                 db,
                 tags_version=VERSION_TAG,
@@ -276,19 +302,19 @@ def main(
         
         books_list = list(books_iter)
         if not books_list:
-            print("No books to backfill.")
+            logger.info("No books to backfill.")
             return {"ok": 0, "err": 0}
         
-        print(f"Found {len(books_list)} books to backfill\n")
+        logger.info(f"Found {len(books_list)} books to backfill\n")
     
     if dry_run:
-        print(f"🔍 DRY RUN MODE")
-        print(f"Would process {len(books_list)} books:")
+        logger.info(f"🔍 DRY RUN MODE")
+        logger.info(f"Would process {len(books_list)} books:")
         for book in books_list[:10]:
-            print(f"  - {book['item_idx']}: {book['title'][:60]}")
+            logger.info(f"  - {book['item_idx']}: {book['title'][:60]}")
         if len(books_list) > 10:
-            print(f"  ... and {len(books_list) - 10} more")
-        print(f"\nTo execute, remove --dry-run flag")
+            logger.info(f"  ... and {len(books_list) - 10} more")
+        logger.info(f"\nTo execute, remove --dry-run flag")
         return {"ok": 0, "err": 0, "dry_run": True}
     
     producer = EnrichmentProducer(enable_kafka=True)
@@ -297,35 +323,44 @@ def main(
     start_time = time.time()
     
     def task(rec):
+        """Single enrichment task (uses shared core logic)"""
         nonlocal ok, err
         
-        result, error = _enrich_one(
+        # Use shared enrichment logic
+        result, error = enrich_with_retry(
             rec, slug2id, valid_tone_ids, valid_genre_slugs,
-            tone_slugs, genre_slugs_line
+            tone_slugs, genre_slugs_line,
+            ontology_version=ONTOLOGY_VERSION,
+            tags_version=VERSION_TAG
         )
         
-		if result:
+        if result:
             # Add run_id to result metadata
             if "metadata" not in result:
                 result["metadata"] = {}
             result["metadata"]["run_id"] = new_run_id
+            result["metadata"]["model"] = os.getenv("DEEPINFRA_MODEL", "unknown")
+            result["metadata"]["backfill"] = True
             
-            success = producer.send_result(**result)
+            success = producer.send_result(
+                item_idx=result["item_idx"],
+                subjects=result["subjects"],
+                tone_ids=result["tone_ids"],
+                genre=result["genre"],
+                vibe=result["vibe"],
+                tags_version=result["tags_version"],
+                scores=result["scores"],
+                metadata=result.get("metadata", {})
+            )
+            
             if success:
                 if sleep_s:
                     time.sleep(sleep_s)
                 return True
             return False
         
-        # Retry once
-        result, error = _enrich_one(
-            rec, slug2id, valid_tone_ids, valid_genre_slugs,
-            tone_slugs, genre_slugs_line
-        )
-        
-        if result:
-            return producer.send_result(**result)
         else:
+            # Send to DLQ
             producer.send_error(
                 item_idx=rec["item_idx"],
                 error_msg=error["error_msg"],
@@ -334,6 +369,7 @@ def main(
                 error_field=error.get("error_field"),
                 title=rec["title"][:256],
                 author=rec["author"][:256],
+                attempted=error.get("attempted"),
                 tags_version=VERSION_TAG,
                 run_id=new_run_id,
             )
@@ -358,8 +394,10 @@ def main(
                     eta_seconds = remaining / rate if rate > 0 else 0
                     eta_str = f"{int(eta_seconds // 60)}m {int(eta_seconds % 60)}s"
                     
-                    print(f"Progress: {total}/{len(books_list)} ({ok} ✓, {err} ✗) | "
-                          f"{rate:.1f}/s | ETA: {eta_str}")
+                    logger.info(
+                        f"Progress: {total}/{len(books_list)} ({ok} ✓, {err} ✗) | "
+                        f"{rate:.1f}/s | ETA: {eta_str}"
+                    )
     
     finally:
         producer.flush()
@@ -405,8 +443,27 @@ if __name__ == "__main__":
         action="store_true",
         help="Show what would be processed"
     )
+    parser.add_argument(
+        "--version",
+        default=None,
+        help="Tags version (overrides env var)"
+    )
+    parser.add_argument(
+        "--ontology",
+        default="v2",
+        help="Ontology version (v1 or v2, default: v2)"
+    )
     
     args = parser.parse_args()
+    
+    # Override versions if specified
+    if args.version:
+        os.environ["ENRICHMENT_JOB_TAG_VERSION"] = args.version
+        VERSION_TAG = args.version
+    
+    if args.ontology:
+        os.environ["ENRICHMENT_ONTOLOGY_VERSION"] = args.ontology
+        ONTOLOGY_VERSION = args.ontology
     
     strategy_map = {
         "sql": BackfillStrategy.SQL_ERRORS,
@@ -420,6 +477,16 @@ if __name__ == "__main__":
         "exclude_successful": args.exclude_successful,
     }
     
+    logger.info("="*70)
+    logger.info("BACKFILL RUNNER")
+    logger.info("="*70)
+    logger.info(f"Strategy: {args.strategy}")
+    logger.info(f"Tags Version: {VERSION_TAG}")
+    logger.info(f"Ontology Version: {ONTOLOGY_VERSION}")
+    logger.info(f"Workers: {args.workers}")
+    logger.info(f"Dry Run: {args.dry_run}")
+    logger.info("="*70)
+    
     res = main(
         strategy=strategy_map[args.strategy],
         workers=args.workers,
@@ -427,5 +494,13 @@ if __name__ == "__main__":
         **{k: v for k, v in filters.items() if v is not None}
     )
     
-    print(f"\nBackfill complete: {res}")
-    sys.exit(0 if res["err"] == 0 else 2)
+    logger.info("="*70)
+    logger.info("BACKFILL COMPLETE")
+    logger.info("="*70)
+    logger.info(f"Success: {res.get('ok', 0)}")
+    logger.info(f"Errors: {res.get('err', 0)}")
+    if res.get("dry_run"):
+        logger.info("(Dry run - no actual processing)")
+    logger.info("="*70)
+    
+    sys.exit(0 if res.get("err", 0) == 0 else 2)
