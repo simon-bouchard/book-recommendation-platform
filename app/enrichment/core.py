@@ -346,6 +346,8 @@ def enrich_one(
         # Validation error - prepare for potential retry
         error_msg = str(e)
         
+        logger.warning(f"âœ— Enrichment validation failed for item_idx={rec['item_idx']}: {error_msg}")
+
         error = {
             "stage": "validate",
             "error_code": "VALIDATION_FAILED",
