@@ -95,7 +95,7 @@ def iter_books_from_db(db: Session, limit: Optional[int] = None):
 # ============================================================================
 
 def main(limit: Optional[int] = None, sleep_s: float = 0.0, workers: int = 1):
-    """Main enrichment runner with retry logic."""
+    """Main enrichment runner with retry logic and optional parallelism."""
     ensure_enrichment_ready()
     
     tone_rows, tone_slugs, valid_tone_ids, slug2id = load_tones(ONTOLOGY_VERSION)
@@ -111,6 +111,36 @@ def main(limit: Optional[int] = None, sleep_s: float = 0.0, workers: int = 1):
     }
     count_ok, count_err = 0, 0
     start_time = time.time()
+    
+    # Decide: sequential vs parallel
+    use_parallel = workers > 1
+    
+    if use_parallel:
+        logger.info(f"Using parallel execution with {workers} workers")
+        return _main_parallel(
+            limit, sleep_s, workers, producer,
+            slug2id, valid_tone_ids, valid_genre_slugs,
+            tone_slugs, genre_slugs_line,
+            tier_stats, start_time
+        )
+    else:
+        logger.info("Using sequential execution")
+        return _main_sequential(
+            limit, sleep_s, producer,
+            slug2id, valid_tone_ids, valid_genre_slugs,
+            tone_slugs, genre_slugs_line,
+            tier_stats, start_time
+        )
+
+
+def _main_sequential(
+    limit, sleep_s, producer,
+    slug2id, valid_tone_ids, valid_genre_slugs,
+    tone_slugs, genre_slugs_line,
+    tier_stats, start_time
+):
+    """Sequential processing (original behavior)"""
+    count_ok, count_err = 0, 0
     
     try:
         with SessionLocal() as db:
@@ -193,6 +223,125 @@ def main(limit: Optional[int] = None, sleep_s: float = 0.0, workers: int = 1):
                     elapsed = time.time() - start_time
                     rate = total / elapsed if elapsed > 0 else 0
                     logger.info(f"Progress: {total} ({count_ok} ok, {count_err} err) | {rate:.1f}/s")
+    
+    finally:
+        producer.flush()
+        producer.close()
+    
+    elapsed = time.time() - start_time
+    
+    return {
+        "ok": count_ok,
+        "error": count_err,
+        "elapsed_s": elapsed,
+        "tier_stats": tier_stats
+    }
+
+
+def _main_parallel(
+    limit, sleep_s, workers, producer,
+    slug2id, valid_tone_ids, valid_genre_slugs,
+    tone_slugs, genre_slugs_line,
+    tier_stats, start_time
+):
+    """Parallel processing (like backfill)"""
+    from concurrent.futures import ThreadPoolExecutor, as_completed
+    
+    count_ok, count_err = 0, 0
+    
+    # Fetch all books upfront (required for parallel processing)
+    with SessionLocal() as db:
+        books_list = list(iter_books_from_db(db, limit))
+    
+    logger.info(f"Loaded {len(books_list)} books for parallel processing")
+    
+    def task(rec):
+        """Single enrichment task"""
+        result, error = enrich_with_retry(
+            rec, slug2id, valid_tone_ids, valid_genre_slugs,
+            tone_slugs, genre_slugs_line,
+            ontology_version=ONTOLOGY_VERSION,
+            tags_version=VERSION_TAG
+        )
+        
+        if result:
+            # Add run metadata
+            if "metadata" not in result:
+                result["metadata"] = {}
+            result["metadata"]["run_id"] = RUN_ID
+            result["metadata"]["model"] = os.getenv("DEEPINFRA_MODEL", "unknown")
+            
+            success = producer.send_result(
+                item_idx=result["item_idx"],
+                subjects=result["subjects"],
+                tone_ids=result["tone_ids"],
+                genre=result["genre"],
+                vibe=result["vibe"],
+                tags_version=result["tags_version"],
+                scores=result["scores"],
+                metadata=result.get("metadata", {})
+            )
+            
+            if success:
+                if sleep_s:
+                    time.sleep(sleep_s)
+                return ("ok", result)
+            return ("err", result)
+        
+        else:
+            # Send to DLQ
+            producer.send_error(
+                item_idx=rec["item_idx"],
+                error_msg=error["error_msg"],
+                stage=error["stage"],
+                error_code=error["error_code"],
+                error_field=error.get("error_field"),
+                title=rec["title"][:256],
+                author=rec["author"][:256],
+                attempted=error.get("attempted"),
+                tags_version=VERSION_TAG,
+                run_id=RUN_ID,
+            )
+            return ("err", error)
+    
+    try:
+        with ThreadPoolExecutor(max_workers=workers) as ex:
+            futures = [ex.submit(task, rec) for rec in books_list]
+            
+            for fut in as_completed(futures):
+                status, data = fut.result()
+                
+                if status == "ok":
+                    count_ok += 1
+                    tier = data["enrichment_quality"]
+                    retry_count = data.get("metadata", {}).get("retry_count", 0)
+                    
+                    tier_stats[tier]["ok"] += 1
+                    if retry_count > 0:
+                        tier_stats[tier]["retry_success"] += 1
+                    
+                    retry_msg = " (retry)" if retry_count > 0 else ""
+                    logger.info(f"✓ item_idx={data['item_idx']} ({tier}){retry_msg}")
+                else:
+                    count_err += 1
+                    if isinstance(data, dict) and "attempted" in data:
+                        tier = data.get("attempted", {}).get("tier", "UNKNOWN")
+                        if tier in tier_stats:
+                            tier_stats[tier]["err"] += 1
+                
+                # Progress with ETA
+                total = count_ok + count_err
+                if total % 50 == 0:
+                    elapsed = time.time() - start_time
+                    rate = total / elapsed if elapsed > 0 else 0
+                    remaining = len(books_list) - total
+                    eta_seconds = remaining / rate if rate > 0 else 0
+                    eta_str = f"{int(eta_seconds // 60)}m {int(eta_seconds % 60)}s"
+                    
+                    logger.info(
+                        f"Progress: {total}/{len(books_list)} ({count_ok} ✓, {count_err} ✗) | "
+                        f"{rate:.1f}/s | ETA: {eta_str}"
+                    )
     
     finally:
         producer.flush()
