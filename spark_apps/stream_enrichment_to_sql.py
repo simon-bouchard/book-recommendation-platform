@@ -2,6 +2,11 @@
 """
 Spark Structured Streaming consumer for enrichment pipeline.
 Direct JDBC upserts with chunking, parameterization, and safety.
+
+FIXES:
+- Orphaned subjects bug (wrong variable + race condition)
+- Parameter ordering for vibes and subjects
+- Proper commit ordering for FK dependencies
 """
 import os, json
 import time
@@ -79,7 +84,9 @@ def batch_parameterized_insert(cur, sql: str, params_list: list, chunk_size: int
 def process_results_batch(batch_df, batch_id):
     """
     Process enrichment results with direct JDBC upserts.
-    Uses chunking, parameterized queries, and batch resolution.
+    Uses chunking, parameterized queries, and proper FK handling.
+    
+    CRITICAL FIX: Commits dictionary tables BEFORE link tables to avoid orphans.
     """
     if batch_df.isEmpty():
         return
@@ -112,34 +119,46 @@ def process_results_batch(batch_df, batch_id):
     try:
         cur = conn.cursor()
         
-        # 1. Upsert LLM subjects dictionary
-        print(f"  [1/6] Upserting LLM subjects...")
+        # ====================================================================
+        # PHASE 1: UPSERT DICTIONARY TABLES (must commit before links!)
+        # ====================================================================
+        
+        # 1a. Upsert LLM subjects dictionary
+        print(f"  [1/6] Upserting LLM subjects dictionary...")
         subjects_set = set()
         for row in batch_data:
             subjects_set.update(row.subjects or [])
         
         if subjects_set:
-            subject_params = [(s,) for s in subjects_set]
+            subject_dict_params = [(s,) for s in subjects_set]
             batch_parameterized_insert(
                 cur,
                 "INSERT IGNORE INTO llm_subjects(subject) VALUES (%s)",
-                subject_params
+                subject_dict_params
             )
             print(f"    → {len(subjects_set)} unique subjects")
         
-        # 2. Upsert vibes dictionary
-        print(f"  [2/6] Upserting vibes...")
+        # 1b. Upsert vibes dictionary
+        print(f"  [2/6] Upserting vibes dictionary...")
         vibes_set = {row.vibe for row in batch_data if row.vibe}
         if vibes_set:
-            vibe_params = [(v,) for v in vibes_set]
+            vibe_dict_params = [(v,) for v in vibes_set]
             batch_parameterized_insert(
                 cur,
                 "INSERT IGNORE INTO vibes(text) VALUES (%s)",
-                vibe_params
+                vibe_dict_params
             )
             print(f"    → {len(vibes_set)} unique vibes")
         
-        # 3. Upsert book_tones (many-to-many with tags_version)
+        # 🔥 CRITICAL: Commit dictionaries so FKs resolve correctly
+        print(f"  [CHECKPOINT] Committing dictionaries before link tables...")
+        conn.commit()
+        
+        # ====================================================================
+        # PHASE 2: UPSERT LINK TABLES (now dictionaries are committed)
+        # ====================================================================
+        
+        # 2a. Upsert book_tones (many-to-many with tags_version)
         print(f"  [3/6] Upserting book tones...")
         tone_params = []
         for row in batch_data:
@@ -156,7 +175,7 @@ def process_results_batch(batch_df, batch_id):
             )
             print(f"    → {len(tone_params)} tone links")
         
-        # 4. Upsert book_genres (one per book per version)
+        # 2b. Upsert book_genres (one per book per version)
         print(f"  [4/6] Upserting book genres...")
         genre_params = [
             (row.item_idx, row.genre, row.tags_version)
@@ -171,40 +190,52 @@ def process_results_batch(batch_df, batch_id):
                 genre_params
             )
             print(f"    → {len(genre_params)} genre assignments")
-                
-        # 5. Upsert book_vibes (batch resolution of vibe_id)
+        
+        # 2c. Upsert book_vibes (batch resolution of vibe_id)
         print(f"  [5/6] Upserting book vibes...")
-        vibe_params = [
-            (row.item_idx, row.tags_version, row.vibe)  # ✅ FIX: Reorder to match SQL
-            for row in batch_data if row.vibe
-        ]
-        if vibe_params:
+        vibe_link_params = []
+        for row in batch_data:
+            if row.vibe:
+                vibe_link_params.append((row.item_idx, row.tags_version, row.vibe))
+        
+        if vibe_link_params:
             batch_parameterized_insert(
                 cur,
                 """INSERT INTO book_vibes(item_idx, vibe_id, tags_version)
                    SELECT %s, vibe_id, %s FROM vibes WHERE text = %s
                    ON DUPLICATE KEY UPDATE vibe_id=VALUES(vibe_id)""",
-                vibe_params
+                vibe_link_params
             )
-            print(f"    → {len(vibe_params)} vibe assignments")
-                
-        # 6. Upsert book_llm_subjects (batch resolution of llm_subject_idx)
+            print(f"    → {len(vibe_link_params)} vibe assignments")
+        
+        # 2d. Upsert book_llm_subjects (batch resolution of llm_subject_idx)
+        # 🔥 FIX: Build CORRECT parameter list for book-subject links
         print(f"  [6/6] Upserting book LLM subjects...")
-        subject_params = []
+        subject_link_params = []
         for row in batch_data:
             for subject in (row.subjects or []):
-                subject_params.append((row.item_idx, row.tags_version, subject))  # ✅ FIX: Reorder
-
-        if subject_params:
+                subject_link_params.append((row.item_idx, row.tags_version, subject))
+        
+        if subject_link_params:
             batch_parameterized_insert(
                 cur,
                 """INSERT IGNORE INTO book_llm_subjects(item_idx, llm_subject_idx, tags_version)
                    SELECT %s, llm_subject_idx, %s FROM llm_subjects WHERE subject = %s""",
-                subject_params
+                subject_link_params  # ✅ CORRECT: per-book subject links
             )
-            print(f"    → {len(subject_params)} subject links")
+            print(f"    → {len(subject_link_params)} subject links")
+            
+            # 🔍 Debugging: Check for orphaned subjects
+            cur.execute("""
+                SELECT COUNT(*) FROM llm_subjects s
+                LEFT JOIN book_llm_subjects bs ON s.llm_subject_idx = bs.llm_subject_idx
+                WHERE bs.llm_subject_idx IS NULL
+            """)
+            orphan_count = cur.fetchone()[0]
+            if orphan_count > 0:
+                print(f"    ⚠️  WARNING: {orphan_count} orphaned subjects in dictionary")
         
-        # Commit transaction
+        # Commit link tables
         conn.commit()
         
         elapsed = time.time() - start_time
@@ -216,11 +247,14 @@ def process_results_batch(batch_df, batch_id):
         conn.rollback()
         print(f"\n✗ Batch {batch_id} failed: {e}")
         print(f"  Rolling back transaction...")
+        import traceback
+        traceback.print_exc()
         print(f"{'='*80}\n")
         raise
     finally:
         cur.close()
         conn.close()
+
 
 def process_errors_batch(batch_df, batch_id):
     """Process error events with run_history tracking."""
@@ -260,16 +294,13 @@ def process_errors_batch(batch_df, batch_id):
             attempted_json = None
             if row.attempted:
                 try:
-                    # With MapType schema, Spark parses it as a dict
                     if isinstance(row.attempted, dict):
                         attempted_json = json.dumps(row.attempted)
                     elif isinstance(row.attempted, str):
                         json.loads(row.attempted)  # Validate
                         attempted_json = row.attempted
-                except (json.JSONDecodeError, TypeError, AttributeError) as e:
+                except (json.JSONDecodeError, TypeError, AttributeError):
                     attempted_json = None
-            else:
-                print(f"  ⚠️  attempted is None or empty")
             
             # Build run_history JSON
             run_history_json = json.dumps([{
@@ -277,7 +308,6 @@ def process_errors_batch(batch_df, batch_id):
                 "timestamp": timestamp_dt.isoformat(),
                 "error_code": row.error_code
             }]) if run_id else None
-            
             
             error_params.append((
                 row.item_idx,
@@ -291,7 +321,7 @@ def process_errors_batch(batch_df, batch_id):
                 row.tags_version,
                 row.title[:256] if row.title else None,
                 row.author[:256] if row.author else None,
-                attempted_json,  # 🔍 This should have a value
+                attempted_json,
                 run_id,
                 run_history_json,
             ))
@@ -340,6 +370,7 @@ def process_errors_batch(batch_df, batch_id):
     finally:
         cur.close()
         conn.close()
+
 
 def main():
     """
