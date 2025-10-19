@@ -288,13 +288,13 @@ def _main_parallel(
                 return ("ok", result)
             return ("err", result)
         
-        else:
+        elif error:
             # Send to DLQ
             producer.send_error(
                 item_idx=rec["item_idx"],
-                error_msg=error["error_msg"],
-                stage=error["stage"],
-                error_code=error["error_code"],
+                error_msg=error.get("error_msg", "Unknown error"),
+                stage=error.get("stage", "unknown"),
+                error_code=error.get("error_code", "UNKNOWN"),
                 error_field=error.get("error_field"),
                 title=rec["title"][:256],
                 author=rec["author"][:256],
@@ -303,31 +303,74 @@ def _main_parallel(
                 run_id=RUN_ID,
             )
             return ("err", error)
+        else:
+            # Both result and error are None - shouldn't happen but handle it
+            logger.error(f"enrich_with_retry returned (None, None) for item_idx={rec['item_idx']}")
+            return ("err", {
+                "item_idx": rec["item_idx"],
+                "error_code": "NULL_RESPONSE",
+                "error_msg": "Enrichment returned no result and no error",
+                "stage": "unknown",
+                "attempted": {}
+            })
     
     try:
         with ThreadPoolExecutor(max_workers=workers) as ex:
             futures = [ex.submit(task, rec) for rec in books_list]
             
             for fut in as_completed(futures):
-                status, data = fut.result()
-                
-                if status == "ok":
-                    count_ok += 1
-                    tier = data["enrichment_quality"]
-                    retry_count = data.get("metadata", {}).get("retry_count", 0)
+                try:
+                    result_tuple = fut.result()
                     
-                    tier_stats[tier]["ok"] += 1
-                    if retry_count > 0:
-                        tier_stats[tier]["retry_success"] += 1
+                    # Validate the tuple
+                    if not isinstance(result_tuple, tuple) or len(result_tuple) != 2:
+                        count_err += 1
+                        logger.error(f"✗ Task returned invalid result: {result_tuple}")
+                        continue
                     
-                    retry_msg = " (retry)" if retry_count > 0 else ""
-                    logger.info(f"✓ item_idx={data['item_idx']} ({tier}){retry_msg}")
-                else:
-                    count_err += 1
-                    if isinstance(data, dict) and "attempted" in data:
-                        tier = data.get("attempted", {}).get("tier", "UNKNOWN")
+                    status, data = result_tuple
+                    
+                    # Validate data is not None
+                    if data is None:
+                        count_err += 1
+                        logger.error(f"✗ Task returned None data")
+                        continue
+                    
+                    if status == "ok":
+                        count_ok += 1
+                        tier = data.get("enrichment_quality", "UNKNOWN")
+                        retry_count = data.get("metadata", {}).get("retry_count", 0)
+                        
+                        if tier in tier_stats:
+                            tier_stats[tier]["ok"] += 1
+                            if retry_count > 0:
+                                tier_stats[tier]["retry_success"] += 1
+                        
+                        retry_msg = " (retry)" if retry_count > 0 else ""
+                        logger.info(f"✓ item_idx={data.get('item_idx', '?')} ({tier}){retry_msg}")
+                    
+                    else:  # status == "err"
+                        count_err += 1
+                        
+                        # Safely extract tier and error info
+                        item_idx = data.get("item_idx", "?") if isinstance(data, dict) else "?"
+                        attempted = data.get("attempted", {}) if isinstance(data, dict) else {}
+                        tier = attempted.get("tier", "UNKNOWN") if isinstance(attempted, dict) else "UNKNOWN"
+                        error_code = data.get("error_code", "UNKNOWN") if isinstance(data, dict) else "UNKNOWN"
+                        error_msg = data.get("error_msg", "")[:80] if isinstance(data, dict) else ""
+                        
                         if tier in tier_stats:
                             tier_stats[tier]["err"] += 1
+                        
+                        logger.error(f"✗ item_idx={item_idx} ({tier}): {error_code} - {error_msg}")
+                
+                except Exception as e:
+                    # Task raised an exception
+                    count_err += 1
+                    logger.error(f"✗ Task failed with exception: {e}")
+                    import traceback
+                    traceback.print_exc()
+                    continue
                 
                 # Progress with ETA
                 total = count_ok + count_err
@@ -355,7 +398,6 @@ def _main_parallel(
         "elapsed_s": elapsed,
         "tier_stats": tier_stats
     }
-
 
 if __name__ == "__main__":
     import argparse
