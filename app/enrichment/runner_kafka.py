@@ -289,6 +289,9 @@ def _main_parallel(
             return ("err", result)
         
         elif error:
+            # CRITICAL FIX: Add item_idx to error dict
+            error["item_idx"] = rec["item_idx"]
+            
             # Send to DLQ
             producer.send_error(
                 item_idx=rec["item_idx"],
@@ -322,7 +325,6 @@ def _main_parallel(
                 try:
                     result_tuple = fut.result()
                     
-                    # Validate the tuple
                     if not isinstance(result_tuple, tuple) or len(result_tuple) != 2:
                         count_err += 1
                         logger.error(f"✗ Task returned invalid result: {result_tuple}")
@@ -330,7 +332,6 @@ def _main_parallel(
                     
                     status, data = result_tuple
                     
-                    # Validate data is not None
                     if data is None:
                         count_err += 1
                         logger.error(f"✗ Task returned None data")
@@ -340,6 +341,7 @@ def _main_parallel(
                         count_ok += 1
                         tier = data.get("enrichment_quality", "UNKNOWN")
                         retry_count = data.get("metadata", {}).get("retry_count", 0)
+                        item_idx = data.get("item_idx", "?")
                         
                         if tier in tier_stats:
                             tier_stats[tier]["ok"] += 1
@@ -347,17 +349,17 @@ def _main_parallel(
                                 tier_stats[tier]["retry_success"] += 1
                         
                         retry_msg = " (retry)" if retry_count > 0 else ""
-                        logger.info(f"✓ item_idx={data.get('item_idx', '?')} ({tier}){retry_msg}")
+                        logger.info(f"✓ item_idx={item_idx} ({tier}){retry_msg}")
                     
                     else:  # status == "err"
                         count_err += 1
                         
-                        # Safely extract tier and error info
-                        item_idx = data.get("item_idx", "?") if isinstance(data, dict) else "?"
+                        # Extract error info safely
+                        item_idx = data.get("item_idx", "?")
                         attempted = data.get("attempted", {}) if isinstance(data, dict) else {}
                         tier = attempted.get("tier", "UNKNOWN") if isinstance(attempted, dict) else "UNKNOWN"
-                        error_code = data.get("error_code", "UNKNOWN") if isinstance(data, dict) else "UNKNOWN"
-                        error_msg = data.get("error_msg", "")[:80] if isinstance(data, dict) else ""
+                        error_code = data.get("error_code", "UNKNOWN")
+                        error_msg = data.get("error_msg", "")[:80]
                         
                         if tier in tier_stats:
                             tier_stats[tier]["err"] += 1
@@ -365,7 +367,6 @@ def _main_parallel(
                         logger.error(f"✗ item_idx={item_idx} ({tier}): {error_code} - {error_msg}")
                 
                 except Exception as e:
-                    # Task raised an exception
                     count_err += 1
                     logger.error(f"✗ Task failed with exception: {e}")
                     import traceback
