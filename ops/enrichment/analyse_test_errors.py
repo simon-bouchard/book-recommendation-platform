@@ -1,15 +1,17 @@
+
 #!/usr/bin/env python3
 """
-Analyze enrichment test results and generate an HTML report.
+Analyze enrichment test errors and generate an interactive HTML report.
 
 Usage:
-    python ops/enrichment/analyze_test_results.py test_results_20250101_120000.csv
+    python ops/enrichment/analyze_test_errors.py test_errors_20250130_023456.txt
     
 Generates:
-    - results_analysis_<timestamp>.html - Interactive HTML report
+    - errors_analysis_<timestamp>.html - Interactive HTML report
 """
 import sys
-import csv
+import json
+import re
 import argparse
 from pathlib import Path
 from collections import defaultdict, Counter
@@ -18,73 +20,71 @@ from datetime import datetime
 OUTPUT_DIR = Path(__file__).parent
 
 
-def load_results(csv_path):
-    """Load results from CSV."""
-    results = []
+def parse_error_file(error_file_path):
+    """Parse the error text file into structured data."""
+    with open(error_file_path, 'r', encoding='utf-8') as f:
+        content = f.read()
     
-    with open(csv_path, 'r', encoding='utf-8') as f:
-        reader = csv.DictReader(f)
-        for row in reader:
-            results.append(row)
+    # Extract frequency table
+    freq_section = re.search(r'Error Frequency:\n-+\n(.*?)\n\n', content, re.DOTALL)
+    frequencies = {}
+    if freq_section:
+        for line in freq_section.group(1).split('\n'):
+            match = re.match(r'(\S+.*?)\s+\|\s+(\d+)', line)
+            if match:
+                error_code = match.group(1).strip()
+                count = int(match.group(2))
+                frequencies[error_code] = count
     
-    return results
+    # Extract individual error examples
+    errors = []
+    error_blocks = re.findall(
+        r'-{80}\n(.*?)\n(?=-{80}|\n\n\n|$)',
+        content,
+        re.DOTALL
+    )
+    
+    for block in error_blocks:
+        error = {}
+        
+        # Parse fields
+        for line in block.split('\n'):
+            if ':' in line:
+                key, value = line.split(':', 1)
+                key = key.strip().lower().replace(' ', '_')
+                value = value.strip()
+                
+                if key == 'attempted_response':
+                    # Try to parse JSON
+                    try:
+                        json_match = re.search(r'\{.*\}', block, re.DOTALL)
+                        if json_match:
+                            error['attempted_response'] = json.loads(json_match.group(0))
+                    except:
+                        error['attempted_response'] = value
+                else:
+                    error[key] = value
+        
+        if error.get('item_idx'):
+            errors.append(error)
+    
+    return frequencies, errors
 
 
-def analyze_stats(results):
-    """Generate basic statistics."""
-    stats = {
-        'total': len(results),
-        'by_tier': Counter(),
-        'vibe_lengths': [],
-        'subject_counts': [],
-        'tone_counts': [],
-        'genres': Counter(),
-    }
+def generate_html_report(frequencies, errors, output_path):
+    """Generate interactive HTML report for errors."""
     
-    for r in results:
-        # Count by tier if available (might not be in CSV)
-        tier = r.get('tier', 'UNKNOWN')
-        stats['by_tier'][tier] += 1
-        
-        # Vibe length
-        vibe = r.get('vibe', '')
-        if vibe:
-            word_count = len(vibe.split())
-            stats['vibe_lengths'].append(word_count)
-        
-        # Subject count
-        subjects = r.get('llm_subjects', '')
-        if subjects:
-            subject_count = len([s.strip() for s in subjects.split(';') if s.strip()])
-            stats['subject_counts'].append(subject_count)
-        
-        # Tone count
-        tones = r.get('tone_ids', '')
-        if tones:
-            tone_count = len([t.strip() for t in tones.split(',') if t.strip()])
-            stats['tone_counts'].append(tone_count)
-        
-        # Genre
-        genre = r.get('genre', '')
-        if genre:
-            stats['genres'][genre] += 1
-    
-    return stats
-
-
-def generate_html_report(results, stats, output_path):
-    """Generate interactive HTML report."""
-    
-    # Calculate averages
-    avg_vibe_len = sum(stats['vibe_lengths']) / len(stats['vibe_lengths']) if stats['vibe_lengths'] else 0
-    avg_subjects = sum(stats['subject_counts']) / len(stats['subject_counts']) if stats['subject_counts'] else 0
-    avg_tones = sum(stats['tone_counts']) / len(stats['tone_counts']) if stats['tone_counts'] else 0
+    # Group errors by code
+    by_error_code = defaultdict(list)
+    for err in errors:
+        code = err.get('error_code', 'UNKNOWN')
+        by_error_code[code].append(err)
     
     html = f"""<!DOCTYPE html>
 <html>
 <head>
     <meta charset="utf-8">
-    <title>Enrichment Results Analysis</title>
+    <title>Enrichment Errors Analysis</title>
     <style>
         body {{
             font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
@@ -93,36 +93,38 @@ def generate_html_report(results, stats, output_path):
             background: #f5f5f5;
         }}
         .container {{
-            max-width: 1400px;
+            max-width: 1600px;
             margin: 0 auto;
         }}
         h1 {{
             color: #333;
-            border-bottom: 3px solid #4CAF50;
+            border-bottom: 3px solid #f44336;
             padding-bottom: 10px;
         }}
-        .stats {{
-            display: grid;
-            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
-            gap: 15px;
-            margin: 20px 0;
-        }}
-        .stat-card {{
+        .summary {{
             background: white;
             padding: 20px;
             border-radius: 8px;
             box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+            margin: 20px 0;
         }}
-        .stat-card h3 {{
-            margin: 0 0 10px 0;
-            color: #666;
-            font-size: 14px;
-            text-transform: uppercase;
+        .freq-table {{
+            width: 100%;
+            border-collapse: collapse;
+            margin: 15px 0;
         }}
-        .stat-card .value {{
-            font-size: 32px;
-            font-weight: bold;
-            color: #4CAF50;
+        .freq-table th {{
+            background: #f44336;
+            color: white;
+            padding: 12px;
+            text-align: left;
+        }}
+        .freq-table td {{
+            padding: 10px;
+            border-bottom: 1px solid #ddd;
+        }}
+        .freq-table tr:hover {{
+            background: #f5f5f5;
         }}
         .filters {{
             background: white;
@@ -137,208 +139,262 @@ def generate_html_report(results, stats, output_path):
             border: 1px solid #ddd;
             border-radius: 4px;
         }}
-        .book-card {{
-            background: white;
-            padding: 20px;
-            margin: 15px 0;
-            border-radius: 8px;
-            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
-            border-left: 4px solid #4CAF50;
+        .error-group {{
+            margin: 30px 0;
         }}
-        .book-card.hidden {{
+        .error-group-header {{
+            background: #f44336;
+            color: white;
+            padding: 15px;
+            border-radius: 8px 8px 0 0;
+            cursor: pointer;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }}
+        .error-group-header:hover {{
+            background: #d32f2f;
+        }}
+        .error-group-content {{
+            background: white;
+            border-radius: 0 0 8px 8px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        }}
+        .error-group-content.collapsed {{
             display: none;
         }}
-        .book-header {{
+        .error-card {{
+            padding: 20px;
+            border-bottom: 1px solid #eee;
+        }}
+        .error-card:last-child {{
+            border-bottom: none;
+        }}
+        .error-card.hidden {{
+            display: none;
+        }}
+        .error-header {{
             display: flex;
             justify-content: space-between;
             align-items: start;
             margin-bottom: 15px;
         }}
         .book-title {{
-            font-size: 20px;
+            font-size: 18px;
             font-weight: bold;
             color: #333;
             margin: 0 0 5px 0;
         }}
         .book-author {{
-            font-size: 16px;
+            font-size: 14px;
             color: #666;
             margin: 0;
         }}
         .item-idx {{
-            background: #f0f0f0;
+            background: #ffebee;
+            color: #c62828;
             padding: 4px 8px;
             border-radius: 4px;
             font-size: 12px;
-            color: #666;
+            font-weight: bold;
+        }}
+        .error-info {{
+            background: #fff3e0;
+            padding: 10px;
+            border-radius: 4px;
+            margin: 10px 0;
+            border-left: 4px solid #ff9800;
+        }}
+        .error-label {{
+            font-weight: bold;
+            color: #e65100;
+            font-size: 12px;
+            text-transform: uppercase;
+        }}
+        .error-value {{
+            color: #333;
+            margin-top: 3px;
         }}
         .section {{
             margin: 15px 0;
         }}
         .section-title {{
             font-weight: bold;
-            color: #4CAF50;
+            color: #666;
             margin-bottom: 5px;
-            font-size: 14px;
+            font-size: 12px;
             text-transform: uppercase;
         }}
         .section-content {{
             color: #333;
             line-height: 1.6;
-        }}
-        .tags {{
-            display: flex;
-            flex-wrap: wrap;
-            gap: 8px;
-            margin-top: 5px;
-        }}
-        .tag {{
-            background: #e3f2fd;
-            color: #1976d2;
-            padding: 4px 12px;
-            border-radius: 16px;
-            font-size: 13px;
-        }}
-        .tag.ol-subject {{
-            background: #f3e5f5;
-            color: #7b1fa2;
-        }}
-        .tag.tone {{
-            background: #fff3e0;
-            color: #e65100;
-        }}
-        .description {{
             background: #fafafa;
             padding: 10px;
             border-radius: 4px;
-            border-left: 3px solid #ddd;
-            font-size: 14px;
-            color: #555;
-            font-style: italic;
         }}
-        .genre-badge {{
-            display: inline-block;
-            background: #4CAF50;
-            color: white;
-            padding: 6px 12px;
+        .json-view {{
+            background: #263238;
+            color: #aed581;
+            padding: 15px;
             border-radius: 4px;
+            overflow-x: auto;
+            font-family: 'Courier New', monospace;
+            font-size: 13px;
+            line-height: 1.5;
+        }}
+        .json-key {{
+            color: #82aaff;
+        }}
+        .json-string {{
+            color: #c3e88d;
+        }}
+        .json-number {{
+            color: #f78c6c;
+        }}
+        .badge {{
+            display: inline-block;
+            padding: 4px 10px;
+            border-radius: 12px;
+            font-size: 12px;
             font-weight: bold;
-            font-size: 14px;
+            margin-right: 5px;
+        }}
+        .badge.stage {{
+            background: #e1f5fe;
+            color: #01579b;
+        }}
+        .badge.tier {{
+            background: #f3e5f5;
+            color: #4a148c;
+        }}
+        .toggle-icon {{
+            font-size: 20px;
         }}
     </style>
 </head>
 <body>
     <div class="container">
-        <h1>Enrichment Results Analysis</h1>
+        <h1>Enrichment Errors Analysis</h1>
         
-        <div class="stats">
-            <div class="stat-card">
-                <h3>Total Books</h3>
-                <div class="value">{stats['total']}</div>
-            </div>
-            <div class="stat-card">
-                <h3>Avg Vibe Length</h3>
-                <div class="value">{avg_vibe_len:.1f}</div>
-            </div>
-            <div class="stat-card">
-                <h3>Avg Subjects</h3>
-                <div class="value">{avg_subjects:.1f}</div>
-            </div>
-            <div class="stat-card">
-                <h3>Avg Tones</h3>
-                <div class="value">{avg_tones:.1f}</div>
-            </div>
+        <div class="summary">
+            <h2>Error Frequency Summary</h2>
+            <table class="freq-table">
+                <thead>
+                    <tr>
+                        <th>Error Code</th>
+                        <th>Count</th>
+                        <th>Percentage</th>
+                    </tr>
+                </thead>
+                <tbody>
+"""
+    
+    total_errors = sum(frequencies.values())
+    for error_code, count in sorted(frequencies.items(), key=lambda x: x[1], reverse=True):
+        pct = (count / total_errors * 100) if total_errors > 0 else 0
+        html += f"""                    <tr>
+                        <td><strong>{error_code}</strong></td>
+                        <td>{count}</td>
+                        <td>{pct:.1f}%</td>
+                    </tr>
+"""
+    
+    html += f"""                </tbody>
+            </table>
+            <p><strong>Total Errors:</strong> {total_errors}</p>
         </div>
         
         <div class="filters">
-            <label>Search: <input type="text" id="searchBox" placeholder="Search by title, author, subject..."></label>
-            <label>Genre: 
-                <select id="genreFilter">
-                    <option value="">All Genres</option>
+            <label>Search: <input type="text" id="searchBox" placeholder="Search by title, error message..."></label>
+            <label>Error Code: 
+                <select id="errorCodeFilter">
+                    <option value="">All Error Codes</option>
 """
     
-    # Add genre options
-    for genre, count in sorted(stats['genres'].items()):
-        html += f'                    <option value="{genre}">{genre} ({count})</option>\n'
+    for error_code in sorted(frequencies.keys()):
+        html += f'                    <option value="{error_code}">{error_code}</option>\n'
     
     html += """                </select>
             </label>
-            <label>
-                <input type="checkbox" id="shortVibesOnly"> Short vibes only (< 8 words)
-            </label>
-            <label>
-                <input type="checkbox" id="longVibesOnly"> Long vibes only (> 12 words)
-            </label>
         </div>
         
-        <div id="bookList">
+        <div id="errorList">
 """
     
-    # Add each book
-    for r in results:
-        subjects = [s.strip() for s in r.get('llm_subjects', '').split(';') if s.strip()]
-        ol_subjects = [s.strip() for s in r.get('ol_subjects', '').split(';') if s.strip()]
-        tones = [t.strip() for t in r.get('tone_ids', '').split(',') if t.strip()]
-        vibe = r.get('vibe', '')
-        vibe_len = len(vibe.split()) if vibe else 0
+    # Group errors by code
+    for error_code in sorted(by_error_code.keys(), key=lambda x: frequencies.get(x, 0), reverse=True):
+        errors_list = by_error_code[error_code]
+        count = len(errors_list)
         
         html += f"""
-            <div class="book-card" data-genre="{r.get('genre', '')}" data-vibe-len="{vibe_len}">
-                <div class="book-header">
+            <div class="error-group">
+                <div class="error-group-header" onclick="toggleGroup(this)">
                     <div>
-                        <h2 class="book-title">{r.get('title', 'Unknown')}</h2>
-                        <p class="book-author">{r.get('author', 'Unknown')}</p>
+                        <strong>{error_code}</strong> 
+                        <span style="opacity: 0.8;">({count} occurrences)</span>
                     </div>
-                    <span class="item-idx">#{r.get('item_idx', '?')}</span>
+                    <span class="toggle-icon">▼</span>
                 </div>
-                
-                <div class="section">
-                    <div class="section-title">Description</div>
-                    <div class="description">{r.get('description', 'No description')}</div>
-                </div>
-                
-                <div class="section">
-                    <div class="section-title">Genre</div>
-                    <span class="genre-badge">{r.get('genre', 'none')}</span>
-                </div>
-                
-                <div class="section">
-                    <div class="section-title">OpenLibrary Subjects ({len(ol_subjects)})</div>
-                    <div class="tags">
+                <div class="error-group-content" data-error-code="{error_code}">
 """
         
-        for subj in ol_subjects:
-            html += f'                        <span class="tag ol-subject">{subj}</span>\n'
-        
-        html += f"""                    </div>
-                </div>
+        # Show individual errors
+        for err in errors_list:
+            attempted = err.get('attempted_response', {})
+            tier = 'UNKNOWN'
+            if isinstance(attempted, dict):
+                tier = attempted.get('tier', 'UNKNOWN')
+            
+            html += f"""
+                    <div class="error-card">
+                        <div class="error-header">
+                            <div>
+                                <h3 class="book-title">{err.get('title', 'Unknown')}</h3>
+                                <p class="book-author">{err.get('author', 'Unknown')}</p>
+                            </div>
+                            <span class="item-idx">#{err.get('item_idx', '?')}</span>
+                        </div>
+                        
+                        <div style="margin: 10px 0;">
+                            <span class="badge stage">{err.get('stage', 'unknown')}</span>
+                            <span class="badge tier">{tier}</span>
+                        </div>
+                        
+                        <div class="error-info">
+                            <div class="error-label">Error Message</div>
+                            <div class="error-value">{err.get('error_msg', 'No message')}</div>
+                        </div>
+                        
+                        <div class="section">
+                            <div class="section-title">Description</div>
+                            <div class="section-content">{err.get('description', 'No description')}</div>
+                        </div>
+"""
+            
+            # Show attempted response if available
+            if attempted and isinstance(attempted, dict):
+                # Format the JSON nicely
+                json_str = json.dumps(attempted, indent=2, ensure_ascii=False)
+                # Simple syntax highlighting
+                json_str = json_str.replace('"subjects"', '<span class="json-key">"subjects"</span>')
+                json_str = json_str.replace('"tone_ids"', '<span class="json-key">"tone_ids"</span>')
+                json_str = json_str.replace('"genre"', '<span class="json-key">"genre"</span>')
+                json_str = json_str.replace('"vibe"', '<span class="json-key">"vibe"</span>')
+                json_str = json_str.replace('"tier"', '<span class="json-key">"tier"</span>')
+                json_str = json_str.replace('"score"', '<span class="json-key">"score"</span>')
+                json_str = json_str.replace('"raw_response"', '<span class="json-key">"raw_response"</span>')
                 
-                <div class="section">
-                    <div class="section-title">LLM Subjects ({len(subjects)})</div>
-                    <div class="tags">
+                html += f"""
+                        <div class="section">
+                            <div class="section-title">Attempted Response (What LLM Tried)</div>
+                            <div class="json-view">{json_str}</div>
+                        </div>
+"""
+            
+            html += """                    </div>
 """
         
-        for subj in subjects:
-            html += f'                        <span class="tag">{subj}</span>\n'
-        
-        html += f"""                    </div>
-                </div>
-                
-                <div class="section">
-                    <div class="section-title">Tones ({len(tones)})</div>
-                    <div class="tags">
-"""
-        
-        for tone in tones:
-            html += f'                        <span class="tag tone">{tone}</span>\n'
-        
-        html += f"""                    </div>
-                </div>
-                
-                <div class="section">
-                    <div class="section-title">Vibe ({vibe_len} words)</div>
-                    <div class="section-content">{vibe or 'No vibe'}</div>
-                </div>
+        html += """                </div>
             </div>
 """
     
@@ -346,52 +402,47 @@ def generate_html_report(results, stats, output_path):
     </div>
     
     <script>
+        function toggleGroup(header) {
+            const content = header.nextElementSibling;
+            const icon = header.querySelector('.toggle-icon');
+            content.classList.toggle('collapsed');
+            icon.textContent = content.classList.contains('collapsed') ? '▶' : '▼';
+        }
+        
         // Filter functionality
         const searchBox = document.getElementById('searchBox');
-        const genreFilter = document.getElementById('genreFilter');
-        const shortVibesOnly = document.getElementById('shortVibesOnly');
-        const longVibesOnly = document.getElementById('longVibesOnly');
-        const bookCards = document.querySelectorAll('.book-card');
+        const errorCodeFilter = document.getElementById('errorCodeFilter');
         
-        function filterBooks() {
+        function filterErrors() {
             const searchTerm = searchBox.value.toLowerCase();
-            const selectedGenre = genreFilter.value;
-            const showShortOnly = shortVibesOnly.checked;
-            const showLongOnly = longVibesOnly.checked;
+            const selectedCode = errorCodeFilter.value;
             
-            bookCards.forEach(card => {
+            // Filter groups
+            document.querySelectorAll('.error-group').forEach(group => {
+                const content = group.querySelector('.error-group-content');
+                const groupCode = content.dataset.errorCode;
+                
+                if (selectedCode && groupCode !== selectedCode) {
+                    group.style.display = 'none';
+                } else {
+                    group.style.display = 'block';
+                }
+            });
+            
+            // Filter individual cards
+            document.querySelectorAll('.error-card').forEach(card => {
                 const text = card.textContent.toLowerCase();
-                const genre = card.dataset.genre;
-                const vibeLen = parseInt(card.dataset.vibeLen);
                 
-                let show = true;
-                
-                // Search filter
                 if (searchTerm && !text.includes(searchTerm)) {
-                    show = false;
+                    card.classList.add('hidden');
+                } else {
+                    card.classList.remove('hidden');
                 }
-                
-                // Genre filter
-                if (selectedGenre && genre !== selectedGenre) {
-                    show = false;
-                }
-                
-                // Vibe length filters
-                if (showShortOnly && vibeLen >= 8) {
-                    show = false;
-                }
-                if (showLongOnly && vibeLen <= 12) {
-                    show = false;
-                }
-                
-                card.classList.toggle('hidden', !show);
             });
         }
         
-        searchBox.addEventListener('input', filterBooks);
-        genreFilter.addEventListener('change', filterBooks);
-        shortVibesOnly.addEventListener('change', filterBooks);
-        longVibesOnly.addEventListener('change', filterBooks);
+        searchBox.addEventListener('input', filterErrors);
+        errorCodeFilter.addEventListener('change', filterErrors);
     </script>
 </body>
 </html>
@@ -404,36 +455,34 @@ def generate_html_report(results, stats, output_path):
 
 
 def main():
-    parser = argparse.ArgumentParser(description="Analyze enrichment test results")
-    parser.add_argument("csv_file", help="Path to test results CSV")
+    parser = argparse.ArgumentParser(description="Analyze enrichment test errors")
+    parser.add_argument("error_file", help="Path to test errors txt file")
     args = parser.parse_args()
     
-    csv_path = Path(args.csv_file)
-    if not csv_path.exists():
-        print(f"Error: File not found: {csv_path}")
+    error_path = Path(args.error_file)
+    if not error_path.exists():
+        print(f"Error: File not found: {error_path}")
         sys.exit(1)
     
-    print(f"Loading results from {csv_path}...")
-    results = load_results(csv_path)
-    print(f"Loaded {len(results)} results")
+    print(f"Parsing errors from {error_path}...")
+    frequencies, errors = parse_error_file(error_path)
     
-    print("Analyzing statistics...")
-    stats = analyze_stats(results)
+    print(f"Found {len(errors)} error examples across {len(frequencies)} error codes")
     
     # Generate HTML report
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-    output_path = OUTPUT_DIR / f"results_analysis_{timestamp}.html"
+    output_path = OUTPUT_DIR / f"errors_analysis_{timestamp}.html"
     
     print("Generating HTML report...")
-    generate_html_report(results, stats, output_path)
+    generate_html_report(frequencies, errors, output_path)
     
     print("\n" + "="*80)
     print("ANALYSIS COMPLETE")
     print("="*80)
-    print(f"Total books: {stats['total']}")
-    print(f"Average vibe length: {sum(stats['vibe_lengths']) / len(stats['vibe_lengths']) if stats['vibe_lengths'] else 0:.1f} words")
-    print(f"Average subjects: {sum(stats['subject_counts']) / len(stats['subject_counts']) if stats['subject_counts'] else 0:.1f}")
-    print(f"Average tones: {sum(stats['tone_counts']) / len(stats['tone_counts']) if stats['tone_counts'] else 0:.1f}")
+    print(f"Total errors: {sum(frequencies.values())}")
+    print("\nTop errors:")
+    for error_code, count in sorted(frequencies.items(), key=lambda x: x[1], reverse=True)[:5]:
+        print(f"  {error_code}: {count}")
     print(f"\nOpen the HTML file in your browser:")
     print(f"  {output_path}")
 
