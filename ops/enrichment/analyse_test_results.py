@@ -1,441 +1,331 @@
 #!/usr/bin/env python3
 """
-Analyze enrichment test results and generate an HTML report.
+Analyze enrichment results directly from SQL.
 
 Usage:
-    python ops/enrichment/analyze_test_results.py test_results_20250101_120000.csv
-    
-Generates:
-    - results_analysis_<timestamp>.html - Interactive HTML report
+    python ops/enrichment/analyze_enrichment_results.py --version v2 --limit 100
 """
 import sys
-import csv
 import argparse
 from pathlib import Path
-from collections import defaultdict, Counter
-from datetime import datetime
+from collections import Counter, defaultdict
 
-OUTPUT_DIR = Path(__file__).parent
+# Add project root to path
+ROOT = Path(__file__).resolve().parents[2]
+sys.path.insert(0, str(ROOT))
 
-
-def load_results(csv_path):
-    """Load results from CSV."""
-    results = []
-    
-    with open(csv_path, 'r', encoding='utf-8') as f:
-        reader = csv.DictReader(f)
-        for row in reader:
-            results.append(row)
-    
-    return results
+from app.database import SessionLocal
+from app.table_models import (
+    Book, Author, OLSubject, BookOLSubject,
+    LLMSubject, BookLLMSubject, BookTone, BookGenre,
+    Vibe, BookVibe, EnrichmentError
+)
 
 
-def analyze_stats(results):
-    """Generate basic statistics."""
+def fetch_enriched_books(tags_version: str, limit: int = 100):
+    """Fetch enriched books with all their data."""
+    with SessionLocal() as db:
+        # Get enriched book IDs
+        item_idxs = [
+            item_idx for (item_idx,) in
+            db.query(BookLLMSubject.item_idx)
+            .filter(BookLLMSubject.tags_version == tags_version)
+            .distinct()
+            .limit(limit)
+            .all()
+        ]
+        
+        books = []
+        for item_idx in item_idxs:
+            # Get book info
+            book_result = db.query(Book, Author).outerjoin(
+                Author, Book.author_idx == Author.author_idx
+            ).filter(Book.item_idx == item_idx).first()
+            
+            if not book_result:
+                continue
+            
+            book, author = book_result
+            
+            # Get OL subjects
+            ol_subjects = [
+                subj for (subj,) in
+                db.query(OLSubject.subject)
+                .join(BookOLSubject, OLSubject.ol_subject_idx == BookOLSubject.ol_subject_idx)
+                .filter(BookOLSubject.item_idx == item_idx)
+                .all()
+            ]
+            
+            # Get LLM subjects
+            llm_subjects = [
+                subj for (subj,) in
+                db.query(LLMSubject.subject)
+                .join(BookLLMSubject, LLMSubject.llm_subject_idx == BookLLMSubject.llm_subject_idx)
+                .filter(
+                    BookLLMSubject.item_idx == item_idx,
+                    BookLLMSubject.tags_version == tags_version
+                )
+                .all()
+            ]
+            
+            # Get tones
+            tone_ids = [
+                tone_id for (tone_id,) in
+                db.query(BookTone.tone_id)
+                .filter(
+                    BookTone.item_idx == item_idx,
+                    BookTone.tags_version == tags_version
+                )
+                .all()
+            ]
+            
+            # Get genre
+            genre_result = db.query(BookGenre.genre_slug).filter(
+                BookGenre.item_idx == item_idx,
+                BookGenre.tags_version == tags_version
+            ).first()
+            genre = genre_result[0] if genre_result else None
+            
+            # Get vibe
+            vibe_result = db.query(Vibe.text).join(
+                BookVibe, Vibe.vibe_id == BookVibe.vibe_id
+            ).filter(
+                BookVibe.item_idx == item_idx,
+                BookVibe.tags_version == tags_version
+            ).first()
+            vibe = vibe_result[0] if vibe_result else ""
+            
+            books.append({
+                'item_idx': item_idx,
+                'title': book.title or "",
+                'author': author.name if author else "",
+                'description': book.description or "",
+                'ol_subjects': ol_subjects,
+                'llm_subjects': llm_subjects,
+                'tone_ids': tone_ids,
+                'genre': genre or "",
+                'vibe': vibe
+            })
+        
+        return books
+
+
+def analyze_results(books):
+    """Analyze enrichment results for quality issues."""
     stats = {
-        'total': len(results),
-        'by_tier': Counter(),
-        'vibe_lengths': [],
+        'total': len(books),
         'subject_counts': [],
         'tone_counts': [],
-        'genres': Counter(),
+        'vibe_lengths': [],
+        'has_duplicates': 0,
+        'subject_count_violations': [],
+        'tone_count_violations': [],
+        'vibe_length_violations': [],
+        'genres': Counter()
     }
     
-    for r in results:
-        # Count by tier if available (might not be in CSV)
-        tier = r.get('tier', 'UNKNOWN')
-        stats['by_tier'][tier] += 1
-        
-        # Vibe length
-        vibe = r.get('vibe', '')
-        if vibe:
-            word_count = len(vibe.split())
-            stats['vibe_lengths'].append(word_count)
-        
+    for book in books:
         # Subject count
-        subjects = r.get('llm_subjects', '')
-        if subjects:
-            subject_count = len([s.strip() for s in subjects.split(';') if s.strip()])
-            stats['subject_counts'].append(subject_count)
+        subject_count = len(book['llm_subjects'])
+        stats['subject_counts'].append(subject_count)
+        
+        if subject_count > 8:
+            stats['subject_count_violations'].append(book)
+        
+        # Check for duplicates
+        subjects_lower = [s.lower() for s in book['llm_subjects']]
+        if len(subjects_lower) != len(set(subjects_lower)):
+            stats['has_duplicates'] += 1
+            if book not in stats['subject_count_violations']:
+                stats['subject_count_violations'].append(book)
         
         # Tone count
-        tones = r.get('tone_ids', '')
-        if tones:
-            tone_count = len([t.strip() for t in tones.split(',') if t.strip()])
-            stats['tone_counts'].append(tone_count)
+        tone_count = len(book['tone_ids'])
+        stats['tone_counts'].append(tone_count)
+        
+        if tone_count > 3:
+            stats['tone_count_violations'].append(book)
+        
+        # Vibe length
+        vibe = book['vibe']
+        word_count = len(vibe.split()) if vibe else 0
+        stats['vibe_lengths'].append(word_count)
+        
+        # Check vibe violations (assuming RICH tier: 8-12 words)
+        if vibe and (word_count < 8 or word_count > 12):
+            stats['vibe_length_violations'].append(book)
         
         # Genre
-        genre = r.get('genre', '')
-        if genre:
-            stats['genres'][genre] += 1
+        if book['genre']:
+            stats['genres'][book['genre']] += 1
     
     return stats
 
 
-def generate_html_report(results, stats, output_path):
-    """Generate interactive HTML report."""
-    
-    # Calculate averages
-    avg_vibe_len = sum(stats['vibe_lengths']) / len(stats['vibe_lengths']) if stats['vibe_lengths'] else 0
-    avg_subjects = sum(stats['subject_counts']) / len(stats['subject_counts']) if stats['subject_counts'] else 0
-    avg_tones = sum(stats['tone_counts']) / len(stats['tone_counts']) if stats['tone_counts'] else 0
-    
-    html = f"""<!DOCTYPE html>
-<html>
-<head>
-    <meta charset="utf-8">
-    <title>Enrichment Results Analysis</title>
-    <style>
-        body {{
-            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
-            margin: 0;
-            padding: 20px;
-            background: #f5f5f5;
-        }}
-        .container {{
-            max-width: 1400px;
-            margin: 0 auto;
-        }}
-        h1 {{
-            color: #333;
-            border-bottom: 3px solid #4CAF50;
-            padding-bottom: 10px;
-        }}
-        .stats {{
-            display: grid;
-            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
-            gap: 15px;
-            margin: 20px 0;
-        }}
-        .stat-card {{
-            background: white;
-            padding: 20px;
-            border-radius: 8px;
-            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
-        }}
-        .stat-card h3 {{
-            margin: 0 0 10px 0;
-            color: #666;
-            font-size: 14px;
-            text-transform: uppercase;
-        }}
-        .stat-card .value {{
-            font-size: 32px;
-            font-weight: bold;
-            color: #4CAF50;
-        }}
-        .filters {{
-            background: white;
-            padding: 20px;
-            border-radius: 8px;
-            margin: 20px 0;
-            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
-        }}
-        .filters input, .filters select {{
-            padding: 8px;
-            margin: 5px;
-            border: 1px solid #ddd;
-            border-radius: 4px;
-        }}
-        .book-card {{
-            background: white;
-            padding: 20px;
-            margin: 15px 0;
-            border-radius: 8px;
-            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
-            border-left: 4px solid #4CAF50;
-        }}
-        .book-card.hidden {{
-            display: none;
-        }}
-        .book-header {{
-            display: flex;
-            justify-content: space-between;
-            align-items: start;
-            margin-bottom: 15px;
-        }}
-        .book-title {{
-            font-size: 20px;
-            font-weight: bold;
-            color: #333;
-            margin: 0 0 5px 0;
-        }}
-        .book-author {{
-            font-size: 16px;
-            color: #666;
-            margin: 0;
-        }}
-        .item-idx {{
-            background: #f0f0f0;
-            padding: 4px 8px;
-            border-radius: 4px;
-            font-size: 12px;
-            color: #666;
-        }}
-        .section {{
-            margin: 15px 0;
-        }}
-        .section-title {{
-            font-weight: bold;
-            color: #4CAF50;
-            margin-bottom: 5px;
-            font-size: 14px;
-            text-transform: uppercase;
-        }}
-        .section-content {{
-            color: #333;
-            line-height: 1.6;
-        }}
-        .tags {{
-            display: flex;
-            flex-wrap: wrap;
-            gap: 8px;
-            margin-top: 5px;
-        }}
-        .tag {{
-            background: #e3f2fd;
-            color: #1976d2;
-            padding: 4px 12px;
-            border-radius: 16px;
-            font-size: 13px;
-        }}
-        .tag.ol-subject {{
-            background: #f3e5f5;
-            color: #7b1fa2;
-        }}
-        .tag.tone {{
-            background: #fff3e0;
-            color: #e65100;
-        }}
-        .description {{
-            background: #fafafa;
-            padding: 10px;
-            border-radius: 4px;
-            border-left: 3px solid #ddd;
-            font-size: 14px;
-            color: #555;
-            font-style: italic;
-        }}
-        .genre-badge {{
-            display: inline-block;
-            background: #4CAF50;
-            color: white;
-            padding: 6px 12px;
-            border-radius: 4px;
-            font-weight: bold;
-            font-size: 14px;
-        }}
-    </style>
-</head>
-<body>
-    <div class="container">
-        <h1>Enrichment Results Analysis</h1>
+def analyze_errors(tags_version: str):
+    """Analyze errors from SQL."""
+    with SessionLocal() as db:
+        errors = db.query(EnrichmentError).filter(
+            EnrichmentError.tags_version == tags_version
+        ).all()
         
-        <div class="stats">
-            <div class="stat-card">
-                <h3>Total Books</h3>
-                <div class="value">{stats['total']}</div>
-            </div>
-            <div class="stat-card">
-                <h3>Avg Vibe Length</h3>
-                <div class="value">{avg_vibe_len:.1f}</div>
-            </div>
-            <div class="stat-card">
-                <h3>Avg Subjects</h3>
-                <div class="value">{avg_subjects:.1f}</div>
-            </div>
-            <div class="stat-card">
-                <h3>Avg Tones</h3>
-                <div class="value">{avg_tones:.1f}</div>
-            </div>
-        </div>
+        error_breakdown = defaultdict(list)
+        for err in errors:
+            key = f"{err.stage}:{err.error_code}"
+            error_breakdown[key].append({
+                'item_idx': err.item_idx,
+                'title': err.title or "",
+                'error_msg': err.error_msg,
+                'attempted': err.attempted
+            })
         
-        <div class="filters">
-            <label>Search: <input type="text" id="searchBox" placeholder="Search by title, author, subject..."></label>
-            <label>Genre: 
-                <select id="genreFilter">
-                    <option value="">All Genres</option>
-"""
-    
-    # Add genre options
-    for genre, count in sorted(stats['genres'].items()):
-        html += f'                    <option value="{genre}">{genre} ({count})</option>\n'
-    
-    html += """                </select>
-            </label>
-            <label>
-                <input type="checkbox" id="shortVibesOnly"> Short vibes only (< 8 words)
-            </label>
-            <label>
-                <input type="checkbox" id="longVibesOnly"> Long vibes only (> 12 words)
-            </label>
-        </div>
-        
-        <div id="bookList">
-"""
-    
-    # Add each book
-    for r in results:
-        subjects = [s.strip() for s in r.get('llm_subjects', '').split(';') if s.strip()]
-        ol_subjects = [s.strip() for s in r.get('ol_subjects', '').split(';') if s.strip()]
-        tones = [t.strip() for t in r.get('tone_ids', '').split(',') if t.strip()]
-        vibe = r.get('vibe', '')
-        vibe_len = len(vibe.split()) if vibe else 0
-        
-        html += f"""
-            <div class="book-card" data-genre="{r.get('genre', '')}" data-vibe-len="{vibe_len}">
-                <div class="book-header">
-                    <div>
-                        <h2 class="book-title">{r.get('title', 'Unknown')}</h2>
-                        <p class="book-author">{r.get('author', 'Unknown')}</p>
-                    </div>
-                    <span class="item-idx">#{r.get('item_idx', '?')}</span>
-                </div>
-                
-                <div class="section">
-                    <div class="section-title">Description</div>
-                    <div class="description">{r.get('description', 'No description')}</div>
-                </div>
-                
-                <div class="section">
-                    <div class="section-title">Genre</div>
-                    <span class="genre-badge">{r.get('genre', 'none')}</span>
-                </div>
-                
-                <div class="section">
-                    <div class="section-title">OpenLibrary Subjects ({len(ol_subjects)})</div>
-                    <div class="tags">
-"""
-        
-        for subj in ol_subjects:
-            html += f'                        <span class="tag ol-subject">{subj}</span>\n'
-        
-        html += f"""                    </div>
-                </div>
-                
-                <div class="section">
-                    <div class="section-title">LLM Subjects ({len(subjects)})</div>
-                    <div class="tags">
-"""
-        
-        for subj in subjects:
-            html += f'                        <span class="tag">{subj}</span>\n'
-        
-        html += f"""                    </div>
-                </div>
-                
-                <div class="section">
-                    <div class="section-title">Tones ({len(tones)})</div>
-                    <div class="tags">
-"""
-        
-        for tone in tones:
-            html += f'                        <span class="tag tone">{tone}</span>\n'
-        
-        html += f"""                    </div>
-                </div>
-                
-                <div class="section">
-                    <div class="section-title">Vibe ({vibe_len} words)</div>
-                    <div class="section-content">{vibe or 'No vibe'}</div>
-                </div>
-            </div>
-"""
-    
-    html += """        </div>
-    </div>
-    
-    <script>
-        // Filter functionality
-        const searchBox = document.getElementById('searchBox');
-        const genreFilter = document.getElementById('genreFilter');
-        const shortVibesOnly = document.getElementById('shortVibesOnly');
-        const longVibesOnly = document.getElementById('longVibesOnly');
-        const bookCards = document.querySelectorAll('.book-card');
-        
-        function filterBooks() {
-            const searchTerm = searchBox.value.toLowerCase();
-            const selectedGenre = genreFilter.value;
-            const showShortOnly = shortVibesOnly.checked;
-            const showLongOnly = longVibesOnly.checked;
-            
-            bookCards.forEach(card => {
-                const text = card.textContent.toLowerCase();
-                const genre = card.dataset.genre;
-                const vibeLen = parseInt(card.dataset.vibeLen);
-                
-                let show = true;
-                
-                // Search filter
-                if (searchTerm && !text.includes(searchTerm)) {
-                    show = false;
-                }
-                
-                // Genre filter
-                if (selectedGenre && genre !== selectedGenre) {
-                    show = false;
-                }
-                
-                // Vibe length filters
-                if (showShortOnly && vibeLen >= 8) {
-                    show = false;
-                }
-                if (showLongOnly && vibeLen <= 12) {
-                    show = false;
-                }
-                
-                card.classList.toggle('hidden', !show);
-            });
-        }
-        
-        searchBox.addEventListener('input', filterBooks);
-        genreFilter.addEventListener('change', filterBooks);
-        shortVibesOnly.addEventListener('change', filterBooks);
-        longVibesOnly.addEventListener('change', filterBooks);
-    </script>
-</body>
-</html>
-"""
-    
-    with open(output_path, 'w', encoding='utf-8') as f:
-        f.write(html)
-    
-    print(f"✓ Generated HTML report: {output_path}")
+        return dict(error_breakdown), len(errors)
 
 
 def main():
-    parser = argparse.ArgumentParser(description="Analyze enrichment test results")
-    parser.add_argument("csv_file", help="Path to test results CSV")
+    parser = argparse.ArgumentParser(description="Analyze enrichment results from SQL")
+    parser.add_argument("--version", default="v2", help="Tags version (default: v2)")
+    parser.add_argument("--limit", type=int, default=100, help="Number of books to analyze")
     args = parser.parse_args()
     
-    csv_path = Path(args.csv_file)
-    if not csv_path.exists():
-        print(f"Error: File not found: {csv_path}")
-        sys.exit(1)
+    print("="*80)
+    print("ENRICHMENT RESULTS ANALYSIS")
+    print("="*80)
+    print(f"Tags version: {args.version}")
+    print(f"Analyzing up to {args.limit} books\n")
     
-    print(f"Loading results from {csv_path}...")
-    results = load_results(csv_path)
-    print(f"Loaded {len(results)} results")
+    # Fetch enriched books
+    print("Fetching enriched books from SQL...")
+    books = fetch_enriched_books(args.version, args.limit)
+    print(f"Found {len(books)} enriched books\n")
     
-    print("Analyzing statistics...")
-    stats = analyze_stats(results)
+    if not books:
+        print("No enriched books found!")
+        return
     
-    # Generate HTML report
-    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-    output_path = OUTPUT_DIR / f"results_analysis_{timestamp}.html"
+    # Analyze results
+    print("Analyzing results...")
+    stats = analyze_results(books)
     
-    print("Generating HTML report...")
-    generate_html_report(results, stats, output_path)
+    # Display statistics
+    print("\n" + "="*80)
+    print("STATISTICS")
+    print("="*80)
+    print(f"\nTotal books: {stats['total']}")
+    
+    # Subject stats
+    avg_subjects = sum(stats['subject_counts']) / len(stats['subject_counts'])
+    max_subjects = max(stats['subject_counts'])
+    print(f"\nSubjects:")
+    print(f"  Average: {avg_subjects:.1f}")
+    print(f"  Max: {max_subjects}")
+    print(f"  Books with >8 subjects: {len(stats['subject_count_violations'])}")
+    print(f"  Books with duplicate subjects: {stats['has_duplicates']}")
+    
+    # Tone stats
+    avg_tones = sum(stats['tone_counts']) / len(stats['tone_counts'])
+    max_tones = max(stats['tone_counts'])
+    print(f"\nTones:")
+    print(f"  Average: {avg_tones:.1f}")
+    print(f"  Max: {max_tones}")
+    print(f"  Books with >3 tones: {len(stats['tone_count_violations'])}")
+    
+    # Vibe stats
+    avg_vibe = sum(stats['vibe_lengths']) / len(stats['vibe_lengths']) if stats['vibe_lengths'] else 0
+    print(f"\nVibes:")
+    print(f"  Average length: {avg_vibe:.1f} words")
+    print(f"  Vibes outside 8-12 words: {len(stats['vibe_length_violations'])}")
+    
+    # Genre stats
+    print(f"\nTop 5 genres:")
+    for genre, count in stats['genres'].most_common(5):
+        print(f"  {genre}: {count}")
+    
+    # Show violations
+    if stats['subject_count_violations']:
+        print("\n" + "="*80)
+        print("SUBJECT COUNT VIOLATIONS (>8 or duplicates)")
+        print("="*80)
+        print("\nShowing first 5 examples:\n")
+        
+        for i, book in enumerate(stats['subject_count_violations'][:5], 1):
+            print(f"Example {i}:")
+            print(f"  Item: #{book['item_idx']}")
+            print(f"  Title: {book['title'][:70]}")
+            print(f"  Subjects ({len(book['llm_subjects'])}): {book['llm_subjects']}")
+            
+            # Check for duplicates
+            subjects_lower = [s.lower() for s in book['llm_subjects']]
+            if len(subjects_lower) != len(set(subjects_lower)):
+                print(f"  ⚠️  HAS DUPLICATES!")
+            
+            print()
+    
+    if stats['vibe_length_violations']:
+        print("="*80)
+        print("VIBE LENGTH VIOLATIONS (not 8-12 words)")
+        print("="*80)
+        print("\nShowing first 5 examples:\n")
+        
+        for i, book in enumerate(stats['vibe_length_violations'][:5], 1):
+            vibe = book['vibe']
+            word_count = len(vibe.split())
+            
+            print(f"Example {i}:")
+            print(f"  Item: #{book['item_idx']}")
+            print(f"  Title: {book['title'][:70]}")
+            print(f"  Vibe ({word_count} words): \"{vibe}\"")
+            print()
+    
+    # Analyze errors
+    print("="*80)
+    print("ERROR ANALYSIS")
+    print("="*80)
+    
+    error_breakdown, total_errors = analyze_errors(args.version)
+    print(f"\nTotal errors: {total_errors}")
+    
+    if error_breakdown:
+        print("\nError breakdown:")
+        for error_type, error_list in sorted(error_breakdown.items(), key=lambda x: len(x[1]), reverse=True):
+            print(f"  {error_type}: {len(error_list)}")
+        
+        # Show examples of top error
+        top_error = max(error_breakdown.items(), key=lambda x: len(x[1]))
+        error_type, error_list = top_error
+        
+        print(f"\n{error_type} - showing 3 examples:")
+        for i, err in enumerate(error_list[:3], 1):
+            print(f"\n  Example {i}:")
+            print(f"    Item: #{err['item_idx']}")
+            print(f"    Title: {err['title'][:60]}")
+            print(f"    Error: {err['error_msg'][:100]}")
     
     print("\n" + "="*80)
-    print("ANALYSIS COMPLETE")
+    print("KEY FINDINGS")
     print("="*80)
-    print(f"Total books: {stats['total']}")
-    print(f"Average vibe length: {sum(stats['vibe_lengths']) / len(stats['vibe_lengths']) if stats['vibe_lengths'] else 0:.1f} words")
-    print(f"Average subjects: {sum(stats['subject_counts']) / len(stats['subject_counts']) if stats['subject_counts'] else 0:.1f}")
-    print(f"Average tones: {sum(stats['tone_counts']) / len(stats['tone_counts']) if stats['tone_counts'] else 0:.1f}")
-    print(f"\nOpen the HTML file in your browser:")
-    print(f"  {output_path}")
+    
+    # Generate insights
+    if stats['subject_count_violations']:
+        pct = len(stats['subject_count_violations']) / stats['total'] * 100
+        print(f"• {len(stats['subject_count_violations'])} books ({pct:.1f}%) violate subject count rules")
+        print("  → Validator may not be enforcing max_length=8 properly")
+    
+    if stats['has_duplicates'] > 0:
+        pct = stats['has_duplicates'] / stats['total'] * 100
+        print(f"• {stats['has_duplicates']} books ({pct:.1f}%) have duplicate subjects")
+        print("  → Validator deduplication not working")
+    
+    if len(stats['vibe_length_violations']) > stats['total'] * 0.1:
+        pct = len(stats['vibe_length_violations']) / stats['total'] * 100
+        print(f"• {len(stats['vibe_length_violations'])} books ({pct:.1f}%) have vibes outside 8-12 words")
+        print("  → May need to clarify prompt instructions")
+    
+    if not stats['subject_count_violations'] and not stats['has_duplicates']:
+        print("• No major validation issues found!")
+        print("  → Results look clean")
+    
+    print("\n" + "="*80)
 
 
 if __name__ == "__main__":
