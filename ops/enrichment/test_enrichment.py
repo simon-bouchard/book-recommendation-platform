@@ -355,8 +355,8 @@ def write_error_report(errors, timestamp):
             f.write(f"{error_code:30s} | {len(items):4d} occurrences\n")
         f.write("\n\n")
         
-        # Detailed breakdowns (top 5 error types)
-        for error_code, items in sorted_codes[:5]:
+        # Detailed breakdowns (ALL error types, not just top 5)
+        for error_code, items in sorted_codes:
             f.write("="*80 + "\n")
             f.write(f"ERROR: {error_code} ({len(items)} occurrences)\n")
             f.write("="*80 + "\n\n")
@@ -377,9 +377,6 @@ def write_error_report(errors, timestamp):
                     f.write(f"attempted_response:\n{json.dumps(attempted, indent=2)}\n")
                 
                 f.write("\n")
-            
-            if len(items) > 10:
-                f.write(f"... and {len(items) - 10} more occurrences\n")
             
             f.write("\n\n")
     
