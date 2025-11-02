@@ -70,6 +70,7 @@ def fetch_enriched_books(tags_version: str, limit: int = 100):
                     BookLLMSubject.item_idx == item_idx,
                     BookLLMSubject.tags_version == tags_version
                 )
+                .distinct()
                 .all()
             ]
             
@@ -197,6 +198,12 @@ def generate_html_report(books, stats, error_breakdown, total_errors, tags_versi
     max_tones = max(stats['tone_counts']) if stats['tone_counts'] else 0
     avg_vibe = sum(stats['vibe_lengths']) / len(stats['vibe_lengths']) if stats['vibe_lengths'] else 0
     
+    # Get set of item_idxs that have errors
+    error_item_idxs = set()
+    for error_list in error_breakdown.values():
+        for err in error_list:
+            error_item_idxs.add(err['item_idx'])
+    
     # Classify books by metadata quality
     for book in books:
         desc_len = len(book['description'])
@@ -215,6 +222,9 @@ def generate_html_report(books, stats, error_breakdown, total_errors, tags_versi
         book['subject_count_violation'] = len(book['llm_subjects']) > 8
         vibe_words = len(book['vibe'].split()) if book['vibe'] else 0
         book['vibe_violation'] = vibe_words > 0 and (vibe_words < 8 or vibe_words > 12)
+        
+        # Mark if book has errors
+        book['has_error'] = book['item_idx'] in error_item_idxs
     
     # Generate JSON data for JavaScript
     import json
@@ -437,6 +447,7 @@ def generate_html_report(books, stats, error_breakdown, total_errors, tags_versi
         .badge.poor {{ background: #f39c12; color: white; }}
         .badge.medium {{ background: #f39c12; color: white; }}
         .badge.rich {{ background: #27ae60; color: white; }}
+        .badge.error {{ background: #e74c3c; color: white; margin-left: 8px; }}
         .vibe {{
             background: #fff9e6;
             border: 1px solid #f39c12;
@@ -526,6 +537,15 @@ def generate_html_report(books, stats, error_breakdown, total_errors, tags_versi
             </div>
             
             <div class="filter-group">
+                <label>Errors:</label>
+                <select id="errorFilter">
+                    <option value="all">All</option>
+                    <option value="no-errors">No errors (success only)</option>
+                    <option value="has-errors">Has errors</option>
+                </select>
+            </div>
+            
+            <div class="filter-group">
                 <label>Genre:</label>
                 <select id="genreFilter">
                     <option value="all">All</option>
@@ -583,6 +603,7 @@ def generate_html_report(books, stats, error_breakdown, total_errors, tags_versi
                         <div class="book-author">
                             by ${{escapeHtml(book.author)}} | Item #${{book.item_idx}}
                             <span class="badge ${{book.metadata_quality}}">${{book.metadata_quality}} metadata</span>
+                            ${{book.has_error ? '<span class="badge error">HAS ERROR</span>' : ''}}
                         </div>
                 `;
                 
@@ -659,6 +680,7 @@ def generate_html_report(books, stats, error_breakdown, total_errors, tags_versi
         function filterBooks() {{
             const quality = document.getElementById('qualityFilter').value;
             const validation = document.getElementById('validationFilter').value;
+            const errorFilter = document.getElementById('errorFilter').value;
             const genre = document.getElementById('genreFilter').value;
             const search = document.getElementById('searchBox').value.toLowerCase();
             
@@ -672,6 +694,10 @@ def generate_html_report(books, stats, error_breakdown, total_errors, tags_versi
                 if (validation === 'duplicates' && !book.has_duplicates) return false;
                 if (validation === 'too-many' && !book.subject_count_violation) return false;
                 if (validation === 'vibe-wrong' && !book.vibe_violation) return false;
+                
+                // Error filter
+                if (errorFilter === 'no-errors' && book.has_error) return false;
+                if (errorFilter === 'has-errors' && !book.has_error) return false;
                 
                 // Genre filter
                 if (genre !== 'all' && book.genre !== genre) return false;
@@ -688,6 +714,7 @@ def generate_html_report(books, stats, error_breakdown, total_errors, tags_versi
         function resetFilters() {{
             document.getElementById('qualityFilter').value = 'all';
             document.getElementById('validationFilter').value = 'all';
+            document.getElementById('errorFilter').value = 'all';
             document.getElementById('genreFilter').value = 'all';
             document.getElementById('searchBox').value = '';
             filterBooks();
@@ -696,6 +723,7 @@ def generate_html_report(books, stats, error_breakdown, total_errors, tags_versi
         // Attach event listeners
         document.getElementById('qualityFilter').addEventListener('change', filterBooks);
         document.getElementById('validationFilter').addEventListener('change', filterBooks);
+        document.getElementById('errorFilter').addEventListener('change', filterBooks);
         document.getElementById('genreFilter').addEventListener('change', filterBooks);
         document.getElementById('searchBox').addEventListener('input', filterBooks);
         
