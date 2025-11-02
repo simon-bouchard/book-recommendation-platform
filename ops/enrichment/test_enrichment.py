@@ -4,8 +4,8 @@ Run the actual enrichment pipeline and check basic stats.
 
 This script:
 1. Runs the ACTUAL runner_kafka.py pipeline with a limit
-2. Waits for Spark consumer to process the Kafka events into SQL
-3. Reports basic statistics
+2. Reports basic statistics from the database
+3. Note: Spark consumer runs independently and processes events asynchronously
 
 Usage:
     python ops/enrichment/test_enrichment.py --limit 1000 --version v2
@@ -21,6 +21,8 @@ from pathlib import Path
 from datetime import datetime, timedelta
 import argparse
 import os
+import subprocess
+import json
 
 # Add project root to path
 ROOT = Path(__file__).resolve().parents[2]
@@ -39,49 +41,79 @@ logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 
-def wait_for_spark_consumer(expected_count: int, tags_version: str, timeout_minutes: int = 5):
+def get_kafka_consumer_lag(topic: str = "enrichment-events", group: str = "enrichment-consumer-group"):
     """
-    Wait for Spark consumer to process Kafka events into SQL.
-    Polls the database to see when new enrichments appear.
+    Check Kafka consumer lag using kafka-consumer-groups command.
+    Returns the total lag across all partitions.
     """
-    logger.info(f"\nWaiting for Spark consumer to process {expected_count} books...")
-    logger.info("(Spark consumer should be running with docker-compose)")
+    try:
+        # Run kafka-consumer-groups command
+        result = subprocess.run(
+            [
+                "docker", "exec", "kafka",
+                "kafka-consumer-groups.sh",
+                "--bootstrap-server", "localhost:9092",
+                "--group", group,
+                "--describe"
+            ],
+            capture_output=True,
+            text=True,
+            timeout=10
+        )
+        
+        if result.returncode != 0:
+            logger.warning(f"Could not get consumer lag: {result.stderr}")
+            return None
+        
+        # Parse output to get total lag
+        total_lag = 0
+        for line in result.stdout.split('\n'):
+            if topic in line:
+                parts = line.split()
+                # LAG is typically the last column
+                try:
+                    lag = int(parts[-1])
+                    total_lag += lag
+                except (ValueError, IndexError):
+                    pass
+        
+        return total_lag
+    except Exception as e:
+        logger.warning(f"Error checking consumer lag: {e}")
+        return None
+
+
+def wait_for_kafka_consumption(timeout_minutes: int = 5, check_interval: int = 5):
+    """
+    Wait for Kafka consumer to catch up (lag = 0).
+    Polls consumer group lag until it's zero or timeout is reached.
+    """
+    logger.info(f"\nWaiting for Kafka consumer to process events...")
+    logger.info("(Checking consumer lag every few seconds)")
     
     start_time = time.time()
     timeout_seconds = timeout_minutes * 60
-    initial_count = 0
-    
-    with SessionLocal() as db:
-        initial_count = db.query(BookLLMSubject.item_idx).filter(
-            BookLLMSubject.tags_version == tags_version
-        ).distinct().count()
-    
-    logger.info(f"Initial enriched count (v={tags_version}): {initial_count}")
     
     while time.time() - start_time < timeout_seconds:
-        with SessionLocal() as db:
-            current_count = db.query(BookLLMSubject.item_idx).filter(
-                BookLLMSubject.tags_version == tags_version
-            ).distinct().count()
+        lag = get_kafka_consumer_lag()
         
-        processed = current_count - initial_count
+        if lag is None:
+            logger.warning("  Cannot check consumer lag (Kafka might not be accessible)")
+            logger.info("  Waiting 30s before checking stats...")
+            time.sleep(30)
+            return False
         
-        if processed >= expected_count:
-            logger.info(f"✓ Spark consumer processed {processed} books")
+        if lag == 0:
+            logger.info(f"✓ Consumer lag is 0 - all events processed")
             return True
         
-        if processed > 0:
-            logger.info(f"  Processed: {processed}/{expected_count}")
+        elapsed = int(time.time() - start_time)
+        logger.info(f"  Consumer lag: {lag} events (elapsed: {elapsed}s)")
         
-        time.sleep(5)  # Check every 5 seconds
+        time.sleep(check_interval)
     
-    with SessionLocal() as db:
-        final_count = db.query(BookLLMSubject.item_idx).filter(
-            BookLLMSubject.tags_version == tags_version
-        ).distinct().count()
-    
-    processed = final_count - initial_count
-    logger.warning(f"Timeout reached. Processed: {processed}/{expected_count}")
+    lag = get_kafka_consumer_lag()
+    logger.warning(f"Timeout reached. Final lag: {lag} events")
     return False
 
 
@@ -156,16 +188,17 @@ def run_pipeline_and_analyze(limit: int, tags_version: str, wait_for_consumer: b
     pipeline_elapsed = time.time() - pipeline_start
     
     logger.info("-"*80)
-    logger.info(f"✓ Pipeline execution complete ({pipeline_elapsed:.1f}s)\n")
+    logger.info(f"✓ Pipeline execution complete ({pipeline_elapsed:.1f}s)")
+    logger.info(f"  Events published to Kafka topic\n")
     
-    # Step 3: Wait for Spark consumer (optional)
+    # Step 3: Wait for Kafka consumer to process events
     if wait_for_consumer:
-        logger.info("Step 3: Waiting for Spark consumer to process events...")
-        wait_for_spark_consumer(limit, tags_version, timeout_minutes=5)
+        logger.info("Step 3: Waiting for Kafka consumer to process events...")
+        wait_for_kafka_consumption(timeout_minutes=5, check_interval=5)
         logger.info("")
     else:
-        logger.info("Step 3: Skipping Spark consumer wait (--no-wait flag)")
-        logger.info("Analyzing current state of database...\n")
+        logger.info("Step 3: Skipping consumer wait (--no-wait flag)")
+        logger.info("  Note: Stats may not reflect just-published events\n")
     
     # Step 4: Get statistics
     logger.info("Step 4: Getting statistics from SQL...")
@@ -217,7 +250,7 @@ if __name__ == "__main__":
     parser.add_argument(
         "--no-wait",
         action="store_true",
-        help="Don't wait for Spark consumer, analyze current SQL state"
+        help="Don't wait for Kafka consumer, show current SQL state immediately"
     )
     parser.add_argument(
         "--version",
