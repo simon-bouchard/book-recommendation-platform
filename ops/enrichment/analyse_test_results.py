@@ -792,7 +792,7 @@ def main():
     print("="*80)
     
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-    filename = f"enrichment_report_{args.version}_{timestamp}.html"
+    filename = f"ops/enrichment/enrichment_report_{args.version}_{timestamp}.html"
     
     print("\nGenerating report...")
     html_content = generate_html_report(books, stats, error_breakdown, total_errors, args.version)
