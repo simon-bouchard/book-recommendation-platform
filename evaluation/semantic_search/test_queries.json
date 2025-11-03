@@ -1,0 +1,43 @@
+{
+  "version": "v1",
+  "created": "2024-11-03",
+  "description": "Test queries for baseline vs enriched semantic search comparison",
+  "queries": [
+    {
+      "id": 1,
+      "text": "harry potter sorcerer's stone",
+      "type": "exact_match",
+      "description": "Direct title search - should return HP book 1",
+      "expected_items": [
+        {
+          "title": "Harry Potter and the Philosopher's Stone",
+          "author": "J.K. Rowling",
+          "item_idx": 2015,
+          "must_appear_in_top": 3
+        }
+      ]
+    },
+    {
+      "id": 2,
+      "text": "1984 george orwell",
+      "type": "exact_match",
+      "description": "Title + author search",
+      "expected_items": [
+        {
+          "title": "Nineteen Eighty-Four",
+          "author": "George Orwell",
+          "item_idx": 1978,
+          "must_appear_in_top": 5
+        }
+      ]
+    },
+    {
+      "id": 3,
+      "text": "dark atmospheric mystery",
+      "type": "vibe",
+      "description": "Vibe-based search - tests tone enrichment",
+      "expected_better": "enriched",
+      "manual_review": true
+    }
+  ]
+}
