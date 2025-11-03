@@ -227,7 +227,7 @@
     <div class="container">
         <h1>🔍 Semantic Search Comparison</h1>
         <div class="metadata">
-            <div><strong>Date:</strong> 2025-11-03T07:23:27.660738</div>
+            <div><strong>Date:</strong> 2025-11-03T20:57:33.691037</div>
             <div><strong>Baseline Index:</strong> /home/simon/bookrec/models/data/baseline</div>
             <div><strong>Enriched Index:</strong> /home/simon/bookrec/models/data/enriched_v1</div>
             <div><strong>Embedding Model:</strong> sentence-transformers/all-MiniLM-L6-v2</div>
@@ -242,8 +242,8 @@
             <div class="stat-card">
                 <h3>Exact Match Pass Rate</h3>
                 <div class="value">
-                    Baseline: 40.0%<br>
-                    Enriched: 80.0%
+                    Baseline: 80.0%<br>
+                    Enriched: 100.0%
                 </div>
             </div>
             <div class="stat-card positive">
@@ -260,16 +260,16 @@
         <div class="section">
             <h2>📋 Exact Match Tests (Programmatic)</h2>
 
-            <div class="query failed">
+            <div class="query passed">
                 <div class="query-header">
-                    <h3>"The Great Gatsby" <span class="badge fail">✗ FAIL</span></h3>
+                    <h3>"The Great Gatsby" <span class="badge pass">✓ PASS</span></h3>
                     <div class="query-meta">Classic American novel - exact title match</div>
                 </div>
 
                 <div class="metrics">
                     <div><strong>Expected:</strong> The Great Gatsby by F. Scott Fitzgerald</div>
                     <div>Baseline: ✓ (Rank: 2)</div>
-                    <div>Enriched: ✗ (Rank: N/A)</div>
+                    <div>Enriched: ✓ (Rank: 4)</div>
                 </div>
 
                 <div class="results-comparison">
@@ -448,15 +448,15 @@
                 </div>
             </div>
 
-            <div class="query failed">
+            <div class="query passed">
                 <div class="query-header">
-                    <h3>"Harry Potter and the Philosopher's Stone" <span class="badge fail">✗ FAIL</span></h3>
+                    <h3>"Harry Potter and the Philosopher's Stone" <span class="badge pass">✓ PASS</span></h3>
                     <div class="query-meta">Full title search - popular series</div>
                 </div>
 
                 <div class="metrics">
                     <div><strong>Expected:</strong> Harry Potter and the Philosopher's Stone by J. K. Rowling</div>
-                    <div>Baseline: ✗ (Rank: N/A)</div>
+                    <div>Baseline: ✓ (Rank: 4)</div>
                     <div>Enriched: ✓ (Rank: 2)</div>
                 </div>
 
@@ -636,15 +636,15 @@
                 </div>
             </div>
 
-            <div class="query failed">
+            <div class="query passed">
                 <div class="query-header">
-                    <h3>"The Catcher in the Rye" <span class="badge fail">✗ FAIL</span></h3>
+                    <h3>"The Catcher in the Rye" <span class="badge pass">✓ PASS</span></h3>
                     <div class="query-meta">Coming-of-age classic - exact title</div>
                 </div>
 
                 <div class="metrics">
                     <div><strong>Expected:</strong> The Catcher in the Rye by J. D. Salinger</div>
-                    <div>Baseline: ✗ (Rank: N/A)</div>
+                    <div>Baseline: ✓ (Rank: 4)</div>
                     <div>Enriched: ✓ (Rank: 2)</div>
                 </div>
 

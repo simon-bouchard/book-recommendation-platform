@@ -14,7 +14,7 @@
           "title": "The Great Gatsby",
           "author": "F. Scott Fitzgerald",
           "item_idx": 1452,
-          "must_appear_in_top": 3
+          "must_appear_in_top": 5
         }
       ]
     },
@@ -44,7 +44,7 @@
           "title": "Harry Potter and the Philosopher's Stone",
           "author": "J. K. Rowling",
           "item_idx": 2015,
-          "must_appear_in_top": 3
+          "must_appear_in_top": 5
         }
       ]
     },
@@ -74,7 +74,7 @@
           "title": "The Catcher in the Rye",
           "author": "J. D. Salinger",
           "item_idx": 90,
-          "must_appear_in_top": 3
+          "must_appear_in_top": 5
         }
       ]
     },
