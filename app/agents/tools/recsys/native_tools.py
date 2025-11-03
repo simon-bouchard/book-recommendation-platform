@@ -35,7 +35,7 @@ class InternalTools:
         """Lazy-load semantic searcher."""
         if self._semantic_searcher is None:
             self._semantic_searcher = SemanticSearcher(
-                dir_path="models/data",
+                dir_path="models/data/enriched_v1",
                 embedder=settings.embedder
             )
         return self._semantic_searcher
