@@ -14,7 +14,9 @@ import argparse
 import sys
 
 # Add project root to path for imports
-ROOT = Path(__file__).resolve().parents[3]
+FILE_PATH = Path(__file__).resolve().parents[0]
+ROOT = FILE_PATH.parents[1]
+print(ROOT)
 sys.path.insert(0, str(ROOT))
 
 
@@ -945,12 +947,12 @@ def main():
     )
     parser.add_argument(
         "--queries",
-        default="test_queries.json",
+        default=f"{FILE_PATH}/test_queries.json",
         help="Path to test queries JSON file"
     )
     parser.add_argument(
         "--output",
-        default="results",
+        default=f"{FILE_PATH}/results",
         help="Output directory for results"
     )
     parser.add_argument(
