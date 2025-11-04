@@ -14,7 +14,7 @@ from typing import Dict, List, Tuple
 import statistics
 
 # Add project root to path
-ROOT = Path(__file__).resolve().parents[1]
+ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT))
 
 from sqlalchemy import func, case
