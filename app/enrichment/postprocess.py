@@ -11,11 +11,13 @@ def norm_subject(s: str) -> str:
 
 def render_tone_slugs(tones_csv_rows):
     # tones_csv_rows: iterable of dicts with 'slug'
-    return ", ".join(sorted({r["slug"] for r in tones_csv_rows}))
+    items = sorted([(int(r["tone_id"]), r["slug"]) for r in tones_csv_rows])
+    return ", ".join([f"{id}={slug}" for id, slug in items])
 
 def render_genre_slugs(genres_csv_rows):
     # genres_csv_rows: iterable of dicts with 'slug'
-    return ", ".join(sorted({r["slug"] for r in genres_csv_rows}))
+    items = sorted([(int(r["genre_idx"]), r["slug"]) for r in genres_csv_rows])
+    return ", ".join([f"{id}={slug}" for id, slug in items])
 
 def clean_subjects(subjects):
     out = []
