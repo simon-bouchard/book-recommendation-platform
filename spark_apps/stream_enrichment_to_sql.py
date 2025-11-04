@@ -22,6 +22,7 @@ RESULTS_TOPIC = "enrich.results.v1"
 ERRORS_TOPIC = "enrich.errors.v1"
 CHECKPOINT_DIR = os.getenv("SPARK_CHECKPOINT_DIR", "/tmp/spark-checkpoints/enrichment")
 VERSION_TAG = os.getenv("ENRICHMENT_JOB_TAG_VERSION", "v1")
+ONTOLOGY_VERSION = os.getenv("ENRICHMENT_ONTOLOGY_VERSION", "v2")
 REPLAY_MODE = os.getenv("REPLAY_FROM_EARLIEST", "0") == "1"
 
 JDBC_URL = os.getenv("JDBC_URL", "jdbc:mysql://127.0.0.1:3306/bookrec_db")
@@ -178,14 +179,14 @@ def process_results_batch(batch_df, batch_id):
         # 2b. Upsert book_genres (one per book per version)
         print(f"  [4/6] Upserting book genres...")
         genre_params = [
-            (row.item_idx, row.genre, row.tags_version)
+            (row.item_idx, row.genre, row.tags_version, ONTOLOGY_VERSION)  
             for row in batch_data if row.genre
         ]
         if genre_params:
             batch_parameterized_insert(
                 cur,
-                """INSERT INTO book_genres(item_idx, genre_slug, tags_version)
-                   VALUES (%s, %s, %s)
+                """INSERT INTO book_genres(item_idx, genre_slug, tags_version, genre_ontology_version)
+                   VALUES (%s, %s, %s, %s)  # ← Now 4 parameters instead of 3
                    ON DUPLICATE KEY UPDATE genre_slug=VALUES(genre_slug)""",
                 genre_params
             )
