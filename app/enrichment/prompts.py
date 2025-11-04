@@ -239,15 +239,7 @@ def build_retry_prompt(
         catalog_block = "CATALOG SUBJECTS: (none)"
     
     # Get tier instruction (simplified for retry)
-    tier_instr = TIER_INSTRUCTIONS.get(tier, TIER_INSTRUCTIONS["BASIC"])
-    
-    # Get vibe requirement
-    vibe_requirement = {
-        "RICH": "vibe: EXACTLY 8-14 words",
-        "SPARSE": "vibe: EXACTLY 4-8 words OR empty string",
-        "MINIMAL": "vibe: MUST be empty string",
-        "BASIC": "vibe: MUST be empty string"
-    }.get(tier, "vibe: \"\"")
+    tier_instr = TIER_INSTRUCTIONS.get(tier, TIER_INSTRUCTIONS[tier])
     
     # Format original response
     original_json = json.dumps(feedback["original_response"], indent=2, ensure_ascii=False)
@@ -287,7 +279,6 @@ DESCRIPTION: {description if description else "(no description available)"}
 {tier_instr}
 
 **CRITICAL for {tier} tier:**
-• {vibe_requirement}
 • Count your words carefully before submitting
 • Don't change fields that were correct
 
