@@ -1,0 +1,3596 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="UTF-8">
+    <title>Semantic Search Comparison Report</title>
+    <style>
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            max-width: 1400px;
+            margin: 0 auto;
+            padding: 20px;
+            background: #f5f5f5;
+        }
+        .header {
+            background: white;
+            padding: 30px;
+            border-radius: 8px;
+            margin-bottom: 30px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        }
+        h1 {
+            margin: 0 0 10px 0;
+            color: #333;
+        }
+        .metadata {
+            color: #666;
+            font-size: 14px;
+            margin-top: 15px;
+        }
+        .metadata-item {
+            margin: 5px 0;
+        }
+        .summary {
+            background: white;
+            padding: 25px;
+            border-radius: 8px;
+            margin-bottom: 30px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        }
+        .summary h2 {
+            margin-top: 0;
+            color: #333;
+        }
+        .summary-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 20px;
+            margin-top: 20px;
+        }
+        .summary-item {
+            text-align: center;
+        }
+        .summary-value {
+            font-size: 32px;
+            font-weight: bold;
+            color: #2196F3;
+        }
+        .summary-label {
+            font-size: 14px;
+            color: #666;
+            margin-top: 5px;
+        }
+        .section {
+            margin-bottom: 40px;
+        }
+        .section h2 {
+            color: #333;
+            border-bottom: 2px solid #2196F3;
+            padding-bottom: 10px;
+        }
+        .query {
+            background: white;
+            padding: 20px;
+            border-radius: 8px;
+            margin-bottom: 20px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        }
+        .query.passed {
+            border-left: 4px solid #4CAF50;
+        }
+        .query.failed {
+            border-left: 4px solid #f44336;
+        }
+        .query.manual {
+            border-left: 4px solid #FF9800;
+        }
+        .query-header {
+            margin-bottom: 15px;
+        }
+        .query-header h3 {
+            margin: 0 0 5px 0;
+            color: #333;
+        }
+        .query-meta {
+            color: #666;
+            font-size: 14px;
+        }
+        .badge {
+            display: inline-block;
+            padding: 4px 12px;
+            border-radius: 12px;
+            font-size: 12px;
+            font-weight: 600;
+            text-transform: uppercase;
+        }
+        .badge.passed {
+            background: #4CAF50;
+            color: white;
+        }
+        .badge.failed {
+            background: #f44336;
+            color: white;
+        }
+        .badge.manual {
+            background: #FF9800;
+            color: white;
+        }
+        .assertions {
+            background: #f9f9f9;
+            border: 1px solid #e0e0e0;
+            border-radius: 4px;
+            padding: 15px;
+            margin: 15px 0;
+        }
+        .assertion-detail {
+            padding: 8px 0;
+            border-bottom: 1px solid #e0e0e0;
+        }
+        .assertion-detail:last-child {
+            border-bottom: none;
+        }
+        .assertion-book {
+            font-weight: 600;
+            color: #333;
+        }
+        .assertion-result {
+            font-size: 13px;
+            color: #666;
+            margin-top: 4px;
+        }
+        .check {
+            color: #4CAF50;
+            font-weight: bold;
+        }
+        .cross {
+            color: #f44336;
+            font-weight: bold;
+        }
+        .metrics {
+            background: #f9f9f9;
+            border: 1px solid #e0e0e0;
+            border-radius: 4px;
+            padding: 15px;
+            margin: 15px 0;
+        }
+        .metrics-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+            gap: 15px;
+        }
+        .metric {
+            display: flex;
+            flex-direction: column;
+        }
+        .metric-label {
+            font-size: 12px;
+            color: #666;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+        }
+        .metric-value {
+            font-size: 20px;
+            font-weight: 600;
+            color: #333;
+            margin-top: 4px;
+        }
+        .results-comparison {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 20px;
+            margin-top: 15px;
+        }
+        .result-column {
+            background: #fafafa;
+            border: 1px solid #e0e0e0;
+            border-radius: 4px;
+            padding: 15px;
+        }
+        .result-column h4 {
+            margin: 0 0 15px 0;
+            color: #333;
+            font-size: 14px;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+        }
+        .result-item {
+            padding: 10px;
+            border-bottom: 1px solid #e0e0e0;
+            display: grid;
+            grid-template-columns: 30px 1fr;
+            gap: 10px;
+            align-items: start;
+        }
+        .result-item:last-child {
+            border-bottom: none;
+        }
+        .result-rank {
+            font-weight: 600;
+            color: #666;
+        }
+        .result-title {
+            font-weight: 500;
+            color: #333;
+            font-size: 14px;
+        }
+        .result-author {
+            color: #666;
+            font-size: 12px;
+            margin-top: 2px;
+        }
+    </style>
+</head>
+<body>
+    <div class="header">
+        <h1>🔍 Semantic Search Index Comparison Report</h1>
+        <div class="metadata">
+            <div class="metadata-item"><strong>Generated:</strong> 2025-11-03T23:46:04.117537</div>
+            <div class="metadata-item"><strong>Baseline Index:</strong> /home/simon/bookrec/models/data/baseline</div>
+            <div class="metadata-item"><strong>Enriched Index:</strong> /home/simon/bookrec/models/data/enriched_v1</div>
+            <div class="metadata-item"><strong>Embedding Model:</strong> sentence-transformers/all-MiniLM-L6-v2</div>
+            <div class="metadata-item"><strong>Top K:</strong> 10</div>
+            <div class="metadata-item"><strong>Test Queries:</strong> 20</div>
+        </div>
+    </div>
+    
+    <div class="summary">
+        <h2>📊 Summary Statistics</h2>
+        <div class="summary-grid">
+            <div class="summary-item">
+                <div class="summary-value">3/5</div>
+                <div class="summary-label">Exact Match Passed</div>
+            </div>
+            <div class="summary-item">
+                <div class="summary-value">0.5/5</div>
+                <div class="summary-label">Avg Overlap (Top 5)</div>
+            </div>
+            <div class="summary-item">
+                <div class="summary-value">1.6/10</div>
+                <div class="summary-label">Avg Overlap (Top 10)</div>
+            </div>
+            <div class="summary-item">
+                <div class="summary-value">0.17</div>
+                <div class="summary-label">Avg Rank Correlation</div>
+            </div>
+        </div>
+    </div>
+
+    <div class="section">
+        <h2>✅ Exact Match Queries (Programmatic Validation)</h2>
+
+        <div class="query passed">
+            <div class="query-header">
+                <h3>"The Great Gatsby" <span class="badge passed">PASSED</span></h3>
+                <div class="query-meta">Classic American novel - exact title match | Type: exact_match</div>
+            </div>
+            
+            <div class="assertions">
+                <strong>Assertions:</strong>
+
+                <div class="assertion-detail">
+                    <div class="assertion-book">The Great Gatsby by F. Scott Fitzgerald</div>
+                    <div class="assertion-result">
+                        Must appear in top 5 | 
+                        Baseline: <span class="check">✓ 2</span> | 
+                        Enriched: <span class="check">✓ 4</span>
+                    </div>
+                </div>
+
+            </div>
+            
+            <div class="metrics">
+                <div class="metrics-grid">
+                    <div class="metric">
+                        <span class="metric-label">Overlap (top 5):</span>
+                        <span class="metric-value">3/5</span>
+                    </div>
+                    <div class="metric">
+                        <span class="metric-label">Overlap (top 10):</span>
+                        <span class="metric-value">9/10</span>
+                    </div>
+                    <div class="metric">
+                        <span class="metric-label">Rank correlation:</span>
+                        <span class="metric-value">0.37</span>
+                    </div>
+                </div>
+            </div>
+            
+            <div class="results-comparison">
+                <div class="result-column">
+                    <h4>Baseline Results</h4>
+
+                    <div class="result-item">
+                        <span class="result-rank">1.</span>
+                        <div>
+                            <div class="result-title">The Great Gatsby</div>
+                            <div class="result-author">Kathleen Parkinson</div>
+                        </div>
+                    </div>
+
+                    <div class="result-item">
+                        <span class="result-rank">2.</span>
+                        <div>
+                            <div class="result-title">Great Gatsby</div>
+                            <div class="result-author">F. Scott Fitzgerald</div>
+                        </div>
+                    </div>
+
+                    <div class="result-item">
+                        <span class="result-rank">3.</span>
+                        <div>
+                            <div class="result-title">The great Gatsby</div>
+                            <div class="result-author">Richard Daniel Lehan</div>
+                        </div>
+                    </div>
+
+                    <div class="result-item">
+                        <span class="result-rank">4.</span>
+                        <div>
+                            <div class="result-title">F. Scott Fitzgerald's The great Gatsby</div>
+                            <div class="result-author">Matthew Joseph Bruccoli</div>
+                        </div>
+                    </div>
+
+                    <div class="result-item">
+                        <span class="result-rank">5.</span>
+                        <div>
+                            <div class="result-title">GRAN GATSBY</div>
+                            <div class="result-author">Unknown</div>
+                        </div>
+                    </div>
+
+                    <div class="result-item">
+                        <span class="result-rank">6.</span>
+                        <div>
+                            <div class="result-title">The great Gatsby notes</div>
+                            <div class="result-author">Phillip Northman</div>
+                        </div>
+                    </div>
+
+                    <div class="result-item">
+                        <span class="result-rank">7.</span>
+                        <div>
+                            <div class="result-title">F. Scott Fitzgerald's the Great Gatsby</div>
+                            <div class="result-author">Stanley Cooperman</div>
+                        </div>
+                    </div>
+
+                    <div class="result-item">
+                        <span class="result-rank">8.</span>
+                        <div>
+                            <div class="result-title">Fitzgerald's The Great Gatsby</div>
+                            <div class="result-author">Henry Dan Piper</div>
+                        </div>
+                    </div>
+
+                </div>
+                <div class="result-column">
+                    <h4>Enriched Results</h4>
+
+                    <div class="result-item">
+                        <span class="result-rank">1.</span>
+                        <div>
+                            <div class="result-title">The great Gatsby notes</div>
+                            <div class="result-author">Phillip Northman</div>
+                        </div>
+                    </div>
+
+                    <div class="result-item">
+                        <span class="result-rank">2.</span>
+                        <div>
+                            <div class="result-title">The Great Gatsby</div>
+                            <div class="result-author">Kathleen Parkinson</div>
+                        </div>
+                    </div>
+
+                    <div class="result-item">
+                        <span class="result-rank">3.</span>
+                        <div>
+                            <div class="result-title">F. Scott Fitzgerald's The great Gatsby</div>
+                            <div class="result-author">Matthew Joseph Bruccoli</div>
+                        </div>
+                    </div>
+
+                    <div class="result-item">
+                        <span class="result-rank">4.</span>
+                        <div>
+                            <div class="result-title">The Great Gatsby</div>
+                            <div class="result-author">F. Scott Fitzgerald</div>
+                        </div>
+                    </div>
+
+                    <div class="result-item">
+                        <span class="result-rank">5.</span>
+                        <div>
+                            <div class="result-title">Great Gatsby</div>
+                            <div class="result-author">F. Scott Fitzgerald</div>
+                        </div>
+                    </div>
+
+                    <div class="result-item">
+                        <span class="result-rank">6.</span>
+                        <div>
+                            <div class="result-title">The great Gatsby</div>
+                            <div class="result-author">Richard Daniel Lehan</div>
+                        </div>
+                    </div>
+
+                    <div class="result-item">
+                        <span class="result-rank">7.</span>
+                        <div>
+                            <div class="result-title">GRAN GATSBY</div>
+                            <div class="result-author">Unknown</div>
+                        </div>
+                    </div>
+
+                    <div class="result-item">
+                        <span class="result-rank">8.</span>
+                        <div>
+                            <div class="result-title">F. Scott Fitzgerald's the Great Gatsby</div>
+                            <div class="result-author">Stanley Cooperman</div>
+                        </div>
+                    </div>
+
+                </div>
+            </div>
+        </div>
+
+        <div class="query failed">
+            <div class="query-header">
+                <h3>"To Kill a Mockingbird Harper Lee" <span class="badge failed">FAILED</span></h3>
+                <div class="query-meta">Title + author search | Type: exact_match</div>
+            </div>
+            
+            <div class="assertions">
+                <strong>Assertions:</strong>
+
+                <div class="assertion-detail">
+                    <div class="assertion-book">To Kill a Mockingbird by Harper Lee</div>
+                    <div class="assertion-result">
+                        Must appear in top 3 | 
+                        Baseline: <span class="cross">✗ Not found</span> | 
+                        Enriched: <span class="check">✓ 1</span>
+                    </div>
+                </div>
+
+            </div>
+            
+            <div class="metrics">
+                <div class="metrics-grid">
+                    <div class="metric">
+                        <span class="metric-label">Overlap (top 5):</span>
+                        <span class="metric-value">0/5</span>
+                    </div>
+                    <div class="metric">
+                        <span class="metric-label">Overlap (top 10):</span>
+                        <span class="metric-value">1/10</span>
+                    </div>
+                    <div class="metric">
+                        <span class="metric-label">Rank correlation:</span>
+                        <span class="metric-value">0.00</span>
+                    </div>
+                </div>
+            </div>
+            
+            <div class="results-comparison">
+                <div class="result-column">
+                    <h4>Baseline Results</h4>
+
+                    <div class="result-item">
+                        <span class="result-rank">1.</span>
+                        <div>
+                            <div class="result-title">Dragon fall</div>
+                            <div class="result-author">Lee J. Hindle</div>
+                        </div>
+                    </div>
+
+                    <div class="result-item">
+                        <span class="result-rank">2.</span>
+                        <div>
+                            <div class="result-title">Where the Heart Is</div>
+                            <div class="result-author">Robin Lee Hatcher</div>
+                        </div>
+                    </div>
+
+                    <div class="result-item">
+                        <span class="result-rank">3.</span>
+                        <div>
+                            <div class="result-title">The Unheard Cry</div>
+                            <div class="result-author">Cleta Brooks Lee</div>
+                        </div>
+                    </div>
+
+                    <div class="result-item">
+                        <span class="result-rank">4.</span>
+                        <div>
+                            <div class="result-title">Open wide</div>
+                            <div class="result-author">Robin Mitchell</div>
+                        </div>
+                    </div>
+
+                    <div class="result-item">
+                        <span class="result-rank">5.</span>
+                        <div>
+                            <div class="result-title">Dragon's kill</div>
+                            <div class="result-author">Gar Wilson</div>
+                        </div>
+                    </div>
+
+                    <div class="result-item">
+                        <span class="result-rank">6.</span>
+                        <div>
+                            <div class="result-title">I need help, too!</div>
+                            <div class="result-author">Vic Lee</div>
+                        </div>
+                    </div>
+
+                    <div class="result-item">
+                        <span class="result-rank">7.</span>
+                        <div>
+                            <div class="result-title">Tales of Uncle Trapspinger</div>
+                            <div class="result-author">Dixie Lee McKeone</div>
+                        </div>
+                    </div>
+
+                    <div class="result-item">
+                        <span class="result-rank">8.</span>
+                        <div>
+                            <div class="result-title">From Our House</div>
+                            <div class="result-author">Lee Martin</div>
+                        </div>
+                    </div>
+
+                </div>
+                <div class="result-column">
+                    <h4>Enriched Results</h4>
+
+                    <div class="result-item">
+                        <span class="result-rank">1.</span>
+                        <div>
+                            <div class="result-title">To Kill a Mockingbird</div>
+                            <div class="result-author">Harper Lee</div>
+                        </div>
+                    </div>
+
+                    <div class="result-item">
+                        <span class="result-rank">2.</span>
+                        <div>
+                            <div class="result-title">Cliffsnotes to kill a mockingbird</div>
+                            <div class="result-author">Tamara Castleman</div>
+                        </div>
+                    </div>
+
+                    <div class="result-item">
+                        <span class="result-rank">3.</span>
+                        <div>
+                            <div class="result-title">To kill a mockingbird</div>
+                            <div class="result-author">Eva Fitzwater</div>
+                        </div>
+                    </div>
+
+                    <div class="result-item">
+                        <span class="result-rank">4.</span>
+                        <div>
+                            <div class="result-title">Mockingbird</div>
+                            <div class="result-author">Becky Stuart</div>
+                        </div>
+                    </div>
+
+                    <div class="result-item">
+                        <span class="result-rank">5.</span>
+                        <div>
+                            <div class="result-title">Mockingbird</div>
+                            <div class="result-author">Sean Stewart</div>
+                        </div>
+                    </div>
+
+                    <div class="result-item">
+                        <span class="result-rank">6.</span>
+                        <div>
+                            <div class="result-title">Three Screenplays (Tender Mercies / The Trip to Bountiful / To Kill a Mockingbird)</div>
+                            <div class="result-author">Horton Foote</div>
+                        </div>
+                    </div>
+
+                    <div class="result-item">
+                        <span class="result-rank">7.</span>
+                        <div>
+                            <div class="result-title">I Killed a Bluebird</div>
+                            <div class="result-author">James L. Winfree</div>
+                        </div>
+                    </div>
+
+                    <div class="result-item">
+                        <span class="result-rank">8.</span>
+                        <div>
+                            <div class="result-title">A murder of crows</div>
+                            <div class="result-author">Patrick Buchanan</div>
+                        </div>
+                    </div>
+
+                </div>
+            </div>
+        </div>
+
+        <div class="query passed">
+            <div class="query-header">
+                <h3>"Harry Potter and the Philosopher's Stone" <span class="badge passed">PASSED</span></h3>
+                <div class="query-meta">Full title search - popular series | Type: exact_match</div>
+            </div>
+            
+            <div class="assertions">
+                <strong>Assertions:</strong>
+
+                <div class="assertion-detail">
+                    <div class="assertion-book">Harry Potter and the Philosopher's Stone by J. K. Rowling</div>
+                    <div class="assertion-result">
+                        Must appear in top 5 | 
+                        Baseline: <span class="check">✓ 4</span> | 
+                        Enriched: <span class="check">✓ 2</span>
+                    </div>
+                </div>
+
+            </div>
+            
+            <div class="metrics">
+                <div class="metrics-grid">
+                    <div class="metric">
+                        <span class="metric-label">Overlap (top 5):</span>
+                        <span class="metric-value">4/5</span>
+                    </div>
+                    <div class="metric">
+                        <span class="metric-label">Overlap (top 10):</span>
+                        <span class="metric-value">6/10</span>
+                    </div>
+                    <div class="metric">
+                        <span class="metric-label">Rank correlation:</span>
+                        <span class="metric-value">0.77</span>
+                    </div>
+                </div>
+            </div>
+            
+            <div class="results-comparison">
+                <div class="result-column">
+                    <h4>Baseline Results</h4>
+
+                    <div class="result-item">
+                        <span class="result-rank">1.</span>
+                        <div>
+                            <div class="result-title">Harry Potter and the Sorcerer's Stone (Harry Potter (Hardcover))</div>
+                            <div class="result-author">Unknown</div>
+                        </div>
+                    </div>
+
+                    <div class="result-item">
+                        <span class="result-rank">2.</span>
+                        <div>
+                            <div class="result-title">Harry Potter and the Sorcerer's Stone (Book 1)</div>
+                            <div class="result-author">Unknown</div>
+                        </div>
+                    </div>
+
+                    <div class="result-item">
+                        <span class="result-rank">3.</span>
+                        <div>
+                            <div class="result-title">Harry Potter and the Sorcerer's Stone</div>
+                            <div class="result-author">Jill Daniels</div>
+                        </div>
+                    </div>
+
+                    <div class="result-item">
+                        <span class="result-rank">4.</span>
+                        <div>
+                            <div class="result-title">Harry Potter and the Philosopher's Stone</div>
+                            <div class="result-author">J. K. Rowling</div>
+                        </div>
+                    </div>
+
+                    <div class="result-item">
+                        <span class="result-rank">5.</span>
+                        <div>
+                            <div class="result-title">Stonehenge</div>
+                            <div class="result-author">Harry Harrison</div>
+                        </div>
+                    </div>
+
+                    <div class="result-item">
+                        <span class="result-rank">6.</span>
+                        <div>
+                            <div class="result-title">The Magical Worlds of Harry Potter</div>
+                            <div class="result-author">David Colbert</div>
+                        </div>
+                    </div>
+
+                    <div class="result-item">
+                        <span class="result-rank">7.</span>
+                        <div>
+                            <div class="result-title">Harry Potter</div>
+                            <div class="result-author">Scholastic Inc.</div>
+                        </div>
+                    </div>
+
+                    <div class="result-item">
+                        <span class="result-rank">8.</span>
+                        <div>
+                            <div class="result-title">The sorcerer's companion</div>
+                            <div class="result-author">Allan Zola Kronzek</div>
+                        </div>
+                    </div>
+
+                </div>
+                <div class="result-column">
+                    <h4>Enriched Results</h4>
+
+                    <div class="result-item">
+                        <span class="result-rank">1.</span>
+                        <div>
+                            <div class="result-title">Harry Potter and the Sorcerer's Stone (Harry Potter (Hardcover))</div>
+                            <div class="result-author">Unknown</div>
+                        </div>
+                    </div>
+
+                    <div class="result-item">
+                        <span class="result-rank">2.</span>
+                        <div>
+                            <div class="result-title">Harry Potter and the Philosopher's Stone</div>
+                            <div class="result-author">J. K. Rowling</div>
+                        </div>
+                    </div>
+
+                    <div class="result-item">
+                        <span class="result-rank">3.</span>
+                        <div>
+                            <div class="result-title">Harry Potter and the Sorcerer's Stone (Book 1)</div>
+                            <div class="result-author">Unknown</div>
+                        </div>
+                    </div>
+
+                    <div class="result-item">
+                        <span class="result-rank">4.</span>
+                        <div>
+                            <div class="result-title">Harry Potter e a Pedra Filosofal</div>
+                            <div class="result-author">J. K. Rowling</div>
+                        </div>
+                    </div>
+
+                    <div class="result-item">
+                        <span class="result-rank">5.</span>
+                        <div>
+                            <div class="result-title">Harry Potter and the Sorcerer's Stone</div>
+                            <div class="result-author">Jill Daniels</div>
+                        </div>
+                    </div>
+
+                    <div class="result-item">
+                        <span class="result-rank">6.</span>
+                        <div>
+                            <div class="result-title">Harry Potter and the Sorcerer's Stone Movie Poster Book</div>
+                            <div class="result-author">Drew Struzan</div>
+                        </div>
+                    </div>
+
+                    <div class="result-item">
+                        <span class="result-rank">7.</span>
+                        <div>
+                            <div class="result-title">Mundo mágico de Harry Potter</div>
+                            <div class="result-author">David Colbert</div>
+                        </div>
+                    </div>
+
+                    <div class="result-item">
+                        <span class="result-rank">8.</span>
+                        <div>
+                            <div class="result-title">The Magical Worlds of Harry Potter</div>
+                            <div class="result-author">David Colbert</div>
+                        </div>
+                    </div>
+
+                </div>
+            </div>
+        </div>
+
+        <div class="query passed">
+            <div class="query-header">
+                <h3>"Brave New World Aldous Huxley" <span class="badge passed">PASSED</span></h3>
+                <div class="query-meta">Dystopian classic - title + author | Type: exact_match</div>
+            </div>
+            
+            <div class="assertions">
+                <strong>Assertions:</strong>
+
+                <div class="assertion-detail">
+                    <div class="assertion-book">Brave New World by Aldous Huxley</div>
+                    <div class="assertion-result">
+                        Must appear in top 3 | 
+                        Baseline: <span class="check">✓ 3</span> | 
+                        Enriched: <span class="check">✓ 1</span>
+                    </div>
+                </div>
+
+            </div>
+            
+            <div class="metrics">
+                <div class="metrics-grid">
+                    <div class="metric">
+                        <span class="metric-label">Overlap (top 5):</span>
+                        <span class="metric-value">4/5</span>
+                    </div>
+                    <div class="metric">
+                        <span class="metric-label">Overlap (top 10):</span>
+                        <span class="metric-value">7/10</span>
+                    </div>
+                    <div class="metric">
+                        <span class="metric-label">Rank correlation:</span>
+                        <span class="metric-value">0.14</span>
+                    </div>
+                </div>
+            </div>
+            
+            <div class="results-comparison">
+                <div class="result-column">
+                    <h4>Baseline Results</h4>
+
+                    <div class="result-item">
+                        <span class="result-rank">1.</span>
+                        <div>
+                            <div class="result-title">Brodie's Notes on Aldous Huxley's "Brave New World" (Pan Study Aids)</div>
+                            <div class="result-author">Graham Handley</div>
+                        </div>
+                    </div>
+
+                    <div class="result-item">
+                        <span class="result-rank">2.</span>
+                        <div>
+                            <div class="result-title">The Human Situation</div>
+                            <div class="result-author">Aldous Huxley</div>
+                        </div>
+                    </div>
+
+                    <div class="result-item">
+                        <span class="result-rank">3.</span>
+                        <div>
+                            <div class="result-title">Brave New World and Brave New World Revisited</div>
+                            <div class="result-author">Aldous Huxley</div>
+                        </div>
+                    </div>
+
+                    <div class="result-item">
+                        <span class="result-rank">4.</span>
+                        <div>
+                            <div class="result-title">Brave New World</div>
+                            <div class="result-author">Aldous Huxley</div>
+                        </div>
+                    </div>
+
+                    <div class="result-item">
+                        <span class="result-rank">5.</span>
+                        <div>
+                            <div class="result-title">Eine Gesellschaft auf dem Lande</div>
+                            <div class="result-author">Aldous Huxley</div>
+                        </div>
+                    </div>
+
+                    <div class="result-item">
+                        <span class="result-rank">6.</span>
+                        <div>
+                            <div class="result-title">Nueva Visita a Un Mundo Feliz</div>
+                            <div class="result-author">Aldous Huxley</div>
+                        </div>
+                    </div>
+
+                    <div class="result-item">
+                        <span class="result-rank">7.</span>
+                        <div>
+                            <div class="result-title">Brave New World Revisited</div>
+                            <div class="result-author">Aldous Huxley</div>
+                        </div>
+                    </div>
+
+                    <div class="result-item">
+                        <span class="result-rank">8.</span>
+                        <div>
+                            <div class="result-title">Eiland. Roman</div>
+                            <div class="result-author">Aldous Huxley</div>
+                        </div>
+                    </div>
+
+                </div>
+                <div class="result-column">
+                    <h4>Enriched Results</h4>
+
+                    <div class="result-item">
+                        <span class="result-rank">1.</span>
+                        <div>
+                            <div class="result-title">Brave New World</div>
+                            <div class="result-author">Aldous Huxley</div>
+                        </div>
+                    </div>
+
+                    <div class="result-item">
+                        <span class="result-rank">2.</span>
+                        <div>
+                            <div class="result-title">Brave New World and Brave New World Revisited</div>
+                            <div class="result-author">Aldous Huxley</div>
+                        </div>
+                    </div>
+
+                    <div class="result-item">
+                        <span class="result-rank">3.</span>
+                        <div>
+                            <div class="result-title">Brave New World Revisited</div>
+                            <div class="result-author">Aldous Huxley</div>
+                        </div>
+                    </div>
+
+                    <div class="result-item">
+                        <span class="result-rank">4.</span>
+                        <div>
+                            <div class="result-title">Brodie's Notes on Aldous Huxley's "Brave New World" (Pan Study Aids)</div>
+                            <div class="result-author">Graham Handley</div>
+                        </div>
+                    </div>
+
+                    <div class="result-item">
+                        <span class="result-rank">5.</span>
+                        <div>
+                            <div class="result-title">The Human Situation</div>
+                            <div class="result-author">Aldous Huxley</div>
+                        </div>
+                    </div>
+
+                    <div class="result-item">
+                        <span class="result-rank">6.</span>
+                        <div>
+                            <div class="result-title">Nueva Visita a Un Mundo Feliz</div>
+                            <div class="result-author">Aldous Huxley</div>
+                        </div>
+                    </div>
+
+                    <div class="result-item">
+                        <span class="result-rank">7.</span>
+                        <div>
+                            <div class="result-title">Huxley</div>
+                            <div class="result-author">Adrian J. Desmond</div>
+                        </div>
+                    </div>
+
+                    <div class="result-item">
+                        <span class="result-rank">8.</span>
+                        <div>
+                            <div class="result-title">Ape and essence</div>
+                            <div class="result-author">Aldous Huxley</div>
+                        </div>
+                    </div>
+
+                </div>
+            </div>
+        </div>
+
+        <div class="query failed">
+            <div class="query-header">
+                <h3>"The Catcher in the Rye" <span class="badge failed">FAILED</span></h3>
+                <div class="query-meta">Coming-of-age classic - exact title | Type: exact_match</div>
+            </div>
+            
+            <div class="assertions">
+                <strong>Assertions:</strong>
+
+                <div class="assertion-detail">
+                    <div class="assertion-book">The Catcher in the Rye by J. D. Salinger</div>
+                    <div class="assertion-result">
+                        Must appear in top 3 | 
+                        Baseline: <span class="cross">✗ Not found</span> | 
+                        Enriched: <span class="check">✓ 2</span>
+                    </div>
+                </div>
+
+            </div>
+            
+            <div class="metrics">
+                <div class="metrics-grid">
+                    <div class="metric">
+                        <span class="metric-label">Overlap (top 5):</span>
+                        <span class="metric-value">5/5</span>
+                    </div>
+                    <div class="metric">
+                        <span class="metric-label">Overlap (top 10):</span>
+                        <span class="metric-value">6/10</span>
+                    </div>
+                    <div class="metric">
+                        <span class="metric-label">Rank correlation:</span>
+                        <span class="metric-value">0.60</span>
+                    </div>
+                </div>
+            </div>
+            
+            <div class="results-comparison">
+                <div class="result-column">
+                    <h4>Baseline Results</h4>
+
+                    <div class="result-item">
+                        <span class="result-rank">1.</span>
+                        <div>
+                            <div class="result-title">Catcher in the Rye (York Notes)</div>
+                            <div class="result-author">A. Norman Jeffares</div>
+                        </div>
+                    </div>
+
+                    <div class="result-item">
+                        <span class="result-rank">2.</span>
+                        <div>
+                            <div class="result-title">J.D. Salinger's Catcher in the rye</div>
+                            <div class="result-author">Joseph Claro</div>
+                        </div>
+                    </div>
+
+                    <div class="result-item">
+                        <span class="result-rank">3.</span>
+                        <div>
+                            <div class="result-title">Cliff's Notes on Catcher in the Rye</div>
+                            <div class="result-author">Robert B. Kaplan</div>
+                        </div>
+                    </div>
+
+                    <div class="result-item">
+                        <span class="result-rank">4.</span>
+                        <div>
+                            <div class="result-title">The Catcher in the Rye</div>
+                            <div class="result-author">J. D. Salinger</div>
+                        </div>
+                    </div>
+
+                    <div class="result-item">
+                        <span class="result-rank">5.</span>
+                        <div>
+                            <div class="result-title">The catcher in the rye</div>
+                            <div class="result-author">J. D. Salinger</div>
+                        </div>
+                    </div>
+
+                    <div class="result-item">
+                        <span class="result-rank">6.</span>
+                        <div>
+                            <div class="result-title">Nine stories</div>
+                            <div class="result-author">J. D. Salinger</div>
+                        </div>
+                    </div>
+
+                    <div class="result-item">
+                        <span class="result-rank">7.</span>
+                        <div>
+                            <div class="result-title">Letters to J.D. Salinger</div>
+                            <div class="result-author">Chris Kubica</div>
+                        </div>
+                    </div>
+
+                    <div class="result-item">
+                        <span class="result-rank">8.</span>
+                        <div>
+                            <div class="result-title">The Potato Factory</div>
+                            <div class="result-author">Bryce Courtenay</div>
+                        </div>
+                    </div>
+
+                </div>
+                <div class="result-column">
+                    <h4>Enriched Results</h4>
+
+                    <div class="result-item">
+                        <span class="result-rank">1.</span>
+                        <div>
+                            <div class="result-title">Catcher in the Rye (York Notes)</div>
+                            <div class="result-author">A. Norman Jeffares</div>
+                        </div>
+                    </div>
+
+                    <div class="result-item">
+                        <span class="result-rank">2.</span>
+                        <div>
+                            <div class="result-title">The Catcher in the Rye</div>
+                            <div class="result-author">J. D. Salinger</div>
+                        </div>
+                    </div>
+
+                    <div class="result-item">
+                        <span class="result-rank">3.</span>
+                        <div>
+                            <div class="result-title">Cliff's Notes on Catcher in the Rye</div>
+                            <div class="result-author">Robert B. Kaplan</div>
+                        </div>
+                    </div>
+
+                    <div class="result-item">
+                        <span class="result-rank">4.</span>
+                        <div>
+                            <div class="result-title">The catcher in the rye</div>
+                            <div class="result-author">J. D. Salinger</div>
+                        </div>
+                    </div>
+
+                    <div class="result-item">
+                        <span class="result-rank">5.</span>
+                        <div>
+                            <div class="result-title">J.D. Salinger's Catcher in the rye</div>
+                            <div class="result-author">Joseph Claro</div>
+                        </div>
+                    </div>
+
+                    <div class="result-item">
+                        <span class="result-rank">6.</span>
+                        <div>
+                            <div class="result-title">Ham on Rye</div>
+                            <div class="result-author">Charles Bukowski</div>
+                        </div>
+                    </div>
+
+                    <div class="result-item">
+                        <span class="result-rank">7.</span>
+                        <div>
+                            <div class="result-title">The Potato Factory</div>
+                            <div class="result-author">Bryce Courtenay</div>
+                        </div>
+                    </div>
+
+                    <div class="result-item">
+                        <span class="result-rank">8.</span>
+                        <div>
+                            <div class="result-title">Dream Catcher</div>
+                            <div class="result-author">Margaret A. Salinger</div>
+                        </div>
+                    </div>
+
+                </div>
+            </div>
+        </div>
+
+    <div class="section">
+        <h2>📝 Quality Queries (Manual Review)</h2>
+
+        <div class="query manual">
+            <div class="query-header">
+                <h3>"cozy mystery" <span class="badge manual">MANUAL REVIEW</span></h3>
+                <div class="query-meta">Two descriptors - tests basic semantic understanding | Type: descriptive</div>
+            </div>
+            
+            <div class="metrics">
+                <div class="metrics-grid">
+                    <div class="metric">
+                        <span class="metric-label">Overlap (top 5):</span>
+                        <span class="metric-value">0/5</span>
+                    </div>
+                    <div class="metric">
+                        <span class="metric-label">Overlap (top 10):</span>
+                        <span class="metric-value">0/10</span>
+                    </div>
+                    <div class="metric">
+                        <span class="metric-label">Rank correlation:</span>
+                        <span class="metric-value">0.00</span>
+                    </div>
+                </div>
+            </div>
+            
+            <div class="results-comparison">
+                <div class="result-column">
+                    <h4>Baseline Results</h4>
+
+                    <div class="result-item">
+                        <span class="result-rank">1.</span>
+                        <div>
+                            <div class="result-title">Mystery Book Mystery</div>
+                            <div class="result-author">Unknown</div>
+                        </div>
+                    </div>
+
+                    <div class="result-item">
+                        <span class="result-rank">2.</span>
+                        <div>
+                            <div class="result-title">Stranger in my bed</div>
+                            <div class="result-author">Ngaio Marsh</div>
+                        </div>
+                    </div>
+
+                    <div class="result-item">
+                        <span class="result-rank">3.</span>
+                        <div>
+                            <div class="result-title">The Withdrawing Room (Sarah Kelling and Max Bittersohn Mysteries</div>
+                            <div class="result-author">Charlotte MacLeod</div>
+                        </div>
+                    </div>
+
+                    <div class="result-item">
+                        <span class="result-rank">4.</span>
+                        <div>
+                            <div class="result-title">Ah, Sweet Mystery</div>
+                            <div class="result-author">Unknown</div>
+                        </div>
+                    </div>
+
+                    <div class="result-item">
+                        <span class="result-rank">5.</span>
+                        <div>
+                            <div class="result-title">Room with a Clue (Pennyfoot Hotel Mystery)</div>
+                            <div class="result-author">Kate Kingsbury</div>
+                        </div>
+                    </div>
+
+                    <div class="result-item">
+                        <span class="result-rank">6.</span>
+                        <div>
+                            <div class="result-title">Death on the Verandah</div>
+                            <div class="result-author">Various</div>
+                        </div>
+                    </div>
+
+                    <div class="result-item">
+                        <span class="result-rank">7.</span>
+                        <div>
+                            <div class="result-title">Strange Things Happen in the Woods</div>
+                            <div class="result-author">Eve Bunting</div>
+                        </div>
+                    </div>
+
+                    <div class="result-item">
+                        <span class="result-rank">8.</span>
+                        <div>
+                            <div class="result-title">Mysterious Menagerie</div>
+                            <div class="result-author">Various</div>
+                        </div>
+                    </div>
+
+                </div>
+                <div class="result-column">
+                    <h4>Enriched Results</h4>
+
+                    <div class="result-item">
+                        <span class="result-rank">1.</span>
+                        <div>
+                            <div class="result-title">The Haunted Cotswolds</div>
+                            <div class="result-author">Bob Meredith</div>
+                        </div>
+                    </div>
+
+                    <div class="result-item">
+                        <span class="result-rank">2.</span>
+                        <div>
+                            <div class="result-title">The mystery at Snow Lodge</div>
+                            <div class="result-author">Laura Lee Hope</div>
+                        </div>
+                    </div>
+
+                    <div class="result-item">
+                        <span class="result-rank">3.</span>
+                        <div>
+                            <div class="result-title">The mystery of Cottage Cove</div>
+                            <div class="result-author">Aleda Renken</div>
+                        </div>
+                    </div>
+
+                    <div class="result-item">
+                        <span class="result-rank">4.</span>
+                        <div>
+                            <div class="result-title">Between</div>
+                            <div class="result-author">Jean Thesman</div>
+                        </div>
+                    </div>
+
+                    <div class="result-item">
+                        <span class="result-rank">5.</span>
+                        <div>
+                            <div class="result-title">The Hiding Room</div>
+                            <div class="result-author">Unknown</div>
+                        </div>
+                    </div>
+
+                    <div class="result-item">
+                        <span class="result-rank">6.</span>
+                        <div>
+                            <div class="result-title">Feral</div>
+                            <div class="result-author">Berton Roueché</div>
+                        </div>
+                    </div>
+
+                    <div class="result-item">
+                        <span class="result-rank">7.</span>
+                        <div>
+                            <div class="result-title">Mystery of the Haunted Cave</div>
+                            <div class="result-author">Unknown</div>
+                        </div>
+                    </div>
+
+                    <div class="result-item">
+                        <span class="result-rank">8.</span>
+                        <div>
+                            <div class="result-title">The Mystery of the Secret Room</div>
+                            <div class="result-author">Enid Blyton</div>
+                        </div>
+                    </div>
+
+                </div>
+            </div>
+        </div>
+
+        <div class="query manual">
+            <div class="query-header">
+                <h3>"dark fantasy" <span class="badge manual">MANUAL REVIEW</span></h3>
+                <div class="query-meta">Genre + mood combination | Type: descriptive</div>
+            </div>
+            
+            <div class="metrics">
+                <div class="metrics-grid">
+                    <div class="metric">
+                        <span class="metric-label">Overlap (top 5):</span>
+                        <span class="metric-value">0/5</span>
+                    </div>
+                    <div class="metric">
+                        <span class="metric-label">Overlap (top 10):</span>
+                        <span class="metric-value">1/10</span>
+                    </div>
+                    <div class="metric">
+                        <span class="metric-label">Rank correlation:</span>
+                        <span class="metric-value">0.00</span>
+                    </div>
+                </div>
+            </div>
+            
+            <div class="results-comparison">
+                <div class="result-column">
+                    <h4>Baseline Results</h4>
+
+                    <div class="result-item">
+                        <span class="result-rank">1.</span>
+                        <div>
+                            <div class="result-title">World of Darkness</div>
+                            <div class="result-author">Graeme Davis</div>
+                        </div>
+                    </div>
+
+                    <div class="result-item">
+                        <span class="result-rank">2.</span>
+                        <div>
+                            <div class="result-title">Dark journey</div>
+                            <div class="result-author">Unknown</div>
+                        </div>
+                    </div>
+
+                    <div class="result-item">
+                        <span class="result-rank">3.</span>
+                        <div>
+                            <div class="result-title">Pools of darkness</div>
+                            <div class="result-author">James M. Ward</div>
+                        </div>
+                    </div>
+
+                    <div class="result-item">
+                        <span class="result-rank">4.</span>
+                        <div>
+                            <div class="result-title">The Dark</div>
+                            <div class="result-author">Andrew Neiderman</div>
+                        </div>
+                    </div>
+
+                    <div class="result-item">
+                        <span class="result-rank">5.</span>
+                        <div>
+                            <div class="result-title">The dark shore</div>
+                            <div class="result-author">Adam Lee</div>
+                        </div>
+                    </div>
+
+                    <div class="result-item">
+                        <span class="result-rank">6.</span>
+                        <div>
+                            <div class="result-title">Darksword Adventures</div>
+                            <div class="result-author">WEIS & HICKMAN</div>
+                        </div>
+                    </div>
+
+                    <div class="result-item">
+                        <span class="result-rank">7.</span>
+                        <div>
+                            <div class="result-title">Darker angels</div>
+                            <div class="result-author">S. P. Somtow</div>
+                        </div>
+                    </div>
+
+                    <div class="result-item">
+                        <span class="result-rank">8.</span>
+                        <div>
+                            <div class="result-title">The Night Parade (Forgotten Realms Fantasy Adventure)</div>
+                            <div class="result-author">Unknown</div>
+                        </div>
+                    </div>
+
+                </div>
+                <div class="result-column">
+                    <h4>Enriched Results</h4>
+
+                    <div class="result-item">
+                        <span class="result-rank">1.</span>
+                        <div>
+                            <div class="result-title">Darkrange</div>
+                            <div class="result-author">S. Roy L. Hawkins</div>
+                        </div>
+                    </div>
+
+                    <div class="result-item">
+                        <span class="result-rank">2.</span>
+                        <div>
+                            <div class="result-title">Dark hours</div>
+                            <div class="result-author">Richard Pini</div>
+                        </div>
+                    </div>
+
+                    <div class="result-item">
+                        <span class="result-rank">3.</span>
+                        <div>
+                            <div class="result-title">Fade to Black</div>
+                            <div class="result-author">Stan Nicholls</div>
+                        </div>
+                    </div>
+
+                    <div class="result-item">
+                        <span class="result-rank">4.</span>
+                        <div>
+                            <div class="result-title">Kingdoms of the Night</div>
+                            <div class="result-author">Unknown</div>
+                        </div>
+                    </div>
+
+                    <div class="result-item">
+                        <span class="result-rank">5.</span>
+                        <div>
+                            <div class="result-title">Doom of the Darksword</div>
+                            <div class="result-author">Margaret Weis</div>
+                        </div>
+                    </div>
+
+                    <div class="result-item">
+                        <span class="result-rank">6.</span>
+                        <div>
+                            <div class="result-title">Stalking Darkness</div>
+                            <div class="result-author">Lynn Flewelling</div>
+                        </div>
+                    </div>
+
+                    <div class="result-item">
+                        <span class="result-rank">7.</span>
+                        <div>
+                            <div class="result-title">Lockruf der Nacht - bk1387</div>
+                            <div class="result-author">Unknown</div>
+                        </div>
+                    </div>
+
+                    <div class="result-item">
+                        <span class="result-rank">8.</span>
+                        <div>
+                            <div class="result-title">Dark Fire</div>
+                            <div class="result-author">Christine Feehan</div>
+                        </div>
+                    </div>
+
+                </div>
+            </div>
+        </div>
+
+        <div class="query manual">
+            <div class="query-header">
+                <h3>"romantic comedy" <span class="badge manual">MANUAL REVIEW</span></h3>
+                <div class="query-meta">Classic genre blend | Type: descriptive</div>
+            </div>
+            
+            <div class="metrics">
+                <div class="metrics-grid">
+                    <div class="metric">
+                        <span class="metric-label">Overlap (top 5):</span>
+                        <span class="metric-value">0/5</span>
+                    </div>
+                    <div class="metric">
+                        <span class="metric-label">Overlap (top 10):</span>
+                        <span class="metric-value">0/10</span>
+                    </div>
+                    <div class="metric">
+                        <span class="metric-label">Rank correlation:</span>
+                        <span class="metric-value">0.00</span>
+                    </div>
+                </div>
+            </div>
+            
+            <div class="results-comparison">
+                <div class="result-column">
+                    <h4>Baseline Results</h4>
+
+                    <div class="result-item">
+                        <span class="result-rank">1.</span>
+                        <div>
+                            <div class="result-title">Creative romance</div>
+                            <div class="result-author">Doug Fields</div>
+                        </div>
+                    </div>
+
+                    <div class="result-item">
+                        <span class="result-rank">2.</span>
+                        <div>
+                            <div class="result-title">Classic Comedies</div>
+                            <div class="result-author">Maurice Charney</div>
+                        </div>
+                    </div>
+
+                    <div class="result-item">
+                        <span class="result-rank">3.</span>
+                        <div>
+                            <div class="result-title">Happy endings are all alike</div>
+                            <div class="result-author">Sandra Scoppettone</div>
+                        </div>
+                    </div>
+
+                    <div class="result-item">
+                        <span class="result-rank">4.</span>
+                        <div>
+                            <div class="result-title">Four English Comedies</div>
+                            <div class="result-author">Various</div>
+                        </div>
+                    </div>
+
+                    <div class="result-item">
+                        <span class="result-rank">5.</span>
+                        <div>
+                            <div class="result-title">A perfect love</div>
+                            <div class="result-author">Sandra Landry</div>
+                        </div>
+                    </div>
+
+                    <div class="result-item">
+                        <span class="result-rank">6.</span>
+                        <div>
+                            <div class="result-title">The portable romantic</div>
+                            <div class="result-author">Gregory J. P. Godek</div>
+                        </div>
+                    </div>
+
+                    <div class="result-item">
+                        <span class="result-rank">7.</span>
+                        <div>
+                            <div class="result-title">Second Honeymoon (Significant Others)</div>
+                            <div class="result-author">Sandra Field</div>
+                        </div>
+                    </div>
+
+                    <div class="result-item">
+                        <span class="result-rank">8.</span>
+                        <div>
+                            <div class="result-title">Last Romantics</div>
+                            <div class="result-author">Unknown</div>
+                        </div>
+                    </div>
+
+                </div>
+                <div class="result-column">
+                    <h4>Enriched Results</h4>
+
+                    <div class="result-item">
+                        <span class="result-rank">1.</span>
+                        <div>
+                            <div class="result-title">Isn't that romantic</div>
+                            <div class="result-author">Joseph Lipari</div>
+                        </div>
+                    </div>
+
+                    <div class="result-item">
+                        <span class="result-rank">2.</span>
+                        <div>
+                            <div class="result-title">Just Married</div>
+                            <div class="result-author">Sandra Canfield</div>
+                        </div>
+                    </div>
+
+                    <div class="result-item">
+                        <span class="result-rank">3.</span>
+                        <div>
+                            <div class="result-title">Isn't It Romantic?</div>
+                            <div class="result-author">Nat Segaloff</div>
+                        </div>
+                    </div>
+
+                    <div class="result-item">
+                        <span class="result-rank">4.</span>
+                        <div>
+                            <div class="result-title">Isn't it romantic?</div>
+                            <div class="result-author">Kathleen Korbel</div>
+                        </div>
+                    </div>
+
+                    <div class="result-item">
+                        <span class="result-rank">5.</span>
+                        <div>
+                            <div class="result-title">Hitched</div>
+                            <div class="result-author">Julia Bourland</div>
+                        </div>
+                    </div>
+
+                    <div class="result-item">
+                        <span class="result-rank">6.</span>
+                        <div>
+                            <div class="result-title">Could it be magic?</div>
+                            <div class="result-author">Deirdre Savoy</div>
+                        </div>
+                    </div>
+
+                    <div class="result-item">
+                        <span class="result-rank">7.</span>
+                        <div>
+                            <div class="result-title">Seduction by Design</div>
+                            <div class="result-author">Sandra Brown</div>
+                        </div>
+                    </div>
+
+                    <div class="result-item">
+                        <span class="result-rank">8.</span>
+                        <div>
+                            <div class="result-title">Isn't It Romantic?</div>
+                            <div class="result-author">Ron Hansen</div>
+                        </div>
+                    </div>
+
+                </div>
+            </div>
+        </div>
+
+        <div class="query manual">
+            <div class="query-header">
+                <h3>"fast thriller" <span class="badge manual">MANUAL REVIEW</span></h3>
+                <div class="query-meta">Pace + genre | Type: descriptive</div>
+            </div>
+            
+            <div class="metrics">
+                <div class="metrics-grid">
+                    <div class="metric">
+                        <span class="metric-label">Overlap (top 5):</span>
+                        <span class="metric-value">2/5</span>
+                    </div>
+                    <div class="metric">
+                        <span class="metric-label">Overlap (top 10):</span>
+                        <span class="metric-value">2/10</span>
+                    </div>
+                    <div class="metric">
+                        <span class="metric-label">Rank correlation:</span>
+                        <span class="metric-value">1.00</span>
+                    </div>
+                </div>
+            </div>
+            
+            <div class="results-comparison">
+                <div class="result-column">
+                    <h4>Baseline Results</h4>
+
+                    <div class="result-item">
+                        <span class="result-rank">1.</span>
+                        <div>
+                            <div class="result-title">Paperback Thriller</div>
+                            <div class="result-author">Unknown</div>
+                        </div>
+                    </div>
+
+                    <div class="result-item">
+                        <span class="result-rank">2.</span>
+                        <div>
+                            <div class="result-title">24 Stunden. Thriller</div>
+                            <div class="result-author">Greg Iles</div>
+                        </div>
+                    </div>
+
+                    <div class="result-item">
+                        <span class="result-rank">3.</span>
+                        <div>
+                            <div class="result-title">30 Seconds</div>
+                            <div class="result-author">Sam</div>
+                        </div>
+                    </div>
+
+                    <div class="result-item">
+                        <span class="result-rank">4.</span>
+                        <div>
+                            <div class="result-title">Unter Verschluss. Thriller</div>
+                            <div class="result-author">Greg Iles</div>
+                        </div>
+                    </div>
+
+                    <div class="result-item">
+                        <span class="result-rank">5.</span>
+                        <div>
+                            <div class="result-title">Chaos. Thriller</div>
+                            <div class="result-author">R. J. Pineiro</div>
+                        </div>
+                    </div>
+
+                    <div class="result-item">
+                        <span class="result-rank">6.</span>
+                        <div>
+                            <div class="result-title">Super three-minute thrillers</div>
+                            <div class="result-author">Eric Elfman</div>
+                        </div>
+                    </div>
+
+                    <div class="result-item">
+                        <span class="result-rank">7.</span>
+                        <div>
+                            <div class="result-title">Off Pace</div>
+                            <div class="result-author">Brittan Barclay</div>
+                        </div>
+                    </div>
+
+                    <div class="result-item">
+                        <span class="result-rank">8.</span>
+                        <div>
+                            <div class="result-title">Rampage</div>
+                            <div class="result-author">Justin Scott</div>
+                        </div>
+                    </div>
+
+                </div>
+                <div class="result-column">
+                    <h4>Enriched Results</h4>
+
+                    <div class="result-item">
+                        <span class="result-rank">1.</span>
+                        <div>
+                            <div class="result-title">Paperback Thriller</div>
+                            <div class="result-author">Unknown</div>
+                        </div>
+                    </div>
+
+                    <div class="result-item">
+                        <span class="result-rank">2.</span>
+                        <div>
+                            <div class="result-title">Easy Prey</div>
+                            <div class="result-author">Unknown</div>
+                        </div>
+                    </div>
+
+                    <div class="result-item">
+                        <span class="result-rank">3.</span>
+                        <div>
+                            <div class="result-title">Thrillers and More Thrillers.</div>
+                            <div class="result-author">Arthur, Robert, Comp.</div>
+                        </div>
+                    </div>
+
+                    <div class="result-item">
+                        <span class="result-rank">4.</span>
+                        <div>
+                            <div class="result-title">30 Seconds</div>
+                            <div class="result-author">Sam</div>
+                        </div>
+                    </div>
+
+                    <div class="result-item">
+                        <span class="result-rank">5.</span>
+                        <div>
+                            <div class="result-title">No one to trust</div>
+                            <div class="result-author">Iris Johansen</div>
+                        </div>
+                    </div>
+
+                    <div class="result-item">
+                        <span class="result-rank">6.</span>
+                        <div>
+                            <div class="result-title">Labyrinth</div>
+                            <div class="result-author">Mark T. Sullivan</div>
+                        </div>
+                    </div>
+
+                    <div class="result-item">
+                        <span class="result-rank">7.</span>
+                        <div>
+                            <div class="result-title">Killing Floor</div>
+                            <div class="result-author">Unknown</div>
+                        </div>
+                    </div>
+
+                    <div class="result-item">
+                        <span class="result-rank">8.</span>
+                        <div>
+                            <div class="result-title">Ten seconds</div>
+                            <div class="result-author">Louis Edwards</div>
+                        </div>
+                    </div>
+
+                </div>
+            </div>
+        </div>
+
+        <div class="query manual">
+            <div class="query-header">
+                <h3>"epic adventure" <span class="badge manual">MANUAL REVIEW</span></h3>
+                <div class="query-meta">Scale + genre | Type: descriptive</div>
+            </div>
+            
+            <div class="metrics">
+                <div class="metrics-grid">
+                    <div class="metric">
+                        <span class="metric-label">Overlap (top 5):</span>
+                        <span class="metric-value">1/5</span>
+                    </div>
+                    <div class="metric">
+                        <span class="metric-label">Overlap (top 10):</span>
+                        <span class="metric-value">3/10</span>
+                    </div>
+                    <div class="metric">
+                        <span class="metric-label">Rank correlation:</span>
+                        <span class="metric-value">-0.50</span>
+                    </div>
+                </div>
+            </div>
+            
+            <div class="results-comparison">
+                <div class="result-column">
+                    <h4>Baseline Results</h4>
+
+                    <div class="result-item">
+                        <span class="result-rank">1.</span>
+                        <div>
+                            <div class="result-title">Heroic Worlds</div>
+                            <div class="result-author">Lawrence Schick</div>
+                        </div>
+                    </div>
+
+                    <div class="result-item">
+                        <span class="result-rank">2.</span>
+                        <div>
+                            <div class="result-title">The Way of Adventure</div>
+                            <div class="result-author">Jeff Salz</div>
+                        </div>
+                    </div>
+
+                    <div class="result-item">
+                        <span class="result-rank">3.</span>
+                        <div>
+                            <div class="result-title">Adventure in Legoland</div>
+                            <div class="result-author">Carol Matas</div>
+                        </div>
+                    </div>
+
+                    <div class="result-item">
+                        <span class="result-rank">4.</span>
+                        <div>
+                            <div class="result-title">The call to adventure</div>
+                            <div class="result-author">Paul Rebillot</div>
+                        </div>
+                    </div>
+
+                    <div class="result-item">
+                        <span class="result-rank">5.</span>
+                        <div>
+                            <div class="result-title">Great adventure stories</div>
+                            <div class="result-author">Unknown</div>
+                        </div>
+                    </div>
+
+                    <div class="result-item">
+                        <span class="result-rank">6.</span>
+                        <div>
+                            <div class="result-title">Choose Your Own Adventure - Daredevil Park</div>
+                            <div class="result-author">Sara Compton</div>
+                        </div>
+                    </div>
+
+                    <div class="result-item">
+                        <span class="result-rank">7.</span>
+                        <div>
+                            <div class="result-title">The Mayflower Adventure (The American Adventure #1)</div>
+                            <div class="result-author">Colleen L. Reece</div>
+                        </div>
+                    </div>
+
+                    <div class="result-item">
+                        <span class="result-rank">8.</span>
+                        <div>
+                            <div class="result-title">The Hoth Adventure</div>
+                            <div class="result-author">Golden Books</div>
+                        </div>
+                    </div>
+
+                </div>
+                <div class="result-column">
+                    <h4>Enriched Results</h4>
+
+                    <div class="result-item">
+                        <span class="result-rank">1.</span>
+                        <div>
+                            <div class="result-title">Great adventure stories</div>
+                            <div class="result-author">Unknown</div>
+                        </div>
+                    </div>
+
+                    <div class="result-item">
+                        <span class="result-rank">2.</span>
+                        <div>
+                            <div class="result-title">ARK, DE POCKET</div>
+                            <div class="result-author">Unknown</div>
+                        </div>
+                    </div>
+
+                    <div class="result-item">
+                        <span class="result-rank">3.</span>
+                        <div>
+                            <div class="result-title">Epic Level Handbook</div>
+                            <div class="result-author">Bruce R. Cordell</div>
+                        </div>
+                    </div>
+
+                    <div class="result-item">
+                        <span class="result-rank">4.</span>
+                        <div>
+                            <div class="result-title">A game for heroes</div>
+                            <div class="result-author">Higgins</div>
+                        </div>
+                    </div>
+
+                    <div class="result-item">
+                        <span class="result-rank">5.</span>
+                        <div>
+                            <div class="result-title">Rides A Hero</div>
+                            <div class="result-author">Unknown</div>
+                        </div>
+                    </div>
+
+                    <div class="result-item">
+                        <span class="result-rank">6.</span>
+                        <div>
+                            <div class="result-title">Storm of Wings</div>
+                            <div class="result-author">Chris Bunch</div>
+                        </div>
+                    </div>
+
+                    <div class="result-item">
+                        <span class="result-rank">7.</span>
+                        <div>
+                            <div class="result-title">Golden adventure</div>
+                            <div class="result-author">Tracy Sinclair</div>
+                        </div>
+                    </div>
+
+                    <div class="result-item">
+                        <span class="result-rank">8.</span>
+                        <div>
+                            <div class="result-title">The Best Adventure</div>
+                            <div class="result-author">Ronald Kidd</div>
+                        </div>
+                    </div>
+
+                </div>
+            </div>
+        </div>
+
+        <div class="query manual">
+            <div class="query-header">
+                <h3>"dark atmospheric gothic horror" <span class="badge manual">MANUAL REVIEW</span></h3>
+                <div class="query-meta">Multiple mood/style/genre descriptors | Type: descriptive</div>
+            </div>
+            
+            <div class="metrics">
+                <div class="metrics-grid">
+                    <div class="metric">
+                        <span class="metric-label">Overlap (top 5):</span>
+                        <span class="metric-value">0/5</span>
+                    </div>
+                    <div class="metric">
+                        <span class="metric-label">Overlap (top 10):</span>
+                        <span class="metric-value">2/10</span>
+                    </div>
+                    <div class="metric">
+                        <span class="metric-label">Rank correlation:</span>
+                        <span class="metric-value">-1.00</span>
+                    </div>
+                </div>
+            </div>
+            
+            <div class="results-comparison">
+                <div class="result-column">
+                    <h4>Baseline Results</h4>
+
+                    <div class="result-item">
+                        <span class="result-rank">1.</span>
+                        <div>
+                            <div class="result-title">A Companion to the Gothic</div>
+                            <div class="result-author">David Punter</div>
+                        </div>
+                    </div>
+
+                    <div class="result-item">
+                        <span class="result-rank">2.</span>
+                        <div>
+                            <div class="result-title">The Dark</div>
+                            <div class="result-author">Andrew Neiderman</div>
+                        </div>
+                    </div>
+
+                    <div class="result-item">
+                        <span class="result-rank">3.</span>
+                        <div>
+                            <div class="result-title">Gothic Short Stories</div>
+                            <div class="result-author">David Blair</div>
+                        </div>
+                    </div>
+
+                    <div class="result-item">
+                        <span class="result-rank">4.</span>
+                        <div>
+                            <div class="result-title">The undead express</div>
+                            <div class="result-author">J. R. Black</div>
+                        </div>
+                    </div>
+
+                    <div class="result-item">
+                        <span class="result-rank">5.</span>
+                        <div>
+                            <div class="result-title">Night shade</div>
+                            <div class="result-author">Victoria A. Brownworth</div>
+                        </div>
+                    </div>
+
+                    <div class="result-item">
+                        <span class="result-rank">6.</span>
+                        <div>
+                            <div class="result-title">A room with dark mirrors</div>
+                            <div class="result-author">Velda Johnston</div>
+                        </div>
+                    </div>
+
+                    <div class="result-item">
+                        <span class="result-rank">7.</span>
+                        <div>
+                            <div class="result-title">GloomCookie</div>
+                            <div class="result-author">Serena Valentino</div>
+                        </div>
+                    </div>
+
+                    <div class="result-item">
+                        <span class="result-rank">8.</span>
+                        <div>
+                            <div class="result-title">The Evil Image</div>
+                            <div class="result-author">Patricia L. Skarda</div>
+                        </div>
+                    </div>
+
+                </div>
+                <div class="result-column">
+                    <h4>Enriched Results</h4>
+
+                    <div class="result-item">
+                        <span class="result-rank">1.</span>
+                        <div>
+                            <div class="result-title">World of Darkness</div>
+                            <div class="result-author">Graeme Davis</div>
+                        </div>
+                    </div>
+
+                    <div class="result-item">
+                        <span class="result-rank">2.</span>
+                        <div>
+                            <div class="result-title">Dark winds</div>
+                            <div class="result-author">Graham Watkins</div>
+                        </div>
+                    </div>
+
+                    <div class="result-item">
+                        <span class="result-rank">3.</span>
+                        <div>
+                            <div class="result-title">The Oxford Book of Gothic Tales</div>
+                            <div class="result-author">Chris Baldick</div>
+                        </div>
+                    </div>
+
+                    <div class="result-item">
+                        <span class="result-rank">4.</span>
+                        <div>
+                            <div class="result-title">The Gothic Twilight</div>
+                            <div class="result-author">Stephen-Paul Martin</div>
+                        </div>
+                    </div>
+
+                    <div class="result-item">
+                        <span class="result-rank">5.</span>
+                        <div>
+                            <div class="result-title">A Fabulous Formless Darkness</div>
+                            <div class="result-author">David G. Hartwell</div>
+                        </div>
+                    </div>
+
+                    <div class="result-item">
+                        <span class="result-rank">6.</span>
+                        <div>
+                            <div class="result-title">Gothic Short Stories</div>
+                            <div class="result-author">David Blair</div>
+                        </div>
+                    </div>
+
+                    <div class="result-item">
+                        <span class="result-rank">7.</span>
+                        <div>
+                            <div class="result-title">Darkfall</div>
+                            <div class="result-author">Stephen Laws</div>
+                        </div>
+                    </div>
+
+                    <div class="result-item">
+                        <span class="result-rank">8.</span>
+                        <div>
+                            <div class="result-title">Tales from the gothic bluebooks</div>
+                            <div class="result-author">Peter Haining</div>
+                        </div>
+                    </div>
+
+                </div>
+            </div>
+        </div>
+
+        <div class="query manual">
+            <div class="query-header">
+                <h3>"witty romantic comedy manners" <span class="badge manual">MANUAL REVIEW</span></h3>
+                <div class="query-meta">Tone + genre + style - tests Jane Austen-like books | Type: descriptive</div>
+            </div>
+            
+            <div class="metrics">
+                <div class="metrics-grid">
+                    <div class="metric">
+                        <span class="metric-label">Overlap (top 5):</span>
+                        <span class="metric-value">0/5</span>
+                    </div>
+                    <div class="metric">
+                        <span class="metric-label">Overlap (top 10):</span>
+                        <span class="metric-value">3/10</span>
+                    </div>
+                    <div class="metric">
+                        <span class="metric-label">Rank correlation:</span>
+                        <span class="metric-value">-0.50</span>
+                    </div>
+                </div>
+            </div>
+            
+            <div class="results-comparison">
+                <div class="result-column">
+                    <h4>Baseline Results</h4>
+
+                    <div class="result-item">
+                        <span class="result-rank">1.</span>
+                        <div>
+                            <div class="result-title">Funny ladies</div>
+                            <div class="result-author">Bill Adler Sr</div>
+                        </div>
+                    </div>
+
+                    <div class="result-item">
+                        <span class="result-rank">2.</span>
+                        <div>
+                            <div class="result-title">A dictionary of bad manners</div>
+                            <div class="result-author">London Ganning</div>
+                        </div>
+                    </div>
+
+                    <div class="result-item">
+                        <span class="result-rank">3.</span>
+                        <div>
+                            <div class="result-title">Lady Windermere's Fan</div>
+                            <div class="result-author">Oscar Wilde</div>
+                        </div>
+                    </div>
+
+                    <div class="result-item">
+                        <span class="result-rank">4.</span>
+                        <div>
+                            <div class="result-title">102 goofy jokes</div>
+                            <div class="result-author">Morgan Matthews</div>
+                        </div>
+                    </div>
+
+                    <div class="result-item">
+                        <span class="result-rank">5.</span>
+                        <div>
+                            <div class="result-title">The Reader's Digest Treasury of American Humor</div>
+                            <div class="result-author">Various</div>
+                        </div>
+                    </div>
+
+                    <div class="result-item">
+                        <span class="result-rank">6.</span>
+                        <div>
+                            <div class="result-title">Women who joke too much</div>
+                            <div class="result-author">Silver Rose</div>
+                        </div>
+                    </div>
+
+                    <div class="result-item">
+                        <span class="result-rank">7.</span>
+                        <div>
+                            <div class="result-title">The truly terrible joke book</div>
+                            <div class="result-author">Unknown</div>
+                        </div>
+                    </div>
+
+                    <div class="result-item">
+                        <span class="result-rank">8.</span>
+                        <div>
+                            <div class="result-title">Reader's digest treasury of humorous writing</div>
+                            <div class="result-author">Reader's Digest Association</div>
+                        </div>
+                    </div>
+
+                </div>
+                <div class="result-column">
+                    <h4>Enriched Results</h4>
+
+                    <div class="result-item">
+                        <span class="result-rank">1.</span>
+                        <div>
+                            <div class="result-title">That's funny!</div>
+                            <div class="result-author">Unknown</div>
+                        </div>
+                    </div>
+
+                    <div class="result-item">
+                        <span class="result-rank">2.</span>
+                        <div>
+                            <div class="result-title">Say "Ahhh ..."  (Bedside Manners)</div>
+                            <div class="result-author">Donna Sterling</div>
+                        </div>
+                    </div>
+
+                    <div class="result-item">
+                        <span class="result-rank">3.</span>
+                        <div>
+                            <div class="result-title">Witty women</div>
+                            <div class="result-author">Armand Eisen</div>
+                        </div>
+                    </div>
+
+                    <div class="result-item">
+                        <span class="result-rank">4.</span>
+                        <div>
+                            <div class="result-title">Four English Comedies</div>
+                            <div class="result-author">Various</div>
+                        </div>
+                    </div>
+
+                    <div class="result-item">
+                        <span class="result-rank">5.</span>
+                        <div>
+                            <div class="result-title">Witty, Wicked and Wise</div>
+                            <div class="result-author">Dominique Enright</div>
+                        </div>
+                    </div>
+
+                    <div class="result-item">
+                        <span class="result-rank">6.</span>
+                        <div>
+                            <div class="result-title">Funny ladies</div>
+                            <div class="result-author">Bill Adler Sr</div>
+                        </div>
+                    </div>
+
+                    <div class="result-item">
+                        <span class="result-rank">7.</span>
+                        <div>
+                            <div class="result-title">The Reader's Digest Treasury of American Humor</div>
+                            <div class="result-author">Various</div>
+                        </div>
+                    </div>
+
+                    <div class="result-item">
+                        <span class="result-rank">8.</span>
+                        <div>
+                            <div class="result-title">Braude's treasury of wit and humor for all occasions</div>
+                            <div class="result-author">Jacob Morton Braude</div>
+                        </div>
+                    </div>
+
+                </div>
+            </div>
+        </div>
+
+        <div class="query manual">
+            <div class="query-header">
+                <h3>"gritty realistic urban crime" <span class="badge manual">MANUAL REVIEW</span></h3>
+                <div class="query-meta">Multiple stylistic descriptors | Type: descriptive</div>
+            </div>
+            
+            <div class="metrics">
+                <div class="metrics-grid">
+                    <div class="metric">
+                        <span class="metric-label">Overlap (top 5):</span>
+                        <span class="metric-value">0/5</span>
+                    </div>
+                    <div class="metric">
+                        <span class="metric-label">Overlap (top 10):</span>
+                        <span class="metric-value">0/10</span>
+                    </div>
+                    <div class="metric">
+                        <span class="metric-label">Rank correlation:</span>
+                        <span class="metric-value">0.00</span>
+                    </div>
+                </div>
+            </div>
+            
+            <div class="results-comparison">
+                <div class="result-column">
+                    <h4>Baseline Results</h4>
+
+                    <div class="result-item">
+                        <span class="result-rank">1.</span>
+                        <div>
+                            <div class="result-title">The Best Crime Stories</div>
+                            <div class="result-author">Various</div>
+                        </div>
+                    </div>
+
+                    <div class="result-item">
+                        <span class="result-rank">2.</span>
+                        <div>
+                            <div class="result-title">Crime and punishment</div>
+                            <div class="result-author">Unknown</div>
+                        </div>
+                    </div>
+
+                    <div class="result-item">
+                        <span class="result-rank">3.</span>
+                        <div>
+                            <div class="result-title">Sharp Rise in Crime</div>
+                            <div class="result-author">John Creasey</div>
+                        </div>
+                    </div>
+
+                    <div class="result-item">
+                        <span class="result-rank">4.</span>
+                        <div>
+                            <div class="result-title">Crime and criminals</div>
+                            <div class="result-author">Paul A. Winters</div>
+                        </div>
+                    </div>
+
+                    <div class="result-item">
+                        <span class="result-rank">5.</span>
+                        <div>
+                            <div class="result-title">Crimewarps</div>
+                            <div class="result-author">Georgette Bennett</div>
+                        </div>
+                    </div>
+
+                    <div class="result-item">
+                        <span class="result-rank">6.</span>
+                        <div>
+                            <div class="result-title">Perfect Crimes</div>
+                            <div class="result-author">Unknown</div>
+                        </div>
+                    </div>
+
+                    <div class="result-item">
+                        <span class="result-rank">7.</span>
+                        <div>
+                            <div class="result-title">CRIME ZERO</div>
+                            <div class="result-author">MICHAEL CORDY</div>
+                        </div>
+                    </div>
+
+                    <div class="result-item">
+                        <span class="result-rank">8.</span>
+                        <div>
+                            <div class="result-title">SCIENCE AGAINST CRIME</div>
+                            <div class="result-author">R Stockdale</div>
+                        </div>
+                    </div>
+
+                </div>
+                <div class="result-column">
+                    <h4>Enriched Results</h4>
+
+                    <div class="result-item">
+                        <span class="result-rank">1.</span>
+                        <div>
+                            <div class="result-title">Sin City</div>
+                            <div class="result-author">Frank Miller</div>
+                        </div>
+                    </div>
+
+                    <div class="result-item">
+                        <span class="result-rank">2.</span>
+                        <div>
+                            <div class="result-title">The Breaks Uk Edition</div>
+                            <div class="result-author">Richard Price</div>
+                        </div>
+                    </div>
+
+                    <div class="result-item">
+                        <span class="result-rank">3.</span>
+                        <div>
+                            <div class="result-title">THE DEADLY STREETS</div>
+                            <div class="result-author">Harlan Ellison</div>
+                        </div>
+                    </div>
+
+                    <div class="result-item">
+                        <span class="result-rank">4.</span>
+                        <div>
+                            <div class="result-title">Mean Streets</div>
+                            <div class="result-author">Stivers</div>
+                        </div>
+                    </div>
+
+                    <div class="result-item">
+                        <span class="result-rank">5.</span>
+                        <div>
+                            <div class="result-title">Pigtown</div>
+                            <div class="result-author">William J. Caunitz</div>
+                        </div>
+                    </div>
+
+                    <div class="result-item">
+                        <span class="result-rank">6.</span>
+                        <div>
+                            <div class="result-title">Dirty Laundry</div>
+                            <div class="result-author">Pete Hamill</div>
+                        </div>
+                    </div>
+
+                    <div class="result-item">
+                        <span class="result-rank">7.</span>
+                        <div>
+                            <div class="result-title">The Young Savages</div>
+                            <div class="result-author">Unknown</div>
+                        </div>
+                    </div>
+
+                    <div class="result-item">
+                        <span class="result-rank">8.</span>
+                        <div>
+                            <div class="result-title">Sin City</div>
+                            <div class="result-author">Max Allan Collins</div>
+                        </div>
+                    </div>
+
+                </div>
+            </div>
+        </div>
+
+        <div class="query manual">
+            <div class="query-header">
+                <h3>"philosophical existential absurdist" <span class="badge manual">MANUAL REVIEW</span></h3>
+                <div class="query-meta">Literary/philosophical tone markers | Type: descriptive</div>
+            </div>
+            
+            <div class="metrics">
+                <div class="metrics-grid">
+                    <div class="metric">
+                        <span class="metric-label">Overlap (top 5):</span>
+                        <span class="metric-value">0/5</span>
+                    </div>
+                    <div class="metric">
+                        <span class="metric-label">Overlap (top 10):</span>
+                        <span class="metric-value">0/10</span>
+                    </div>
+                    <div class="metric">
+                        <span class="metric-label">Rank correlation:</span>
+                        <span class="metric-value">0.00</span>
+                    </div>
+                </div>
+            </div>
+            
+            <div class="results-comparison">
+                <div class="result-column">
+                    <h4>Baseline Results</h4>
+
+                    <div class="result-item">
+                        <span class="result-rank">1.</span>
+                        <div>
+                            <div class="result-title">Teach Yourself 101 Key Ideas</div>
+                            <div class="result-author">George Myerson</div>
+                        </div>
+                    </div>
+
+                    <div class="result-item">
+                        <span class="result-rank">2.</span>
+                        <div>
+                            <div class="result-title">Irrational man</div>
+                            <div class="result-author">William Barrett</div>
+                        </div>
+                    </div>
+
+                    <div class="result-item">
+                        <span class="result-rank">3.</span>
+                        <div>
+                            <div class="result-title">Existentialism</div>
+                            <div class="result-author">Charles B. Guignon</div>
+                        </div>
+                    </div>
+
+                    <div class="result-item">
+                        <span class="result-rank">4.</span>
+                        <div>
+                            <div class="result-title">Essays in existentialism</div>
+                            <div class="result-author">Jean-Paul Sartre</div>
+                        </div>
+                    </div>
+
+                    <div class="result-item">
+                        <span class="result-rank">5.</span>
+                        <div>
+                            <div class="result-title">Existentialism</div>
+                            <div class="result-author">Walter Arnold Kaufmann</div>
+                        </div>
+                    </div>
+
+                    <div class="result-item">
+                        <span class="result-rank">6.</span>
+                        <div>
+                            <div class="result-title">Existentialism</div>
+                            <div class="result-author">John MacQuarrie</div>
+                        </div>
+                    </div>
+
+                    <div class="result-item">
+                        <span class="result-rank">7.</span>
+                        <div>
+                            <div class="result-title">L'existentialisme est un humanisme</div>
+                            <div class="result-author">Jean-Paul Sartre</div>
+                        </div>
+                    </div>
+
+                    <div class="result-item">
+                        <span class="result-rank">8.</span>
+                        <div>
+                            <div class="result-title">L' existentialisme est un humanisme</div>
+                            <div class="result-author">Jean-Paul Sartre</div>
+                        </div>
+                    </div>
+
+                </div>
+                <div class="result-column">
+                    <h4>Enriched Results</h4>
+
+                    <div class="result-item">
+                        <span class="result-rank">1.</span>
+                        <div>
+                            <div class="result-title">Kennst du das?</div>
+                            <div class="result-author">Unknown</div>
+                        </div>
+                    </div>
+
+                    <div class="result-item">
+                        <span class="result-rank">2.</span>
+                        <div>
+                            <div class="result-title">El Principo De Peter</div>
+                            <div class="result-author">Unknown</div>
+                        </div>
+                    </div>
+
+                    <div class="result-item">
+                        <span class="result-rank">3.</span>
+                        <div>
+                            <div class="result-title">L'encyclopédie du savoir relatif et absolu</div>
+                            <div class="result-author">Bernard Werber</div>
+                        </div>
+                    </div>
+
+                    <div class="result-item">
+                        <span class="result-rank">4.</span>
+                        <div>
+                            <div class="result-title">Silvestergespräche eines Sechsecks</div>
+                            <div class="result-author">Dionys Burger</div>
+                        </div>
+                    </div>
+
+                    <div class="result-item">
+                        <span class="result-rank">5.</span>
+                        <div>
+                            <div class="result-title">C'è nessuno?</div>
+                            <div class="result-author">Jostein Gaarder</div>
+                        </div>
+                    </div>
+
+                    <div class="result-item">
+                        <span class="result-rank">6.</span>
+                        <div>
+                            <div class="result-title">Le mythe de Sisyphe</div>
+                            <div class="result-author">Albert Camus</div>
+                        </div>
+                    </div>
+
+                    <div class="result-item">
+                        <span class="result-rank">7.</span>
+                        <div>
+                            <div class="result-title">Sei froh, dass du lebst!</div>
+                            <div class="result-author">Asta Scheib</div>
+                        </div>
+                    </div>
+
+                    <div class="result-item">
+                        <span class="result-rank">8.</span>
+                        <div>
+                            <div class="result-title">Le Neveu de Rameau</div>
+                            <div class="result-author">Unknown</div>
+                        </div>
+                    </div>
+
+                </div>
+            </div>
+        </div>
+
+        <div class="query manual">
+            <div class="query-header">
+                <h3>"epic medieval fantasy quest" <span class="badge manual">MANUAL REVIEW</span></h3>
+                <div class="query-meta">Scale + setting + genre + plot | Type: descriptive</div>
+            </div>
+            
+            <div class="metrics">
+                <div class="metrics-grid">
+                    <div class="metric">
+                        <span class="metric-label">Overlap (top 5):</span>
+                        <span class="metric-value">0/5</span>
+                    </div>
+                    <div class="metric">
+                        <span class="metric-label">Overlap (top 10):</span>
+                        <span class="metric-value">2/10</span>
+                    </div>
+                    <div class="metric">
+                        <span class="metric-label">Rank correlation:</span>
+                        <span class="metric-value">1.00</span>
+                    </div>
+                </div>
+            </div>
+            
+            <div class="results-comparison">
+                <div class="result-column">
+                    <h4>Baseline Results</h4>
+
+                    <div class="result-item">
+                        <span class="result-rank">1.</span>
+                        <div>
+                            <div class="result-title">Divine Campaigns</div>
+                            <div class="result-author">Time-Life Books</div>
+                        </div>
+                    </div>
+
+                    <div class="result-item">
+                        <span class="result-rank">2.</span>
+                        <div>
+                            <div class="result-title">Sword Quest</div>
+                            <div class="result-author">Andy Dixon</div>
+                        </div>
+                    </div>
+
+                    <div class="result-item">
+                        <span class="result-rank">3.</span>
+                        <div>
+                            <div class="result-title">The quest of the Holy Grail</div>
+                            <div class="result-author">Jessie L. Weston</div>
+                        </div>
+                    </div>
+
+                    <div class="result-item">
+                        <span class="result-rank">4.</span>
+                        <div>
+                            <div class="result-title">Middle Ages Myths and Legends</div>
+                            <div class="result-author">H. A. Guerber</div>
+                        </div>
+                    </div>
+
+                    <div class="result-item">
+                        <span class="result-rank">5.</span>
+                        <div>
+                            <div class="result-title">The quest of the Holy Grail</div>
+                            <div class="result-author">Pauline Maud Matarasso</div>
+                        </div>
+                    </div>
+
+                    <div class="result-item">
+                        <span class="result-rank">6.</span>
+                        <div>
+                            <div class="result-title">Medieval Realms</div>
+                            <div class="result-author">Mason</div>
+                        </div>
+                    </div>
+
+                    <div class="result-item">
+                        <span class="result-rank">7.</span>
+                        <div>
+                            <div class="result-title">Middle Ages Myths & Legends Se</div>
+                            <div class="result-author">H. A. Guerber</div>
+                        </div>
+                    </div>
+
+                    <div class="result-item">
+                        <span class="result-rank">8.</span>
+                        <div>
+                            <div class="result-title">The mystical way and the Arthurian quest</div>
+                            <div class="result-author">Derek Bryce</div>
+                        </div>
+                    </div>
+
+                </div>
+                <div class="result-column">
+                    <h4>Enriched Results</h4>
+
+                    <div class="result-item">
+                        <span class="result-rank">1.</span>
+                        <div>
+                            <div class="result-title">Grail Quest.Bk.3</div>
+                            <div class="result-author">J.H. Brennan</div>
+                        </div>
+                    </div>
+
+                    <div class="result-item">
+                        <span class="result-rank">2.</span>
+                        <div>
+                            <div class="result-title">Final Quest</div>
+                            <div class="result-author">Richard Monaco</div>
+                        </div>
+                    </div>
+
+                    <div class="result-item">
+                        <span class="result-rank">3.</span>
+                        <div>
+                            <div class="result-title">I tre cavalieri del Graal</div>
+                            <div class="result-author">Laura Mancinelli</div>
+                        </div>
+                    </div>
+
+                    <div class="result-item">
+                        <span class="result-rank">4.</span>
+                        <div>
+                            <div class="result-title">Kingdom of the Grail</div>
+                            <div class="result-author">Unknown</div>
+                        </div>
+                    </div>
+
+                    <div class="result-item">
+                        <span class="result-rank">5.</span>
+                        <div>
+                            <div class="result-title">Kingsgate</div>
+                            <div class="result-author">Keith Parkinson</div>
+                        </div>
+                    </div>
+
+                    <div class="result-item">
+                        <span class="result-rank">6.</span>
+                        <div>
+                            <div class="result-title">Sword Quest</div>
+                            <div class="result-author">Andy Dixon</div>
+                        </div>
+                    </div>
+
+                    <div class="result-item">
+                        <span class="result-rank">7.</span>
+                        <div>
+                            <div class="result-title">The quest of the Holy Grail</div>
+                            <div class="result-author">Pauline Maud Matarasso</div>
+                        </div>
+                    </div>
+
+                    <div class="result-item">
+                        <span class="result-rank">8.</span>
+                        <div>
+                            <div class="result-title">The sword and the lion</div>
+                            <div class="result-author">Roberta Cray</div>
+                        </div>
+                    </div>
+
+                </div>
+            </div>
+        </div>
+
+        <div class="query manual">
+            <div class="query-header">
+                <h3>"Victorian detective solving murders foggy London" <span class="badge manual">MANUAL REVIEW</span></h3>
+                <div class="query-meta">Specific era, character type, setting, plot - tests Sherlock Holmes-like books | Type: thematic</div>
+            </div>
+            
+            <div class="metrics">
+                <div class="metrics-grid">
+                    <div class="metric">
+                        <span class="metric-label">Overlap (top 5):</span>
+                        <span class="metric-value">0/5</span>
+                    </div>
+                    <div class="metric">
+                        <span class="metric-label">Overlap (top 10):</span>
+                        <span class="metric-value">0/10</span>
+                    </div>
+                    <div class="metric">
+                        <span class="metric-label">Rank correlation:</span>
+                        <span class="metric-value">0.00</span>
+                    </div>
+                </div>
+            </div>
+            
+            <div class="results-comparison">
+                <div class="result-column">
+                    <h4>Baseline Results</h4>
+
+                    <div class="result-item">
+                        <span class="result-rank">1.</span>
+                        <div>
+                            <div class="result-title">The soft detective</div>
+                            <div class="result-author">H. R. F. Keating</div>
+                        </div>
+                    </div>
+
+                    <div class="result-item">
+                        <span class="result-rank">2.</span>
+                        <div>
+                            <div class="result-title">Crime in question</div>
+                            <div class="result-author">Margaret Yorke</div>
+                        </div>
+                    </div>
+
+                    <div class="result-item">
+                        <span class="result-rank">3.</span>
+                        <div>
+                            <div class="result-title">SCENE OF THE CRIME: A GUIDE TO THE LANDSCAPES OF BRITISH DETECTIVE FICTION</div>
+                            <div class="result-author">JULIAN EARWAKER</div>
+                        </div>
+                    </div>
+
+                    <div class="result-item">
+                        <span class="result-rank">4.</span>
+                        <div>
+                            <div class="result-title">Murder Among Friends</div>
+                            <div class="result-author">Elizabeth Ferrars</div>
+                        </div>
+                    </div>
+
+                    <div class="result-item">
+                        <span class="result-rank">5.</span>
+                        <div>
+                            <div class="result-title">London After Midnight</div>
+                            <div class="result-author">Peter Haining</div>
+                        </div>
+                    </div>
+
+                    <div class="result-item">
+                        <span class="result-rank">6.</span>
+                        <div>
+                            <div class="result-title">Red herrings</div>
+                            <div class="result-author">Tim Heald</div>
+                        </div>
+                    </div>
+
+                    <div class="result-item">
+                        <span class="result-rank">7.</span>
+                        <div>
+                            <div class="result-title">Belgrave Square</div>
+                            <div class="result-author">Anne Perry</div>
+                        </div>
+                    </div>
+
+                    <div class="result-item">
+                        <span class="result-rank">8.</span>
+                        <div>
+                            <div class="result-title">The Detective of London</div>
+                            <div class="result-author">Robert Kraus</div>
+                        </div>
+                    </div>
+
+                </div>
+                <div class="result-column">
+                    <h4>Enriched Results</h4>
+
+                    <div class="result-item">
+                        <span class="result-rank">1.</span>
+                        <div>
+                            <div class="result-title">Study in Scarlet</div>
+                            <div class="result-author">Unknown</div>
+                        </div>
+                    </div>
+
+                    <div class="result-item">
+                        <span class="result-rank">2.</span>
+                        <div>
+                            <div class="result-title">L'étrangleur de Cater Street</div>
+                            <div class="result-author">Anne Perry - undifferentiated</div>
+                        </div>
+                    </div>
+
+                    <div class="result-item">
+                        <span class="result-rank">3.</span>
+                        <div>
+                            <div class="result-title">London Particular</div>
+                            <div class="result-author">Christianna Brand</div>
+                        </div>
+                    </div>
+
+                    <div class="result-item">
+                        <span class="result-rank">4.</span>
+                        <div>
+                            <div class="result-title">Flowers for the judge</div>
+                            <div class="result-author">Margery Allingham</div>
+                        </div>
+                    </div>
+
+                    <div class="result-item">
+                        <span class="result-rank">5.</span>
+                        <div>
+                            <div class="result-title">Southampton Row (Inspector Pitt)</div>
+                            <div class="result-author">Anne Perry</div>
+                        </div>
+                    </div>
+
+                    <div class="result-item">
+                        <span class="result-rank">6.</span>
+                        <div>
+                            <div class="result-title">Murder guide to London</div>
+                            <div class="result-author">Martin Fido</div>
+                        </div>
+                    </div>
+
+                    <div class="result-item">
+                        <span class="result-rank">7.</span>
+                        <div>
+                            <div class="result-title">Crimenes de Cater Street, Los</div>
+                            <div class="result-author">Anne Perry</div>
+                        </div>
+                    </div>
+
+                    <div class="result-item">
+                        <span class="result-rank">8.</span>
+                        <div>
+                            <div class="result-title">Southampton Row</div>
+                            <div class="result-author">Anne Perry</div>
+                        </div>
+                    </div>
+
+                </div>
+            </div>
+        </div>
+
+        <div class="query manual">
+            <div class="query-header">
+                <h3>"dystopian totalitarian surveillance mind control" <span class="badge manual">MANUAL REVIEW</span></h3>
+                <div class="query-meta">Multi-concept dystopian themes - tests 1984-like books | Type: thematic</div>
+            </div>
+            
+            <div class="metrics">
+                <div class="metrics-grid">
+                    <div class="metric">
+                        <span class="metric-label">Overlap (top 5):</span>
+                        <span class="metric-value">1/5</span>
+                    </div>
+                    <div class="metric">
+                        <span class="metric-label">Overlap (top 10):</span>
+                        <span class="metric-value">3/10</span>
+                    </div>
+                    <div class="metric">
+                        <span class="metric-label">Rank correlation:</span>
+                        <span class="metric-value">0.50</span>
+                    </div>
+                </div>
+            </div>
+            
+            <div class="results-comparison">
+                <div class="result-column">
+                    <h4>Baseline Results</h4>
+
+                    <div class="result-item">
+                        <span class="result-rank">1.</span>
+                        <div>
+                            <div class="result-title">The Surveillance</div>
+                            <div class="result-author">Julian May</div>
+                        </div>
+                    </div>
+
+                    <div class="result-item">
+                        <span class="result-rank">2.</span>
+                        <div>
+                            <div class="result-title">Mind Control, World Control</div>
+                            <div class="result-author">Jim Keith</div>
+                        </div>
+                    </div>
+
+                    <div class="result-item">
+                        <span class="result-rank">3.</span>
+                        <div>
+                            <div class="result-title">Powers of mind</div>
+                            <div class="result-author">George J. W. Goodman</div>
+                        </div>
+                    </div>
+
+                    <div class="result-item">
+                        <span class="result-rank">4.</span>
+                        <div>
+                            <div class="result-title">The society of mind</div>
+                            <div class="result-author">Marvin Minsky</div>
+                        </div>
+                    </div>
+
+                    <div class="result-item">
+                        <span class="result-rank">5.</span>
+                        <div>
+                            <div class="result-title">Everyday Surveillance</div>
+                            <div class="result-author">William G. Staples</div>
+                        </div>
+                    </div>
+
+                    <div class="result-item">
+                        <span class="result-rank">6.</span>
+                        <div>
+                            <div class="result-title">Brainwashing and other forms of mind control</div>
+                            <div class="result-author">Margaret O. Hyde</div>
+                        </div>
+                    </div>
+
+                    <div class="result-item">
+                        <span class="result-rank">7.</span>
+                        <div>
+                            <div class="result-title">Society of the Mind</div>
+                            <div class="result-author">Eric L. Harry</div>
+                        </div>
+                    </div>
+
+                    <div class="result-item">
+                        <span class="result-rank">8.</span>
+                        <div>
+                            <div class="result-title">Ecstasy Club</div>
+                            <div class="result-author">Douglas Rushkoff</div>
+                        </div>
+                    </div>
+
+                </div>
+                <div class="result-column">
+                    <h4>Enriched Results</h4>
+
+                    <div class="result-item">
+                        <span class="result-rank">1.</span>
+                        <div>
+                            <div class="result-title">Ypsilon minus</div>
+                            <div class="result-author">Herbert W. Franke</div>
+                        </div>
+                    </div>
+
+                    <div class="result-item">
+                        <span class="result-rank">2.</span>
+                        <div>
+                            <div class="result-title">Nineteen Eighty-Four</div>
+                            <div class="result-author">George Orwell</div>
+                        </div>
+                    </div>
+
+                    <div class="result-item">
+                        <span class="result-rank">3.</span>
+                        <div>
+                            <div class="result-title">1984</div>
+                            <div class="result-author">Unknown</div>
+                        </div>
+                    </div>
+
+                    <div class="result-item">
+                        <span class="result-rank">4.</span>
+                        <div>
+                            <div class="result-title">Mind Control, World Control</div>
+                            <div class="result-author">Jim Keith</div>
+                        </div>
+                    </div>
+
+                    <div class="result-item">
+                        <span class="result-rank">5.</span>
+                        <div>
+                            <div class="result-title">Мы</div>
+                            <div class="result-author">Евгений Иванович Замятин</div>
+                        </div>
+                    </div>
+
+                    <div class="result-item">
+                        <span class="result-rank">6.</span>
+                        <div>
+                            <div class="result-title">The Surveillance</div>
+                            <div class="result-author">Julian May</div>
+                        </div>
+                    </div>
+
+                    <div class="result-item">
+                        <span class="result-rank">7.</span>
+                        <div>
+                            <div class="result-title">The mind killers</div>
+                            <div class="result-author">Nick Carter</div>
+                        </div>
+                    </div>
+
+                    <div class="result-item">
+                        <span class="result-rank">8.</span>
+                        <div>
+                            <div class="result-title">The transparent society</div>
+                            <div class="result-author">David Brin</div>
+                        </div>
+                    </div>
+
+                </div>
+            </div>
+        </div>
+
+        <div class="query manual">
+            <div class="query-header">
+                <h3>"space exploration alien first contact consequences" <span class="badge manual">MANUAL REVIEW</span></h3>
+                <div class="query-meta">Sci-fi plot with multiple concepts | Type: thematic</div>
+            </div>
+            
+            <div class="metrics">
+                <div class="metrics-grid">
+                    <div class="metric">
+                        <span class="metric-label">Overlap (top 5):</span>
+                        <span class="metric-value">1/5</span>
+                    </div>
+                    <div class="metric">
+                        <span class="metric-label">Overlap (top 10):</span>
+                        <span class="metric-value">3/10</span>
+                    </div>
+                    <div class="metric">
+                        <span class="metric-label">Rank correlation:</span>
+                        <span class="metric-value">0.50</span>
+                    </div>
+                </div>
+            </div>
+            
+            <div class="results-comparison">
+                <div class="result-column">
+                    <h4>Baseline Results</h4>
+
+                    <div class="result-item">
+                        <span class="result-rank">1.</span>
+                        <div>
+                            <div class="result-title">First Contact</div>
+                            <div class="result-author">Various</div>
+                        </div>
+                    </div>
+
+                    <div class="result-item">
+                        <span class="result-rank">2.</span>
+                        <div>
+                            <div class="result-title">Contact</div>
+                            <div class="result-author">Daniel Cohen</div>
+                        </div>
+                    </div>
+
+                    <div class="result-item">
+                        <span class="result-rank">3.</span>
+                        <div>
+                            <div class="result-title">The contact has begun</div>
+                            <div class="result-author">Phillip H. Krapf</div>
+                        </div>
+                    </div>
+
+                    <div class="result-item">
+                        <span class="result-rank">4.</span>
+                        <div>
+                            <div class="result-title">Contact</div>
+                            <div class="result-author">Carl Sagan</div>
+                        </div>
+                    </div>
+
+                    <div class="result-item">
+                        <span class="result-rank">5.</span>
+                        <div>
+                            <div class="result-title">Strange encounters</div>
+                            <div class="result-author">Curt Sutherly</div>
+                        </div>
+                    </div>
+
+                    <div class="result-item">
+                        <span class="result-rank">6.</span>
+                        <div>
+                            <div class="result-title">Second Contact</div>
+                            <div class="result-author">J. D. Austin</div>
+                        </div>
+                    </div>
+
+                    <div class="result-item">
+                        <span class="result-rank">7.</span>
+                        <div>
+                            <div class="result-title">Aliens</div>
+                            <div class="result-author">Damon Wilson</div>
+                        </div>
+                    </div>
+
+                    <div class="result-item">
+                        <span class="result-rank">8.</span>
+                        <div>
+                            <div class="result-title">Spaceways 1 Of Alien</div>
+                            <div class="result-author">Andrew J. Offutt</div>
+                        </div>
+                    </div>
+
+                </div>
+                <div class="result-column">
+                    <h4>Enriched Results</h4>
+
+                    <div class="result-item">
+                        <span class="result-rank">1.</span>
+                        <div>
+                            <div class="result-title">First Contact</div>
+                            <div class="result-author">Various</div>
+                        </div>
+                    </div>
+
+                    <div class="result-item">
+                        <span class="result-rank">2.</span>
+                        <div>
+                            <div class="result-title">CONTACT</div>
+                            <div class="result-author">Unknown</div>
+                        </div>
+                    </div>
+
+                    <div class="result-item">
+                        <span class="result-rank">3.</span>
+                        <div>
+                            <div class="result-title">First contact</div>
+                            <div class="result-author">Bob Connolly</div>
+                        </div>
+                    </div>
+
+                    <div class="result-item">
+                        <span class="result-rank">4.</span>
+                        <div>
+                            <div class="result-title">First Contact (Point SF S.)</div>
+                            <div class="result-author">Nigel Robinson</div>
+                        </div>
+                    </div>
+
+                    <div class="result-item">
+                        <span class="result-rank">5.</span>
+                        <div>
+                            <div class="result-title">Contact</div>
+                            <div class="result-author">Susan Grant</div>
+                        </div>
+                    </div>
+
+                    <div class="result-item">
+                        <span class="result-rank">6.</span>
+                        <div>
+                            <div class="result-title">Contact</div>
+                            <div class="result-author">Louis Weiss</div>
+                        </div>
+                    </div>
+
+                    <div class="result-item">
+                        <span class="result-rank">7.</span>
+                        <div>
+                            <div class="result-title">First Contact</div>
+                            <div class="result-author">Damon Knight</div>
+                        </div>
+                    </div>
+
+                    <div class="result-item">
+                        <span class="result-rank">8.</span>
+                        <div>
+                            <div class="result-title">Contacting Aliens</div>
+                            <div class="result-author">David Brin</div>
+                        </div>
+                    </div>
+
+                </div>
+            </div>
+        </div>
+
+        <div class="query manual">
+            <div class="query-header">
+                <h3>"coming of age small town America 1950s" <span class="badge manual">MANUAL REVIEW</span></h3>
+                <div class="query-meta">Theme + setting + time period | Type: thematic</div>
+            </div>
+            
+            <div class="metrics">
+                <div class="metrics-grid">
+                    <div class="metric">
+                        <span class="metric-label">Overlap (top 5):</span>
+                        <span class="metric-value">1/5</span>
+                    </div>
+                    <div class="metric">
+                        <span class="metric-label">Overlap (top 10):</span>
+                        <span class="metric-value">2/10</span>
+                    </div>
+                    <div class="metric">
+                        <span class="metric-label">Rank correlation:</span>
+                        <span class="metric-value">1.00</span>
+                    </div>
+                </div>
+            </div>
+            
+            <div class="results-comparison">
+                <div class="result-column">
+                    <h4>Baseline Results</h4>
+
+                    <div class="result-item">
+                        <span class="result-rank">1.</span>
+                        <div>
+                            <div class="result-title">Our smallest towns</div>
+                            <div class="result-author">Dennis Kitchen</div>
+                        </div>
+                    </div>
+
+                    <div class="result-item">
+                        <span class="result-rank">2.</span>
+                        <div>
+                            <div class="result-title">My kind of town</div>
+                            <div class="result-author">Eric Burnette</div>
+                        </div>
+                    </div>
+
+                    <div class="result-item">
+                        <span class="result-rank">3.</span>
+                        <div>
+                            <div class="result-title">A short history of a small place</div>
+                            <div class="result-author">T. R. Pearson</div>
+                        </div>
+                    </div>
+
+                    <div class="result-item">
+                        <span class="result-rank">4.</span>
+                        <div>
+                            <div class="result-title">Boomtowns</div>
+                            <div class="result-author">Robert W. Shapley</div>
+                        </div>
+                    </div>
+
+                    <div class="result-item">
+                        <span class="result-rank">5.</span>
+                        <div>
+                            <div class="result-title">Secrets of a small town</div>
+                            <div class="result-author">Jerry Biederman</div>
+                        </div>
+                    </div>
+
+                    <div class="result-item">
+                        <span class="result-rank">6.</span>
+                        <div>
+                            <div class="result-title">The Town</div>
+                            <div class="result-author">Bentley Little</div>
+                        </div>
+                    </div>
+
+                    <div class="result-item">
+                        <span class="result-rank">7.</span>
+                        <div>
+                            <div class="result-title">Suburban Nation</div>
+                            <div class="result-author">Andres Duany</div>
+                        </div>
+                    </div>
+
+                    <div class="result-item">
+                        <span class="result-rank">8.</span>
+                        <div>
+                            <div class="result-title">Rise of Cities (TimeFrame)</div>
+                            <div class="result-author">Time-Life Books</div>
+                        </div>
+                    </div>
+
+                </div>
+                <div class="result-column">
+                    <h4>Enriched Results</h4>
+
+                    <div class="result-item">
+                        <span class="result-rank">1.</span>
+                        <div>
+                            <div class="result-title">Our smallest towns</div>
+                            <div class="result-author">Dennis Kitchen</div>
+                        </div>
+                    </div>
+
+                    <div class="result-item">
+                        <span class="result-rank">2.</span>
+                        <div>
+                            <div class="result-title">Townsmen</div>
+                            <div class="result-author">Unknown</div>
+                        </div>
+                    </div>
+
+                    <div class="result-item">
+                        <span class="result-rank">3.</span>
+                        <div>
+                            <div class="result-title">Home Town</div>
+                            <div class="result-author">Tracy Kidder</div>
+                        </div>
+                    </div>
+
+                    <div class="result-item">
+                        <span class="result-rank">4.</span>
+                        <div>
+                            <div class="result-title">Come next spring</div>
+                            <div class="result-author">Alana White</div>
+                        </div>
+                    </div>
+
+                    <div class="result-item">
+                        <span class="result-rank">5.</span>
+                        <div>
+                            <div class="result-title">The villagers</div>
+                            <div class="result-author">Field, Edward</div>
+                        </div>
+                    </div>
+
+                    <div class="result-item">
+                        <span class="result-rank">6.</span>
+                        <div>
+                            <div class="result-title">A short history of a small place</div>
+                            <div class="result-author">T. R. Pearson</div>
+                        </div>
+                    </div>
+
+                    <div class="result-item">
+                        <span class="result-rank">7.</span>
+                        <div>
+                            <div class="result-title">Coming attractions</div>
+                            <div class="result-author">Fannie Flagg</div>
+                        </div>
+                    </div>
+
+                    <div class="result-item">
+                        <span class="result-rank">8.</span>
+                        <div>
+                            <div class="result-title">Main Street</div>
+                            <div class="result-author">Susan E. Kirby</div>
+                        </div>
+                    </div>
+
+                </div>
+            </div>
+        </div>
+
+        <div class="query manual">
+            <div class="query-header">
+                <h3>"World War 2 French resistance underground fighter" <span class="badge manual">MANUAL REVIEW</span></h3>
+                <div class="query-meta">Historical period + location + specific role/plot | Type: thematic</div>
+            </div>
+            
+            <div class="metrics">
+                <div class="metrics-grid">
+                    <div class="metric">
+                        <span class="metric-label">Overlap (top 5):</span>
+                        <span class="metric-value">2/5</span>
+                    </div>
+                    <div class="metric">
+                        <span class="metric-label">Overlap (top 10):</span>
+                        <span class="metric-value">3/10</span>
+                    </div>
+                    <div class="metric">
+                        <span class="metric-label">Rank correlation:</span>
+                        <span class="metric-value">0.50</span>
+                    </div>
+                </div>
+            </div>
+            
+            <div class="results-comparison">
+                <div class="result-column">
+                    <h4>Baseline Results</h4>
+
+                    <div class="result-item">
+                        <span class="result-rank">1.</span>
+                        <div>
+                            <div class="result-title">Jacques and Lotka</div>
+                            <div class="result-author">Aude Yung-de- Prevaux</div>
+                        </div>
+                    </div>
+
+                    <div class="result-item">
+                        <span class="result-rank">2.</span>
+                        <div>
+                            <div class="result-title">Jesper</div>
+                            <div class="result-author">Carol Matas</div>
+                        </div>
+                    </div>
+
+                    <div class="result-item">
+                        <span class="result-rank">3.</span>
+                        <div>
+                            <div class="result-title">Le printemps viendra du ciel</div>
+                            <div class="result-author">Michel Jeury</div>
+                        </div>
+                    </div>
+
+                    <div class="result-item">
+                        <span class="result-rank">4.</span>
+                        <div>
+                            <div class="result-title">Dizionario della Resistenza italiana</div>
+                            <div class="result-author">Massimo Rendina</div>
+                        </div>
+                    </div>
+
+                    <div class="result-item">
+                        <span class="result-rank">5.</span>
+                        <div>
+                            <div class="result-title">En la "Resistencia" francesa</div>
+                            <div class="result-author">Sixto Agudo</div>
+                        </div>
+                    </div>
+
+                    <div class="result-item">
+                        <span class="result-rank">6.</span>
+                        <div>
+                            <div class="result-title">Oorlogswinter</div>
+                            <div class="result-author">Jan Terlouw</div>
+                        </div>
+                    </div>
+
+                    <div class="result-item">
+                        <span class="result-rank">7.</span>
+                        <div>
+                            <div class="result-title">Unarmed against Hitler</div>
+                            <div class="result-author">Jacques Sémelin</div>
+                        </div>
+                    </div>
+
+                    <div class="result-item">
+                        <span class="result-rank">8.</span>
+                        <div>
+                            <div class="result-title">Resistance</div>
+                            <div class="result-author">Anita Shreve</div>
+                        </div>
+                    </div>
+
+                </div>
+                <div class="result-column">
+                    <h4>Enriched Results</h4>
+
+                    <div class="result-item">
+                        <span class="result-rank">1.</span>
+                        <div>
+                            <div class="result-title">Jacques and Lotka</div>
+                            <div class="result-author">Aude Yung-de- Prevaux</div>
+                        </div>
+                    </div>
+
+                    <div class="result-item">
+                        <span class="result-rank">2.</span>
+                        <div>
+                            <div class="result-title">En la "Resistencia" francesa</div>
+                            <div class="result-author">Sixto Agudo</div>
+                        </div>
+                    </div>
+
+                    <div class="result-item">
+                        <span class="result-rank">3.</span>
+                        <div>
+                            <div class="result-title">Free Frenchman</div>
+                            <div class="result-author">Piers Paul Read</div>
+                        </div>
+                    </div>
+
+                    <div class="result-item">
+                        <span class="result-rank">4.</span>
+                        <div>
+                            <div class="result-title">La face cachée du Monde</div>
+                            <div class="result-author">Pierre Péan</div>
+                        </div>
+                    </div>
+
+                    <div class="result-item">
+                        <span class="result-rank">5.</span>
+                        <div>
+                            <div class="result-title">La nuit du décret</div>
+                            <div class="result-author">Michel Del Castillo</div>
+                        </div>
+                    </div>
+
+                    <div class="result-item">
+                        <span class="result-rank">6.</span>
+                        <div>
+                            <div class="result-title">Le Rapport Gabriel</div>
+                            <div class="result-author">Jean Dormesson</div>
+                        </div>
+                    </div>
+
+                    <div class="result-item">
+                        <span class="result-rank">7.</span>
+                        <div>
+                            <div class="result-title">Le jour ne se lève pas pour nous</div>
+                            <div class="result-author">Robert Merle</div>
+                        </div>
+                    </div>
+
+                    <div class="result-item">
+                        <span class="result-rank">8.</span>
+                        <div>
+                            <div class="result-title">Berg et Beck</div>
+                            <div class="result-author">Robert Bober</div>
+                        </div>
+                    </div>
+
+                </div>
+            </div>
+        </div>
+
+    </div>
+</body>
+</html>
