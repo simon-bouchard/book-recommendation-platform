@@ -9,11 +9,11 @@ from app.enrichment.quality_classifier import get_tier_requirements
 
 
 class EnrichmentPayload(BaseModel):
-    """Validated enrichment output."""
-    subjects: List[str] = Field(..., min_length=0, max_length=15)
-    tone_ids: List[int] = Field(..., min_length=0, max_length=5)
-    genre_id: int = Field(..., ge=1)  # Changed from genre slug to genre_id
-    genre: str = Field(..., min_length=1)  # Keep slug for database storage
+    """Validated enrichment output - only checks structure, not business logic."""
+    subjects: List[str] = Field(default_factory=list)
+    tone_ids: List[int] = Field(default_factory=list)
+    genre_id: int  # No constraints - validator checks if it's valid
+    genre: str = Field(default="")  # No min_length - validator checks
     vibe: str = Field(default="", max_length=500)
 
 
@@ -47,7 +47,14 @@ def validate_payload(
     try:
         payload = EnrichmentPayload(**data)
     except Exception as e:
-        raise ValueError(f"[{tier}] Invalid payload structure: {e}")
+        # This catches structural issues: missing fields, wrong types, etc.
+        error_msg = str(e)
+        if "field required" in error_msg.lower():
+            raise ValueError(f"[{tier}] Missing required field: {error_msg}")
+        elif "not a valid" in error_msg.lower():
+            raise ValueError(f"[{tier}] Wrong field type: {error_msg}")
+        else:
+            raise ValueError(f"[{tier}] Invalid payload structure: {error_msg}")
     
     # ========================================================================
     # SUBJECTS VALIDATION

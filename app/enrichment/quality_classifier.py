@@ -364,7 +364,7 @@ def get_tier_requirements(tier: str) -> Dict[str, Any]:
     """
     requirements = {
         "RICH": {
-            "subjects": {"min": 5, "max": 8, "required": True},
+            "subjects": {"min": 5, "max": 10, "required": True},
             "tones": {"min": 2, "max": 3, "required": True},
             "vibe": {"min_words": 8, "max_words": 20, "required": True},
             "genre": {"required": True},

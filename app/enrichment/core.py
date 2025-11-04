@@ -122,7 +122,7 @@ def normalize_tone_ids(raw: dict, slug2id: dict) -> list[int]:
 
 def normalize_genre(raw: dict, id_to_slug: dict, slug_to_id: dict) -> Tuple[int, str]:
     """
-    Normalize genre field - handles both genre_id (new) and genre slug (legacy).
+    Map genre between ID and slug formats (no validation - validator handles that).
     
     Args:
         raw: LLM response dict
@@ -133,7 +133,7 @@ def normalize_genre(raw: dict, id_to_slug: dict, slug_to_id: dict) -> Tuple[int,
         (genre_id, genre_slug) tuple
     
     Raises:
-        ValueError if genre is missing or invalid
+        ValueError only for missing fields or type errors
     """
     # Try new format first (genre_id)
     if "genre_id" in raw:
@@ -141,10 +141,8 @@ def normalize_genre(raw: dict, id_to_slug: dict, slug_to_id: dict) -> Tuple[int,
         if not isinstance(genre_id, int):
             raise ValueError(f"genre_id must be integer, got {type(genre_id)}")
         
-        if genre_id not in id_to_slug:
-            raise ValueError(f"Invalid genre_id: {genre_id}")
-        
-        genre_slug = id_to_slug[genre_id]
+        # Map to slug (validator will check if ID is valid)
+        genre_slug = id_to_slug.get(genre_id, f"invalid-{genre_id}")
         return genre_id, genre_slug
     
     # Fall back to legacy format (genre slug)
@@ -153,10 +151,8 @@ def normalize_genre(raw: dict, id_to_slug: dict, slug_to_id: dict) -> Tuple[int,
         if not isinstance(genre_slug, str):
             raise ValueError(f"genre must be string, got {type(genre_slug)}")
         
-        if genre_slug not in slug_to_id:
-            raise ValueError(f"Invalid genre slug: '{genre_slug}'")
-        
-        genre_id = slug_to_id[genre_slug]
+        # Map to ID (validator will check if slug is valid)
+        genre_id = slug_to_id.get(genre_slug, 0)
         return genre_id, genre_slug
     
     else:

@@ -13,11 +13,18 @@ SYSTEM = """You are a book metadata enrichment assistant. Your task is to analyz
 - Follow tier-specific requirements exactly
 
 **Output Format:**
+CRITICAL: Return ONLY valid JSON. No explanations, no markdown, no extra text before or after.
+
 Always return valid JSON with these exact fields:
 - subjects: array of strings (unique noun phrases)
 - tone_ids: array of integers (tone IDs from provided list)
 - genre_id: single integer (genre ID from provided list)
 - vibe: string (descriptive phrase, length depends on tier)
+
+DO NOT include any text outside the JSON object.
+DO NOT add explanations or notes.
+DO NOT use markdown code blocks.
+Just return the raw JSON object.
 
 **Critical:** Count your words carefully for vibe field. Responses with incorrect word counts will be rejected."""
 
@@ -191,6 +198,8 @@ DESCRIPTION: {description if description else "(no description available)"}
 {"Count your words! SPARSE tier requires EXACTLY 4-8 words (or empty if uncertain)." if tier == "SPARSE" else ""}
 {"NO vibe allowed for this tier - use empty string." if tier in ("MINIMAL", "BASIC") else ""}
 
+CRITICAL: Return ONLY the JSON object below. No explanations. No markdown. No extra text.
+
 Return JSON:
 {{"subjects": [...], "tone_ids": [11, 3, 14], "genre_id": 5, "vibe": "text or empty"}}"""
     
@@ -289,6 +298,8 @@ DESCRIPTION: {description if description else "(no description available)"}
 **Reminder - Use IDs not slugs:**
 • tone_ids: use integers like [11, 3, 14]
 • genre_id: use single integer like 5
+
+CRITICAL: Return ONLY the JSON object below. No explanations. No markdown. No extra text.
 
 Return corrected JSON:
 {{"subjects": [...], "tone_ids": [11, 3, 14], "genre_id": 5, "vibe": "corrected text or empty"}}"""

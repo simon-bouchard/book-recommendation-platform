@@ -72,25 +72,62 @@ def ensure_enrichment_ready() -> None:
 def _extract_json(raw: str) -> str:
     """
     Extract JSON from LLM response, handling:
+    - Clean JSON (expected after prompt improvements)
     - Markdown code blocks: ```json\n{...}\n```
-    - Plain JSON
-    - Text before/after JSON
+    - Multiple JSON objects (returns the last valid one)
+    - Explanatory text before/after JSON
     """
     if not raw or not raw.strip():
         raise ValueError("Empty response from LLM")
     
-    # Try to extract from markdown code block first
-    json_block_match = re.search(r'```(?:json)?\s*\n?(.*?)\n?```', raw, re.DOTALL)
-    if json_block_match:
-        return json_block_match.group(1).strip()
+    raw = raw.strip()
     
-    # Try to find JSON object boundaries
-    json_match = re.search(r'\{.*\}', raw, re.DOTALL)
-    if json_match:
-        return json_match.group(0)
+    # Fast path: clean JSON (should be common after prompt fix)
+    if raw.startswith('{') and raw.endswith('}'):
+        try:
+            json.loads(raw)
+            return raw
+        except:
+            pass  # Fall through to more aggressive parsing
     
-    # If nothing found, return as-is and let JSON parser fail with better error
-    return raw.strip()
+    # Extract from markdown code blocks
+    json_blocks = re.findall(r'```(?:json)?\s*\n?(.*?)\n?```', raw, re.DOTALL)
+    if json_blocks:
+        # Try each block from last to first (prefer later corrections)
+        for block in reversed(json_blocks):
+            block = block.strip()
+            try:
+                json.loads(block)
+                return block
+            except:
+                continue
+    
+    # Find all JSON-like objects (balanced braces)
+    # This handles "text before {json} text after" and multiple JSON objects
+    depth = 0
+    start = None
+    candidates = []
+    
+    for i, char in enumerate(raw):
+        if char == '{':
+            if depth == 0:
+                start = i
+            depth += 1
+        elif char == '}':
+            depth -= 1
+            if depth == 0 and start is not None:
+                candidates.append(raw[start:i+1])
+                start = None
+    
+    # Try candidates from last to first (prefer later corrections)
+    for candidate in reversed(candidates):
+        try:
+            json.loads(candidate)
+            return candidate
+        except:
+            continue
+    
+    raise ValueError(f"No valid JSON found in response (first 300 chars): {raw[:300]}")
 
 
 def call_enrichment_llm(system: str, user: str) -> Tuple[Dict[str, Any], Dict[str, Any], int]:
