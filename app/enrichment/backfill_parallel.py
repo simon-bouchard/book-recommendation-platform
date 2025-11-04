@@ -258,7 +258,7 @@ def main(
         ensure_enrichment_ready()
     
     tone_rows, tone_slugs, valid_tone_ids, slug2id = load_tones(ONTOLOGY_VERSION)
-    genre_rows, genre_slugs_line, valid_genre_slugs = load_genres()
+    genre_rows, genre_id_slugs_line, valid_genre_ids, genre_id2slug, genre_slug2id = load_genres()
     
     with SessionLocal() as db:
         # Auto-detect previous run and create new run_id
@@ -328,8 +328,9 @@ def main(
         
         # Use shared enrichment logic
         result, error = enrich_with_retry(
-            rec, slug2id, valid_tone_ids, valid_genre_slugs,
-            tone_slugs, genre_slugs_line,
+            rec, slug2id, valid_tone_ids, valid_genre_ids,
+            genre_id2slug, genre_slug2id,
+            tone_slugs, genre_id_slugs_line,
             ontology_version=ONTOLOGY_VERSION,
             tags_version=VERSION_TAG
         )

@@ -99,7 +99,7 @@ def main(limit: Optional[int] = None, sleep_s: float = 0.0, workers: int = 1):
     ensure_enrichment_ready()
     
     tone_rows, tone_slugs, valid_tone_ids, slug2id = load_tones(ONTOLOGY_VERSION)
-    genre_rows, genre_slugs_line, valid_genre_slugs = load_genres()
+    genre_rows, genre_id_slugs_line, valid_genre_ids, genre_id2slug, genre_slug2id = load_genres()
     
     producer = EnrichmentProducer(enable_kafka=True)
     
@@ -119,24 +119,27 @@ def main(limit: Optional[int] = None, sleep_s: float = 0.0, workers: int = 1):
         logger.info(f"Using parallel execution with {workers} workers")
         return _main_parallel(
             limit, sleep_s, workers, producer,
-            slug2id, valid_tone_ids, valid_genre_slugs,
-            tone_slugs, genre_slugs_line,
+            slug2id, valid_tone_ids, valid_genre_ids,
+            genre_id2slug, genre_slug2id,
+            tone_slugs, genre_id_slugs_line,
             tier_stats, start_time
         )
     else:
         logger.info("Using sequential execution")
         return _main_sequential(
             limit, sleep_s, producer,
-            slug2id, valid_tone_ids, valid_genre_slugs,
-            tone_slugs, genre_slugs_line,
+            slug2id, valid_tone_ids, valid_genre_ids,
+            genre_id2slug, genre_slug2id,
+            tone_slugs, genre_id_slugs_line,
             tier_stats, start_time
         )
 
 
 def _main_sequential(
     limit, sleep_s, producer,
-    slug2id, valid_tone_ids, valid_genre_slugs,
-    tone_slugs, genre_slugs_line,
+    slug2id, valid_tone_ids, valid_genre_ids,
+    genre_id2slug, genre_slug2id,
+    tone_slugs, genre_id_slugs_line,
     tier_stats, start_time
 ):
     """Sequential processing (original behavior)"""
@@ -147,8 +150,9 @@ def _main_sequential(
             for rec in iter_books_from_db(db, limit):
                 # Use shared retry-enabled enrichment
                 result, error = enrich_with_retry(
-                    rec, slug2id, valid_tone_ids, valid_genre_slugs,
-                    tone_slugs, genre_slugs_line,
+                    rec, slug2id, valid_tone_ids, valid_genre_ids,
+                    genre_id2slug, genre_slug2id,
+                    tone_slugs, genre_id_slugs_line,
                     ontology_version=ONTOLOGY_VERSION,
                     tags_version=VERSION_TAG
                 )
@@ -240,8 +244,9 @@ def _main_sequential(
 
 def _main_parallel(
     limit, sleep_s, workers, producer,
-    slug2id, valid_tone_ids, valid_genre_slugs,
-    tone_slugs, genre_slugs_line,
+    slug2id, valid_tone_ids, valid_genre_ids,
+    genre_id2slug, genre_slug2id,
+    tone_slugs, genre_id_slugs_line,
     tier_stats, start_time
 ):
     """Parallel processing (like backfill)"""
@@ -258,8 +263,9 @@ def _main_parallel(
     def task(rec):
         """Single enrichment task"""
         result, error = enrich_with_retry(
-            rec, slug2id, valid_tone_ids, valid_genre_slugs,
-            tone_slugs, genre_slugs_line,
+            rec, slug2id, valid_tone_ids, valid_genre_ids,
+            genre_id2slug, genre_slug2id,
+            tone_slugs, genre_id_slugs_line,
             ontology_version=ONTOLOGY_VERSION,
             tags_version=VERSION_TAG
         )

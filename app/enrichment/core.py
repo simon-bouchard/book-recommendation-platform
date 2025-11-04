@@ -54,24 +54,29 @@ def load_tones(ontology_version: str = "v2") -> Tuple[list, str, set, dict]:
     return rows, slugs, valid_ids, slug2id
 
 
-def load_genres() -> Tuple[list, str, set]:
+def load_genres() -> Tuple[list, str, set, dict, dict]:
     """
     Load genres from CSV.
     
     Returns:
-        (rows, slugs_str, valid_slugs_set)
+        (rows, id_slugs_str, valid_ids_set, id_to_slug_map, slug_to_id_map)
     """
     rows = []
     with open(GENRES_CSV, newline="", encoding="utf-8") as f:
         for r in csv.DictReader(f):
             rows.append(r)
     
-    slugs_line = render_genre_slugs(rows)
-    valid_slugs = {r["slug"] for r in rows}
+    # Render with IDs: "1=fantasy, 2=science-fiction, ..."
+    id_slugs_line = render_genre_slugs(rows)
+    
+    # Build mappings
+    valid_ids = {int(r["genre_idx"]) for r in rows}
+    id_to_slug = {int(r["genre_idx"]): r["slug"] for r in rows}
+    slug_to_id = {r["slug"]: int(r["genre_idx"]) for r in rows}
     
     logger.info(f"Loaded {len(rows)} genres")
     
-    return rows, slugs_line, valid_slugs
+    return rows, id_slugs_line, valid_ids, id_to_slug, slug_to_id
 
 
 # ============================================================================
@@ -101,7 +106,7 @@ def assess_quality(rec: dict) -> Tuple[Optional[str], Optional[float], Optional[
 
 def normalize_tone_ids(raw: dict, slug2id: dict) -> list[int]:
     """
-    Normalize tone_ids (convert slugs to IDs if needed).
+    Normalize tone_ids (convert slugs to IDs if needed for backward compatibility).
     """
     tone_ids = raw.get("tone_ids", [])
     if not tone_ids or any(isinstance(t, str) for t in tone_ids):
@@ -115,12 +120,55 @@ def normalize_tone_ids(raw: dict, slug2id: dict) -> list[int]:
     return tone_ids
 
 
+def normalize_genre(raw: dict, id_to_slug: dict, slug_to_id: dict) -> Tuple[int, str]:
+    """
+    Normalize genre field - handles both genre_id (new) and genre slug (legacy).
+    
+    Args:
+        raw: LLM response dict
+        id_to_slug: genre_id -> slug mapping
+        slug_to_id: slug -> genre_id mapping
+    
+    Returns:
+        (genre_id, genre_slug) tuple
+    
+    Raises:
+        ValueError if genre is missing or invalid
+    """
+    # Try new format first (genre_id)
+    if "genre_id" in raw:
+        genre_id = raw["genre_id"]
+        if not isinstance(genre_id, int):
+            raise ValueError(f"genre_id must be integer, got {type(genre_id)}")
+        
+        if genre_id not in id_to_slug:
+            raise ValueError(f"Invalid genre_id: {genre_id}")
+        
+        genre_slug = id_to_slug[genre_id]
+        return genre_id, genre_slug
+    
+    # Fall back to legacy format (genre slug)
+    elif "genre" in raw:
+        genre_slug = raw["genre"]
+        if not isinstance(genre_slug, str):
+            raise ValueError(f"genre must be string, got {type(genre_slug)}")
+        
+        if genre_slug not in slug_to_id:
+            raise ValueError(f"Invalid genre slug: '{genre_slug}'")
+        
+        genre_id = slug_to_id[genre_slug]
+        return genre_id, genre_slug
+    
+    else:
+        raise ValueError("Missing both genre_id and genre fields")
+
+
 def extract_retry_feedback(
     error_msg: str,
     tier: str,
     raw_response: dict,
     score: float,
-    genre_slugs_line: str
+    genre_id_slugs_line: str
 ) -> Optional[Dict[str, Any]]:
     """
     Determine if error is retryable and build feedback.
@@ -144,8 +192,8 @@ def extract_retry_feedback(
         error_type = "tone_count_wrong"
         required_changes = _extract_tone_requirement(error_msg, tier)
     elif "invalid genre" in error_msg_lower:
-        error_type = "invalid_genre_slug"
-        required_changes = _extract_genre_requirement(error_msg, tier, genre_slugs_line)
+        error_type = "invalid_genre_id"
+        required_changes = _extract_genre_requirement(error_msg, tier, genre_id_slugs_line)
     else:
         # Not retryable
         return None
@@ -164,21 +212,12 @@ def _extract_vibe_requirement(error_msg: str, tier: str, issue_type: str) -> str
     """Extract vibe length requirement from error message."""
     reqs = get_tier_requirements(tier)
     min_w = reqs['vibe']['min_words']
-    
-    # Use LLM-visible targets (stricter than validator limits)
-    # This tells the LLM what we're asking for, not what validator accepts
-    llm_targets = {
-        "RICH": (8, 14),
-        "SPARSE": (4, 8),
-        "MINIMAL": (0, 0),
-        "BASIC": (0, 0)
-    }
-    llm_min, llm_max = llm_targets.get(tier, (min_w, reqs['vibe']['max_words']))
+    max_w = reqs['vibe']['max_words']
     
     if issue_type == "short":
-        return f"Your vibe needs to be at least {llm_min} words (target: {llm_min}-{llm_max}). Expand it with more descriptive language."
+        return f"Your vibe needs to be at least {min_w} words (maximum {max_w}). Expand it with more descriptive language."
     else:
-        return f"Your vibe needs to be at most {llm_max} words (target: {llm_min}-{llm_max}). Make it more concise."
+        return f"Your vibe needs to be at most {max_w} words (minimum {min_w}). Make it more concise."
 
 
 def _extract_subject_requirement(error_msg: str, tier: str) -> str:
@@ -205,26 +244,35 @@ def _extract_tone_requirement(error_msg: str, tier: str) -> str:
         return f"You have too many tones (maximum {max_t}). Remove the least fitting ones."
 
 
-def _extract_genre_requirement(error_msg: str, tier: str, genre_slugs_line: str) -> str:
+def _extract_genre_requirement(error_msg: str, tier: str, genre_id_slugs_line: str) -> str:
     """Build retry feedback for invalid genre errors."""
     import re
-    match = re.search(r"Invalid genre slug: '([^']+)'", error_msg)
-    invalid_genre = match.group(1) if match else "your genre"
-    
-    return f"""The genre '{invalid_genre}' is not valid.
+    # Try to extract the invalid ID
+    match = re.search(r"Invalid genre_id: (\d+)", error_msg)
+    if match:
+        invalid_id = match.group(1)
+        return f"""The genre_id {invalid_id} is not valid.
 
-Valid genres: {genre_slugs_line}
+Valid genres: {genre_id_slugs_line}
 
-Pick ONE exact slug from the list above (case-sensitive)."""
+Pick ONE exact ID from the list above."""
+    else:
+        return f"""The genre you selected is not valid.
+
+Valid genres: {genre_id_slugs_line}
+
+Pick ONE exact ID from the list above."""
 
 
 def enrich_one(
     rec: dict,
     slug2id: dict,
     valid_tone_ids: set,
-    valid_genre_slugs: set,
+    valid_genre_ids: set,
+    genre_id_to_slug: dict,
+    genre_slug_to_id: dict,
     tone_slugs: str,
-    genre_slugs_line: str,
+    genre_id_slugs_line: str,
     ontology_version: str = "v2",
     tags_version: str = "v2",
     retry_feedback: Optional[Dict[str, Any]] = None
@@ -236,9 +284,11 @@ def enrich_one(
         rec: Book record with title, author, description, ol_subjects
         slug2id: Tone slug to ID mapping
         valid_tone_ids: Valid tone IDs
-        valid_genre_slugs: Valid genre slugs
-        tone_slugs: Comma-separated tone slugs
-        genre_slugs_line: Comma-separated genre slugs
+        valid_genre_ids: Valid genre IDs
+        genre_id_to_slug: Genre ID to slug mapping
+        genre_slug_to_id: Genre slug to ID mapping (for legacy support)
+        tone_slugs: Comma-separated tone ID=slug pairs
+        genre_id_slugs_line: Comma-separated genre ID=slug pairs
         ontology_version: Ontology version
         tags_version: Tags version for output
         retry_feedback: Optional feedback from previous attempt
@@ -274,144 +324,145 @@ def enrich_one(
     # ========================================================================
     
     if retry_feedback:
-        user_prompt = build_retry_prompt(
+        prompt = build_retry_prompt(
             title=rec["title"],
             author=rec["author"],
             description=rec["description"],
             ol_subjects=rec.get("ol_subjects", []),
             tier=tier,
             tone_slugs=tone_slugs,
-            genre_slugs=genre_slugs_line,
+            genre_id_slugs=genre_id_slugs_line,
             ontology_version=ontology_version,
             feedback=retry_feedback
         )
-        logger.info(f"Retrying with feedback: {retry_feedback['error_type']}")
     else:
-        user_prompt = build_user_prompt(
+        prompt = build_user_prompt(
             title=rec["title"],
             author=rec["author"],
             description=rec["description"],
             ol_subjects=rec.get("ol_subjects", []),
             tier=tier,
             tone_slugs=tone_slugs,
-            genre_slugs=genre_slugs_line,
+            genre_id_slugs=genre_id_slugs_line,
             ontology_version=ontology_version
         )
     
-    start_time = time.time()
+    # ========================================================================
+    # STEP 3: CALL LLM
+    # ========================================================================
     
     try:
-        # ====================================================================
-        # STEP 3: LLM CALL
-        # ====================================================================
-        
-        raw = call_enrichment_llm(SYSTEM, user_prompt)
-        latency_ms = int((time.time() - start_time) * 1000)
-        
-        # Normalize tone_ids (slug -> id)
+        raw, usage, latency_ms = call_enrichment_llm(SYSTEM, prompt)
+    except Exception as e:
+        error = {
+            "stage": "llm_invoke",
+            "error_code": "LLM_ERROR",
+            "error_msg": str(e),
+            "attempted": None,
+        }
+        return None, error
+    
+    # ========================================================================
+    # STEP 4: NORMALIZE & MAP GENRE
+    # ========================================================================
+    
+    try:
+        # Normalize tone_ids (backward compatibility for slugs)
         raw["tone_ids"] = normalize_tone_ids(raw, slug2id)
         
-        # ====================================================================
-        # STEP 4: TIER-AWARE VALIDATION
-        # ====================================================================
+        # Normalize and map genre: genre_id → genre_slug
+        genre_id, genre_slug = normalize_genre(raw, genre_id_to_slug, genre_slug_to_id)
         
-        data = validate_payload(
-            raw, 
-            valid_tone_ids, 
-            valid_genre_slugs,
+        # Store both for validation context, but database uses slug
+        raw["genre_id"] = genre_id
+        raw["genre"] = genre_slug
+        
+    except Exception as e:
+        error = {
+            "stage": "postprocess",
+            "error_code": "NORMALIZATION_ERROR",
+            "error_msg": str(e),
+            "attempted": {
+                "raw_response": raw,
+                "tier": tier,
+                "score": score,
+            },
+        }
+        return None, error
+    
+    # ========================================================================
+    # STEP 5: VALIDATE
+    # ========================================================================
+    
+    try:
+        validated = validate_payload(
+            raw,
+            valid_tone_ids=valid_tone_ids,
+            valid_genre_ids=valid_genre_ids,  # Now validates against IDs
             tier=tier,
             ontology_version=ontology_version
         )
-        
-        # Additional subject cleaning
-        data.subjects = clean_subjects(data.subjects)
-        
-        # ====================================================================
-        # STEP 5: BUILD RESULT
-        # ====================================================================
-        
-        result = {
-            "item_idx": rec["item_idx"],
-            "subjects": data.subjects,
-            "tone_ids": data.tone_ids,
-            "genre": data.genre,
-            "vibe": data.vibe,
-            "tags_version": tags_version,
-            "scores": {},
-            "enrichment_quality": tier,
-            "quality_score": score,
-            "ontology_version": ontology_version,
-            "metadata": {
-                "latency_ms": latency_ms,
-                "model": "unknown",  # Caller can override
-                "quality_signals": assessment.signals.to_dict() if assessment else {},
-                "retry_count": 1 if retry_feedback else 0,
-            }
-        }
-        
-        return result, None
-        
     except ValueError as e:
-        # Validation error - prepare for potential retry
-        error_msg = str(e)
-        
-        logger.warning(f"âœ— Enrichment validation failed for item_idx={rec['item_idx']}: {error_msg}")
-
         error = {
             "stage": "validate",
-            "error_code": "VALIDATION_FAILED",
-            "error_msg": error_msg[:512],
-            "error_field": None,
+            "error_code": "VALIDATION_ERROR",
+            "error_msg": str(e),
             "attempted": {
+                "raw_response": raw,
                 "tier": tier,
                 "score": score,
-                "raw_response": raw if 'raw' in locals() else None,
-                "error_type": None,
-                "required_changes": None,
-            }
+                "error_type": _classify_validation_error(str(e)),
+                "required_changes": str(e),  # Placeholder, will be enriched by retry logic
+            },
         }
-        
-        # Try to extract retry feedback
-        if 'raw' in locals():
-            retry_info = extract_retry_feedback(
-                error_msg, tier, raw, score, genre_slugs_line
-            )
-            if retry_info:
-                error["attempted"]["error_type"] = retry_info["error_type"]
-                error["attempted"]["required_changes"] = retry_info["required_changes"]
-        
         return None, error
-        
-    except Exception as e:
-        # LLM or parsing error
-        error_str = str(e)
-        if "timeout" in error_str.lower():
-            stage, code = "llm_invoke", "TIMEOUT"
-        elif "parse" in error_str.lower() or "json" in error_str.lower():
-            stage, code = "llm_parse", "JSON_PARSE"
-        else:
-            stage, code = "llm_invoke", "LLM_ERROR"
-        
-        error = {
-            "stage": stage,
-            "error_code": code,
-            "error_msg": error_str[:512],
-            "attempted": {
-                "tier": tier if 'tier' in locals() else "UNKNOWN",
-                "score": score if 'score' in locals() else 0,
-            }
-        }
-        
-        return None, error
+    
+    # ========================================================================
+    # STEP 6: BUILD RESULT (store slug in database, not ID)
+    # ========================================================================
+    
+    result = {
+        "item_idx": rec["item_idx"],
+        "subjects": clean_subjects(validated.subjects),
+        "tone_ids": validated.tone_ids,
+        "genre": validated.genre,  # This is the slug for database storage
+        "vibe": validated.vibe,
+        "tags_version": tags_version,
+        "scores": {
+            "quality_score": score,
+            "tier": tier,
+        },
+    }
+    
+    return result, None
+
+
+def _classify_validation_error(error_msg: str) -> str:
+    """Quick classification of validation error type."""
+    error_lower = error_msg.lower()
+    if "vibe too short" in error_lower:
+        return "vibe_too_short"
+    elif "vibe too long" in error_lower:
+        return "vibe_too_long"
+    elif "subjects count" in error_lower:
+        return "subject_count_wrong"
+    elif "tone_ids count" in error_lower:
+        return "tone_count_wrong"
+    elif "invalid genre" in error_lower:
+        return "invalid_genre_id"
+    else:
+        return "validation_error"
 
 
 def enrich_with_retry(
     rec: dict,
     slug2id: dict,
     valid_tone_ids: set,
-    valid_genre_slugs: set,
+    valid_genre_ids: set,
+    genre_id_to_slug: dict,
+    genre_slug_to_id: dict,
     tone_slugs: str,
-    genre_slugs_line: str,
+    genre_id_slugs_line: str,
     ontology_version: str = "v2",
     tags_version: str = "v2"
 ) -> Tuple[Optional[dict], Optional[dict]]:
@@ -423,8 +474,9 @@ def enrich_with_retry(
     """
     # First attempt
     result, error = enrich_one(
-        rec, slug2id, valid_tone_ids, valid_genre_slugs,
-        tone_slugs, genre_slugs_line, ontology_version, tags_version
+        rec, slug2id, valid_tone_ids, valid_genre_ids,
+        genre_id_to_slug, genre_slug_to_id,
+        tone_slugs, genre_id_slugs_line, ontology_version, tags_version
     )
     
     if result:
@@ -440,34 +492,35 @@ def enrich_with_retry(
         if raw_response and error_type in [
             "vibe_too_short", "vibe_too_long", 
             "subject_count_wrong", "tone_count_wrong",
-            "invalid_genre_slug"
+            "invalid_genre_id"
         ]:
             logger.info(f"Validation failed ({error_type}), retrying with feedback...")
             
             # Build retry feedback
-            retry_feedback = {
-                "error_type": error_type,
-                "error_msg": error["error_msg"],
-                "original_response": raw_response,
-                "tier": attempted["tier"],
-                "score": attempted["score"],
-                "required_changes": attempted["required_changes"],
-            }
-            
-            # Retry with feedback
-            result, retry_error = enrich_one(
-                rec, slug2id, valid_tone_ids, valid_genre_slugs,
-                tone_slugs, genre_slugs_line, ontology_version, tags_version,
-                retry_feedback=retry_feedback
+            retry_feedback = extract_retry_feedback(
+                error_msg=error["error_msg"],
+                tier=attempted["tier"],
+                raw_response=raw_response,
+                score=attempted["score"],
+                genre_id_slugs_line=genre_id_slugs_line
             )
             
-            if result:
-                logger.info(f"✓ Retry succeeded for item_idx={rec['item_idx']}")
-                return result, None
-            else:
-                logger.warning(f"✗ Retry also failed for item_idx={rec['item_idx']}")
-                # Return the retry error (more informative)
-                return None, retry_error
+            if retry_feedback:
+                # Retry with feedback
+                result, retry_error = enrich_one(
+                    rec, slug2id, valid_tone_ids, valid_genre_ids,
+                    genre_id_to_slug, genre_slug_to_id,
+                    tone_slugs, genre_id_slugs_line, ontology_version, tags_version,
+                    retry_feedback=retry_feedback
+                )
+                
+                if result:
+                    logger.info(f"✓ Retry succeeded for item_idx={rec['item_idx']}")
+                    return result, None
+                else:
+                    logger.warning(f"✗ Retry also failed for item_idx={rec['item_idx']}")
+                    # Return the retry error (more informative)
+                    return None, retry_error
     
     # Not retryable or retry failed
     return None, error
