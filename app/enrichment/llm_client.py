@@ -1,9 +1,13 @@
 # app/enrichment/llm_client.py
-from typing import Dict, Any
+from typing import Dict, Any, Tuple
 import os, json
+import re
+import logging
 
 from dotenv import load_dotenv
 load_dotenv()
+
+logger = logging.getLogger(__name__)
 
 # Try to reuse your shared factory if present (won't change the chat model)
 try:
@@ -64,21 +68,83 @@ def ensure_enrichment_ready() -> None:
     except Exception as e:
         raise RuntimeError(f"LLM warmup failed (auth/quota/network): {e}")
 
-def call_enrichment_llm(system: str, user: str) -> Dict[str, Any]:
+
+def _extract_json(raw: str) -> str:
+    """
+    Extract JSON from LLM response, handling:
+    - Markdown code blocks: ```json\n{...}\n```
+    - Plain JSON
+    - Text before/after JSON
+    """
+    if not raw or not raw.strip():
+        raise ValueError("Empty response from LLM")
+    
+    # Try to extract from markdown code block first
+    json_block_match = re.search(r'```(?:json)?\s*\n?(.*?)\n?```', raw, re.DOTALL)
+    if json_block_match:
+        return json_block_match.group(1).strip()
+    
+    # Try to find JSON object boundaries
+    json_match = re.search(r'\{.*\}', raw, re.DOTALL)
+    if json_match:
+        return json_match.group(0)
+    
+    # If nothing found, return as-is and let JSON parser fail with better error
+    return raw.strip()
+
+
+def call_enrichment_llm(system: str, user: str) -> Tuple[Dict[str, Any], Dict[str, Any], int]:
     """
     Calls the enrichment model and returns strict JSON.
     Priority:
       1) DeepInfra (if DEEPINFRA_API_KEY present)
       2) Shared get_llm() factory (fallback unless ENRICH_FORCE_DEEPINFRA=1)
+    
+    Returns:
+        (parsed_json, usage_dict, latency_ms)
     """
+    import time
     llm = _resolve_llm_for_enrichment()
+    
+    start = time.time()
     resp = llm.invoke([
         {"role": "system", "content": system},
         {"role": "user", "content": user},
     ])
-    # Expect strict JSON
+    latency_ms = int((time.time() - start) * 1000)
+    
+    # Extract raw content
     raw = getattr(resp, "content", resp)
+    
+    if not raw or not isinstance(raw, str):
+        logger.error(f"LLM returned non-string content: {type(raw)}")
+        raise RuntimeError(f"LLM returned invalid response type: {type(raw)}")
+    
+    # Log first 200 chars for debugging
+    logger.debug(f"Raw LLM response (first 200 chars): {raw[:200]}")
+    
+    # Extract JSON (handles markdown, extra text, etc.)
     try:
-        return json.loads(raw)
-    except Exception as e:
+        json_str = _extract_json(raw)
+    except ValueError as e:
+        logger.error(f"Failed to extract JSON from response: {e}")
+        logger.error(f"Full response: {raw}")
+        raise RuntimeError(f"No JSON found in response: {str(e)}")
+    
+    # Parse JSON
+    try:
+        parsed = json.loads(json_str)
+    except json.JSONDecodeError as e:
+        logger.error(f"JSON parse error: {e}")
+        logger.error(f"Attempted to parse: {json_str[:500]}")
+        logger.error(f"Full raw response: {raw}")
         raise RuntimeError(f"Parse error: {e}")
+    
+    # Extract usage if available
+    usage = {}
+    if hasattr(resp, "usage_metadata"):
+        usage = resp.usage_metadata
+    elif hasattr(resp, "response_metadata"):
+        usage = resp.response_metadata.get("usage", {})
+    
+    return parsed, usage, latency_ms

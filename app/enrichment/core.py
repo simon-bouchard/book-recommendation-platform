@@ -428,6 +428,7 @@ def enrich_one(
         "genre": validated.genre,  # This is the slug for database storage
         "vibe": validated.vibe,
         "tags_version": tags_version,
+        "enrichment_quality": tier,  # For tier stats tracking
         "scores": {
             "quality_score": score,
             "tier": tier,
