@@ -123,7 +123,7 @@ def has_encoding_issues(text: str) -> bool:
         return True
     
     # Check for replacement characters
-    if '�' in text or '\ufffd' in text:
+    if 'ï¿½' in text or '\ufffd' in text:
         return True
     
     # Check for all caps (often indicates OCR/import issues)
@@ -366,13 +366,13 @@ def get_tier_requirements(tier: str) -> Dict[str, Any]:
         "RICH": {
             "subjects": {"min": 5, "max": 8, "required": True},
             "tones": {"min": 2, "max": 3, "required": True},
-            "vibe": {"min_words": 8, "max_words": 12, "required": True},
+            "vibe": {"min_words": 8, "max_words": 20, "required": True},
             "genre": {"required": True},
         },
         "SPARSE": {
             "subjects": {"min": 3, "max": 5, "required": True},
             "tones": {"min": 0, "max": 2, "required": False},
-            "vibe": {"min_words": 4, "max_words": 8, "required": False},
+            "vibe": {"min_words": 4, "max_words": 10, "required": False},
             "genre": {"required": True},
         },
         "MINIMAL": {

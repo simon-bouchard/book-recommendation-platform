@@ -164,12 +164,21 @@ def _extract_vibe_requirement(error_msg: str, tier: str, issue_type: str) -> str
     """Extract vibe length requirement from error message."""
     reqs = get_tier_requirements(tier)
     min_w = reqs['vibe']['min_words']
-    max_w = reqs['vibe']['max_words']
+    
+    # Use LLM-visible targets (stricter than validator limits)
+    # This tells the LLM what we're asking for, not what validator accepts
+    llm_targets = {
+        "RICH": (8, 14),
+        "SPARSE": (4, 8),
+        "MINIMAL": (0, 0),
+        "BASIC": (0, 0)
+    }
+    llm_min, llm_max = llm_targets.get(tier, (min_w, reqs['vibe']['max_words']))
     
     if issue_type == "short":
-        return f"Your vibe needs to be at least {min_w} words (maximum {max_w}). Expand it with more descriptive language."
+        return f"Your vibe needs to be at least {llm_min} words (target: {llm_min}-{llm_max}). Expand it with more descriptive language."
     else:
-        return f"Your vibe needs to be at most {max_w} words (minimum {min_w}). Make it more concise."
+        return f"Your vibe needs to be at most {llm_max} words (target: {llm_min}-{llm_max}). Make it more concise."
 
 
 def _extract_subject_requirement(error_msg: str, tier: str) -> str:

@@ -28,13 +28,15 @@ Generate comprehensive enrichment:
 - subjects: 5-8 specific, unique noun phrases - be detailed and domain-specific
 - tone_ids: 2-3 tones that capture style, pacing, and atmosphere
 - genre: exactly 1 genre
-- vibe: EXACTLY 8-12 words - evocative phrase capturing the book's essence
+- vibe: EXACTLY 8-14 words - evocative phrase capturing the book's essence
 
-**VIBE EXAMPLES (8-12 words):**
-✓ "Sweeping historical saga exploring love and loss across generations"
-✓ "Dark psychological thriller unraveling secrets in a coastal town"
-✓ "Lyrical meditation on memory, identity, and the immigrant experience"
-✓ "Epic fantasy adventure through kingdoms torn by war and magic"
+**VIBE EXAMPLES (8-14 words):**
+✓ "Sweeping historical saga exploring love and loss across generations" (11 words)
+✓ "Dark psychological thriller unraveling secrets in a coastal town" (10 words)
+✓ "Intimate portrait of family dynamics and secrets across three generations" (11 words)
+✓ "Epic fantasy adventure through kingdoms torn by ancient wars and magic" (12 words)
+✓ "Fast-paced science fiction exploring artificial intelligence and humanity's uncertain future" (11 words)
+✓ "Lyrical meditation on memory, identity, culture, and the immigrant experience" (12 words)
 
 Quality focus: Specificity and uniqueness. Avoid generic subjects ("book", "story", "readers"). 
 Make each subject distinct - no near-duplicates like "Greek gods" and "Greek deities".""",
@@ -149,7 +151,7 @@ def build_user_prompt(
     
     # Get vibe requirement text based on tier
     vibe_requirement = {
-        "RICH": "vibe: EXACTLY 8-12 words (CRITICAL: count your words, vibes with <8 or >12 words will be rejected)",
+        "RICH": "vibe: EXACTLY 8-14 words (CRITICAL: count your words, vibes with <8 or >12 words will be rejected)",
         "SPARSE": "vibe: EXACTLY 4-8 words if confident, empty string \"\" if uncertain (count your words)",
         "MINIMAL": "vibe: MUST be empty string \"\" (no vibe for MINIMAL tier)",
         "BASIC": "vibe: MUST be empty string \"\" (no vibe for BASIC tier)"
@@ -189,7 +191,7 @@ DESCRIPTION: {description if description else "(no description available)"}
 • Never copy administrative tags
 
 **VIBE LENGTH CHECK (for {tier} tier):**
-{"Count your words carefully! RICH tier requires EXACTLY 8-12 words." if tier == "RICH" else ""}
+{"Count your words carefully! RICH tier requires EXACTLY 8-14 words." if tier == "RICH" else ""}
 {"Count your words! SPARSE tier requires EXACTLY 4-8 words (or empty if uncertain)." if tier == "SPARSE" else ""}
 {"NO vibe allowed for this tier - use empty string." if tier in ("MINIMAL", "BASIC") else ""}
 Words are separated on spaces (not hyphens) for vibe word count.
@@ -241,7 +243,7 @@ def build_retry_prompt(
     
     # Get vibe requirement
     vibe_requirement = {
-        "RICH": "vibe: EXACTLY 8-12 words",
+        "RICH": "vibe: EXACTLY 8-14 words",
         "SPARSE": "vibe: EXACTLY 4-8 words OR empty string",
         "MINIMAL": "vibe: MUST be empty string",
         "BASIC": "vibe: MUST be empty string"

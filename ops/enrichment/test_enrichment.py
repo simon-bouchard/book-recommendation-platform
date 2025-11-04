@@ -217,25 +217,6 @@ def run_pipeline_and_analyze(limit: int, tags_version: str, wait_for_consumer: b
         for error_type, count in sorted(stats['error_codes'].items(), key=lambda x: x[1], reverse=True):
             logger.info(f"  {error_type}: {count}")
     
-    logger.info("\n" + "="*80)
-    logger.info("NEXT STEPS")
-    logger.info("="*80)
-    logger.info("\nQuery SQL directly to analyze results:")
-    logger.info(f"  -- View enriched books")
-    logger.info(f"  SELECT b.title, COUNT(s.llm_subject_idx) as subject_count")
-    logger.info(f"  FROM books b")
-    logger.info(f"  JOIN book_llm_subjects s ON b.item_idx = s.item_idx")
-    logger.info(f"  WHERE s.tags_version = '{tags_version}'")
-    logger.info(f"  GROUP BY b.item_idx")
-    logger.info(f"  LIMIT 100;")
-    logger.info(f"")
-    logger.info(f"  -- View errors")
-    logger.info(f"  SELECT error_code, stage, COUNT(*) as cnt")
-    logger.info(f"  FROM enrichment_errors")
-    logger.info(f"  WHERE tags_version = '{tags_version}'")
-    logger.info(f"  GROUP BY error_code, stage;")
-    logger.info("="*80)
-
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(
