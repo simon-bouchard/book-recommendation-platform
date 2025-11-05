@@ -197,8 +197,9 @@ def run_pipeline_and_analyze(limit: int, tags_version: str, wait_for_consumer: b
         wait_for_kafka_consumption(timeout_minutes=5, check_interval=5)
         logger.info("")
     else:
-        logger.info("Step 3: Skipping consumer wait (--no-wait flag)")
+        logger.info("Step 3: Waiting 30s for spark consumer...")
         logger.info("  Note: Stats may not reflect just-published events\n")
+        time.sleep(35)
     
     # Step 4: Get statistics
     logger.info("Step 4: Getting statistics from SQL...")
