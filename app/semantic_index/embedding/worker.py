@@ -46,15 +46,12 @@ class EmbeddingWorker:
         batch_size: int = 128,
         output_dir: str = "models/data/enriched_v2",
         ontology_dir: str = "ontology",
-        device: str = "cpu",
-        quality_tiers: Optional[List[str]] = None
+        device: str = "cpu"
     ):
         self.tags_version = tags_version
         self.batch_size = batch_size
-        self.quality_tiers = quality_tiers or ["RICH", "SPARSE", "MINIMAL", "BASIC"]
         
         print(f"Initializing EmbeddingWorker for tags_version={tags_version}")
-        print(f"Quality tiers: {self.quality_tiers}")
         print(f"Output directory: {output_dir}")
         
         # Initialize components
@@ -189,7 +186,7 @@ class EmbeddingWorker:
             fetcher = EnrichmentFetcher(self.db, self.tags_version)
             
             # Count total items
-            total_items = fetcher.count_enriched_items(self.quality_tiers)
+            total_items = fetcher.count_enriched_items()
             if limit:
                 total_items = min(total_items, limit)
             
@@ -210,8 +207,7 @@ class EmbeddingWorker:
                 # Fetch chunk
                 items = fetcher.fetch_enriched_items(
                     limit=chunk_size,
-                    offset=offset,
-                    quality_tiers=self.quality_tiers
+                    offset=offset
                 )
                 
                 if not items:
@@ -258,8 +254,7 @@ class EmbeddingWorker:
             # Fetch items (most recent first)
             items = fetcher.fetch_enriched_items(
                 limit=limit,
-                offset=0,
-                quality_tiers=self.quality_tiers
+                offset=0
             )
             
             print(f"Fetched {len(items):,} items to check")
@@ -345,13 +340,6 @@ def main():
         help="Device for embedding model"
     )
     
-    parser.add_argument(
-        "--quality-tiers",
-        nargs="+",
-        default=["RICH", "SPARSE", "MINIMAL", "BASIC"],
-        help="Quality tiers to include"
-    )
-    
     args = parser.parse_args()
     
     # Initialize worker
@@ -360,8 +348,7 @@ def main():
         batch_size=args.batch_size,
         output_dir=args.output_dir,
         ontology_dir=args.ontology_dir,
-        device=args.device,
-        quality_tiers=args.quality_tiers
+        device=args.device
     )
     
     # Run based on mode
