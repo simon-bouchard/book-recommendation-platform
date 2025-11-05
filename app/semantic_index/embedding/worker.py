@@ -7,16 +7,19 @@ from datetime import datetime
 from pathlib import Path
 from typing import List, Optional
 import sys
-
 from sqlalchemy.orm import Session
+
+ROOT = Path(__file__).resolve().parents[3]
+sys.path.insert(0, str(ROOT))
+
 from app.database import SessionLocal
 
-from .ontology_resolver import OntologyResolver
-from .fingerprint_tracker import FingerprintTracker
-from .enrichment_fetcher import EnrichmentFetcher
-from .embedding_client import EmbeddingClient
-from .accumulator_writer import AccumulatorWriter
-from .coverage_monitor import CoverageMonitor
+from app.semantic_index.embedding.ontology_resolver import OntologyResolver
+from app.semantic_index.embedding.fingerprint_tracker import FingerprintTracker
+from app.semantic_index.embedding.enrichment_fetcher import EnrichmentFetcher
+from app.semantic_index.embedding.embedding_client import EmbeddingClient
+from app.semantic_index.embedding.accumulator_writer import AccumulatorWriter
+from app.semantic_index.embedding.coverage_monitor import CoverageMonitor
 
 
 class EmbeddingWorker:
