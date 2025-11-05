@@ -520,7 +520,7 @@ The Three-Body Problem — Liu Cixin | genre: Science Fiction | subjects: alien 
 
 **One-Shot:**
 - Process everything once, exit
-- For initial 170k load
+- For initial 250k load
 - Progress reporting with ETA
 - Testing mode
 
@@ -584,7 +584,7 @@ The Three-Body Problem — Liu Cixin | genre: Science Fiction | subjects: alien 
 **Initial Load Strategy:**
 
 **Approach: Single One-Shot Run**
-- Process 170k books in ~256-book batches
+- Process 250k books in ~256-book batches
 - Expected: 3-5 hours (depends on API limits)
 - Progress every 50 batches
 - Periodic metadata.json updates
@@ -627,7 +627,7 @@ The Three-Body Problem — Liu Cixin | genre: Science Fiction | subjects: alien 
 4. **Build FAISS Index**
    - Type: HNSW
    - Params: M=32, efConstruction=200
-   - Time: 10-30 min for 170k
+   - Time: 10-30 min for 250k
 
 5. **Quality Checks**
    - Dimensionality (384)
@@ -761,7 +761,7 @@ builds/
 - API latency
 
 **Index Builds:**
-- Build duration (target <3 hours for 170k)
+- Build duration (target <3 hours for 250k)
 - QC pass rates
 - Coverage deltas
 - Index size
@@ -793,7 +793,7 @@ builds/
 ### Success Criteria
 
 **Initial Load (Week 1):**
-- ✓ 170k books processed
+- ✓ 250k books processed
 - ✓ Coverage: 95%+ RICH/SPARSE, 90%+ MINIMAL, 85%+ BASIC
 - ✓ Fingerprint DB populated
 - ✓ First index built, QC passed
@@ -973,7 +973,7 @@ Vibe: "Sweeping narrative exploring humanity's journey from stone age to space a
 7. Implement CoverageMonitor (metadata.json updates)
 8. Wire up EmbeddingWorker main loop
 9. Test with small subset (100 books)
-10. Run initial load (170k books)
+10. Run initial load (250k books)
 11. Implement IndexBuilder
 12. First index build and promotion
 13. Deploy to production
