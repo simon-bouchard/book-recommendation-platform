@@ -146,11 +146,84 @@ def main():
             pct = (count / len(validation_errors) * 100)
             print(f"  {error_type:35s} {count:5d} ({pct:5.1f}%)")
         
+        # Overall tier distribution
+        print("\n" + "="*80)
+        print("TIER DISTRIBUTION (ALL VALIDATION ERRORS)")
+        print("="*80)
+        
+        tier_counts = Counter()
+        for err in validation_errors:
+            attempted = err.get('attempted', {})
+            if attempted and isinstance(attempted, dict):
+                tier = attempted.get('tier', 'UNKNOWN')
+                tier_counts[tier] += 1
+            else:
+                tier_counts['UNKNOWN'] += 1
+        
+        print()
+        total_with_tier = sum(tier_counts.values())
+        for tier in ['RICH', 'SPARSE', 'MINIMAL', 'BASIC', 'UNKNOWN']:
+            count = tier_counts[tier]
+            if count > 0:
+                pct = (count / total_with_tier * 100) if total_with_tier > 0 else 0
+                print(f"  {tier:12s} {count:5d} ({pct:5.1f}%)")
+        
+        # Quality score analysis for RICH tier errors
+        rich_scores = []
+        for err in validation_errors:
+            attempted = err.get('attempted', {})
+            if attempted and isinstance(attempted, dict):
+                if attempted.get('tier') == 'RICH':
+                    score = attempted.get('score')
+                    if score is not None:
+                        try:
+                            rich_scores.append(float(score))
+                        except (ValueError, TypeError):
+                            pass  # Skip invalid scores
+        
+        if rich_scores:
+            print(f"\nRICH tier quality scores (n={len(rich_scores)}):")
+            print(f"  Min:    {min(rich_scores):.1f}")
+            print(f"  Max:    {max(rich_scores):.1f}")
+            print(f"  Mean:   {sum(rich_scores)/len(rich_scores):.1f}")
+            print(f"  Median: {sorted(rich_scores)[len(rich_scores)//2]:.1f}")
+            
+            # Score ranges
+            score_ranges = {
+                '60-65': len([s for s in rich_scores if 60 <= s < 65]),
+                '65-70': len([s for s in rich_scores if 65 <= s < 70]),
+                '70-80': len([s for s in rich_scores if 70 <= s < 80]),
+                '80-90': len([s for s in rich_scores if 80 <= s < 90]),
+                '90-100': len([s for s in rich_scores if 90 <= s <= 100]),
+            }
+            print(f"\n  Score distribution:")
+            for range_name, count in score_ranges.items():
+                if count > 0:
+                    pct = (count / len(rich_scores) * 100)
+                    print(f"    {range_name}: {count:3d} ({pct:5.1f}%)")
+        
         # Detailed analysis for each type
         for error_type, error_list in sorted(errors_by_type.items(), key=lambda x: len(x[1]), reverse=True):
             print("\n" + "="*80)
             print(f"{error_type} - {len(error_list)} cases")
             print("="*80)
+            
+            # Tier distribution for this error type
+            type_tier_counts = Counter()
+            for err in error_list:
+                attempted = err.get('attempted', {})
+                if attempted and isinstance(attempted, dict):
+                    tier = attempted.get('tier', 'UNKNOWN')
+                    type_tier_counts[tier] += 1
+                else:
+                    type_tier_counts['UNKNOWN'] += 1
+            
+            print("\nTier breakdown:")
+            for tier in ['RICH', 'SPARSE', 'MINIMAL', 'BASIC', 'UNKNOWN']:
+                count = type_tier_counts[tier]
+                if count > 0:
+                    pct = (count / len(error_list) * 100)
+                    print(f"  {tier:12s} {count:5d} ({pct:5.1f}%)")
             
             num_examples = min(5, len(error_list))
             print(f"\nShowing {num_examples} examples:\n")
