@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 # ops/cleanup_enrichment_version.py
 """
-Comprehensive v2 cleanup: SQL + Kafka + Bronze + Checkpoints
+Comprehensive version cleanup: SQL + Kafka + Bronze + Checkpoints + Embeddings
 """
 import os
 import sys
@@ -56,7 +56,7 @@ def cleanup_sql(version: str, dry_run: bool = False):
         'enrichment_errors'
     ]
     
-    print(f"\nChecking v2 data in SQL...")
+    print(f"\nChecking {version} data in SQL...")
     counts = {}
     total = 0
     
@@ -67,7 +67,7 @@ def cleanup_sql(version: str, dry_run: bool = False):
         total += count
         print(f"  {table}: {count:,}")
     
-    # Check orphaned subjects (only linked to v2)
+    # Check orphaned subjects (only linked to this version)
     cur.execute("""
         SELECT COUNT(DISTINCT ls.llm_subject_idx) 
         FROM llm_subjects ls
@@ -84,7 +84,7 @@ def cleanup_sql(version: str, dry_run: bool = False):
     """, (version, version))
     orphaned_subjects = cur.fetchone()[0]
     
-    # Check orphaned vibes (only linked to v2)
+    # Check orphaned vibes (only linked to this version)
     cur.execute("""
         SELECT COUNT(DISTINCT v.vibe_id) 
         FROM vibes v
@@ -201,7 +201,7 @@ def cleanup_bronze(version: str, dry_run: bool = False):
             minio_endpoint, minio_access, minio_secret
         ], capture_output=True)
         
-        # Check v2 partitions
+        # Check version partitions
         paths_to_delete = [
             f'myminio/enrichment-bronze/enrich.results.v1/tags_version={version}/',
             f'myminio/enrichment-bronze/enrich.errors.v1/tags_version={version}/',
@@ -223,14 +223,14 @@ def cleanup_bronze(version: str, dry_run: bool = False):
                 print(f"  {path}: no data")
         
         if not found_data:
-            print(f"\n✓ No v2 data in bronze archive")
+            print(f"\n✅ No {version} data in bronze archive")
             return
         
         if dry_run:
-            print(f"\n[DRY RUN] Would delete v2 partitions from bronze")
+            print(f"\n[DRY RUN] Would delete {version} partitions from bronze")
             return
         
-        print(f"\n⚠️  About to delete v2 partitions from bronze archive")
+        print(f"\n⚠️  About to delete {version} partitions from bronze archive")
         confirm = input("Delete? (yes/no): ")
         
         if confirm != "yes":
@@ -244,11 +244,11 @@ def cleanup_bronze(version: str, dry_run: bool = False):
                 text=True
             )
             if result.returncode == 0:
-                print(f"  ✓ Deleted: {path}")
+                print(f"  ✅ Deleted: {path}")
             else:
                 print(f"  ⚠️  Error deleting {path}: {result.stderr}")
         
-        print(f"\n✓ Bronze cleanup complete")
+        print(f"\n✅ Bronze cleanup complete")
         
     except Exception as e:
         print(f"⚠️  Bronze cleanup error: {e}")
@@ -261,25 +261,25 @@ def cleanup_kafka_tombstones(version: str, dry_run: bool = False):
     try:
         from kafka import KafkaProducer
         
-        # Get v2 item_idx from SQL
+        # Get version item_idx from SQL
         conn = get_db_connection()
         cur = conn.cursor()
         cur.execute("SELECT DISTINCT item_idx FROM book_genres WHERE tags_version=%s", (version,))
-        v2_items = [row[0] for row in cur.fetchall()]
+        version_items = [row[0] for row in cur.fetchall()]
         cur.close()
         conn.close()
         
-        if not v2_items:
-            print("✓ No v2 items to tombstone")
+        if not version_items:
+            print(f"✅ No {version} items to tombstone")
             return
         
-        print(f"Found {len(v2_items)} v2 items in SQL")
+        print(f"Found {len(version_items)} {version} items in SQL")
         
         if dry_run:
-            print(f"[DRY RUN] Would send tombstones for {len(v2_items)} keys")
+            print(f"[DRY RUN] Would send tombstones for {len(version_items)} keys")
             return
         
-        print(f"\n⚠️  About to send {len(v2_items)} tombstones to Kafka")
+        print(f"\n⚠️  About to send {len(version_items)} tombstones to Kafka")
         print("   (Compaction will remove records over 1-2 hours)")
         confirm = input("Send tombstones? (yes/no): ")
         
@@ -293,13 +293,13 @@ def cleanup_kafka_tombstones(version: str, dry_run: bool = False):
             key_serializer=lambda k: str(k).encode('utf-8')
         )
         
-        for item_idx in v2_items:
+        for item_idx in version_items:
             key = f"{item_idx}:{version}"
             producer.send("enrich.results.v1", key=key, value=None)
             producer.send("enrich.errors.v1", key=key, value=None)
         
         producer.flush()
-        print(f"✓ Sent {len(v2_items)} tombstones")
+        print(f"✅ Sent {len(version_items)} tombstones")
         print("  Wait 1-2 hours for compaction to complete")
         
     except ImportError:
@@ -316,7 +316,7 @@ def cleanup_checkpoints(version: str, dry_run: bool = False):
     checkpoint_dir = checkpoint_base / version
     
     if not checkpoint_dir.exists():
-        print(f"✓ No checkpoint for {version}")
+        print(f"✅ No checkpoint for {version}")
         return
     
     size_bytes = sum(f.stat().st_size for f in checkpoint_dir.rglob('*') if f.is_file())
@@ -330,25 +330,181 @@ def cleanup_checkpoints(version: str, dry_run: bool = False):
     confirm = input(f"Delete checkpoint? (yes/no): ")
     if confirm == "yes":
         shutil.rmtree(checkpoint_dir)
-        print(f"✓ Deleted checkpoint ({size_mb:.2f} MB freed)")
+        print(f"✅ Deleted checkpoint ({size_mb:.2f} MB freed)")
     else:
         print("Skipped checkpoint cleanup")
+
+def cleanup_embeddings(version: str, dry_run: bool = False):
+    """
+    Clean up embedding artifacts for a specific tags_version.
+    
+    Removes:
+    - NPZ batch files in accumulator/
+    - Fingerprint database entries
+    - Metadata for the version
+    - Built FAISS indices (if they exist)
+    """
+    print("\n" + "="*70)
+    print("EMBEDDING CLEANUP")
+    print("="*70)
+    
+    # Determine output directory based on version
+    # v1 -> models/data/enriched_v1, v2 -> models/data/enriched_v2
+    output_dir = Path(f"models/data/enriched_{version}")
+    
+    if not output_dir.exists():
+        print(f"✅ No embedding data for {version}")
+        return
+    
+    # 1. Check accumulator directory
+    accumulator_dir = output_dir / "accumulator"
+    batch_files = []
+    if accumulator_dir.exists():
+        batch_files = list(accumulator_dir.glob("batch_*.npz"))
+    
+    # 2. Check fingerprints database
+    fingerprints_db = output_dir / "fingerprints.db"
+    fingerprint_count = 0
+    if fingerprints_db.exists():
+        try:
+            import sqlite3
+            conn = sqlite3.connect(fingerprints_db)
+            cursor = conn.cursor()
+            cursor.execute(
+                "SELECT COUNT(*) FROM fingerprints WHERE tags_version = ?", 
+                (version,)
+            )
+            fingerprint_count = cursor.fetchone()[0]
+            conn.close()
+        except Exception as e:
+            print(f"  ⚠️  Error reading fingerprints: {e}")
+    
+    # 3. Check metadata
+    metadata_file = output_dir / "metadata.json"
+    metadata_exists = metadata_file.exists()
+    
+    # 4. Check for built indices
+    builds_dir = output_dir / "builds"
+    build_dirs = []
+    if builds_dir.exists():
+        build_dirs = [d for d in builds_dir.iterdir() if d.is_dir()]
+    
+    # Calculate total size
+    total_size = 0
+    if output_dir.exists():
+        for f in output_dir.rglob('*'):
+            if f.is_file():
+                total_size += f.stat().st_size
+    
+    size_mb = total_size / (1024 * 1024)
+    size_gb = total_size / (1024 * 1024 * 1024)
+    
+    print(f"\nFound embedding data for {version}:")
+    print(f"  Location: {output_dir}")
+    print(f"  Batch files: {len(batch_files):,}")
+    print(f"  Fingerprints: {fingerprint_count:,}")
+    print(f"  Metadata: {'Yes' if metadata_exists else 'No'}")
+    print(f"  Built indices: {len(build_dirs)}")
+    if size_gb >= 1:
+        print(f"  Total size: {size_gb:.2f} GB")
+    else:
+        print(f"  Total size: {size_mb:.2f} MB")
+    
+    if len(batch_files) == 0 and fingerprint_count == 0:
+        print(f"\n✅ No significant embedding data to clean for {version}")
+        return
+    
+    if dry_run:
+        print(f"\n[DRY RUN] Would delete:")
+        print(f"  - {len(batch_files)} batch files")
+        print(f"  - {fingerprint_count} fingerprint entries")
+        if metadata_exists:
+            print(f"  - metadata.json")
+        if build_dirs:
+            print(f"  - {len(build_dirs)} built indices")
+        if size_gb >= 1:
+            print(f"  Total: {size_gb:.2f} GB")
+        else:
+            print(f"  Total: {size_mb:.2f} MB")
+        return
+    
+    print(f"\n⚠️  About to delete embedding data for {version}")
+    if size_gb >= 1:
+        print(f"   Total size: {size_gb:.2f} GB")
+    else:
+        print(f"   Total size: {size_mb:.2f} MB")
+    confirm = input("Delete? (yes/no): ")
+    
+    if confirm != "yes":
+        print("Skipped embedding cleanup")
+        return
+    
+    deleted_items = 0
+    
+    # Delete accumulator batch files
+    if batch_files:
+        for batch_file in batch_files:
+            batch_file.unlink()
+            deleted_items += 1
+        print(f"  ✅ Deleted {len(batch_files)} batch files")
+    
+    # Delete fingerprints for this version
+    if fingerprint_count > 0 and fingerprints_db.exists():
+        try:
+            import sqlite3
+            conn = sqlite3.connect(fingerprints_db)
+            cursor = conn.cursor()
+            cursor.execute(
+                "DELETE FROM fingerprints WHERE tags_version = ?", 
+                (version,)
+            )
+            deleted = cursor.rowcount
+            conn.commit()
+            conn.close()
+            print(f"  ✅ Deleted {deleted} fingerprint entries")
+            deleted_items += deleted
+        except Exception as e:
+            print(f"  ⚠️  Error deleting fingerprints: {e}")
+    
+    # Delete metadata if it exists
+    if metadata_exists:
+        metadata_file.unlink()
+        print(f"  ✅ Deleted metadata.json")
+        deleted_items += 1
+    
+    # Delete built indices
+    if build_dirs:
+        for build_dir in build_dirs:
+            shutil.rmtree(build_dir)
+            deleted_items += 1
+        print(f"  ✅ Deleted {len(build_dirs)} built indices")
+    
+    # If the entire output directory is now empty, remove it
+    if output_dir.exists() and not list(output_dir.iterdir()):
+        output_dir.rmdir()
+        print(f"  ✅ Removed empty directory: {output_dir}")
+    
+    if size_gb >= 1:
+        print(f"\n✅ Embedding cleanup complete: {size_gb:.2f} GB freed")
+    else:
+        print(f"\n✅ Embedding cleanup complete: {size_mb:.2f} MB freed")
 
 def main():
     import argparse
     
-    parser = argparse.ArgumentParser(description="Comprehensive v2 cleanup")
+    parser = argparse.ArgumentParser(description="Comprehensive version cleanup (enrichment + embeddings)")
     parser.add_argument("version", help="Version to clean (e.g., v2)")
     parser.add_argument("--dry-run", action="store_true", help="Show what would be deleted")
-    parser.add_argument("--skip-sql", action="store_true")
-    parser.add_argument("--skip-bronze", action="store_true")
-    parser.add_argument("--skip-kafka", action="store_true")
-    parser.add_argument("--skip-checkpoints", action="store_true")
+    parser.add_argument("--skip-sql", action="store_true", help="Skip SQL cleanup")
+    parser.add_argument("--skip-bronze", action="store_true", help="Skip bronze archive cleanup")
+    parser.add_argument("--skip-kafka", action="store_true", help="Skip Kafka tombstones")
+    parser.add_argument("--skip-checkpoints", action="store_true", help="Skip Spark checkpoints")
+    parser.add_argument("--skip-embeddings", action="store_true", help="Skip embedding cleanup")
     
     args = parser.parse_args()
     
     print("="*70)
-    print("COMPREHENSIVE V2 CLEANUP")
+    print("COMPREHENSIVE VERSION CLEANUP")
     print("="*70)
     print(f"Version: {args.version}")
     print(f"Dry run: {args.dry_run}")
@@ -366,6 +522,9 @@ def main():
     
     if not args.skip_checkpoints:
         cleanup_checkpoints(args.version, args.dry_run)
+    
+    if not args.skip_embeddings:
+        cleanup_embeddings(args.version, args.dry_run)
     
     print("\n" + "="*70)
     print("CLEANUP COMPLETE")
