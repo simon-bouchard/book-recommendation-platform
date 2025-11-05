@@ -34,6 +34,7 @@ Transform batch-only enrichment into streaming pipeline with intelligent quality
   "item_idx": 123,
   "subjects": ["ancient Rome", "political intrigue", "Julius Caesar"],
   "tone_ids": [5, 12, 18],
+  "genre_id": 5,
   "genre": "historical-fiction",
   "vibe": "Epic political drama exploring power and betrayal in ancient Rome",
   "tags_version": "v2",
@@ -55,7 +56,8 @@ Transform batch-only enrichment into streaming pipeline with intelligent quality
 **Key Decisions:**
 - `enrichment_quality` is **nested in metadata** (not top-level)
 - `metadata` object is extensible
-- Tone IDs are integers, genre is slug
+- Tone IDs are integers, genre uses both ID and slug
+- **genre_id** (integer) is primary, **genre** (slug) is secondary for DB storage
 - No `metadata_source` field (can add later)
 
 **Error Event:**
@@ -73,6 +75,7 @@ Transform batch-only enrichment into streaming pipeline with intelligent quality
   "attempted": {
     "subjects": ["1920s", "American Dream"],
     "tone_ids": [15, 23],
+    "genre_id": 3,
     "genre": "literary-fiction",
     "vibe": "Jazz Age excess and tragedy",
     "tier": "RICH"
@@ -219,16 +222,16 @@ CREATE TABLE enrichment_errors (
 ### Tier Requirements
 
 **RICH (60-100):**
-- Subjects: 5-8 required
-- Tones: 2-3 required
-- Vibe: 8-14 words required
+- Subjects: 5-12 required
+- Tones: 2-4 required
+- Vibe: 6-20 words required (validator range; prompts target 8-12 for quality)
 - Genre: required
 - Validation: strict
 
 **SPARSE (30-59):**
-- Subjects: 3-5 required
+- Subjects: 3-6 required
 - Tones: 0-2 optional
-- Vibe: 4-8 words optional (empty if uncertain)
+- Vibe: 3-10 words optional (validator range; prompts target 4-8 for quality)
 - Genre: required
 - Validation: lenient on optional
 
@@ -245,6 +248,8 @@ CREATE TABLE enrichment_errors (
 - Vibe: MUST be empty
 - Genre: required
 - Goal: genre only
+
+**Note on Vibe Ranges:** Validators use wider ranges (6-20 for RICH) while prompts instruct narrower targets (8-12 for RICH). This gives wiggle room while encouraging quality.
 
 ### Ontology
 
@@ -425,7 +430,7 @@ CREATE TABLE fingerprints (
 - author (normalized)
 - subjects (sorted, normalized)
 - **tone_names** (sorted, normalized) ← RESOLVED from tone_ids
-- **genre_name** (normalized) ← RESOLVED from genre_slug
+- **genre_name** (normalized) ← RESOLVED from genre_id
 - vibe (normalized)
 - embed_version
 - tags_version
@@ -445,7 +450,7 @@ CREATE TABLE fingerprints (
 
 **Problem:**
 - Events store tone **IDs** (integers: 5, 12, 18)
-- Events store genre **slugs** ("science-fiction")
+- Events store genre **ID** (integer: 5) and genre **slug** ("science-fiction")
 - Embeddings need display **names** for semantic meaning
 
 **MUST RESOLVE BEFORE EMBEDDING:**
@@ -457,8 +462,9 @@ CREATE TABLE fingerprints (
 
 **Genre Resolution:**
 - Load genres CSV
-- Build map: `slug → display_name`
-- Example: `"science-fiction" → "Science Fiction"`
+- Build map: `genre_id → display_name`
+- Example: `5 → "Historical Fiction"`, `3 → "Literary Fiction"`
+- Use `genre_id` from event (more direct than using slug)
 
 **Ontology Loader:**
 - Initialize once at worker startup
@@ -941,14 +947,16 @@ Vibe: "Sweeping narrative exploring humanity's journey from stone age to space a
 ## Key Differences from Original Plan
 
 1. **Event Schema:** `enrichment_quality` in metadata (not top-level) ✓ Better
-2. **BASIC Tier:** Added 5th tier (not in original) ✓ Better coverage
-3. **Ontology v2:** 36 tones in buckets (vs 55 flat) ✓ More usable
-4. **Retry System:** Intelligent feedback (not in plan) ✓ Major quality boost
-5. **Vibe Enforcement:** Strict word counts with examples ✓ Consistent quality
-6. **MINIMAL LLM:** Uses LLM (plan said rule-based) ⚠️ Higher cost, better quality
-7. **Commit Ordering:** Two-phase (not in plan) ✓ Prevents orphans
-8. **Run Tracking:** Comprehensive metadata ✓ Better ops
-9. **Tone/Genre Resolution:** Already identified in plan ✓ Ready to implement
+2. **Genre Storage:** Both `genre_id` (integer) and `genre` (slug) in events ✓ More flexible
+3. **BASIC Tier:** Added 5th tier (not in original) ✓ Better coverage
+4. **Ontology v2:** 36 tones in buckets (vs 55 flat) ✓ More usable
+5. **Retry System:** Intelligent feedback (not in plan) ✓ Major quality boost
+6. **Vibe Enforcement:** Validator ranges (6-20 RICH) wider than prompt targets (8-12 RICH) ✓ Quality + flexibility
+7. **Subject Ranges:** RICH supports 5-12 subjects (wider than originally planned 5-8) ✓ More flexibility
+8. **MINIMAL LLM:** Uses LLM (plan said rule-based) ⚠️ Higher cost, better quality
+9. **Commit Ordering:** Two-phase (not in plan) ✓ Prevents orphans
+10. **Run Tracking:** Comprehensive metadata ✓ Better ops
+11. **Tone/Genre Resolution:** Uses `genre_id` for direct mapping (simpler than slug-based) ✓ Ready to implement
 
 **Overall:** Implementation significantly enhanced beyond original plan. Changes are improvements, not problems.
 
