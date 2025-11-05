@@ -4,6 +4,8 @@
 import sys
 from pathlib import Path
 
+ROOT = Path(__file__).resolve().parents[3]
+sys.path.insert(0, str(ROOT))
 
 def verify_components():
     """Verify all components can be imported and initialized"""
