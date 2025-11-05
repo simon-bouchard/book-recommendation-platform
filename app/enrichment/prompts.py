@@ -1,63 +1,61 @@
 # app/enrichment/prompts.py
 """
-Tier-aware prompts for book enrichment with explicit vibe examples.
+Prompt templates for enrichment.
 """
 import json
 
+SYSTEM = """You are a book metadata enrichment assistant. Your task is to analyze book information and provide structured tags following exact specifications.
+
+**Core Principles:**
+- Be specific and concrete
+- Avoid generic or administrative terms
+- Distinguish fiction from non-fiction carefully
+- Follow tier-specific requirements exactly
+
+**Output Format:**
+CRITICAL: Return ONLY valid JSON. No explanations, no markdown, no extra text before or after.
+
+Always return valid JSON with these exact fields:
+- subjects: array of strings (unique noun phrases)
+- tone_ids: array of integers (tone IDs from provided list)
+- genre_id: single integer (genre ID from provided list)
+- vibe: string (descriptive phrase, length depends on tier)
+
+DO NOT include any text outside the JSON object.
+DO NOT add explanations or notes.
+DO NOT use markdown code blocks.
+Just return the raw JSON object.
+
+**Critical:** Count your words carefully for vibe field. Responses with incorrect word counts will be rejected."""
+
 # ============================================================================
-# SYSTEM PROMPT (unchanged)
-# ============================================================================
-
-SYSTEM = """You assign enrichment tags to books. Return strict JSON only, no markdown.
-
-**Critical rules:**
-- All outputs MUST be in English, even for non-English books
-- Never invent facts - only extract what's clearly indicated
-- Catalog subjects are WEAK signals from metadata - trust description/knowledge first
-- Ignore administrative tags: "translation to X", "works by Y", "study guides", "juvenile literature", "in literature", "in art"
-"""
-
-
-# ============================================================================
-# TIER-SPECIFIC INSTRUCTIONS (WITH VIBE EXAMPLES)
+# TIER INSTRUCTIONS
 # ============================================================================
 
 TIER_INSTRUCTIONS = {
-    "RICH": """**RICH TIER** (Strong metadata available)
-Generate comprehensive enrichment:
-- subjects: 5-8 specific, unique noun phrases - be detailed and domain-specific
-- tone_ids: 2-3 tones that capture style, pacing, and atmosphere
-- genre: exactly 1 genre
-- vibe: EXACTLY 8-12 words - evocative phrase capturing the book's essence
+    "RICH": """**RICH TIER** (Full metadata available)
+Generate comprehensive enrichment with high specificity:
+- subjects: 6-12 specific, domain-relevant noun phrases (avoid generic terms)
+- tone_ids: 1-3 tone IDs that capture the book's atmosphere
+- genre_id: exactly 1 genre ID
+- vibe: EXACTLY 8-12 words - a distinctive descriptive phrase
 
-**VIBE EXAMPLES (8-12 words):**
-✓ "Sweeping historical saga exploring love and loss across generations"
-✓ "Dark psychological thriller unraveling secrets in a coastal town"
-✓ "Lyrical meditation on memory, identity, and the immigrant experience"
-✓ "Epic fantasy adventure through kingdoms torn by war and magic"
-
-Quality focus: Specificity and uniqueness. Avoid generic subjects ("book", "story", "readers"). 
-Make each subject distinct - no near-duplicates like "Greek gods" and "Greek deities".""",
+Focus on specificity and uniqueness. Make the vibe memorable and distinctive.""",
     
-    "SPARSE": """**SPARSE TIER** (Moderate metadata available)
-Generate focused enrichment - accuracy over completeness:
-- subjects: 3-5 clear, safe choices from available information
-- tone_ids: 1-2 tones if confident, empty array [] if uncertain
-- genre: exactly 1 genre
+    "SPARSE": """**SPARSE TIER** (Limited but usable metadata)
+Generate focused enrichment - balance specificity with confidence:
+- subjects: 3-8 subjects (prefer specific over generic, but don't speculate)
+- tone_ids: 1-3 tone IDs (only if reasonably confident)
+- genre_id: exactly 1 genre ID
 - vibe: EXACTLY 4-8 words if confident, empty string "" if uncertain
 
-**VIBE EXAMPLES (4-8 words):**
-✓ "Thought-provoking exploration of wartime ethics" (5 words)
-✓ "Gripping detective story with noir atmosphere" (6 words)
-✓ "Intimate portrait of family dynamics" (5 words)
-
-Conservative approach: Better to omit vibe than force it. Only use catalog subjects if they clearly fit.""",
+Only use catalog subjects if they clearly fit.""",
     
     "MINIMAL": """**MINIMAL TIER** (Limited metadata available)
 Generate basic enrichment - extreme conservatism required:
 - subjects: 1-3 obvious subjects only (explicitly mentioned or clear from title)
-- tone_ids: 0-1 tone only if VERY clear, usually empty array []
-- genre: exactly 1 genre
+- tone_ids: 0-1 tone ID only if VERY clear, usually empty array []
+- genre_id: exactly 1 genre ID
 - vibe: MUST be empty string "" (NO vibe for this tier)
 
 Do NOT infer or speculate. Only extract what's directly stated.""",
@@ -66,7 +64,7 @@ Do NOT infer or speculate. Only extract what's directly stated.""",
 Genre classification only:
 - subjects: 0-1 subject (only if obvious from title, otherwise empty array [])
 - tone_ids: MUST be empty array []
-- genre: exactly 1 genre 
+- genre_id: exactly 1 genre ID
 - vibe: MUST be empty string "" (NO vibe for this tier)
 
 Primary goal: assign correct genre. Don't attempt to infer beyond what's explicit."""
@@ -74,35 +72,38 @@ Primary goal: assign correct genre. Don't attempt to infer beyond what's explici
 
 
 # ============================================================================
-# ONTOLOGY INSTRUCTIONS (updated for V2)
+# ONTOLOGY INSTRUCTIONS (updated for V2 and genre IDs)
 # ============================================================================
 
 def render_tone_instructions(tone_slugs: str, ontology_version: str = "v2") -> str:
-    """Render tone selection instructions with bucket context."""
+    """Render tone selection instructions with ID mappings."""
     if ontology_version == "v2":
-        return f"""**Tones (v2, 36 options):**
+        return f"""**Tones (v2, 36 options) - Select 1-3 tone IDs:**
 {tone_slugs}
 
 Organized in 6 buckets to help you choose:
-• PACING: slow-burn, fast-paced, episodic, meandering
-• MOOD: dark, lighthearted, melancholic, hopeful, tense, nostalgic
-• INTENSITY: intense, cozy, gritty, gentle
-• HUMOR: witty, satirical, absurd, dry
-• STYLE: lyrical, conversational, experimental, descriptive, minimalist
-• ACCESSIBILITY: accessible, challenging, dense
+• PACING: slow-burn, steady, fast-paced, action-packed
+• MOOD: cozy, whimsical, heartwarming, bittersweet, nostalgic, melancholic, dark, eerie, atmospheric, suspenseful, uplifting
+• INTENSITY: gentle, poignant, gritty, intense, harrowing, disturbing
+• HUMOR: witty, dry, satirical, ironic, absurdist, darkly-humorous
+• STYLE: lyrical, evocative, ornate, spare, experimental
+• ACCESSIBILITY: breezy, accessible, layered, cerebral
 
-Select tones that capture the book's FEEL and atmosphere."""
+Select tone IDs that capture the book's FEEL and atmosphere.
+Example: For a dark, fast-paced thriller → tone_ids: [11, 3, 14] (dark, fast-paced, suspenseful)"""
     else:
-        return f"""**Tones (v1, 55 options):**
-{tone_slugs}"""
+        return f"""**Tones (v1, 55 options) - Select 1-3 tone IDs:**
+{tone_slugs}
+
+Example: tone_ids: [1, 15, 23]"""
 
 
-def render_genre_instructions(genre_slugs: str) -> str:
-    """Render genre selection instructions with mapping examples."""
-    return f"""**Genres (39 options):**
-{genre_slugs}
+def render_genre_instructions(genre_id_slugs: str) -> str:
+    """Render genre selection instructions with ID mappings."""
+    return f"""**Genres (40 options) - Select ONE genre_id:**
+{genre_id_slugs}
 
-Key mappings:
+Key mappings for common topics:
 • astrology/tarot/feng shui → religion-spirituality
 • astronomy → science-nature
 • self-improvement/happiness/public speaking → psychology-self-help
@@ -111,8 +112,12 @@ Key mappings:
 • fashion/beauty/crafts/weddings → lifestyle
 • humor/joke collections → lifestyle
 
-**Critical:** Distinguish fiction from nonfiction carefully. Introductions, translations, commentaries, 
-study guides, primers → use nonfiction genre (history, biography, etc.), NOT fiction genres."""
+**Critical:** Distinguish fiction from nonfiction carefully. 
+Introductions, translations, commentaries, study guides, primers → use nonfiction genre IDs (history, biography, etc.), NOT fiction genre IDs.
+
+Example: For a space opera → genre_id: 2
+Example: For a dark thriller → genre_id: 5
+Example: For a biography → genre_id: 13"""
 
 
 # ============================================================================
@@ -126,10 +131,10 @@ def build_user_prompt(
     ol_subjects: list[str],
     tier: str,
     tone_slugs: str,
-    genre_slugs: str,
+    genre_id_slugs: str,
     ontology_version: str = "v2"
 ) -> str:
-    """Build tier-specific user prompt with explicit vibe requirements."""
+    """Build tier-specific user prompt with explicit ID requirements."""
     
     # Format catalog subjects (limit to 15 for token efficiency)
     if ol_subjects:
@@ -145,7 +150,7 @@ def build_user_prompt(
     
     # Build ontology sections
     tone_instr = render_tone_instructions(tone_slugs, ontology_version)
-    genre_instr = render_genre_instructions(genre_slugs)
+    genre_instr = render_genre_instructions(genre_id_slugs)
     
     # Get vibe requirement text based on tier
     vibe_requirement = {
@@ -163,18 +168,18 @@ DESCRIPTION: {description if description else "(no description available)"}
 
 {tier_instr}
 
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 {tone_instr}
 
 {genre_instr}
 
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 **Output Requirements:**
 • subjects: Unique noun phrases (1-4 words each), specific and distinct
-• tone_ids: Use tone IDs from list above (NOT slugs)
-• genre: Use genre slug from list above
+• tone_ids: Array of tone IDs from list above (integers, NOT slugs)
+• genre_id: Single genre ID from list above (integer, NOT slug)
 • {vibe_requirement}
 
 **Subject Quality Rules:**
@@ -189,12 +194,14 @@ DESCRIPTION: {description if description else "(no description available)"}
 • Never copy administrative tags
 
 **VIBE LENGTH CHECK (for {tier} tier):**
-{"Count your words carefully! RICH tier requires EXACTLY 8-12 words." if tier == "RICH" else ""}
+{"Count your words! RICH tier requires EXACTLY 8-12 words." if tier == "RICH" else ""}
 {"Count your words! SPARSE tier requires EXACTLY 4-8 words (or empty if uncertain)." if tier == "SPARSE" else ""}
 {"NO vibe allowed for this tier - use empty string." if tier in ("MINIMAL", "BASIC") else ""}
 
+CRITICAL: Return ONLY the JSON object below. No explanations. No markdown. No extra text.
+
 Return JSON:
-{{"subjects": [...], "tone_ids": [...], "genre": "slug", "vibe": "text or empty"}}"""
+{{"subjects": [...], "tone_ids": [11, 3, 14], "genre_id": 5, "vibe": "text or empty"}}"""
     
     return prompt
 
@@ -210,7 +217,7 @@ def build_retry_prompt(
     ol_subjects: list[str],
     tier: str,
     tone_slugs: str,
-    genre_slugs: str,
+    genre_id_slugs: str,
     ontology_version: str,
     feedback: dict
 ) -> str:
@@ -220,7 +227,7 @@ def build_retry_prompt(
     Args:
         ... (same as build_user_prompt)
         feedback: Dict with:
-            - error_type: "vibe_too_short" | "vibe_too_long" | etc.
+            - error_type: "vibe_too_short" | "vibe_too_long" | "invalid_genre_id" | etc.
             - error_msg: Original validation error
             - original_response: The JSON you returned last time
             - required_changes: Specific guidance on what to fix
@@ -251,9 +258,9 @@ def build_retry_prompt(
     
     # Build error-specific feedback
     error_section = f"""
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 ⚠️  VALIDATION ERROR - RETRY NEEDED
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 Your previous response was rejected for this reason:
 {feedback['error_msg']}
@@ -264,7 +271,7 @@ What you need to fix:
 Your original response (that was rejected):
 {original_json}
 
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 """
     
     prompt = f"""Book (RETRY ATTEMPT):
@@ -288,7 +295,13 @@ DESCRIPTION: {description if description else "(no description available)"}
 • Count your words carefully before submitting
 • Don't change fields that were correct
 
+**Reminder - Use IDs not slugs:**
+• tone_ids: use integers like [11, 3, 14]
+• genre_id: use single integer like 5
+
+CRITICAL: Return ONLY the JSON object below. No explanations. No markdown. No extra text.
+
 Return corrected JSON:
-{{"subjects": [...], "tone_ids": [...], "genre": "slug", "vibe": "corrected text or empty"}}"""
+{{"subjects": [...], "tone_ids": [11, 3, 14], "genre_id": 5, "vibe": "corrected text or empty"}}"""
     
     return prompt

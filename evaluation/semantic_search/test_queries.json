@@ -1,0 +1,202 @@
+{
+  "version": "v1",
+  "created": "2024-11-03",
+  "description": "Test queries for baseline vs enriched semantic search comparison - organized by query complexity",
+  "queries": [
+    {
+      "id": 1,
+      "text": "The Great Gatsby",
+      "type": "exact_match",
+      "complexity_level": "L1_exact_match",
+      "description": "Classic American novel - exact title match",
+      "expected_items": [
+        {
+          "title": "The Great Gatsby",
+          "author": "F. Scott Fitzgerald",
+          "item_idx": 1452,
+          "must_appear_in_top": 5
+        }
+      ]
+    },
+    {
+      "id": 2,
+      "text": "To Kill a Mockingbird Harper Lee",
+      "type": "exact_match",
+      "complexity_level": "L1_exact_match",
+      "description": "Title + author search",
+      "expected_items": [
+        {
+          "title": "To Kill a Mockingbird",
+          "author": "Harper Lee",
+          "item_idx": 38,
+          "must_appear_in_top": 3
+        }
+      ]
+    },
+    {
+      "id": 3,
+      "text": "Harry Potter and the Philosopher's Stone",
+      "type": "exact_match",
+      "complexity_level": "L1_exact_match",
+      "description": "Full title search - popular series",
+      "expected_items": [
+        {
+          "title": "Harry Potter and the Philosopher's Stone",
+          "author": "J. K. Rowling",
+          "item_idx": 2015,
+          "must_appear_in_top": 5
+        }
+      ]
+    },
+    {
+      "id": 4,
+      "text": "Brave New World Aldous Huxley",
+      "type": "exact_match",
+      "complexity_level": "L1_exact_match",
+      "description": "Dystopian classic - title + author",
+      "expected_items": [
+        {
+          "title": "Brave New World",
+          "author": "Aldous Huxley",
+          "item_idx": 1542,
+          "must_appear_in_top": 3
+        }
+      ]
+    },
+    {
+      "id": 5,
+      "text": "The Catcher in the Rye",
+      "type": "exact_match",
+      "complexity_level": "L1_exact_match",
+      "description": "Coming-of-age classic - exact title",
+      "expected_items": [
+        {
+          "title": "The Catcher in the Rye",
+          "author": "J. D. Salinger",
+          "item_idx": 90,
+          "must_appear_in_top": 5
+        }
+      ]
+    },
+    {
+      "id": 6,
+      "text": "cozy mystery",
+      "type": "descriptive",
+      "complexity_level": "L2_two_descriptors",
+      "description": "Two descriptors - tests basic semantic understanding",
+      "manual_review": true
+    },
+    {
+      "id": 7,
+      "text": "dark fantasy",
+      "type": "descriptive",
+      "complexity_level": "L2_two_descriptors",
+      "description": "Genre + mood combination",
+      "manual_review": true
+    },
+    {
+      "id": 8,
+      "text": "romantic comedy",
+      "type": "descriptive",
+      "complexity_level": "L2_two_descriptors",
+      "description": "Classic genre blend",
+      "manual_review": true
+    },
+    {
+      "id": 9,
+      "text": "fast thriller",
+      "type": "descriptive",
+      "complexity_level": "L2_two_descriptors",
+      "description": "Pace + genre",
+      "manual_review": true
+    },
+    {
+      "id": 10,
+      "text": "epic adventure",
+      "type": "descriptive",
+      "complexity_level": "L2_two_descriptors",
+      "description": "Scale + genre",
+      "manual_review": true
+    },
+    {
+      "id": 11,
+      "text": "dark atmospheric gothic horror",
+      "type": "descriptive",
+      "complexity_level": "L3_multi_descriptors",
+      "description": "Multiple mood/style/genre descriptors",
+      "manual_review": true
+    },
+    {
+      "id": 12,
+      "text": "witty romantic comedy manners",
+      "type": "descriptive",
+      "complexity_level": "L3_multi_descriptors",
+      "description": "Tone + genre + style - tests Jane Austen-like books",
+      "manual_review": true
+    },
+    {
+      "id": 13,
+      "text": "gritty realistic urban crime",
+      "type": "descriptive",
+      "complexity_level": "L3_multi_descriptors",
+      "description": "Multiple stylistic descriptors",
+      "manual_review": true
+    },
+    {
+      "id": 14,
+      "text": "philosophical existential absurdist",
+      "type": "descriptive",
+      "complexity_level": "L3_multi_descriptors",
+      "description": "Literary/philosophical tone markers",
+      "manual_review": true
+    },
+    {
+      "id": 15,
+      "text": "epic medieval fantasy quest",
+      "type": "descriptive",
+      "complexity_level": "L3_multi_descriptors",
+      "description": "Scale + setting + genre + plot",
+      "manual_review": true
+    },
+    {
+      "id": 16,
+      "text": "Victorian detective solving murders foggy London",
+      "type": "thematic",
+      "complexity_level": "L4_very_specific",
+      "description": "Specific era, character type, setting, plot - tests Sherlock Holmes-like books",
+      "manual_review": true
+    },
+    {
+      "id": 17,
+      "text": "dystopian totalitarian surveillance mind control",
+      "type": "thematic",
+      "complexity_level": "L4_very_specific",
+      "description": "Multi-concept dystopian themes - tests 1984-like books",
+      "manual_review": true
+    },
+    {
+      "id": 18,
+      "text": "space exploration alien first contact consequences",
+      "type": "thematic",
+      "complexity_level": "L4_very_specific",
+      "description": "Sci-fi plot with multiple concepts",
+      "manual_review": true
+    },
+    {
+      "id": 19,
+      "text": "coming of age small town America 1950s",
+      "type": "thematic",
+      "complexity_level": "L4_very_specific",
+      "description": "Theme + setting + time period",
+      "manual_review": true
+    },
+    {
+      "id": 20,
+      "text": "World War 2 French resistance underground fighter",
+      "type": "thematic",
+      "complexity_level": "L4_very_specific",
+      "description": "Historical period + location + specific role/plot",
+      "manual_review": true
+    }
+  ]
+}

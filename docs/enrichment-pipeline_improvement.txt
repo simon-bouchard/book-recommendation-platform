@@ -1,318 +1,981 @@
-Enrichment Pipeline Modernization Plan
-Overview
-Transform the current batch-only enrichment system into a streaming-capable pipeline with quality tiering and continuous embedding. Three major workstreams that can be implemented in phases.
-
-Phase 1: Kafka Ingestion Layer (Foundation)
-Goal
-Replace direct JSONL file appends with durable Kafka topics for enrichment results and errors.
-Infrastructure Setup
-Kafka Topics:
-
-enrich.results.v1 - successful enrichment outputs
-
-Partitions: 6-12 (based on throughput)
-Retention: 7-30 days
-Cleanup policy: compact + delete (keep latest per book)
-Compression: snappy or lz4
-
-
-enrich.errors.v1 - structured error events (DLQ)
-
-Partitions: 3-6
-Retention: 14-30 days
-Cleanup policy: delete only
-
-
-
-Event Schema:
-
-Key: item_idx as string
-Value: JSON with fields: item_idx, subjects, tone_ids, genre, vibe, tags_version, scores, enrichment_quality, metadata_source, timestamp
-
-Producer Changes
-Modify enrichment workers (runner.py, backfill.py):
-
-Replace file append operations with Kafka producer calls
-Add retry logic with exponential backoff for transient failures
-Implement circuit breaker for Kafka unavailability (fallback to local queue)
-Add structured error events to DLQ topic with taxonomy: stage, error_code, error_field, error_msg
-Include request metadata: run_id, model, provider, latency_ms for observability
-
-Dual-write period:
-
-Temporarily write to both JSONL and Kafka during cutover (1 week)
-Validate parity between both outputs
-Monitor for data loss or format issues
-
-Spark Streaming Consumer
-Build Structured Streaming job:
-
-Consume from both topics with micro-batches (30-60 second triggers)
-Apply same transformation logic as current batch job: explode/dedupe for tones, subjects, genres, vibes
-Use foreachBatch to write staging tables via JDBC
-Execute same SQL upserts (INSERT IGNORE / ON DUPLICATE KEY UPDATE) for idempotent writes
-Checkpointing with stable consumer group
-
-SQL Schema Updates:
-
-Add enrichment_quality column to tracking table
-Create enrichment_errors table with structured fields
-Ensure all indexes support upsert patterns efficiently
-
-Validation & Cutover
-
-Run dual pipeline (batch + streaming) in parallel for 3-5 days
-Compare row counts, verify no duplicates or missing data
-Monitor consumer lag, processing latency, SQL commit times
-Build observability dashboard: events/sec, error rate by stage/code, consumer lag
-Switch enrichment workers to Kafka-only after validation
-Deprecate JSONL path after 1-2 weeks green
-
-
-Phase 2: Quality Tiering for Enrichment
-Goal
-Classify books by metadata quality and apply appropriate enrichment strategies to optimize cost and quality.
-Metadata Quality Assessment
-Pre-enrichment classification logic:
-
-RICH: title + author + description >50 words, substantive content
-SPARSE: title + author + short description (10-50 words) or generic content
-MINIMAL: title + author only, no usable description
-INSUFFICIENT: missing title or critical fields
-
-Detection heuristics:
-
-Description length and word count
-Pattern matching for metadata-only text (ISBN, Publisher, Edition markers)
-Language detection for non-English books
-Encoding/corruption checks
-
-Tier-Specific Enrichment Strategies
-RICH tier (target ~60-70% of catalog):
-
-Full two-stage enrichment if implementing that improvement
-Current full prompt with all ontology options
-Quality validation and self-critique
-Use primary LLM (Llama 70B or equivalent)
-
-SPARSE tier (target ~20-30% of catalog):
-
-Simplified prompt focusing on title + author inference
-Conservative genre selection
-Reduced subject count (3-5 instead of 8)
-Generic but accurate vibe templates
-Option to use cheaper/smaller model (Llama 8B)
-Mark with confidence: low
-
-MINIMAL tier (target ~5-10% of catalog):
-
-Rule-based enrichment without LLM calls
-Genre inference from title keywords (regex patterns)
-NER or keyword extraction from title for subjects
-Template-based vibe generation
-Significant cost savings on this segment
-
-Implementation in Enrichment Workers
-Add quality gate before LLM calls:
-
-Assess metadata quality first
-Branch to appropriate enrichment function
-Tag output events with enrichment_quality field
-Track coverage metrics by tier (percentage of catalog in each tier)
-
-Event schema extension:
-
-Add enrichment_quality enum field
-Add metadata_source field (internal, openlibrary, etc.)
-Optional confidence field for analytics
-
-Monitoring & Iteration
-
-Dashboard showing distribution across tiers
-Quality metrics per tier (subject specificity, vibe length, error rates)
-A/B test prompts within tiers to optimize
-Identify books that should move between tiers based on results
-
-
-Phase 3: Continuous Embedding Pipeline
-Goal
-Replace single massive batch embedding with progressive accumulation, enabling faster iteration and avoiding multi-hour blocking jobs.
-Accumulator Storage Design
-Directory structure per version:
-
-accumulator subdirectory with append-only vector batches
-Separate arrays: vectors (npy), ids (npy), metadata (json)
-SQLite fingerprint database tracking content hashes per item_idx
-Multiple batch files numbered sequentially
-
-Fingerprinting system:
-
-Hash function covering: enrichment dict content + embed_version + preprocessing params
-Skip re-embedding if fingerprint unchanged
-Enables efficient incremental processing
-
-Embedding Worker Service
-Standalone process separate from enrichment:
-
-Queries SQL for enriched books (joins across book_tones, book_subjects, etc.)
-Compares computed fingerprints against stored fingerprints
-Batches items needing embedding (256 at a time)
-Calls embedding model and appends results to accumulator
-Updates fingerprint database
-Tracks coverage statistics
-
-Scheduling options:
-
-Continuous daemon mode: runs every N minutes
-Cron-based: hourly or every few hours
-Manual trigger: for controlled runs during initial load
-
-Processing logic:
-
-Each run processes ALL books needing embedding (new or changed)
-For initial 250k load: single run processes everything in 256-item batches
-For ongoing maintenance: each run only processes deltas since last run
-Naturally reaches steady state where runs are fast
-
-Critical Fix: Tone/Genre Resolution
-Before embedding text construction:
-
-Load tones CSV and build id-to-name mapping
-Load genres CSV and build slug-to-name mapping
-Resolve tone_ids to actual tone names
-Resolve genre slug to genre name
-
-Updated embedding text format:
-
-Include resolved tone names instead of numeric IDs
-Include genre name (currently missing entirely)
-Example format: "title — author | genre: science-fiction | subjects: ... | tones: dark, atmospheric, fast-paced | vibe: ..."
-
-This fix alone could dramatically improve semantic search quality.
-Manual Index Build Process
-When accumulator reaches sufficient coverage:
-
-Run build script that loads all accumulator batches
-Concatenate vectors and deduplicate by item_idx (keep latest)
-Build FAISS HNSW index over consolidated vectors
-Save sealed build to dated directory
-Run quality checks: dimensionality, vector norms, sample queries
-
-Promotion process:
-
-Update API configuration to point to new build directory
-Restart API service to load new index
-Keep old build available for rollback
-Archive very old builds after validation period
-
-Monitoring & Operations
-Metrics to track:
-
-Embedding coverage percentage
-Embeddings per hour throughput
-Fingerprint hit rate (skipped re-embeddings)
-Accumulator size and growth rate
-Time to build index from accumulator
-
-Operational procedures:
-
-Document manual build and promotion steps
-Define coverage thresholds for triggering builds (e.g., 95%)
-Rollback procedure if new build has quality issues
-Periodic cleanup of old accumulator batches after successful builds
-
-
-Phase 4: Enhanced Enrichment Quality (Optional Refinements)
-Two-Stage Enrichment
-If quality metrics show need:
-
-Stage 1: Broad extraction generating 12-15 subject candidates, multiple tone/genre options
-Stage 2: Critical refinement selecting best 8 subjects, removing duplicates, applying quality rules
-Trade-off: 2x LLM cost vs higher quality output
-Can A/B test on subset before full rollout
-
-Prompt Improvements
-Hierarchical tone selection:
-
-Group 55 tones into 5-7 categories (pacing, mood, intensity, humor, style, accessibility)
-Have LLM first select relevant categories, then specific tones within them
-Reduces cognitive load vs presenting flat list of 55
-
-Few-shot examples:
-
-Include 2-3 exemplar enrichments showing excellent subject specificity and distinctive vibes
-Cover different book types: fiction, non-fiction, technical
-Significantly improves output quality with minimal prompt expansion
-
-Noisy subjects integration:
-
-Re-enable the noisy_subjects_block you currently disable in backfill
-Teach LLM to validate/filter: "Here are candidate subjects from metadata. Keep relevant ones and add 3-5 more"
-Better than ignoring available weak signals
-
-Post-Processing Improvements
-Semantic subject deduplication:
-
-After LLM generation, embed all proposed subjects
-Calculate pairwise similarities
-Remove near-duplicates above threshold (e.g., 0.85 similarity)
-Catches cases like "Greek mythology" vs "ancient Greek deities"
-
-Cross-field consistency validation:
-
-Flag mismatches: dark/somber tones with comedy genre
-Flag generic outputs: all subjects are broad terms, vibe is template-like
-Route flagged cases for review or re-enrichment
-
-
-Implementation Timeline Recommendation
-Week 1-2: Kafka Foundation
-
-Set up Kafka cluster/topics
-Modify enrichment workers to produce events
-Build Spark streaming consumer
-Dual-write validation period
-
-Week 3: Cutover & Stabilization
-
-Make Kafka primary ingestion path
-Monitor for issues
-Deprecate JSONL after stability confirmed
-
-Week 4-5: Quality Tiering
-
-Implement metadata assessment logic
-Build tier-specific enrichment strategies
-Deploy to enrichment workers with monitoring
-
-Week 6-7: Embedding Pipeline
-
-Build accumulator storage system
-Implement fingerprinting
-Create embedding worker service
-Fix tone/genre resolution bug
-
-Week 8: Initial Embedding Load
-
-Run embedding worker to process existing 250k enrichments
-Build first index from accumulator
-Deploy to API
-
-Week 9+: Continuous Operations
-
-Embedding worker runs on schedule
-Periodic manual index builds
-Monitor quality metrics
-Iterate on prompt improvements
-
-Total estimated timeline: 8-10 weeks for core implementation, then ongoing refinement.
-
-Success Criteria
-
-Enrichment events land in SQL within 2 minutes under normal load
-No data loss during Kafka cutover
-60%+ of catalog achieves RICH tier enrichment
-Embedding coverage reaches 95%+ within 2 weeks of enrichment
-Semantic search quality improves measurably (tone/genre now in embeddings)
-Index builds complete in <3 hours
-System handles ongoing enrichment at steady state (hundreds/thousands new books per week)
+# Enrichment Pipeline Implementation Plan v2.0
+## Reflecting Actual Implementation (Post-Phase 2)
+
+---
+
+## Overview
+Transform batch-only enrichment into streaming pipeline with intelligent quality tiering and continuous embedding. This reflects **as-built** implementation after Phase 2.
+
+---
+
+## Phase 1: Kafka Ingestion Layer ✅ COMPLETED
+
+### Infrastructure
+
+**Kafka Topics:**
+- `enrich.results.v1`
+  - Partitions: 6-12
+  - Retention: 7-30 days
+  - Cleanup: compact + delete
+  - Compression: snappy
+  - Key: `{item_idx}:{tags_version}`
+
+- `enrich.errors.v1`
+  - Partitions: 3-6
+  - Retention: 14-30 days
+  - Cleanup: delete
+  - Key: `{item_idx}:{tags_version}`
+
+### Event Schemas (AS IMPLEMENTED)
+
+**Success Event:**
+```json
+{
+  "item_idx": 123,
+  "subjects": ["ancient Rome", "political intrigue", "Julius Caesar"],
+  "tone_ids": [5, 12, 18],
+  "genre_id": 5,
+  "genre": "historical-fiction",
+  "vibe": "Epic political drama exploring power and betrayal in ancient Rome",
+  "tags_version": "v2",
+  "scores": {"confidence": 0.92, "clarity": 0.88},
+  "timestamp": 1699564800000,
+  "metadata": {
+    "run_id": "run_20241104_143022_a7f3c9d1",
+    "model": "meta-llama/Meta-Llama-3.1-70B-Instruct",
+    "provider": "deepinfra",
+    "ontology_version": "v2",
+    "enrichment_quality": "RICH",
+    "quality_score": 75,
+    "retry_count": 0,
+    "latency_ms": 1234
+  }
+}
+```
+
+**Key Decisions:**
+- `enrichment_quality` is **nested in metadata** (not top-level)
+- `metadata` object is extensible
+- Tone IDs are integers, genre uses both ID and slug
+- **genre_id** (integer) is primary, **genre** (slug) is secondary for DB storage
+- No `metadata_source` field (can add later)
+
+**Error Event:**
+```json
+{
+  "item_idx": 456,
+  "tags_version": "v2",
+  "timestamp": 1699564800000,
+  "stage": "validate",
+  "error_code": "VIBE_TOO_SHORT",
+  "error_field": "vibe",
+  "error_msg": "Vibe too short for RICH tier: got 5 words, need 8-14",
+  "title": "The Great Gatsby",
+  "author": "F. Scott Fitzgerald",
+  "attempted": {
+    "subjects": ["1920s", "American Dream"],
+    "tone_ids": [15, 23],
+    "genre_id": 3,
+    "genre": "literary-fiction",
+    "vibe": "Jazz Age excess and tragedy",
+    "tier": "RICH"
+  },
+  "run_id": "run_20241104_143022_a7f3c9d1",
+  "model": "meta-llama/Meta-Llama-3.1-70B-Instruct"
+}
+```
+
+### Producer Features
+
+**Implemented:**
+- Circuit breaker (60s timeout, 3 failures to open)
+- Dual-write mode (env: `ENRICH_DUAL_WRITE_JSONL`, `ENRICH_CUTOVER_COMPLETE`)
+- Fail-fast post-cutover
+- Retry with exponential backoff
+- 12 structured error codes
+- Automatic metadata injection
+
+**Cutover Flow:**
+1. Dual-write: Kafka + JSONL (validation)
+2. Monitor parity, lag, metrics
+3. Switch to Kafka-only
+4. Deprecate JSONL after 1-2 weeks
+
+### Streaming Consumer
+
+**Processing Pattern:**
+- Micro-batches every 30-60 seconds
+- Consumer groups: `cg.enrichment.sql.v1`, `cg.enrichment.errors.v1`
+- Backpressure: `maxOffsetsPerTrigger` (1000 results, 500 errors)
+
+**Critical Implementation: Two-Phase Commits**
+
+This prevents orphaned records and was NOT in original plan:
+
+**Phase 1: Dictionary Tables**
+1. Upsert `llm_subjects` (INSERT IGNORE)
+2. Upsert `vibes` (INSERT IGNORE)
+3. **COMMIT** ← Critical checkpoint
+
+**Phase 2: Link Tables**
+4. Upsert `book_llm_subjects` (JOIN to resolve subject → idx)
+5. Upsert `book_vibes` (JOIN to resolve text → vibe_id)
+6. Upsert `book_tones`, `book_genres`
+7. **COMMIT**
+
+**Other Features:**
+- Chunked inserts (1000 rows/batch) to avoid max_allowed_packet
+- Idempotent upserts (INSERT ... ON DUPLICATE KEY UPDATE)
+- Parameterized queries for safety
+
+### SQL Schema
+
+**Error Tracking Table:**
+```sql
+CREATE TABLE enrichment_errors (
+    item_idx INT PRIMARY KEY,
+    first_seen_at DATETIME NOT NULL,
+    last_seen_at DATETIME NOT NULL,
+    occurrence_count INT DEFAULT 1,
+    stage VARCHAR(32) NOT NULL,
+    error_code VARCHAR(32) NOT NULL,
+    error_field VARCHAR(64),
+    error_msg TEXT,
+    tags_version VARCHAR(16) NOT NULL,
+    title VARCHAR(256),
+    author VARCHAR(256),
+    attempted JSON,
+    last_run_id VARCHAR(64),
+    run_history JSON,
+    INDEX idx_tags_version (tags_version),
+    INDEX idx_error_code (error_code),
+    INDEX idx_last_seen (last_seen_at)
+);
+```
+
+**run_history format:** `[{run_id, timestamp, error_code}, ...]`
+
+### Error Taxonomy (12 Codes)
+
+- `INVALID_GENRE` - Not in ontology
+- `INVALID_TONE_ID` - Not in ontology
+- `VIBE_TOO_LONG` / `VIBE_TOO_SHORT` - Word count violations
+- `SUBJECT_COUNT_WRONG` - Count violation
+- `TONE_COUNT_WRONG` - Count violation
+- `JSON_PARSE` - Unparseable response
+- `HTTP_401` - Auth failure
+- `RATE_LIMIT` - API limit
+- `TIMEOUT` - API timeout
+- `DB_TIMEOUT` - Database timeout
+- `UNKNOWN` - Catch-all
+
+### Observability
+
+**Metrics:**
+- Events/sec by topic
+- Error rate by stage/code
+- Consumer lag
+- SQL commit latency
+- Circuit breaker state
+- Retry success rate
+
+---
+
+## Phase 2: Intelligent Quality Tiering ✅ COMPLETED
+
+### Five-Tier System (AS IMPLEMENTED)
+
+| Tier | Score | Description | Expected % |
+|------|-------|-------------|-----------|
+| **RICH** | 60-100 | Long desc + many OL subjects | 60-70% |
+| **SPARSE** | 30-59 | Medium metadata | 20-25% |
+| **MINIMAL** | 10-29 | Weak metadata | 5-10% |
+| **BASIC** | 1-9 | Very sparse (NEW tier) | 3-5% |
+| **INSUFFICIENT** | 0 | Missing title/author | <1% |
+
+**Note:** BASIC tier added during implementation (not in original 4-tier plan)
+
+### Scoring Algorithm
+
+**Description Points (0-60):**
+- ≥100 words → 60 pts
+- 50-99 words → 40 pts
+- 20-49 words → 20 pts
+- 10-19 words → 10 pts
+- <10 words → 0 pts
+
+**OL Subjects Points (0-40):**
+- ≥10 subjects → 40 pts
+- 7-9 subjects → 30 pts
+- 5-6 subjects → 20 pts
+- 3-4 subjects → 10 pts
+- <3 subjects → 0 pts
+
+**Total: desc_points + ol_points (0-100)**
+
+### Quality Detection
+
+- Placeholder text filtering (regex: "N/A", "No description", etc.)
+- Encoding corruption (replacement chars, >30% special chars, all-caps)
+- OL subject deduplication
+
+### Tier Requirements
+
+**RICH (60-100):**
+- Subjects: 5-12 required
+- Tones: 2-4 required
+- Vibe: 6-20 words required (validator range; prompts target 8-12 for quality)
+- Genre: required
+- Validation: strict
+
+**SPARSE (30-59):**
+- Subjects: 3-6 required
+- Tones: 0-2 optional
+- Vibe: 3-10 words optional (validator range; prompts target 4-8 for quality)
+- Genre: required
+- Validation: lenient on optional
+
+**MINIMAL (10-29):**
+- Subjects: 1-3 required
+- Tones: 0-1 optional
+- Vibe: MUST be empty
+- Genre: required
+- Uses LLM with restrictive prompt (NOT rule-based as originally planned)
+
+**BASIC (<10):**
+- Subjects: 0-1 optional
+- Tones: MUST be empty
+- Vibe: MUST be empty
+- Genre: required
+- Goal: genre only
+
+**Note on Vibe Ranges:** Validators use wider ranges (6-20 for RICH) while prompts instruct narrower targets (8-12 for RICH). This gives wiggle room while encouraging quality.
+
+### Ontology
+
+**Tones v2 (36 options, 6 buckets) - PRIMARY:**
+```
+PACING:        slow-burn, fast-paced, episodic, meandering
+MOOD:          dark, lighthearted, melancholic, hopeful, tense, nostalgic
+INTENSITY:     intense, cozy, gritty, gentle
+HUMOR:         witty, satirical, absurd, dry
+STYLE:         lyrical, conversational, experimental, descriptive, minimalist
+ACCESSIBILITY: accessible, challenging, dense
+```
+
+**Tones v1 (55 options, flat list) - LEGACY:**
+- Backward compatible via `ENRICHMENT_ONTOLOGY_VERSION=v1`
+
+**Genres (39 options):**
+- Single genre per book
+- Prompt includes mappings:
+  - astrology/tarot → religion-spirituality
+  - astronomy → science-nature
+  - self-improvement → psychology-self-help
+  - sports/fitness → lifestyle
+
+### Intelligent Retry System (NEW)
+
+**Major enhancement not in original plan**
+
+**Process:**
+1. First attempt: standard prompt
+2. Validation failure: extract error details
+3. Retry: feedback prompt with original response + requirements
+4. Track with `retry_count` in metadata
+5. Both fail: DLQ with full context
+
+**Retryable Errors:**
+- Vibe length violations
+- Subject/tone count violations
+- Invalid genre
+
+**Impact:**
+- 30-40% reduction in DLQ volume
+- >80% retry success rate
+- Significantly improved quality
+
+### Prompt Structure
+
+**System Prompt:**
+- Return strict JSON only
+- All outputs in English
+- Don't invent facts
+- Catalog subjects are weak signals
+- Ignore administrative tags
+
+**User Prompt Components:**
+1. Book metadata (title, author, description, OL subjects max 15)
+2. Tier-specific instruction with word count emphasis
+3. Vibe examples (3-6 per tier)
+4. Ontology with buckets/mappings
+5. Output requirements
+6. Subject quality rules
+7. Catalog handling guidance
+8. Word count reminder
+
+**Vibe Examples:**
+
+RICH (8-14 words):
+- "Sweeping historical saga exploring love and loss across generations" (11)
+- "Dark psychological thriller unraveling secrets in a coastal town" (10)
+
+SPARSE (4-8 words):
+- "Thought-provoking exploration of wartime ethics" (5)
+- "Gripping detective story with noir atmosphere" (6)
+
+### Quality Metrics (RECENTLY ADDED)
+
+**Per-Tier Tracking:**
+- First-attempt success rate
+- Retry success rate
+- Final error rate
+- Average latency
+- Vibe length distribution
+- Subject count distribution
+- Tone count distribution
+- Coverage by tier
+
+**Operational Logging:**
+- Success: `✓ item_idx=123 (RICH)` or `(RICH) (retry)`
+- Failure: `✗ item_idx=456 (SPARSE): VIBE_TOO_SHORT`
+- Progress: `1000/5000 (950 ✓, 50 ✗) | 15.2/s | ETA: 4m 23s`
+
+---
+
+## Phase 3: Continuous Embedding Pipeline ⏳ READY TO START
+
+### Goals
+
+- Incremental processing (only changed books)
+- Fast iteration (hours not days)
+- No blocking jobs (continuous background)
+- Blue/green deployments
+- Deterministic via fingerprinting
+
+### Storage Structure
+
+```
+embeddings/
+├── v2_emb_v1/                          # {tags_version}_{embed_version}
+│   ├── accumulator/
+│   │   ├── batch_00000.npz            # Compressed vectors + ids
+│   │   ├── batch_00001.npz
+│   │   └── ...
+│   ├── fingerprints.db                 # SQLite hash tracking
+│   ├── metadata.json                   # Stats and config
+│   └── builds/
+│       ├── build_20241104_143022/
+│       │   ├── index.faiss
+│       │   ├── vectors.npy
+│       │   ├── ids.npy
+│       │   ├── manifest.json
+│       │   └── quality_report.json
+│       └── current -> build_20241104_143022
+```
+
+### File Schemas
+
+**batch_XXXXX.npz:**
+```python
+{
+    'vectors': (N, 384) float32,    # Embeddings
+    'ids': (N,) int32,              # item_idx values
+    'timestamp': int,               # Creation time
+    'model': str,
+    'tags_version': str,
+    'embed_version': str
+}
+```
+
+**fingerprints.db:**
+```sql
+CREATE TABLE fingerprints (
+    item_idx INTEGER PRIMARY KEY,
+    fingerprint TEXT NOT NULL,
+    embed_version TEXT NOT NULL,
+    tags_version TEXT NOT NULL,
+    last_embedded_at INTEGER NOT NULL,
+    embedding_batch TEXT,
+    INDEX idx_fingerprint (fingerprint),
+    INDEX idx_versions (tags_version, embed_version)
+);
+```
+
+**metadata.json:**
+```json
+{
+    "tags_version": "v2",
+    "embed_version": "emb_v1",
+    "model": "sentence-transformers/all-MiniLM-L6-v2",
+    "embedding_dim": 384,
+    "started_at": "2024-11-04T14:30:22Z",
+    "last_batch_at": "2024-11-04T18:45:10Z",
+    "total_batches": 42,
+    "total_embeddings": 167234,
+    "coverage_stats": {
+        "RICH": {"count": 105234, "coverage": 1.0},
+        "SPARSE": {"count": 45012, "coverage": 1.0},
+        "MINIMAL": {"count": 12456, "coverage": 0.98},
+        "BASIC": {"count": 4532, "coverage": 0.95}
+    }
+}
+```
+
+### Fingerprinting
+
+**Hash Components:**
+- item_idx
+- title (normalized: lowercased, stripped)
+- author (normalized)
+- subjects (sorted, normalized)
+- **tone_names** (sorted, normalized) ← RESOLVED from tone_ids
+- **genre_name** (normalized) ← RESOLVED from genre_id
+- vibe (normalized)
+- embed_version
+- tags_version
+
+**Algorithm:**
+- Create normalized dict with all components
+- Serialize to canonical JSON (sorted keys)
+- Compute SHA256 hex digest
+
+**Skip Logic:**
+- Query existing fingerprint from DB
+- Compute current fingerprint
+- If match: skip (unchanged)
+- If different or missing: embed (changed or new)
+
+### CRITICAL: Tone/Genre Resolution
+
+**Problem:**
+- Events store tone **IDs** (integers: 5, 12, 18)
+- Events store genre **ID** (integer: 5) and genre **slug** ("science-fiction")
+- Embeddings need display **names** for semantic meaning
+
+**MUST RESOLVE BEFORE EMBEDDING:**
+
+**Tone Resolution:**
+- Load appropriate ontology CSV (v1 or v2)
+- Build map: `tone_id → display_name`
+- Example: `5 → "Dark"`, `12 → "Fast-paced"`
+
+**Genre Resolution:**
+- Load genres CSV
+- Build map: `genre_id → display_name`
+- Example: `5 → "Historical Fiction"`, `3 → "Literary Fiction"`
+- Use `genre_id` from event (more direct than using slug)
+
+**Ontology Loader:**
+- Initialize once at worker startup
+- Support both v1 and v2 tones
+- Handle missing IDs gracefully (log warning)
+- Cache in memory
+
+### Embedding Text Format
+
+**Template:**
+```
+{title} — {author} | genre: {genre_name} | subjects: {s1}, {s2}, ... | tones: {t1}, {t2}, ... | vibe: {vibe}
+```
+
+**Rules:**
+- Title/author: always included
+- Genre: **resolved name** (not slug)
+- Subjects: comma-separated
+- Tones: **resolved names** (not IDs)
+- Vibe: may be empty for MINIMAL/BASIC
+- Separator: ` | `
+
+**Example:**
+```
+The Three-Body Problem — Liu Cixin | genre: Science Fiction | subjects: alien contact, astrophysics, Cultural Revolution, Chinese history, hard science fiction | tones: Dark, Cerebral, Epic | vibe: Mind-bending hard sci-fi exploring humanity's first contact with alien civilization
+```
+
+**Empty Field Handling:**
+- No vibe: omit vibe section
+- No tones: omit tones section
+- No subjects: omit subjects section (rare)
+- Genre always required
+
+### Embedding Worker
+
+**Architecture:**
+- Standalone daemon (separate from enrichment)
+- Components:
+  - OntologyResolver (load CSVs, resolve IDs/slugs)
+  - EnrichmentFetcher (query SQL for enriched books)
+  - FingerprintTracker (manage SQLite DB)
+  - EmbeddingClient (call API with retry)
+  - AccumulatorWriter (append .npz batches)
+  - CoverageMonitor (update metadata.json)
+
+**Operation Modes:**
+
+**Continuous:**
+- Run every N minutes (default 15-30)
+- Process all books needing embeddings
+- Reaches steady state (most runs skip everything)
+- Production mode
+
+**One-Shot:**
+- Process everything once, exit
+- For initial 250k load
+- Progress reporting with ETA
+- Testing mode
+
+**Targeted:**
+- Process specific item_idx list
+- For backfills/corrections
+
+**Processing Flow:**
+
+1. **Startup**
+   - Load ontology resolvers
+   - Connect to fingerprint DB
+   - Load accumulator metadata
+   - Verify directories
+
+2. **Fetch Phase**
+   - Query SQL for enriched books
+   - Join: books, book_genres, book_tones, book_llm_subjects, book_vibes
+   - Aggregate subjects and tone_ids per book
+
+3. **Filter Phase (per book)**
+   - Resolve tone_ids → tone_names
+   - Resolve genre_slug → genre_name
+   - Compute current fingerprint
+   - Query existing fingerprint
+   - If match: skip
+   - If different/missing: queue for embedding
+
+4. **Batch Phase**
+   - Group into batches of 256
+   - Build embedding texts (with resolved names)
+   - Call embedding API
+   - Write batch to .npz
+   - Update fingerprint DB
+   - Update metadata.json
+
+5. **Reporting**
+   - Log: X embedded, Y skipped, Z errors
+   - Update coverage stats by tier
+   - Calculate throughput
+
+**EnrichmentFetcher Query:**
+- Single query with LEFT JOINs
+- GROUP BY book (aggregate subjects/tones)
+- Filter: WHERE genre IS NOT NULL
+- Return flattened dicts
+
+**EmbeddingClient Specs:**
+- Model: sentence-transformers/all-MiniLM-L6-v2 (384 dim)
+- Batch size: 256 texts/call
+- Retry: 3 attempts, exponential backoff
+- Timeout: 30s/batch
+- Rate limiting: respect API quotas
+
+**AccumulatorWriter:**
+- Append-only (never modify existing)
+- Atomic writes (temp file → rename)
+- Sequential numbering (batch_00000.npz)
+- Compression: numpy savez_compressed
+
+**Initial Load Strategy:**
+
+**Approach: Single One-Shot Run**
+- Process 250k books in ~256-book batches
+- Expected: 3-5 hours (depends on API limits)
+- Progress every 50 batches
+- Periodic metadata.json updates
+
+**Parallelization (Optional):**
+- Multiple workers, subset item_idx ranges
+- Shared fingerprint DB with locking
+- Coordinate via run_id
+- If initial load needs acceleration
+
+**Steady State:**
+- Continuous mode every 15 min
+- Most runs skip most books (fingerprints match)
+- Typical: 0-50 new embeddings/run
+- Accumulator grows slowly
+
+### Index Building
+
+**Trigger Conditions:**
+- Coverage threshold reached (95%, 98%, 99%)
+- Scheduled cadence (weekly, bi-weekly)
+- After large backfill
+- On-demand
+
+**Build Process:**
+
+1. **Load Batches**
+   - Read all batch_*.npz files
+   - Load vectors and ids
+
+2. **Deduplicate**
+   - Map: item_idx → (vector, timestamp)
+   - For duplicates: keep latest
+   - Result: single vector per book
+
+3. **Consolidate**
+   - Create numpy arrays: ids, vectors
+   - Ensure alignment
+
+4. **Build FAISS Index**
+   - Type: HNSW
+   - Params: M=32, efConstruction=200
+   - Time: 10-30 min for 250k
+
+5. **Quality Checks**
+   - Dimensionality (384)
+   - No NaN/Inf
+   - Vector norms reasonable
+   - Sample queries work
+   - No duplicate IDs
+
+6. **Save Build**
+   - Dated directory: build_YYYYMMDD_HHMMSS
+   - Files: index.faiss, vectors.npy, ids.npy
+   - manifest.json (metadata)
+   - quality_report.json (QC results)
+
+7. **Archive (Optional)**
+   - Archive old accumulator batches
+   - Keep recent (7 days)
+   - Fingerprint DB remains
+
+**manifest.json:**
+```json
+{
+    "build_timestamp": "20241104_143022",
+    "tags_version": "v2",
+    "embed_version": "emb_v1",
+    "num_vectors": 167234,
+    "embedding_dim": 384,
+    "embedding_model": "sentence-transformers/all-MiniLM-L6-v2",
+    "index_type": "HNSW",
+    "index_params": {"M": 32, "efConstruction": 200},
+    "coverage_by_tier": {
+        "RICH": 105234,
+        "SPARSE": 45012,
+        "MINIMAL": 12456,
+        "BASIC": 4532
+    },
+    "quality_checks_passed": true,
+    "build_duration_seconds": 1847
+}
+```
+
+**quality_report.json:**
+```json
+{
+    "timestamp": "2024-11-04T14:30:22Z",
+    "checks": {
+        "dimensionality": {"expected": 384, "actual": 384, "pass": true},
+        "validity": {"has_nan": false, "has_inf": false, "pass": true},
+        "norms": {"min": 0.82, "max": 1.21, "mean": 1.00, "pass": true},
+        "sample_queries": {"num_samples": 10, "all_returned_results": true, "pass": true},
+        "duplicates": {"unique": 167234, "total": 167234, "pass": true}
+    },
+    "overall_pass": true
+}
+```
+
+### Promotion (Blue/Green)
+
+**Mechanism: Atomic Symlink Swap**
+
+**Current State:**
+```
+builds/
+├── build_20241103_120000/  (old, serving)
+├── build_20241104_143022/  (new, just built)
+└── current -> build_20241103_120000
+```
+
+**Promotion Steps:**
+
+1. **Pre-Promotion Validation**
+   - Verify quality_report.json (all_pass: true)
+   - Verify manifest.json coverage
+   - Run offline sample queries
+   - Compare to old build
+
+2. **Symlink Swap**
+   - Create temp symlink → new build
+   - Atomic rename to `current`
+   - Result: current points to new build
+
+3. **Service Reload**
+   - API detects change (or signaled)
+   - Load new index to memory
+   - Warm-up queries (optional)
+   - Health check
+
+4. **Monitoring**
+   - Watch latency, quality, errors
+   - If issues: rollback immediately
+
+**Rollback:**
+- Revert symlink to old build
+- Restart service
+- Time: <1 minute
+
+**Cleanup:**
+- Keep last 3-5 builds
+- Archive older after 2 weeks
+- Compress if needed
+
+### Serving Integration
+
+**API Service:**
+- Load index from `current` symlink
+- Hot-reload on symlink change
+- Keep in memory for speed
+- HNSW params: efSearch=100-200
+
+**Search Flow:**
+- Input: query text
+- Embed with same model
+- Search FAISS (k nearest neighbors)
+- Map indices → item_idx
+- Fetch book metadata from SQL
+- Return results with scores
+
+**Recommendation Integration:**
+- Cold users: semantic search directly
+- Warm users: hybrid (ALS + semantic)
+- Query understanding: extract intent
+
+### Monitoring
+
+**Embedding Worker:**
+- Coverage % by tier (target 95%+)
+- Embeddings/hour throughput
+- Fingerprint hit rate (should be high in steady state)
+- Accumulator size/growth (MB/day)
+- Error rate and types
+- API latency
+
+**Index Builds:**
+- Build duration (target <3 hours for 250k)
+- QC pass rates
+- Coverage deltas
+- Index size
+
+**Serving:**
+- Query latency (p50, p95, p99)
+- Index load time
+- Memory usage
+- Result quality metrics
+
+**Operations:**
+
+**Daily:**
+- Monitor worker completion
+- Check coverage trends
+- Review error logs
+
+**Weekly:**
+- Build new index if coverage improved
+- Review serving metrics
+- Analyze query patterns
+
+**Monthly:**
+- Archive old batches
+- Clean up old builds (keep 3-5)
+- Review tier distribution
+- Tune index params
+
+### Success Criteria
+
+**Initial Load (Week 1):**
+- ✓ 250k books processed
+- ✓ Coverage: 95%+ RICH/SPARSE, 90%+ MINIMAL, 85%+ BASIC
+- ✓ Fingerprint DB populated
+- ✓ First index built, QC passed
+- ✓ Promoted and serving
+
+**Steady State (Week 2-4):**
+- ✓ Continuous runs every 15-30 min
+- ✓ 0-100 embeddings/run
+- ✓ Fingerprint skip rate >95%
+- ✓ Weekly builds <2 hours
+- ✓ Zero promotion incidents
+
+**Quality:**
+- ✓ Semantic search returns relevant results
+- ✓ Genre/tone names present (spot checks)
+- ✓ Vibe queries work ("cozy mystery", "epic fantasy")
+- ✓ Better than baseline
+
+**Operational:**
+- ✓ Monitoring dashboards
+- ✓ Runbooks documented
+- ✓ Backup/restore tested
+- ✓ No manual intervention for normal ops
+
+---
+
+## Phase 4: Enhanced Quality (FUTURE - OPTIONAL)
+
+### Two-Stage Enrichment
+
+**Concept:** Two LLM calls for quality at 2x cost
+
+**Stage 1: Broad Extraction**
+- Generate 12-15 subject candidates
+- Multiple genre/tone options
+- Long vibe with alternatives
+
+**Stage 2: Critical Refinement**
+- Select best 8 subjects
+- Finalize single genre
+- Select best 2-3 tones
+- Polish vibe
+
+**Decision:**
+- A/B test on 10% RICH tier
+- Measure improvement in:
+  - Subject specificity
+  - Vibe quality
+  - Search relevance
+- If >10% improvement: consider rollout
+- If <5%: not worth cost
+
+### Hierarchical Tone Selection
+
+**Enhancement:** Multi-level process
+
+**Step 1: Bucket Selection**
+- LLM picks 1-3 relevant buckets
+- Example: "PACING and MOOD"
+
+**Step 2: Tone Selection**
+- Select from chosen buckets only
+- Example: PACING→"fast-paced", MOOD→"dark, tense"
+
+**Benefits:**
+- Reduces cognitive load
+- Encourages diversity
+- More systematic
+
+### Few-Shot Examples
+
+**Enhancement:** Include 2-3 exemplars in prompt
+
+**Example Structure:**
+```
+Example 1 (RICH, Fiction):
+Book: "The Name of the Wind"
+Subjects: [coming-of-age, magic systems, unreliable narrator, ...]
+Tones: [lyrical, epic, mysterious]
+Genre: fantasy
+Vibe: "Lyrical epic fantasy following a legendary hero's formative years"
+
+Example 2 (RICH, Non-fiction):
+Book: "Sapiens"
+Subjects: [human evolution, cognitive revolution, ...]
+Tones: [accessible, thought-provoking, sweeping]
+Genre: history
+Vibe: "Sweeping narrative exploring humanity's journey from stone age to space age"
+```
+
+**Benefits:**
+- Shows quality level
+- Demonstrates specificity
+- Covers fiction/non-fiction
+
+**Considerations:**
+- Adds 200-300 tokens/example
+- May bias toward examples
+- Rotate to avoid anchoring
+
+### Noisy Subjects Integration
+
+**Current:** Disabled in prompts
+
+**Enhancement:** Re-enable with validation
+
+**Approach:**
+- Pass OL subjects to LLM
+- Instruction: "Validate these, keep relevant, add 3-5 more"
+- Better than ignoring weak signals
+
+**Benefits:**
+- Leverages existing metadata
+- LLM filters quality
+- May improve coverage
+
+### Semantic Deduplication
+
+**Post-processing enhancement**
+
+**Approach:**
+- After LLM generates subjects
+- Embed all proposed subjects
+- Calculate pairwise similarities
+- Remove near-duplicates (>0.85 threshold)
+
+**Example:**
+- Input: ["Greek mythology", "ancient Greek deities"]
+- Output: ["Greek mythology"] (removed duplicate)
+
+**Benefits:**
+- Catches semantic duplicates
+- Improves subject distinctiveness
+
+### Cross-Field Validation
+
+**Quality check enhancement**
+
+**Checks:**
+- Flag mismatch: dark/somber tones + comedy genre
+- Flag generic: all subjects broad, vibe template-like
+- Route flagged cases for review/re-enrichment
+
+**Benefits:**
+- Catches inconsistencies
+- Identifies low-quality outputs
+- Improves overall quality
+
+---
+
+## Key Differences from Original Plan
+
+1. **Event Schema:** `enrichment_quality` in metadata (not top-level) ✓ Better
+2. **Genre Storage:** Both `genre_id` (integer) and `genre` (slug) in events ✓ More flexible
+3. **BASIC Tier:** Added 5th tier (not in original) ✓ Better coverage
+4. **Ontology v2:** 36 tones in buckets (vs 55 flat) ✓ More usable
+5. **Retry System:** Intelligent feedback (not in plan) ✓ Major quality boost
+6. **Vibe Enforcement:** Validator ranges (6-20 RICH) wider than prompt targets (8-12 RICH) ✓ Quality + flexibility
+7. **Subject Ranges:** RICH supports 5-12 subjects (wider than originally planned 5-8) ✓ More flexibility
+8. **MINIMAL LLM:** Uses LLM (plan said rule-based) ⚠️ Higher cost, better quality
+9. **Commit Ordering:** Two-phase (not in plan) ✓ Prevents orphans
+10. **Run Tracking:** Comprehensive metadata ✓ Better ops
+11. **Tone/Genre Resolution:** Uses `genre_id` for direct mapping (simpler than slug-based) ✓ Ready to implement
+
+**Overall:** Implementation significantly enhanced beyond original plan. Changes are improvements, not problems.
+
+---
+
+## Next Steps for Phase 3
+
+1. Create accumulator directory structure
+2. Implement OntologyResolver (CSV loading, ID→name maps)
+3. Implement FingerprintTracker (SQLite wrapper)
+4. Implement EnrichmentFetcher (SQL query with joins)
+5. Implement EmbeddingClient (API wrapper with retry)
+6. Implement AccumulatorWriter (npz batch writing)
+7. Implement CoverageMonitor (metadata.json updates)
+8. Wire up EmbeddingWorker main loop
+9. Test with small subset (100 books)
+10. Run initial load (250k books)
+11. Implement IndexBuilder
+12. First index build and promotion
+13. Deploy to production
+
+**Phase 3 is well-defined and ready to implement.**

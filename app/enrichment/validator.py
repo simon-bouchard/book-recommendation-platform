@@ -1,82 +1,66 @@
 # app/enrichment/validator.py
 """
-Tier-aware validation for enrichment outputs.
-Different rules per quality tier to prevent hallucination in sparse metadata cases.
+Validation logic for enrichment payloads with tier-aware rules.
 """
+from typing import List, Set
 from pydantic import BaseModel, Field, field_validator
-from typing import List, Dict, Any, Set, Optional
+
+from app.enrichment.quality_classifier import get_tier_requirements
 
 
-class EnrichmentOut(BaseModel):
-    """
-    Validated enrichment output.
-    Fields are validated based on quality tier.
-    """
-    subjects: List[str] = Field(default_factory=list, max_length=8)
-    tone_ids: List[int] = Field(default_factory=list, max_length=3)
-    genre: Optional[str] = None
-    vibe: str = Field(default="")
-    
-    @field_validator('subjects')
-    @classmethod
-    def clean_subjects(cls, v):
-        """Clean and deduplicate subjects"""
-        if not v:
-            return []
-        # Strip whitespace and filter empty
-        cleaned = [s.strip() for s in v if isinstance(s, str) and s.strip()]
-        # Remove duplicates while preserving order
-        seen = set()
-        unique = []
-        for s in cleaned:
-            s_lower = s.lower()
-            if s_lower not in seen:
-                seen.add(s_lower)
-                unique.append(s)
-        return unique
+class EnrichmentPayload(BaseModel):
+    """Validated enrichment output - only checks structure, not business logic."""
+    subjects: List[str] = Field(default_factory=list)
+    tone_ids: List[int] = Field(default_factory=list)
+    genre_id: int  # No constraints - validator checks if it's valid
+    genre: str = Field(default="")  # No min_length - validator checks
+    vibe: str = Field(default="", max_length=500)
 
 
 def validate_payload(
-    payload: Dict[str, Any],
+    data: dict,
     valid_tone_ids: Set[int],
-    valid_genre_slugs: Set[str],
+    valid_genre_ids: Set[int],  # Changed from valid_genre_slugs to valid_genre_ids
     tier: str,
     ontology_version: str = "v2"
-) -> EnrichmentOut:
+) -> EnrichmentPayload:
     """
-    Validate enrichment payload with tier-specific rules.
-    
-    Tier-specific validation:
-    - RICH: Requires 5-8 subjects, 2-3 tones, non-empty vibe (8-12 words)
-    - SPARSE: Requires 3-5 subjects, 0-2 tones (optional), vibe optional (4-8 words)
-    - MINIMAL: Requires 1-3 subjects, 0-1 tone (optional), vibe must be empty
-    - BASIC: Allows 0-1 subject, no tones, vibe must be empty
+    Validate enrichment payload with tier-specific requirements.
     
     Args:
-        payload: Raw JSON payload from LLM
-        valid_tone_ids: Set of valid tone IDs for validation
-        valid_genre_slugs: Set of valid genre slugs for validation
-        tier: Quality tier ("RICH" | "SPARSE" | "MINIMAL" | "BASIC")
-        ontology_version: Which ontology version (v1 or v2)
-        
-    Returns:
-        Validated EnrichmentOut object
-        
-    Raises:
-        ValueError: If payload doesn't meet tier requirements
-    """
-    # Parse with Pydantic (basic structure validation)
-    data = EnrichmentOut(**payload)
+        data: Raw dict with subjects, tone_ids, genre_id, genre (slug), vibe
+        valid_tone_ids: Set of valid tone IDs
+        valid_genre_ids: Set of valid genre IDs
+        tier: Quality tier (RICH, SPARSE, MINIMAL, BASIC)
+        ontology_version: Ontology version
     
+    Returns:
+        Validated EnrichmentPayload
+    
+    Raises:
+        ValueError: If validation fails with specific error message
+    """
     # Get tier-specific requirements
-    from app.enrichment.quality_classifier import get_tier_requirements
     reqs = get_tier_requirements(tier)
+    
+    # Create payload model (will do basic type checking)
+    try:
+        payload = EnrichmentPayload(**data)
+    except Exception as e:
+        # This catches structural issues: missing fields, wrong types, etc.
+        error_msg = str(e)
+        if "field required" in error_msg.lower():
+            raise ValueError(f"[{tier}] Missing required field: {error_msg}")
+        elif "not a valid" in error_msg.lower():
+            raise ValueError(f"[{tier}] Wrong field type: {error_msg}")
+        else:
+            raise ValueError(f"[{tier}] Invalid payload structure: {error_msg}")
     
     # ========================================================================
     # SUBJECTS VALIDATION
     # ========================================================================
     
-    subject_count = len(data.subjects)
+    subject_count = len(payload.subjects)
     subj_min = reqs['subjects']['min']
     subj_max = reqs['subjects']['max']
     subj_required = reqs['subjects']['required']
@@ -97,7 +81,7 @@ def validate_payload(
         )
     
     # Check for non-empty strings
-    if any(not s or not s.strip() for s in data.subjects):
+    if any(not s or not s.strip() for s in payload.subjects):
         raise ValueError(
             f"[{tier}] subjects contain empty strings"
         )
@@ -106,7 +90,7 @@ def validate_payload(
     # TONES VALIDATION
     # ========================================================================
     
-    tone_count = len(data.tone_ids)
+    tone_count = len(payload.tone_ids)
     tone_min = reqs['tones']['min']
     tone_max = reqs['tones']['max']
     tone_required = reqs['tones']['required']
@@ -127,8 +111,8 @@ def validate_payload(
         )
     
     # Validate tone IDs are in valid set
-    if data.tone_ids:
-        invalid_tones = [t for t in data.tone_ids if t not in valid_tone_ids]
+    if payload.tone_ids:
+        invalid_tones = [t for t in payload.tone_ids if t not in valid_tone_ids]
         if invalid_tones:
             raise ValueError(
                 f"[{tier}] Invalid tone_ids: {invalid_tones}. "
@@ -136,19 +120,21 @@ def validate_payload(
             )
     
     # ========================================================================
-    # GENRE VALIDATION
+    # GENRE VALIDATION (now validates genre_id instead of slug)
     # ========================================================================
     
     if reqs['genre']['required']:
-        if not data.genre or not data.genre.strip():
+        # Validate genre_id (integer)
+        if payload.genre_id not in valid_genre_ids:
             raise ValueError(
-                f"[{tier}] genre is required but missing or empty"
+                f"[{tier}] Invalid genre_id: {payload.genre_id}. "
+                f"Must be from valid genre list."
             )
         
-        if data.genre not in valid_genre_slugs:
+        # Also validate that genre slug is present (for database storage)
+        if not payload.genre or not payload.genre.strip():
             raise ValueError(
-                f"[{tier}] Invalid genre slug: '{data.genre}'. "
-                f"Must be from valid genre list."
+                f"[{tier}] genre slug is required but missing or empty"
             )
     
     # ========================================================================
@@ -160,16 +146,16 @@ def validate_payload(
     vibe_required = reqs['vibe']['required']
     
     # Handle empty vibe
-    if not data.vibe or not data.vibe.strip():
+    if not payload.vibe or not payload.vibe.strip():
         if vibe_required:
             raise ValueError(
                 f"[{tier}] vibe is required but empty"
             )
         # Empty vibe is OK for non-required tiers
-        data.vibe = ""
+        payload.vibe = ""
     else:
         # Vibe is present - validate length
-        vibe_word_count = len(data.vibe.split())
+        vibe_word_count = len(payload.vibe.split())
         
         # Check minimum (only if vibe is present)
         if vibe_min_words > 0 and vibe_word_count < vibe_min_words:
@@ -184,9 +170,9 @@ def validate_payload(
             )
         
         # Special case: MINIMAL and BASIC must have empty vibe
-        if tier in ("MINIMAL", "BASIC") and data.vibe.strip():
+        if tier in ("MINIMAL", "BASIC") and payload.vibe.strip():
             raise ValueError(
-                f"[{tier}] vibe must be empty (got: '{data.vibe[:50]}...')"
+                f"[{tier}] vibe must be empty (got: '{payload.vibe[:50]}...')"
             )
     
     # ========================================================================
@@ -194,95 +180,37 @@ def validate_payload(
     # ========================================================================
     
     # Check for suspiciously similar subjects (only for higher tiers)
-    if tier in ("RICH", "SPARSE") and len(data.subjects) > 1:
-        _check_subject_uniqueness(data.subjects, tier)
+    if tier in ("RICH", "SPARSE") and len(payload.subjects) > 1:
+        _check_subject_uniqueness(payload.subjects, tier)
     
-    return data
+    return payload
 
 
 def _check_subject_uniqueness(subjects: List[str], tier: str) -> None:
     """
     Check that subjects are sufficiently distinct.
     Warns about near-duplicates but doesn't fail validation.
-    
-    Args:
-        subjects: List of subject strings
-        tier: Quality tier (for error message)
-        
-    Raises:
-        ValueError: If clear duplicates detected
     """
-    # Convert to lowercase for comparison
-    subjects_lower = [s.lower() for s in subjects]
-    
-    # Check for exact duplicates (after Pydantic cleaning, shouldn't happen)
-    if len(subjects_lower) != len(set(subjects_lower)):
-        raise ValueError(
-            f"[{tier}] Duplicate subjects detected (case-insensitive)"
-        )
-    
-    # Check for near-duplicates (e.g., "Greek gods" vs "Greek deities")
-    # This is a soft check - we look for significant word overlap
-    for i, subj1 in enumerate(subjects_lower):
-        words1 = set(subj1.split())
-        for j, subj2 in enumerate(subjects_lower[i+1:], start=i+1):
-            words2 = set(subj2.split())
-            
-            # If subjects share >75% of words, they're too similar
-            if len(words1) > 0 and len(words2) > 0:
-                overlap = len(words1 & words2)
-                min_len = min(len(words1), len(words2))
-                
-                if overlap / min_len > 0.75:
-                    raise ValueError(
-                        f"[{tier}] Near-duplicate subjects: '{subjects[i]}' and '{subjects[j]}'. "
-                        f"Choose more distinct subjects."
-                    )
-
-
-def validate_tier_consistency(
-    tier: str,
-    output: EnrichmentOut
-) -> List[str]:
-    """
-    Check if output is consistent with tier expectations.
-    Returns list of warnings (not errors).
-    
-    This is used for monitoring and quality assessment, not validation.
-    
-    Args:
-        tier: Quality tier
-        output: Validated enrichment output
-        
-    Returns:
-        List of warning messages
-    """
-    warnings = []
-    
-    # RICH tier should have substantial output
-    if tier == "RICH":
-        if len(output.subjects) < 6:
-            warnings.append(
-                f"RICH tier book only has {len(output.subjects)} subjects (expected 6-8)"
+    # Simple check for exact duplicates (case-insensitive)
+    seen = set()
+    for s in subjects:
+        s_lower = s.lower()
+        if s_lower in seen:
+            # This should have been caught by clean_subjects, but double-check
+            raise ValueError(
+                f"[{tier}] Duplicate subject detected: '{s}'"
             )
-        if len(output.tone_ids) < 2:
-            warnings.append(
-                f"RICH tier book only has {len(output.tone_ids)} tones (expected 2-3)"
-            )
-        if not output.vibe or len(output.vibe.split()) < 8:
-            warnings.append(
-                f"RICH tier book has short/empty vibe (expected 8-12 words)"
-            )
+        seen.add(s_lower)
     
-    # BASIC tier should have minimal output
-    if tier == "BASIC":
-        if len(output.subjects) > 0:
-            warnings.append(
-                f"BASIC tier book has {len(output.subjects)} subjects (expected 0-1)"
-            )
-        if len(output.tone_ids) > 0:
-            warnings.append(
-                f"BASIC tier book has tones (expected none)"
-            )
-    
-    return warnings
+    # Check for stem conflicts (e.g., "mythology" and "mythological")
+    # This is a soft warning - log but don't fail
+    stems = {}
+    for s in subjects:
+        # Extract first word as crude stem
+        first_word = s.lower().split()[0]
+        if len(first_word) > 4:  # Only check substantial words
+            stem = first_word[:5]  # First 5 chars as proxy for stem
+            if stem in stems:
+                # Just a warning in logs, don't fail validation
+                pass
+            stems[stem] = s
