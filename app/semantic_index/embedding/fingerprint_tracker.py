@@ -25,15 +25,23 @@ class FingerprintTracker:
         """Create fingerprints table if not exists"""
         conn = sqlite3.connect(self.db_path)
         cursor = conn.cursor()
+        
+        # Create table
         cursor.execute("""
             CREATE TABLE IF NOT EXISTS fingerprints (
                 item_idx INTEGER PRIMARY KEY,
                 fingerprint TEXT NOT NULL,
                 tags_version TEXT NOT NULL,
-                embedded_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                INDEX idx_tags_version (tags_version)
+                embedded_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
             )
         """)
+        
+        # Create index separately (SQLite syntax)
+        cursor.execute("""
+            CREATE INDEX IF NOT EXISTS idx_tags_version 
+            ON fingerprints(tags_version)
+        """)
+        
         conn.commit()
         conn.close()
     
