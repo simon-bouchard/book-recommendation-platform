@@ -42,13 +42,17 @@ class RouterLLM:
     It never calls tools and never browses.
     """
 
-    def __init__(self) -> None:
+    def __init__(self, llm_client: Optional[Any] = None) -> None:
         """
-        Loads the router system prompt and obtains an LLM instance from the runtime.
+        Loads the router system prompt and obtains an LLM instance.
+        
+        Args:
+            llm_client: Optional LLM client for dependency injection (testing)
         """
         self.system_prompt = read_prompt("router.system.md")
-        # small tier, deterministic, ask model to aim for JSON (json_mode if your get_llm supports it)
-        self.llm = get_llm(tier="small", json_mode=True, temperature=0, timeout=15)
+        self.llm = llm_client if llm_client is not None else get_llm(
+            tier="small", json_mode=True, temperature=0, timeout=15
+        )
 
     def _chat(self, messages: List[Dict[str, str]]) -> str:
         """
