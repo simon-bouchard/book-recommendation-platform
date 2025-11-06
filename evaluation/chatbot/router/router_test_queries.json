@@ -1,0 +1,33 @@
+{
+  "recommendation_queries": [
+    {"query": "recommend me sci-fi books", "expected": "recsys"},
+    {"query": "I like Dune, what should I read next?", "expected": "recsys"},
+    {"query": "suggest cozy fantasy novels", "expected": "recsys"},
+    {"query": "books similar to Pride and Prejudice", "expected": "recsys"},
+    {"query": "dark mystery recommendations", "expected": "recsys"}
+  ],
+  "web_search_queries": [
+    {"query": "what are the best books of 2025?", "expected": "web"},
+    {"query": "recommend recent mystery novels from 2020", "expected": "web"},
+    {"query": "latest Stephen King books", "expected": "web"},
+    {"query": "new releases in fantasy", "expected": "web"}
+  ],
+  "documentation_queries": [
+    {"query": "how do I rate a book?", "expected": "docs"},
+    {"query": "what features does the site have?", "expected": "docs"},
+    {"query": "how does the recommendation algorithm work?", "expected": "docs"},
+    {"query": "explain the rating system", "expected": "docs"}
+  ],
+  "conversational_queries": [
+    {"query": "hello!", "expected": "respond"},
+    {"query": "thanks for the suggestions", "expected": "respond"},
+    {"query": "can you explain that again?", "expected": "respond"},
+    {"query": "hi there", "expected": "respond"}
+  ],
+  "edge_cases": [
+    {"query": "", "expected": "respond"},
+    {"query": "recommend books from 2003", "expected": "recsys"},
+    {"query": "books from 2004", "expected": "web"},
+    {"query": "asdfghjkl", "expected": "respond"}
+  ]
+}
