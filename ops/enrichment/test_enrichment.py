@@ -100,7 +100,7 @@ def wait_for_kafka_consumption(timeout_minutes: int = 5, check_interval: int = 5
         if lag is None:
             logger.warning("  Cannot check consumer lag (Kafka might not be accessible)")
             logger.info("  Waiting 30s before checking stats...")
-            time.sleep(30)
+            time.sleep(35)
             return False
         
         if lag == 0:
