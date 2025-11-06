@@ -1,0 +1,106 @@
+{
+  "continuation": [
+    {
+      "name": "recsys_continuation",
+      "history": [{"u": "recommend sci-fi books", "a": "Here are some sci-fi recommendations..."}],
+      "final_query": "more like that please",
+      "expected": "recsys"
+    },
+    {
+      "name": "web_continuation",
+      "history": [{"u": "what are the best books of 2024", "a": "Let me search for recent books..."}],
+      "final_query": "what about 2023",
+      "expected": "web"
+    },
+    {
+      "name": "docs_continuation",
+      "history": [{"u": "how do I rate a book", "a": "To rate a book, you can..."}],
+      "final_query": "can you explain that more",
+      "expected": "docs"
+    },
+    {
+      "name": "recsys_refinement",
+      "history": [{"u": "recommend fantasy books", "a": "Here are some fantasy recommendations..."}],
+      "final_query": "I prefer dark themes",
+      "expected": "recsys"
+    }
+  ],
+  
+  "easy_switches": [
+    {
+      "name": "respond_to_recsys",
+      "history": [{"u": "thanks for the help", "a": "You're welcome!"}],
+      "final_query": "recommend me sci-fi books",
+      "expected": "recsys"
+    },
+    {
+      "name": "respond_to_web",
+      "history": [{"u": "hello", "a": "Hi! How can I help you today?"}],
+      "final_query": "what are the best books of 2024",
+      "expected": "web"
+    },
+    {
+      "name": "respond_to_docs",
+      "history": [{"u": "hi there", "a": "Hello! What would you like to know?"}],
+      "final_query": "how do I rate a book",
+      "expected": "docs"
+    },
+    {
+      "name": "docs_to_recsys",
+      "history": [{"u": "how does the recommendation system work", "a": "The system uses collaborative filtering..."}],
+      "final_query": "recommend me some mystery novels",
+      "expected": "recsys"
+    },
+    {
+      "name": "docs_to_web",
+      "history": [{"u": "what features does the site have", "a": "The site has search, recommendations..."}],
+      "final_query": "what are the latest fantasy releases",
+      "expected": "web"
+    },
+    {
+      "name": "respond_clarification_to_recsys",
+      "history": [{"u": "can you help me", "a": "Of course! What do you need?"}],
+      "final_query": "I want book recommendations",
+      "expected": "recsys"
+    }
+  ],
+  
+  "hard_switches": [
+    {
+      "name": "recsys_to_web",
+      "history": [{"u": "recommend me sci-fi books", "a": "Here are some classic sci-fi novels..."}],
+      "final_query": "what are the best books of 2024",
+      "expected": "web"
+    },
+    {
+      "name": "recsys_to_docs",
+      "history": [{"u": "suggest fantasy novels", "a": "Here are some fantasy recommendations..."}],
+      "final_query": "how do I rate a book",
+      "expected": "docs"
+    },
+    {
+      "name": "web_to_recsys",
+      "history": [{"u": "what are the latest mystery novels", "a": "Let me search for recent releases..."}],
+      "final_query": "recommend classic mystery books",
+      "expected": "recsys"
+    },
+    {
+      "name": "web_to_docs",
+      "history": [{"u": "best books of 2024", "a": "Here are some recent releases..."}],
+      "final_query": "how does the search feature work",
+      "expected": "docs"
+    },
+    {
+      "name": "recsys_to_web_recent",
+      "history": [{"u": "books like Dune", "a": "Here are some similar sci-fi books..."}],
+      "final_query": "any new releases in this genre",
+      "expected": "web"
+    },
+    {
+      "name": "web_to_recsys_older",
+      "history": [{"u": "recommend recent thriller novels", "a": "Let me find new thrillers..."}],
+      "final_query": "what about older thrillers from the 90s",
+      "expected": "recsys"
+    }
+  ]
+}
