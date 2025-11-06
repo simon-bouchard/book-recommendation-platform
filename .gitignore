@@ -28,6 +28,7 @@ tree.py
 test.py
 /prompts
 .vscode/
+tree.txt
 
 #Junk
 __pycache__/
