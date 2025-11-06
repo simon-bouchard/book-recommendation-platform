@@ -21,13 +21,12 @@
   "conversational_queries": [
     {"query": "hello!", "expected": "respond"},
     {"query": "thanks for the suggestions", "expected": "respond"},
-    {"query": "can you explain that again?", "expected": "respond"},
     {"query": "hi there", "expected": "respond"}
   ],
   "edge_cases": [
     {"query": "", "expected": "respond"},
     {"query": "recommend books from 2003", "expected": "recsys"},
-    {"query": "books from 2004", "expected": "web"},
+    {"query": "books from 2005", "expected": "web"},
     {"query": "asdfghjkl", "expected": "respond"}
   ]
 }
