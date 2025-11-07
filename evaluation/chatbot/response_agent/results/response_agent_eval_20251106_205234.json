@@ -1,0 +1,389 @@
+{
+  "results": [
+    {
+      "category": "greetings",
+      "name": "simple_hello",
+      "query": "Hello!",
+      "history": [],
+      "response": "I'm having trouble responding right now.",
+      "agent_success": true,
+      "execution_time_ms": 372,
+      "appropriateness_score": 3,
+      "appropriateness_reason": "Judge error: Error code: 401 - {'detail': 'User is not authorized to access this resource'}",
+      "tone_score": 3,
+      "tone_reason": "Judge error: Error code: 401 - {'detail': 'User is not authorized to access this resource'}",
+      "overall_pass": true,
+      "judge_success": false
+    },
+    {
+      "category": "conversational_queries",
+      "name": "gratitude",
+      "query": "Thanks for the help!",
+      "history": [],
+      "response": "I'm having trouble responding right now.",
+      "agent_success": true,
+      "execution_time_ms": 111,
+      "appropriateness_score": 3,
+      "appropriateness_reason": "Judge error: Error code: 401 - {'detail': 'User is not authorized to access this resource'}",
+      "tone_score": 3,
+      "tone_reason": "Judge error: Error code: 401 - {'detail': 'User is not authorized to access this resource'}",
+      "overall_pass": true,
+      "judge_success": false
+    },
+    {
+      "category": "conversational_queries",
+      "name": "chitchat",
+      "query": "How are you doing today?",
+      "history": [],
+      "response": "I'm having trouble responding right now.",
+      "agent_success": true,
+      "execution_time_ms": 108,
+      "appropriateness_score": 3,
+      "appropriateness_reason": "Judge error: Error code: 401 - {'detail': 'User is not authorized to access this resource'}",
+      "tone_score": 3,
+      "tone_reason": "Judge error: Error code: 401 - {'detail': 'User is not authorized to access this resource'}",
+      "overall_pass": true,
+      "judge_success": false
+    },
+    {
+      "category": "context_dependent",
+      "name": "followup_elaboration",
+      "query": "Can you elaborate on that?",
+      "history": [
+        {
+          "u": "What is machine learning?",
+          "a": "Machine learning is a subset of AI that enables computers to learn from data without explicit programming."
+        }
+      ],
+      "response": "I'm having trouble responding right now.",
+      "agent_success": true,
+      "execution_time_ms": 107,
+      "appropriateness_score": 3,
+      "appropriateness_reason": "Judge error: Error code: 401 - {'detail': 'User is not authorized to access this resource'}",
+      "tone_score": 3,
+      "tone_reason": "Judge error: Error code: 401 - {'detail': 'User is not authorized to access this resource'}",
+      "overall_pass": true,
+      "judge_success": false
+    },
+    {
+      "category": "context_dependent",
+      "name": "followup_clarification",
+      "query": "What did you mean by that?",
+      "history": [
+        {
+          "u": "How does collaborative filtering work?",
+          "a": "Collaborative filtering recommends items based on similarities between users or items."
+        }
+      ],
+      "response": "I'm having trouble responding right now.",
+      "agent_success": true,
+      "execution_time_ms": 105,
+      "appropriateness_score": 3,
+      "appropriateness_reason": "Judge error: Error code: 401 - {'detail': 'User is not authorized to access this resource'}",
+      "tone_score": 3,
+      "tone_reason": "Judge error: Error code: 401 - {'detail': 'User is not authorized to access this resource'}",
+      "overall_pass": true,
+      "judge_success": false
+    },
+    {
+      "category": "context_dependent",
+      "name": "topic_continuation",
+      "query": "Tell me more about Python.",
+      "history": [
+        {
+          "u": "What programming languages are popular?",
+          "a": "Python, JavaScript, and Java are among the most popular programming languages today."
+        }
+      ],
+      "response": "I'm having trouble responding right now.",
+      "agent_success": true,
+      "execution_time_ms": 107,
+      "appropriateness_score": 3,
+      "appropriateness_reason": "Judge error: Error code: 401 - {'detail': 'User is not authorized to access this resource'}",
+      "tone_score": 3,
+      "tone_reason": "Judge error: Error code: 401 - {'detail': 'User is not authorized to access this resource'}",
+      "overall_pass": true,
+      "judge_success": false
+    },
+    {
+      "category": "context_dependent",
+      "name": "reference_to_history",
+      "query": "What did I just ask you about?",
+      "history": [
+        {
+          "u": "Tell me about science fiction books",
+          "a": "Science fiction explores speculative concepts like space travel, time travel, and advanced technology."
+        }
+      ],
+      "response": "I'm having trouble responding right now.",
+      "agent_success": true,
+      "execution_time_ms": 108,
+      "appropriateness_score": 3,
+      "appropriateness_reason": "Judge error: Error code: 401 - {'detail': 'User is not authorized to access this resource'}",
+      "tone_score": 3,
+      "tone_reason": "Judge error: Error code: 401 - {'detail': 'User is not authorized to access this resource'}",
+      "overall_pass": true,
+      "judge_success": false
+    },
+    {
+      "category": "context_dependent",
+      "name": "multi_turn_context",
+      "query": "And what about the third reason?",
+      "history": [
+        {
+          "u": "Why should I read more?",
+          "a": "Reading improves vocabulary, enhances empathy, and reduces stress."
+        },
+        {
+          "u": "Tell me about the first benefit",
+          "a": "Reading expands your vocabulary by exposing you to new words in context."
+        },
+        {
+          "u": "What about the second?",
+          "a": "Reading fiction helps you understand different perspectives and develop empathy."
+        }
+      ],
+      "response": "I'm having trouble responding right now.",
+      "agent_success": true,
+      "execution_time_ms": 118,
+      "appropriateness_score": 3,
+      "appropriateness_reason": "Judge error: Error code: 401 - {'detail': 'User is not authorized to access this resource'}",
+      "tone_score": 3,
+      "tone_reason": "Judge error: Error code: 401 - {'detail': 'User is not authorized to access this resource'}",
+      "overall_pass": true,
+      "judge_success": false
+    },
+    {
+      "category": "edge_cases",
+      "name": "empty_query",
+      "query": "",
+      "history": [],
+      "response": "I'm having trouble responding right now.",
+      "agent_success": true,
+      "execution_time_ms": 106,
+      "appropriateness_score": 3,
+      "appropriateness_reason": "Judge error: Error code: 401 - {'detail': 'User is not authorized to access this resource'}",
+      "tone_score": 3,
+      "tone_reason": "Judge error: Error code: 401 - {'detail': 'User is not authorized to access this resource'}",
+      "overall_pass": true,
+      "judge_success": false
+    },
+    {
+      "category": "edge_cases",
+      "name": "very_short",
+      "query": "ok",
+      "history": [],
+      "response": "I'm having trouble responding right now.",
+      "agent_success": true,
+      "execution_time_ms": 104,
+      "appropriateness_score": 3,
+      "appropriateness_reason": "Judge error: Error code: 401 - {'detail': 'User is not authorized to access this resource'}",
+      "tone_score": 3,
+      "tone_reason": "Judge error: Error code: 401 - {'detail': 'User is not authorized to access this resource'}",
+      "overall_pass": true,
+      "judge_success": false
+    },
+    {
+      "category": "edge_cases",
+      "name": "special_characters",
+      "query": "What about books with \u00e9mojis \ud83c\udf89 and symbols @#$%?",
+      "history": [],
+      "response": "I'm having trouble responding right now.",
+      "agent_success": true,
+      "execution_time_ms": 107,
+      "appropriateness_score": 3,
+      "appropriateness_reason": "Judge error: Error code: 401 - {'detail': 'User is not authorized to access this resource'}",
+      "tone_score": 3,
+      "tone_reason": "Judge error: Error code: 401 - {'detail': 'User is not authorized to access this resource'}",
+      "overall_pass": true,
+      "judge_success": false
+    },
+    {
+      "category": "edge_cases",
+      "name": "gibberish",
+      "query": "asdfghjkl qwerty",
+      "history": [],
+      "response": "I'm having trouble responding right now.",
+      "agent_success": true,
+      "execution_time_ms": 109,
+      "appropriateness_score": 3,
+      "appropriateness_reason": "Judge error: Error code: 401 - {'detail': 'User is not authorized to access this resource'}",
+      "tone_score": 3,
+      "tone_reason": "Judge error: Error code: 401 - {'detail': 'User is not authorized to access this resource'}",
+      "overall_pass": true,
+      "judge_success": false
+    },
+    {
+      "category": "edge_cases",
+      "name": "very_long_query",
+      "query": "I'm looking for a book that has adventure and mystery and also has great characters and a compelling plot and is well-written and has good reviews and is not too long but not too short and has a satisfying ending and maybe some humor and definitely no sad endings and preferably set in a fantasy world or historical setting but could also be contemporary if it's really good and has won awards or been recommended by critics.",
+      "history": [],
+      "response": "I'm having trouble responding right now.",
+      "agent_success": true,
+      "execution_time_ms": 124,
+      "appropriateness_score": 3,
+      "appropriateness_reason": "Judge error: Error code: 401 - {'detail': 'User is not authorized to access this resource'}",
+      "tone_score": 3,
+      "tone_reason": "Judge error: Error code: 401 - {'detail': 'User is not authorized to access this resource'}",
+      "overall_pass": true,
+      "judge_success": false
+    },
+    {
+      "category": "tone_verification",
+      "name": "should_be_friendly",
+      "query": "I'm new here and feeling a bit overwhelmed.",
+      "history": [],
+      "response": "I'm having trouble responding right now.",
+      "agent_success": true,
+      "execution_time_ms": 107,
+      "appropriateness_score": 3,
+      "appropriateness_reason": "Judge error: Error code: 401 - {'detail': 'User is not authorized to access this resource'}",
+      "tone_score": 3,
+      "tone_reason": "Judge error: Error code: 401 - {'detail': 'User is not authorized to access this resource'}",
+      "overall_pass": true,
+      "judge_success": false
+    },
+    {
+      "category": "tone_verification",
+      "name": "should_be_encouraging",
+      "query": "I don't think I'm a good reader.",
+      "history": [],
+      "response": "I'm having trouble responding right now.",
+      "agent_success": true,
+      "execution_time_ms": 111,
+      "appropriateness_score": 3,
+      "appropriateness_reason": "Judge error: Error code: 401 - {'detail': 'User is not authorized to access this resource'}",
+      "tone_score": 3,
+      "tone_reason": "Judge error: Error code: 401 - {'detail': 'User is not authorized to access this resource'}",
+      "overall_pass": true,
+      "judge_success": false
+    },
+    {
+      "category": "tone_verification",
+      "name": "should_be_helpful",
+      "query": "I need help finding something to read.",
+      "history": [],
+      "response": "I'm having trouble responding right now.",
+      "agent_success": true,
+      "execution_time_ms": 116,
+      "appropriateness_score": 3,
+      "appropriateness_reason": "Judge error: Error code: 401 - {'detail': 'User is not authorized to access this resource'}",
+      "tone_score": 3,
+      "tone_reason": "Judge error: Error code: 401 - {'detail': 'User is not authorized to access this resource'}",
+      "overall_pass": true,
+      "judge_success": false
+    },
+    {
+      "category": "tone_verification",
+      "name": "should_be_knowledgeable",
+      "query": "What makes a good book recommendation system?",
+      "history": [],
+      "response": "I'm having trouble responding right now.",
+      "agent_success": true,
+      "execution_time_ms": 105,
+      "appropriateness_score": 3,
+      "appropriateness_reason": "Judge error: Error code: 401 - {'detail': 'User is not authorized to access this resource'}",
+      "tone_score": 3,
+      "tone_reason": "Judge error: Error code: 401 - {'detail': 'User is not authorized to access this resource'}",
+      "overall_pass": true,
+      "judge_success": false
+    },
+    {
+      "category": "out_of_scope",
+      "name": "asking_for_recommendations",
+      "query": "Can you recommend me some sci-fi books?",
+      "history": [],
+      "response": "I'm having trouble responding right now.",
+      "agent_success": true,
+      "execution_time_ms": 110,
+      "appropriateness_score": 3,
+      "appropriateness_reason": "Judge error: Error code: 401 - {'detail': 'User is not authorized to access this resource'}",
+      "tone_score": 3,
+      "tone_reason": "Judge error: Error code: 401 - {'detail': 'User is not authorized to access this resource'}",
+      "overall_pass": true,
+      "judge_success": false
+    },
+    {
+      "category": "out_of_scope",
+      "name": "asking_for_recent_books",
+      "query": "What are the best books of 2024?",
+      "history": [],
+      "response": "I'm having trouble responding right now.",
+      "agent_success": true,
+      "execution_time_ms": 103,
+      "appropriateness_score": 3,
+      "appropriateness_reason": "Judge error: Error code: 401 - {'detail': 'User is not authorized to access this resource'}",
+      "tone_score": 3,
+      "tone_reason": "Judge error: Error code: 401 - {'detail': 'User is not authorized to access this resource'}",
+      "overall_pass": true,
+      "judge_success": false
+    },
+    {
+      "category": "out_of_scope",
+      "name": "asking_how_to",
+      "query": "How do I rate a book on this site?",
+      "history": [],
+      "response": "I'm having trouble responding right now.",
+      "agent_success": true,
+      "execution_time_ms": 103,
+      "appropriateness_score": 3,
+      "appropriateness_reason": "Judge error: Error code: 401 - {'detail': 'User is not authorized to access this resource'}",
+      "tone_score": 3,
+      "tone_reason": "Judge error: Error code: 401 - {'detail': 'User is not authorized to access this resource'}",
+      "overall_pass": true,
+      "judge_success": false
+    }
+  ],
+  "category_stats": {
+    "greetings": {
+      "passed": 1,
+      "total": 1,
+      "pass_rate": 1.0,
+      "avg_appropriateness": 3.0,
+      "avg_tone": 3.0
+    },
+    "conversational_queries": {
+      "passed": 2,
+      "total": 2,
+      "pass_rate": 1.0,
+      "avg_appropriateness": 3.0,
+      "avg_tone": 3.0
+    },
+    "context_dependent": {
+      "passed": 5,
+      "total": 5,
+      "pass_rate": 1.0,
+      "avg_appropriateness": 3.0,
+      "avg_tone": 3.0
+    },
+    "edge_cases": {
+      "passed": 5,
+      "total": 5,
+      "pass_rate": 1.0,
+      "avg_appropriateness": 3.0,
+      "avg_tone": 3.0
+    },
+    "tone_verification": {
+      "passed": 4,
+      "total": 4,
+      "pass_rate": 1.0,
+      "avg_appropriateness": 3.0,
+      "avg_tone": 3.0
+    },
+    "out_of_scope": {
+      "passed": 3,
+      "total": 3,
+      "pass_rate": 1.0,
+      "avg_appropriateness": 3.0,
+      "avg_tone": 3.0
+    }
+  },
+  "overall": {
+    "passed": 20,
+    "total": 20,
+    "pass_rate": 1.0,
+    "avg_appropriateness": 3.0,
+    "avg_tone": 3.0
+  },
+  "timestamp": "2025-11-06T20:52:34.488374"
+}

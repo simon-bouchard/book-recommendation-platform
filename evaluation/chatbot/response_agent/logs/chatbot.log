@@ -1,0 +1,364 @@
+Initialized ResponseAgent with 0 tools
+
+============================================================
+RESPONSEAGENT EXECUTION START
+Query: Hello!...
+============================================================
+=== FINALIZE NODE ===
+Finalized: 0 tools, 0 books, 372ms
+
+============================================================
+EXECUTION COMPLETE
+Books: 0, Tools: 0, Time: 372ms
+============================================================
+
+============================================================
+RESPONSEAGENT EXECUTION START
+Query: Thanks for the help!...
+============================================================
+=== FINALIZE NODE ===
+Finalized: 0 tools, 0 books, 111ms
+
+============================================================
+EXECUTION COMPLETE
+Books: 0, Tools: 0, Time: 111ms
+============================================================
+
+============================================================
+RESPONSEAGENT EXECUTION START
+Query: How are you doing today?...
+============================================================
+=== FINALIZE NODE ===
+Finalized: 0 tools, 0 books, 108ms
+
+============================================================
+EXECUTION COMPLETE
+Books: 0, Tools: 0, Time: 108ms
+============================================================
+
+============================================================
+RESPONSEAGENT EXECUTION START
+Query: Can you elaborate on that?...
+============================================================
+=== FINALIZE NODE ===
+Finalized: 0 tools, 0 books, 107ms
+
+============================================================
+EXECUTION COMPLETE
+Books: 0, Tools: 0, Time: 107ms
+============================================================
+
+============================================================
+RESPONSEAGENT EXECUTION START
+Query: What did you mean by that?...
+============================================================
+=== FINALIZE NODE ===
+Finalized: 0 tools, 0 books, 105ms
+
+============================================================
+EXECUTION COMPLETE
+Books: 0, Tools: 0, Time: 105ms
+============================================================
+
+============================================================
+RESPONSEAGENT EXECUTION START
+Query: Tell me more about Python....
+============================================================
+=== FINALIZE NODE ===
+Finalized: 0 tools, 0 books, 107ms
+
+============================================================
+EXECUTION COMPLETE
+Books: 0, Tools: 0, Time: 107ms
+============================================================
+
+============================================================
+RESPONSEAGENT EXECUTION START
+Query: What did I just ask you about?...
+============================================================
+=== FINALIZE NODE ===
+Finalized: 0 tools, 0 books, 108ms
+
+============================================================
+EXECUTION COMPLETE
+Books: 0, Tools: 0, Time: 108ms
+============================================================
+
+============================================================
+RESPONSEAGENT EXECUTION START
+Query: And what about the third reason?...
+============================================================
+=== FINALIZE NODE ===
+Finalized: 0 tools, 0 books, 118ms
+
+============================================================
+EXECUTION COMPLETE
+Books: 0, Tools: 0, Time: 118ms
+============================================================
+
+============================================================
+RESPONSEAGENT EXECUTION START
+Query: ...
+============================================================
+=== FINALIZE NODE ===
+Finalized: 0 tools, 0 books, 106ms
+
+============================================================
+EXECUTION COMPLETE
+Books: 0, Tools: 0, Time: 106ms
+============================================================
+
+============================================================
+RESPONSEAGENT EXECUTION START
+Query: ok...
+============================================================
+=== FINALIZE NODE ===
+Finalized: 0 tools, 0 books, 104ms
+
+============================================================
+EXECUTION COMPLETE
+Books: 0, Tools: 0, Time: 104ms
+============================================================
+
+============================================================
+RESPONSEAGENT EXECUTION START
+Query: What about books with émojis 🎉 and symbols @#$%?...
+============================================================
+=== FINALIZE NODE ===
+Finalized: 0 tools, 0 books, 107ms
+
+============================================================
+EXECUTION COMPLETE
+Books: 0, Tools: 0, Time: 107ms
+============================================================
+
+============================================================
+RESPONSEAGENT EXECUTION START
+Query: asdfghjkl qwerty...
+============================================================
+=== FINALIZE NODE ===
+Finalized: 0 tools, 0 books, 109ms
+
+============================================================
+EXECUTION COMPLETE
+Books: 0, Tools: 0, Time: 109ms
+============================================================
+
+============================================================
+RESPONSEAGENT EXECUTION START
+Query: I'm looking for a book that has adventure and mystery and also has great characters and a compelling...
+============================================================
+=== FINALIZE NODE ===
+Finalized: 0 tools, 0 books, 124ms
+
+============================================================
+EXECUTION COMPLETE
+Books: 0, Tools: 0, Time: 124ms
+============================================================
+
+============================================================
+RESPONSEAGENT EXECUTION START
+Query: I'm new here and feeling a bit overwhelmed....
+============================================================
+=== FINALIZE NODE ===
+Finalized: 0 tools, 0 books, 107ms
+
+============================================================
+EXECUTION COMPLETE
+Books: 0, Tools: 0, Time: 107ms
+============================================================
+
+============================================================
+RESPONSEAGENT EXECUTION START
+Query: I don't think I'm a good reader....
+============================================================
+=== FINALIZE NODE ===
+Finalized: 0 tools, 0 books, 111ms
+
+============================================================
+EXECUTION COMPLETE
+Books: 0, Tools: 0, Time: 111ms
+============================================================
+
+============================================================
+RESPONSEAGENT EXECUTION START
+Query: I need help finding something to read....
+============================================================
+=== FINALIZE NODE ===
+Finalized: 0 tools, 0 books, 116ms
+
+============================================================
+EXECUTION COMPLETE
+Books: 0, Tools: 0, Time: 116ms
+============================================================
+
+============================================================
+RESPONSEAGENT EXECUTION START
+Query: What makes a good book recommendation system?...
+============================================================
+=== FINALIZE NODE ===
+Finalized: 0 tools, 0 books, 105ms
+
+============================================================
+EXECUTION COMPLETE
+Books: 0, Tools: 0, Time: 105ms
+============================================================
+
+============================================================
+RESPONSEAGENT EXECUTION START
+Query: Can you recommend me some sci-fi books?...
+============================================================
+=== FINALIZE NODE ===
+Finalized: 0 tools, 0 books, 110ms
+
+============================================================
+EXECUTION COMPLETE
+Books: 0, Tools: 0, Time: 110ms
+============================================================
+
+============================================================
+RESPONSEAGENT EXECUTION START
+Query: What are the best books of 2024?...
+============================================================
+=== FINALIZE NODE ===
+Finalized: 0 tools, 0 books, 103ms
+
+============================================================
+EXECUTION COMPLETE
+Books: 0, Tools: 0, Time: 103ms
+============================================================
+
+============================================================
+RESPONSEAGENT EXECUTION START
+Query: How do I rate a book on this site?...
+============================================================
+=== FINALIZE NODE ===
+Finalized: 0 tools, 0 books, 103ms
+
+============================================================
+EXECUTION COMPLETE
+Books: 0, Tools: 0, Time: 103ms
+============================================================
+Initialized ResponseAgent with 0 tools
+
+============================================================
+RESPONSEAGENT EXECUTION START
+Query: Hello!...
+============================================================
+=== FINALIZE NODE ===
+Finalized: 0 tools, 0 books, 333ms
+
+============================================================
+EXECUTION COMPLETE
+Books: 0, Tools: 0, Time: 333ms
+============================================================
+
+============================================================
+RESPONSEAGENT EXECUTION START
+Query: Thanks for your help!...
+============================================================
+=== FINALIZE NODE ===
+Finalized: 0 tools, 0 books, 80ms
+
+============================================================
+EXECUTION COMPLETE
+Books: 0, Tools: 0, Time: 80ms
+============================================================
+
+============================================================
+RESPONSEAGENT EXECUTION START
+Query: How are you today?...
+============================================================
+=== FINALIZE NODE ===
+Finalized: 0 tools, 0 books, 93ms
+
+============================================================
+EXECUTION COMPLETE
+Books: 0, Tools: 0, Time: 93ms
+============================================================
+
+============================================================
+RESPONSEAGENT EXECUTION START
+Query: What can you help me with?...
+============================================================
+=== FINALIZE NODE ===
+Finalized: 0 tools, 0 books, 81ms
+
+============================================================
+EXECUTION COMPLETE
+Books: 0, Tools: 0, Time: 81ms
+============================================================
+
+============================================================
+RESPONSEAGENT EXECUTION START
+Query: Can you explain that better?...
+============================================================
+=== FINALIZE NODE ===
+Finalized: 0 tools, 0 books, 101ms
+
+============================================================
+EXECUTION COMPLETE
+Books: 0, Tools: 0, Time: 101ms
+============================================================
+
+============================================================
+RESPONSEAGENT EXECUTION START
+Query: What did I just ask about?...
+============================================================
+=== FINALIZE NODE ===
+Finalized: 0 tools, 0 books, 81ms
+
+============================================================
+EXECUTION COMPLETE
+Books: 0, Tools: 0, Time: 81ms
+============================================================
+
+============================================================
+RESPONSEAGENT EXECUTION START
+Query: I appreciate that...
+============================================================
+=== FINALIZE NODE ===
+Finalized: 0 tools, 0 books, 78ms
+
+============================================================
+EXECUTION COMPLETE
+Books: 0, Tools: 0, Time: 78ms
+============================================================
+Initialized ResponseAgent with 0 tools
+Initialized ResponseAgent with 0 tools
+
+=== AGENT EXECUTION 2025-11-06 21:50:36 ===
+2025-11-06 21:50:36 DEBUG openai._base_client | Request options: {'method': 'post', 'url': '/chat/completions', 'headers': {'X-Stainless-Helper-Method': 'chat.completions.parse', 'X-Stainless-Raw-Response': 'true'}, 'files': None, 'idempotency_key': 'stainless-python-retry-ef132db3-438e-466b-ad70-ad66f89dc09a', 'post_parser': <function Completions.parse.<locals>.parser at 0x78f3c98d6710>, 'json_data': {'messages': [{'content': "Say 'OK'", 'role': 'user'}], 'model': 'meta-llama/Meta-Llama-3.1-8B-Instruct', 'response_format': {'type': 'json_object'}, 'stream': False, 'temperature': 0.0}}
+2025-11-06 21:50:36 DEBUG openai._base_client | Sending HTTP Request: POST https://api.deepinfra.com/v1/openai/chat/completions
+2025-11-06 21:50:36 INFO httpx | HTTP Request: POST https://api.deepinfra.com/v1/openai/chat/completions "HTTP/1.1 401 Unauthorized"
+2025-11-06 21:50:36 DEBUG openai._base_client | HTTP Response: POST https://api.deepinfra.com/v1/openai/chat/completions "401 Unauthorized" Headers({'date': 'Fri, 07 Nov 2025 02:50:37 GMT', 'content-type': 'application/json', 'content-length': '59', 'connection': 'keep-alive', 'server': 'uvicorn', 'www-authenticate': 'Bearer', 'x-robots-tag': 'noindex'})
+2025-11-06 21:50:36 DEBUG openai._base_client | request_id: None
+2025-11-06 21:50:36 DEBUG openai._base_client | Encountered httpx.HTTPStatusError
+Traceback (most recent call last):
+  File "/home/simon/miniconda3/envs/bookrec/lib/python3.10/site-packages/openai/_base_client.py", line 1027, in request
+    response.raise_for_status()
+  File "/home/simon/miniconda3/envs/bookrec/lib/python3.10/site-packages/httpx/_models.py", line 829, in raise_for_status
+    raise HTTPStatusError(message, request=request, response=self)
+httpx.HTTPStatusError: Client error '401 Unauthorized' for url 'https://api.deepinfra.com/v1/openai/chat/completions'
+For more information check: https://developer.mozilla.org/en-US/docs/Web/HTTP/Status/401
+2025-11-06 21:50:36 DEBUG openai._base_client | Not retrying
+2025-11-06 21:50:36 DEBUG openai._base_client | Re-raising status error
+=== END AGENT EXECUTION ===
+
+=== AGENT EXECUTION 2025-11-06 21:56:07 ===
+2025-11-06 21:56:07 DEBUG openai._base_client | Request options: {'method': 'post', 'url': '/chat/completions', 'headers': {'X-Stainless-Helper-Method': 'chat.completions.parse', 'X-Stainless-Raw-Response': 'true'}, 'files': None, 'idempotency_key': 'stainless-python-retry-4e4f5ff7-8d8c-42b6-943d-a097e1af9724', 'post_parser': <function Completions.parse.<locals>.parser at 0x752901e36950>, 'json_data': {'messages': [{'content': 'You are the Router for a book recommendation website.\n\nGoal\nDecide which single branch should handle the user’s message. Do not solve the request yourself. Do not browse. Choose exactly one branch.\n\nBranches\n- recsys — Recommend from the site’s **internal catalog** (based on the Book-Crossing dataset, mostly ≤ 2004). Best for discovery/curation, “similar to…”, vibe/subjects/tones, or title identification from description. If the user explicitly requests books **after 2004** (e.g., “2010s”, “2021”, “latest”), do **not** choose recsys; choose web instead.\n- web — Factual/look-up or anything that needs **newer than 2004** or “latest/news/links/compare/publication details.” Uses external web tools. Produces prose with citations (no internal IDs).\n- docs — Help/about the site (profiles, ratings, privacy, limits, search syntax, troubleshooting, glossary). If the user says “you,” they are addressing the **chatbot/site**, not a person. Answers come from internal help docs (no web).\n- respond — Brief acknowledgements or small talk that needs no tools (greetings, thanks, “okay”).\n\nDecision rules\n- Route using only the user’s message (no browsing or tool calls).\n- Prefer recsys for discovery/curation/identification **unless** the user asks for books newer than 2004.\n- Prefer web for factual queries, publication/bibliographic details, comparisons, links, or any **post-2004** book requests.\n- Prefer docs for questions about how the site works, policies, or when the user addresses “you” about capabilities/behavior.\n- Use respond only for light acknowledgements where tools add no value.\n- If ambiguous between recsys and web and the message mentions an explicit year **> 2004** or words like “latest/new releases,” choose web. Otherwise prefer recsys.\n- The [CURRENT] message is the primary signal. Use [LAST_USER_MESSAGES] only if the current message contains pronouns or references like “more of that,” “same author,” or “like before.” Do not let older topics override the current request.\n\nOutput (STRICT JSON only; no prose, no code fences)\n{\n  "target": "recsys" | "web" | "docs" | "respond",\n  "reason": "<short rationale>"\n}\n\nFew-shot examples\nUser: recommend cozy fantasy with found family\nJSON: {"target":"recsys","reason":"discovery request; no post-2004 constraint"}\n\nUser: recommend cozy fantasy published after 2017\nJSON: {"target":"web","reason":"explicit post-2004 year"}\n\nUser: i loved the stormlight archive, any similar vibes?\nJSON: {"target":"recsys","reason":"discovery based on taste; recency not required"}\n\nUser: new sci-fi releases from 2023 or 2024\nJSON: {"target":"web","reason":"newer than internal catalog; post-2004"}\n\nUser: forgot the title: epistolary WWII on channel islands, hopeful tone\nJSON: {"target":"recsys","reason":"title identification from description"}\n\nUser: who wrote the poppy war and when was it first published?\nJSON: {"target":"web","reason":"factual author/publication lookup"}\n\nUser: latest news about brandon sanderson signings\nJSON: {"target":"web","reason":"fresh, time-sensitive info"}\n\nUser: how do you use my ratings for recommendations?\nJSON: {"target":"docs","reason":"question about site behavior; \'you\' refers to chatbot/site"}\n\nUser: what\'s your privacy policy?\nJSON: {"target":"docs","reason":"policy/help content"}\n\nUser: what does the subject picker do?\nJSON: {"target":"docs","reason":"feature explanation; docs scope"}\n\nUser: hi!\nJSON: {"target":"respond","reason":"greeting; no tools needed"}\n\nUser: give me 2021 cozy fantasy like legends & lattes\nJSON: {"target":"web","reason":"explicit post-2004 year; newer than internal catalog"}\n', 'role': 'system'}, {'content': '[LAST_USER_MESSAGES]\nrecommend sci-fi books\n[/LAST_USER_MESSAGES]\n[CURRENT]\nmore like that please\n[/CURRENT]', 'role': 'user'}], 'model': 'meta-llama/Meta-Llama-3.1-8B-Instruct', 'response_format': {'type': 'json_object'}, 'stream': False, 'temperature': 0.0}}
+2025-11-06 21:56:07 DEBUG openai._base_client | Sending HTTP Request: POST https://api.deepinfra.com/v1/openai/chat/completions
+2025-11-06 21:56:07 INFO httpx | HTTP Request: POST https://api.deepinfra.com/v1/openai/chat/completions "HTTP/1.1 401 Unauthorized"
+2025-11-06 21:56:07 DEBUG openai._base_client | HTTP Response: POST https://api.deepinfra.com/v1/openai/chat/completions "401 Unauthorized" Headers({'date': 'Fri, 07 Nov 2025 02:56:08 GMT', 'content-type': 'application/json', 'content-length': '59', 'connection': 'keep-alive', 'server': 'uvicorn', 'www-authenticate': 'Bearer', 'x-robots-tag': 'noindex'})
+2025-11-06 21:56:07 DEBUG openai._base_client | request_id: None
+2025-11-06 21:56:07 DEBUG openai._base_client | Encountered httpx.HTTPStatusError
+Traceback (most recent call last):
+  File "/home/simon/miniconda3/envs/bookrec/lib/python3.10/site-packages/openai/_base_client.py", line 1027, in request
+    response.raise_for_status()
+  File "/home/simon/miniconda3/envs/bookrec/lib/python3.10/site-packages/httpx/_models.py", line 829, in raise_for_status
+    raise HTTPStatusError(message, request=request, response=self)
+httpx.HTTPStatusError: Client error '401 Unauthorized' for url 'https://api.deepinfra.com/v1/openai/chat/completions'
+For more information check: https://developer.mozilla.org/en-US/docs/Web/HTTP/Status/401
+2025-11-06 21:56:07 DEBUG openai._base_client | Not retrying
+2025-11-06 21:56:07 DEBUG openai._base_client | Re-raising status error
+=== END AGENT EXECUTION ===

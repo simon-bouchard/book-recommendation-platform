@@ -1,0 +1,34 @@
+[
+  {
+    "query": "Hello!",
+    "history": []
+  },
+  {
+    "query": "Thanks for your help!",
+    "history": []
+  },
+  {
+    "query": "How are you today?",
+    "history": []
+  },
+  {
+    "query": "What can you help me with?",
+    "history": []
+  },
+  {
+    "query": "Can you explain that better?",
+    "history": [
+      {"u": "What is collaborative filtering?", "a": "Collaborative filtering is a recommendation technique that predicts user preferences based on similar users' behavior."}
+    ]
+  },
+  {
+    "query": "What did I just ask about?",
+    "history": [
+      {"u": "Tell me about science fiction", "a": "Science fiction is a genre that explores speculative concepts like space travel and future technology."}
+    ]
+  },
+  {
+    "query": "I appreciate that",
+    "history": []
+  }
+]

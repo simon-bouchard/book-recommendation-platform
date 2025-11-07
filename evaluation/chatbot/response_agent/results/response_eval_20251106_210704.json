@@ -1,0 +1,88 @@
+{
+  "results": [
+    {
+      "query": "Hello!",
+      "history": [],
+      "response": "I'm having trouble responding right now.",
+      "agent_success": true,
+      "appropriateness": 0,
+      "tone": 0,
+      "reason": "Judge failed: Error code: 401 - {'detail': 'User is not authorized to access this resource'}",
+      "pass": false
+    },
+    {
+      "query": "Thanks for your help!",
+      "history": [],
+      "response": "I'm having trouble responding right now.",
+      "agent_success": true,
+      "appropriateness": 0,
+      "tone": 0,
+      "reason": "Judge failed: Error code: 401 - {'detail': 'User is not authorized to access this resource'}",
+      "pass": false
+    },
+    {
+      "query": "How are you today?",
+      "history": [],
+      "response": "I'm having trouble responding right now.",
+      "agent_success": true,
+      "appropriateness": 0,
+      "tone": 0,
+      "reason": "Judge failed: Error code: 401 - {'detail': 'User is not authorized to access this resource'}",
+      "pass": false
+    },
+    {
+      "query": "What can you help me with?",
+      "history": [],
+      "response": "I'm having trouble responding right now.",
+      "agent_success": true,
+      "appropriateness": 0,
+      "tone": 0,
+      "reason": "Judge failed: Error code: 401 - {'detail': 'User is not authorized to access this resource'}",
+      "pass": false
+    },
+    {
+      "query": "Can you explain that better?",
+      "history": [
+        {
+          "u": "What is collaborative filtering?",
+          "a": "Collaborative filtering is a recommendation technique that predicts user preferences based on similar users' behavior."
+        }
+      ],
+      "response": "I'm having trouble responding right now.",
+      "agent_success": true,
+      "appropriateness": 0,
+      "tone": 0,
+      "reason": "Judge failed: Error code: 401 - {'detail': 'User is not authorized to access this resource'}",
+      "pass": false
+    },
+    {
+      "query": "What did I just ask about?",
+      "history": [
+        {
+          "u": "Tell me about science fiction",
+          "a": "Science fiction is a genre that explores speculative concepts like space travel and future technology."
+        }
+      ],
+      "response": "I'm having trouble responding right now.",
+      "agent_success": true,
+      "appropriateness": 0,
+      "tone": 0,
+      "reason": "Judge failed: Error code: 401 - {'detail': 'User is not authorized to access this resource'}",
+      "pass": false
+    },
+    {
+      "query": "I appreciate that",
+      "history": [],
+      "response": "I'm having trouble responding right now.",
+      "agent_success": true,
+      "appropriateness": 0,
+      "tone": 0,
+      "reason": "Judge failed: Error code: 401 - {'detail': 'User is not authorized to access this resource'}",
+      "pass": false
+    }
+  ],
+  "passed": 0,
+  "total": 7,
+  "pass_rate": 0.0,
+  "timestamp": "2025-11-06T21:07:04.406509"
+}
