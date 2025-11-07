@@ -30,6 +30,7 @@ test.py
 /prompts
 .vscode/
 tree.txt
+code_instructions_prompt.txt
 
 #Junk
 __pycache__/
