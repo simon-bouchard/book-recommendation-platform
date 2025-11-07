@@ -1,0 +1,154 @@
+{
+  "results": [
+    {
+      "query": "How do I rate a book?",
+      "response": "To rate a book, go to the book's page and use the **Rate or mark as read** feature, which allows you to rate the book with optional comments.",
+      "agent_success": true,
+      "retrieved_docs": [
+        "books"
+      ],
+      "expected_docs": [
+        "rating",
+        "ratings",
+        "how-to-rate"
+      ],
+      "retrieval_pass": false,
+      "retrieval_reason": "Expected ['rating', 'ratings', 'how-to-rate'] but got ['books']",
+      "correctness": 0,
+      "completeness": 0,
+      "quality_reason": "The agent's response does not match the ground truth. It mentions a different method for rating a book and does not mention the star rating system or the purpose of ratings for improving recommendations.",
+      "quality_pass": false,
+      "overall_pass": false
+    },
+    {
+      "query": "How does the recommendation system work?",
+      "response": "The recommendation system combines **behavioral signals (ALS)** with **content-based signals (subjects)**. Each has strengths and weaknesses, and the hybrid option lets you balance between them. **Subject-Based Recommendations** focus on content similarity based on book subjects, surfacing books closely related in topic or theme, including those with very few ratings. **ALS (Alternating Least Squares) Recommendations** focus on behavioral similarity based on patterns of how users rate books, capturing taste overlap between readers and prioritizing popular books. **Hybrid Recommendations** combine subject and ALS signals, offering a balanced mix of content awareness and behavioral reliability. The system retrains every day, updating personalized recommendations automatically after training completes.",
+      "agent_success": true,
+      "retrieved_docs": [
+        "recommendations"
+      ],
+      "expected_docs": [
+        "recommendations",
+        "algorithm",
+        "how-it-works"
+      ],
+      "retrieval_pass": true,
+      "retrieval_reason": "Retrieved expected docs: {'recommendations'}",
+      "correctness": 1,
+      "completeness": 1,
+      "quality_reason": "The agent's response accurately describes the recommendation system's use of collaborative filtering based on user ratings and book metadata, providing more detailed information on the hybrid approach and its components.",
+      "quality_pass": true,
+      "overall_pass": true
+    },
+    {
+      "query": "How do I search for books?",
+      "response": "To search for books, you can use the search page. By default, books are sorted by **Bayesian popularity**. You can also search by **subject**, which will show results ranked by Bayesian popularity within that subject. Additionally, you can search by **title**, which will rank results by **title similarity**. You can further filter title search results by **subject**. Note that searching by author is not currently possible. If you want more robust subject searching, you can select your favorite subjects on your profile page and use the subject recommendations.",
+      "agent_success": true,
+      "retrieved_docs": [
+        "search"
+      ],
+      "expected_docs": [
+        "search",
+        "finding-books",
+        "how-to-search"
+      ],
+      "retrieval_pass": true,
+      "retrieval_reason": "Retrieved expected docs: {'search'}",
+      "correctness": 0,
+      "completeness": 0,
+      "quality_reason": "The agent's response provides different information than the ground truth. It mentions specific features like Bayesian popularity, subject searching, and title similarity, which are not present in the ground truth. Additionally, it states that searching by author is not possible, which contradicts the ground truth. The response also does not cover the key points from the ground truth, such as searching by book titles, author names, or keywords, and filtering results by genre or publication year.",
+      "quality_pass": false,
+      "overall_pass": false
+    },
+    {
+      "query": "What is collaborative filtering?",
+      "response": "Collaborative filtering is a technique used in recommendation systems to suggest items (such as products, movies, or books) to users based on the behavior and preferences of similar users. It works by analyzing the interactions and ratings of a large group of users to identify patterns and relationships that can be used to make personalized recommendations. This approach is particularly effective in situations where there is limited information about individual users' preferences.",
+      "agent_success": false,
+      "retrieved_docs": [],
+      "expected_docs": [
+        "recommendations",
+        "algorithm",
+        "collaborative-filtering"
+      ],
+      "retrieval_pass": false,
+      "retrieval_reason": "No help_read tool calls made",
+      "correctness": 1,
+      "completeness": 1,
+      "quality_reason": "The agent's response accurately describes collaborative filtering and its approach to making personalized recommendations based on similar users' behavior, matching the ground truth.",
+      "quality_pass": true,
+      "overall_pass": false
+    },
+    {
+      "query": "How do I create an account?",
+      "response": "To create an account, you can click on the \"Edit Profile\" section on your profile page and follow the prompts to update your details. This will allow you to log in and access personalized recommendations and full chatbot access. Note that you can browse the site without logging in, but creating an account will enhance your experience.",
+      "agent_success": true,
+      "retrieved_docs": [
+        "chatbot",
+        "privacy",
+        "profile",
+        "overview"
+      ],
+      "expected_docs": [
+        "account",
+        "getting-started",
+        "sign-up"
+      ],
+      "retrieval_pass": false,
+      "retrieval_reason": "Expected ['account', 'getting-started', 'sign-up'] but got ['chatbot', 'privacy', 'profile', 'overview']",
+      "correctness": 0,
+      "completeness": 0,
+      "quality_reason": "The agent's response provides incorrect information about creating an account and does not cover the key points from the ground truth, such as clicking the sign-up button and providing email and password.",
+      "quality_pass": false,
+      "overall_pass": false
+    },
+    {
+      "query": "What are book subjects?",
+      "response": "Book subjects refer to the categories or genres that a book belongs to, such as fiction, non-fiction, mystery, romance, science fiction, etc. These subjects help readers and librarians organize and categorize books for easier searching and discovery. Book subjects can also include more specific sub-genres, such as historical fiction or young adult fantasy.",
+      "agent_success": true,
+      "retrieved_docs": [
+        "glossary",
+        "books",
+        "books",
+        "glossary"
+      ],
+      "expected_docs": [
+        "subjects",
+        "metadata",
+        "categories"
+      ],
+      "retrieval_pass": false,
+      "retrieval_reason": "Expected ['subjects', 'metadata', 'categories'] but got ['glossary', 'books', 'books', 'glossary']",
+      "correctness": 1,
+      "completeness": 1,
+      "quality_reason": "The agent's response accurately defines book subjects, mentions examples of genres, and highlights their purpose in organizing and categorizing books. It also touches on the existence of sub-genres, which is in line with the ground truth.",
+      "quality_pass": true,
+      "overall_pass": false
+    },
+    {
+      "query": "How accurate are the recommendations?",
+      "response": "The accuracy of the recommendations depends on the method used. **Subject-Based Recommendations** can surface books that are closely related in topic or theme, but may be noisy or inconsistent due to imperfect metadata. **ALS (Alternating Least Squares) Recommendations** capture taste overlap between readers and prioritize popular books, but may recommend books that are not exactly the same genre. **Hybrid Recommendations** combine content awareness with behavioral reliability, filtering out books with fewer than 5 ratings. The system retrains every day, updating personalized recommendations automatically after training completes.",
+      "agent_success": true,
+      "retrieved_docs": [
+        "recommendations"
+      ],
+      "expected_docs": [
+        "recommendations",
+        "accuracy",
+        "faq"
+      ],
+      "retrieval_pass": true,
+      "retrieval_reason": "Retrieved expected docs: {'recommendations'}",
+      "correctness": 0,
+      "completeness": 0,
+      "quality_reason": "The agent's response provides information on different recommendation methods, but does not address the impact of user ratings on recommendation accuracy, which is the main point of the ground truth.",
+      "quality_pass": false,
+      "overall_pass": false
+    }
+  ],
+  "passed": 1,
+  "total": 7,
+  "pass_rate": 0.14285714285714285,
+  "retrieval_pass_rate": 0.42857142857142855,
+  "quality_pass_rate": 0.42857142857142855,
+  "timestamp": "2025-11-07T14:48:11.733978"
+}

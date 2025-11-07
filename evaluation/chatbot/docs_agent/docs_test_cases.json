@@ -1,0 +1,37 @@
+[
+  {
+    "query": "How do I rate a book?",
+    "expected_docs": ["rating", "ratings", "how-to-rate"],
+    "ground_truth": "To rate a book, you can use the star rating system. Click on the stars next to a book to give it a rating from 1 to 5 stars. Your ratings help improve recommendations."
+  },
+  {
+    "query": "How does the recommendation system work?",
+    "expected_docs": ["recommendations", "algorithm", "how-it-works"],
+    "ground_truth": "The recommendation system uses collaborative filtering based on user ratings. It finds users with similar rating patterns to you and suggests books they liked. The system also considers book metadata like subjects and genres."
+  },
+  {
+    "query": "How do I search for books?",
+    "expected_docs": ["search", "finding-books", "how-to-search"],
+    "ground_truth": "You can search for books using the search bar. Enter book titles, author names, or keywords. The system will return matching books. You can also filter results by genre, publication year, or other criteria."
+  },
+  {
+    "query": "What is collaborative filtering?",
+    "expected_docs": ["recommendations", "algorithm", "collaborative-filtering"],
+    "ground_truth": "Collaborative filtering is a recommendation technique that predicts your preferences based on similar users' behavior. If users with similar rating patterns to you enjoyed certain books, the system recommends those books to you."
+  },
+  {
+    "query": "How do I create an account?",
+    "expected_docs": ["account", "getting-started", "sign-up"],
+    "ground_truth": "To create an account, click the sign-up button and provide your email and password. You can optionally add profile information. An account allows you to save ratings and get personalized recommendations."
+  },
+  {
+    "query": "What are book subjects?",
+    "expected_docs": ["subjects", "metadata", "categories"],
+    "ground_truth": "Book subjects are topic labels assigned to books, like 'science fiction', 'history', or 'romance'. They help categorize books and improve search and recommendations. A book can have multiple subjects."
+  },
+  {
+    "query": "How accurate are the recommendations?",
+    "expected_docs": ["recommendations", "accuracy", "faq"],
+    "ground_truth": "Recommendation accuracy improves as you rate more books. With 10+ ratings, the system can better understand your preferences. The more ratings you provide, the more personalized your recommendations become."
+  }
+]
