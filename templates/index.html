@@ -71,46 +71,64 @@
         </ol>
     </div>
 
-    <div class="container">
-        <h2>Chat with the Librarian (Demo)</h2>
-        <p style="margin-bottom:12px;">
-            The chatbot is a demo assistant that can <strong>browse the web with limited tools</strong> to suggest books and
-            <strong>read internal documentation about this website</strong> so it can explain features and onboard new users.
-        </p>
+	<div class="container">
+		<h2>Chat with the Librarian (AI Assistant)</h2>
+		<p style="margin-bottom:12px;">
+			<p style="margin-bottom:12px;">
+				The chatbot is a  multi-turn <strong>virtual librarian</strong> powered by <strong>LangGraph</strong>, 
+				able to chat about books, recommend titles, answer questions about the site, 
+				and search the web for new or trending reads.
+			</p>
+		</p>
 
-        <div style="display:grid; gap:14px; grid-template-columns:1fr; max-width:900px;">
-            <div style="background:#f8fafc; border:1px solid #e5e7eb; padding:12px 14px; border-radius:8px;">
-            <strong>What it does now</strong>
-            <ul style="margin:8px 0 0 18px;">
-                <li>Uses a small set of web tools to find book suggestions and quick references.</li>
-                <li>Answers onboarding questions using internal docs about this site (navigation, features, tips).</li>
-                <li>Profile-aware suggestions using interactions and favorite subjects.</li>
-            </ul>
-            </div>
+		<div style="display:grid; gap:14px; grid-template-columns:1fr; max-width:900px;">
+			<div style="background:#f8fafc; border:1px solid #e5e7eb; padding:12px 14px; border-radius:8px;">
+				<strong>What it can do</strong>
+				<ul style="margin:8px 0 0 18px;">
+					<li>Perform <strong>catalog-grounded semantic search</strong> using enriched subject and description vectors.</li>
+					<li>Generate <strong>personalized recommendations</strong> via internal tools (ALS, FAISS, Bayesian popularity, subject embeddings).</li>
+					<li>Explain <strong>why each book fits</strong> your interests based on metadata and curation reasoning.</li>
+					<li>Answer help and onboarding questions using internal documentation.</li>
+					<li>Search the web to suggest <strong>new or trending books</strong> outside the catalog.</li>
+				</ul>
+			</div>
 
-            <div style="background:#fff7ed; border:1px solid #fed7aa; padding:12px 14px; border-radius:8px;">
-            <strong>Current demo limits</strong>
-            <ul style="margin:8px 0 0 18px;">
-                <li><em>No</em> access to internal ML tools yet (ALS, FAISS, subject embeddings).</li>
-                <li>Basic rate limits may apply (portfolio demo).</li>
-            </ul>
-            </div>
+			<div style="background:#fff7ed; border:1px solid #fed7aa; padding:12px 14px; border-radius:8px;">
+			<strong>How it works</strong>
+			<ul style="margin:8px 0 0 18px;">
+				<li>The system runs on <strong>LangGraph</strong>, orchestrating multiple agents through a structured reasoning flow.</li>
+				<li>A central <em>Router Agent</em> interprets the user’s intent and directs the request to the most appropriate branch.</li>
+				<li>Each branch operates autonomously—handling conversation, documentation retrieval, web search, or recommendation—before returning results to the router for response synthesis.</li>
+				<li>The <strong>recommendation branch</strong> is itself composed of two agents:
+					<br>one for <em>candidate generation</em> using internal models and semantic retrieval, 
+					and another for <em>curation and explanation</em> of the selected results.</li>
+				<li>All branches share a <strong>multi-turn memory</strong> that preserves context across interactions, 
+					allowing the assistant to adapt to the ongoing conversation.</li>
+			</ul>
+			</div>
 
-            <div style="background:#f0fdf4; border:1px solid #bbf7d0; padding:12px 14px; border-radius:8px;">
-            <strong>Roadmap (planned)</strong>
-            <ul style="margin:8px 0 0 18px;">
-                <li>Direct access to internal ML engines (ALS, FAISS, attention-pooled embeddings).</li>
-                <li>A true RAG-style agent that retrieves from the site’s catalog and models, then explains the picks.</li>
-            </ul>
-            </div>
-        </div>
+			<div style="background:#f0fdf4; border:1px solid #bbf7d0; padding:12px 14px; border-radius:8px;">
+				<strong>Roadmap</strong>
+				<p style="margin:8px 0 0;">
+					Planned improvements focus on deeper reasoning and finer modularity within the recommendation system.
+				</p>
+				<ul style="margin:8px 0 0 18px;">
+					<li>Introduce a <strong>Planner Agent</strong> to guide multi-step reasoning before routing or tool use.</li>
+					<li>Expand the <strong>Recsys branch</strong> into four specialized stages:
+						<br><em>planner → candidate generation → curation → explanation</em>.</li>
+					<li>Add a <strong>Dialogue Manager</strong> for better intent tracking and long-session coordination.</li>
+					<li>Explore improved <strong>context summarization</strong> for extended multi-turn memory.</li>
+				</ul>
+			</div>
 
-        <div class="toggle-group" style="justify-content:center; margin:20px 0 0;">
-            <a href="/chat"><button class="btn btn--primary btn--lg">Open Chat</button></a>
-        </div>
-        </div>
+		</div>
 
-    <div class="container">
+		<div class="toggle-group" style="justify-content:center; margin:20px 0 0;">
+			<a href="/chat"><button class="btn btn--primary btn--lg">Open Chat</button></a>
+		</div>
+	</div>
+
+     <div class="container">
         <h2>Behind the Scenes</h2>
         <ul>
             <li><strong>Data pipeline:</strong> Book‑Crossing base with extensive cleaning/enrichment (standardized metadata, subject mapping).</li>
@@ -122,6 +140,35 @@
             <li><strong>Automation:</strong> scheduled training on a separate server; artifacts exported and hot‑reloaded without downtime.</li>
         </ul>
     </div>
+
+	<div class="container">
+		<h2>Information Enrichment</h2>
+
+		<p style="margin-bottom:12px;">
+			Before books are embedded for semantic search, a dedicated <strong>Enrichment Agent</strong> runs as an offline job 
+			that refines and filters catalog data. Its goal is to transform raw metadata into clean, expressive text 
+			that better represents each book’s content and mood.
+		</p>
+
+		<p style="margin-bottom:12px;">
+			Each record is reformatted into a compact structure optimized for LLM embeddings—combining 
+			<em>title, author, subjects, tone, genre,</em> and <em>vibe</em> into a single enriched description. 
+			This helps downstream models capture nuance and thematic similarity more effectively.
+		</p>
+
+		<p style="margin-bottom:12px;">
+			The enrichment pipeline runs on a <strong>Kafka-based workflow</strong> with tiered data quality handling, 
+			ensuring that books with varying metadata completeness receive appropriate processing depth. 
+			Two <strong>Spark jobs</strong> handle the output: one ingests enriched data into SQL for quick retrieval, 
+			while another archives raw enrichment objects in a data lake for versioned storage.
+		</p>
+
+		<p>
+			Finally, an incremental embedding job encodes new or updated books as they’re enriched, 
+			so the chatbot always works with fresh semantic vectors without needing to rebuild the entire index.
+		</p>
+	</div>
+
     {% include 'footer.html' %}
 </div>
 
