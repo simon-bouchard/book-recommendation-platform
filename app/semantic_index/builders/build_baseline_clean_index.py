@@ -2,6 +2,7 @@
 """
 Build baseline-clean semantic search index (no description, subjects only).
 Tests whether descriptions add noise to baseline embeddings.
+Includes ALL books (same coverage as baseline-old) for fair comparison.
 """
 
 from pathlib import Path
@@ -30,12 +31,18 @@ def fetch_baseline_clean_books(
 ) -> Generator[Tuple[int, str, Dict], None, None]:
     """
     Fetch books with raw OL subjects (no description).
+    Includes ALL books for fair comparison with baseline-old.
     
     Yields:
         (item_idx, embedding_text, metadata_dict) tuples
+    
+    Notes:
+        - Books without subjects get text: "{title} — {author}" (no subjects section)
+        - Books with subjects get text: "{title} — {author} | subjects: {subjects}"
+        - This ensures same book coverage as baseline-old for fair comparison
     """
     print(f"\n{'='*80}")
-    print("Fetching baseline books (no description)")
+    print("Fetching baseline books (no description, includes all books)")
     print(f"{'='*80}\n")
     
     with SessionLocal() as db:
@@ -80,12 +87,8 @@ def fetch_baseline_clean_books(
             )
             ol_subjects = [s for (s,) in subjects_query if s]
             
-            # Skip books without OL subjects
-            if not ol_subjects:
-                skipped += 1
-                continue
-            
             # Build embedding text (no description)
+            # Include all books, even without subjects - fair comparison with baseline-old
             text = build_baseline_clean_text(
                 title=title,
                 author=author,
@@ -205,6 +208,9 @@ def main(
 ):
     """
     Build baseline-clean semantic search index.
+    
+    Includes ALL books (same coverage as baseline-old) for fair comparison.
+    Only difference from baseline-old: no description field in embedding text.
     
     Args:
         output_dir: Output directory
