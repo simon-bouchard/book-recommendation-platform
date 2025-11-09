@@ -1,0 +1,515 @@
+Implementation Plan: 6-Model Embedding Strategy Comparison
+Complete Model Matrix
+Baseline Variants:
+
+Baseline-Old (EXISTS): title + author + description + raw OL subjects
+
+Location: models/data/baseline/
+Status: Already built
+
+
+Baseline-Clean (NEW): title + author + raw OL subjects (no description)
+
+Location: models/data/baseline_clean/
+Status: Need to build
+
+
+
+V1 Variants:
+
+V1-Full (EXISTS): title + author + genre + v1 subjects + tones + vibe
+
+Location: models/data/enriched_v1/
+Status: Already built
+
+
+V1-Subjects (NEW): title + author + v1 subjects
+
+Location: models/data/enriched_v1_subjects/
+Status: Need to build
+
+
+
+V2 Variants:
+
+V2-Full (NEW): title + author + genre + v2 subjects + tones + vibe
+
+Location: models/data/enriched_v2_full/
+Status: Need to build from accumulator
+
+
+V2-Subjects (NEW): title + author + v2 subjects
+
+Location: models/data/enriched_v2_subjects/
+Status: Need to build from SQL
+
+
+
+
+Phase 1: Infrastructure Setup
+1.1 Directory Structure
+models/data/
+├── baseline/                    # EXISTS (baseline-old with description)
+├── baseline_clean/              # NEW (no description)
+├── enriched_v1/                 # EXISTS (v1-full)
+├── enriched_v1_subjects/        # NEW (v1 subjects-only)
+├── enriched_v2_full/            # NEW (from accumulator)
+├── enriched_v2_subjects/        # NEW (from SQL)
+└── comparison_experiment/       # NEW (results)
+    ├── indexes/                 # Symlinks to all 6 indexes
+    ├── results/                 # Evaluation JSON files
+    └── reports/                 # HTML reports
+1.2 Create Text Template Module
+Location: app/semantic_index/embedding/text_templates.py
+Functions:
+pythondef build_baseline_old_text(title, author, description, ol_subjects):
+    """Current baseline with description."""
+    # Matches existing baseline index
+    
+def build_baseline_clean_text(title, author, ol_subjects):
+    """Baseline without description."""
+    return f"{title} — {author} | subjects: {', '.join(ol_subjects)}"
+
+def build_v1_full_text(title, author, genre, subjects, tones, vibe):
+    """V1 with all metadata - matches existing enriched_v1."""
+    
+def build_v1_subjects_text(title, author, subjects):
+    """V1 subjects-only."""
+    return f"{title} — {author} | subjects: {', '.join(subjects)}"
+
+def build_v2_full_text(title, author, genre, subjects, tones, vibe):
+    """V2 with all metadata - from accumulator."""
+    
+def build_v2_subjects_text(title, author, subjects):
+    """V2 subjects-only."""
+    return f"{title} — {author} | subjects: {', '.join(subjects)}"
+
+Phase 2: Build Missing Indexes
+2.1 Baseline-Clean Index
+Script: app/semantic_index/build_baseline_clean_index.py
+Data Source:
+sqlSELECT 
+    b.item_idx,
+    b.title,
+    a.name as author,
+    GROUP_CONCAT(os.subject) as ol_subjects
+FROM books b
+LEFT JOIN authors a ON b.author_idx = a.author_idx
+LEFT JOIN book_ol_subjects bos ON b.item_idx = bos.item_idx
+LEFT JOIN ol_subjects os ON bos.ol_subject_idx = os.ol_subject_idx
+GROUP BY b.item_idx
+HAVING ol_subjects IS NOT NULL
+Embedding Template:
+pythontext = f"{title} — {author} | subjects: {ol_subjects}"
+Output: models/data/baseline_clean/
+
+semantic.faiss
+semantic_ids.npy
+semantic_meta.json
+
+Key Differences from Baseline-Old:
+
+No description field
+Only books with OL subjects (skip books with no subjects)
+
+
+2.2 V1-Subjects Index
+Script: app/semantic_index/build_v1_subjects_index.py
+Data Source:
+sqlSELECT 
+    b.item_idx,
+    b.title,
+    a.name as author,
+    GROUP_CONCAT(bls.subject) as llm_subjects
+FROM books b
+LEFT JOIN authors a ON b.author_idx = a.author_idx
+LEFT JOIN book_llm_subjects bls ON b.item_idx = bls.item_idx
+WHERE bls.tags_version = 'v1'
+GROUP BY b.item_idx
+HAVING llm_subjects IS NOT NULL
+Embedding Template:
+pythontext = f"{title} — {author} | subjects: {llm_subjects}"
+Output: models/data/enriched_v1_subjects/
+Coverage: Same as V1-Full (~170k books)
+
+2.3 V2-Subjects Index
+Script: app/semantic_index/build_v2_subjects_index.py
+Data Source:
+sqlSELECT 
+    b.item_idx,
+    b.title,
+    a.name as author,
+    GROUP_CONCAT(bls.subject) as llm_subjects
+FROM books b
+LEFT JOIN authors a ON b.author_idx = a.author_idx
+LEFT JOIN book_llm_subjects bls ON b.item_idx = bls.item_idx
+WHERE bls.tags_version = 'v2'
+GROUP BY b.item_idx
+HAVING llm_subjects IS NOT NULL
+Embedding Template:
+pythontext = f"{title} — {author} | subjects: {llm_subjects}"
+Output: models/data/enriched_v2_subjects/
+Prerequisites: V2 enrichment job must be ≥98% complete
+Coverage: ~245k books
+
+2.4 V2-Full Index
+Script: Use existing app/semantic_index/build_index.py (index builder from accumulator)
+Data Source: models/data/enriched_v2/accumulator/batch_*.npz
+Prerequisites: V2 enrichment job must be ≥98% complete
+Process:
+
+Load all batch files from accumulator
+Deduplicate by item_idx (keep latest embedding)
+Build FAISS HNSW index
+Run quality checks
+Save to output directory
+
+Command:
+bashpython app/semantic_index/build_index_from_accumulator.py \
+  --accumulator-dir models/data/enriched_v2/accumulator \
+  --fingerprints-db models/data/enriched_v2/fingerprints.db \
+  --output models/data/enriched_v2_full
+Note: This may need a new script or modification to existing build_index.py to read from accumulator format.
+Output: models/data/enriched_v2_full/
+Coverage: ~245k books
+
+Phase 3: Multi-Model Comparison Tool
+3.1 Comparison Runner Script
+Location: evaluation/semantic_search/compare_all_models.py
+Purpose: Run each test query against all 6 models and generate evaluation report
+Input Arguments:
+bash--model-paths:
+  baseline_old=models/data/baseline
+  baseline_clean=models/data/baseline_clean
+  v1_full=models/data/enriched_v1
+  v1_subjects=models/data/enriched_v1_subjects
+  v2_full=models/data/enriched_v2_full
+  v2_subjects=models/data/enriched_v2_subjects
+--queries evaluation/semantic_search/test_queries.json
+--output models/data/comparison_experiment/reports
+--top-k 10
+--embedder sentence-transformers/all-MiniLM-L6-v2
+Process:
+
+Load all 6 indexes
+Load embedding model
+For each test query:
+
+Embed query
+Search all 6 indexes
+Collect top-K results from each
+Fetch book metadata from DB
+
+
+Generate HTML report with all results
+
+
+3.2 HTML Report Structure
+Output File: comparison_6models_TIMESTAMP.html
+Layout: Single scrollable page with navigation
+html<!-- Navigation bar -->
+<nav>
+  <a href="#query-1">Query 1</a> |
+  <a href="#query-2">Query 2</a> |
+  ...
+  <div>Progress: 0/50 evaluated</div>
+</nav>
+
+<!-- For each query -->
+<section id="query-1">
+  <h2>Query 1: "dark fantasy with political intrigue"</h2>
+  <p class="meta">Type: quality | Description: Tests vibe + subject combo</p>
+  
+  <!-- 6-column grid for all models -->
+  <div class="models-grid">
+    <div class="model-column">
+      <h3>Baseline-Old</h3>
+      <p class="coverage">Coverage: 250k books</p>
+      <ol class="results">
+        <li>
+          <strong>A Game of Thrones</strong>
+          <span class="author">George R.R. Martin</span>
+          <span class="id">[12345]</span>
+          <a href="https://www.google.com/search?q=A+Game+of+Thrones+George+R.R.+Martin" target="_blank">🔍</a>
+        </li>
+        <!-- ... top 10 -->
+      </ol>
+    </div>
+    
+    <div class="model-column">
+      <h3>Baseline-Clean</h3>
+      <!-- ... results -->
+    </div>
+    
+    <div class="model-column">
+      <h3>V1-Full</h3>
+      <!-- ... results -->
+    </div>
+    
+    <div class="model-column">
+      <h3>V1-Subjects</h3>
+      <!-- ... results -->
+    </div>
+    
+    <div class="model-column">
+      <h3>V2-Full</h3>
+      <!-- ... results -->
+    </div>
+    
+    <div class="model-column">
+      <h3>V2-Subjects</h3>
+      <!-- ... results -->
+    </div>
+  </div>
+  
+  <!-- Manual evaluation form -->
+  <div class="evaluation-form">
+    <h4>📝 Manual Evaluation</h4>
+    <form>
+      <label>Ranking (best to worst):</label>
+      <input type="text" name="ranking" placeholder="e.g., v2_subjects, v1_subjects, v2_full, v1_full, baseline_clean, baseline_old">
+      
+      <label>Relevance Scores (0-10 each):</label>
+      <div class="scores-grid">
+        <input type="number" placeholder="Baseline-Old" min="0" max="10" name="score_baseline_old">
+        <input type="number" placeholder="Baseline-Clean" min="0" max="10" name="score_baseline_clean">
+        <input type="number" placeholder="V1-Full" min="0" max="10" name="score_v1_full">
+        <input type="number" placeholder="V1-Subjects" min="0" max="10" name="score_v1_subjects">
+        <input type="number" placeholder="V2-Full" min="0" max="10" name="score_v2_full">
+        <input type="number" placeholder="V2-Subjects" min="0" max="10" name="score_v2_subjects">
+      </div>
+      
+      <label>Research Notes:</label>
+      <textarea name="notes" rows="5" placeholder="Books researched, findings, observations..."></textarea>
+      
+      <button type="button" onclick="saveEvaluation('query-1')">Save Evaluation</button>
+      <button type="button" onclick="nextQuery()">Next Query →</button>
+    </form>
+    
+    <div class="saved-indicator" style="display:none;">✓ Saved</div>
+  </div>
+</section>
+
+<!-- Repeat for all queries -->
+
+<!-- JavaScript for evaluation persistence -->
+<script>
+  // Save to localStorage
+  // Track progress
+  // Export all evaluations as JSON
+  // Import previous evaluations
+</script>
+```
+
+---
+
+### **3.3 Report Features**
+
+**Visual Aids**:
+- **Overlap highlighting**: Books appearing in multiple models get colored borders
+  - Green: appears in 5-6 models (high consensus)
+  - Yellow: appears in 3-4 models
+  - Red: unique to 1-2 models (interesting divergence)
+- **Position indicators**: Show if book moved up/down between models
+- **Coverage badges**: Show how many books each index contains
+
+**Research Helpers**:
+- Click book title → Google search
+- Click author → Author search
+- Click item_idx → Open Library page
+- "Research all unfamiliar books" button → opens tabs for unknowns
+
+**Evaluation Tracking**:
+- LocalStorage saves after each query
+- Progress bar shows X/Y queries evaluated
+- Export button → download JSON with all evaluations
+- Import button → reload previous session
+
+**Keyboard Shortcuts**:
+- `n` → next query
+- `p` → previous query
+- `s` → save current evaluation
+- `e` → export all evaluations
+
+---
+
+## **Phase 4: Analysis Tools**
+
+### **4.1 Evaluation Results Aggregator**
+
+**Location**: `evaluation/semantic_search/aggregate_manual_evaluations.py`
+
+**Input**: JSON file exported from HTML report (manual evaluations)
+
+**Output**: Analysis report with:
+
+**1. Overall Rankings Table**:
+```
+Model            | 1st | 2nd | 3rd | 4th | 5th | 6th | Avg Score | Avg Rank
+-----------------|-----|-----|-----|-----|-----|-----|-----------|----------
+v2_subjects      | 25  | 15  | 8   | 2   | 0   | 0   | 8.7       | 1.6
+v2_full          | 18  | 20  | 10  | 2   | 0   | 0   | 8.2       | 1.9
+v1_subjects      | 5   | 12  | 18  | 10  | 5   | 0   | 7.1       | 2.8
+v1_full          | 2   | 3   | 10  | 20  | 12  | 3   | 6.3       | 3.4
+baseline_clean   | 0   | 0   | 4   | 14  | 25  | 7   | 4.8       | 4.8
+baseline_old     | 0   | 0   | 0   | 2   | 8   | 40  | 3.9       | 5.5
+```
+
+**2. Key Insights**:
+- Which model wins most often?
+- Are subjects-only variants beating full variants?
+- Is description hurting baseline performance?
+- Is v2 better than v1?
+- Are there query types where certain models excel?
+
+**3. Query Type Breakdown**:
+```
+Query Type: Genre-based
+  Winner: v2_subjects (avg rank 1.3)
+  
+Query Type: Vibe-based  
+  Winner: v2_full (avg rank 1.8)
+  
+Query Type: Complex multi-aspect
+  Winner: v2_subjects (avg rank 1.5)
+```
+
+**4. Statistical Tests**:
+- Wilcoxon signed-rank test (pairwise)
+- Friedman test (overall)
+- Effect sizes
+
+---
+
+### **4.2 Decision Matrix Generator**
+
+**Location**: `evaluation/semantic_search/generate_decision_report.py`
+
+**Input**: Aggregated analysis results
+
+**Output**: HTML decision report with:
+
+**Clear Recommendations**:
+```
+🏆 RECOMMENDED STRATEGY: V2-Subjects
+
+Confidence: HIGH (statistically significant p<0.01)
+
+Key Findings:
+- V2-Subjects wins 50% of queries (25/50)
+- 15% improvement over V2-Full (current strategy)
+- 40% improvement over V1-Subjects
+- 80% improvement over baseline
+
+Why V2-Subjects wins:
+- LLM-curated subjects provide clean semantic signal
+- Genre/tones/vibe added noise in 30% of queries
+- Description actively hurt baseline performance
+
+Exception Cases:
+- 4 queries where V2-Full was better (vibe-heavy queries)
+- Consider keeping vibe for specific use cases
+Actionable Next Steps:
+
+Adopt v2-subjects as production strategy
+Update embedding worker template
+Rebuild production index
+Estimated improvement: +15% search quality
+
+
+Phase 5: Key Comparison Questions
+These questions guide your manual evaluation:
+5.1 Primary Questions:
+
+Subjects vs Full: Do V2-Subjects/V1-Subjects beat their full variants?
+
+If YES → metadata is noise
+If NO → metadata adds value
+
+
+V1 vs V2: Is V2 enrichment better than V1?
+
+V2-Full vs V1-Full
+V2-Subjects vs V1-Subjects
+
+
+Description Impact: Does Baseline-Clean beat Baseline-Old?
+
+If YES → description hurts (as suspected)
+If NO → description helps despite sparsity
+
+
+LLM Value: How much do LLM subjects help?
+
+V1-Subjects vs Baseline-Clean
+V2-Subjects vs Baseline-Clean
+
+
+
+5.2 Secondary Questions:
+
+Coverage Impact: Do higher-coverage models (v2: 245k) beat lower (v1: 170k)?
+Query Type Sensitivity: Which models excel at which query types?
+Consensus: How often do all 6 models agree on top results?
+
+
+Files to Create
+New Scripts (6 files):
+
+app/semantic_index/embedding/text_templates.py - Template functions
+app/semantic_index/build_baseline_clean_index.py - Build baseline without description
+app/semantic_index/build_v1_subjects_index.py - Build v1 subjects-only
+app/semantic_index/build_v2_subjects_index.py - Build v2 subjects-only
+app/semantic_index/build_index_from_accumulator.py - Build v2-full from batches
+evaluation/semantic_search/compare_all_models.py - 6-model comparison runner
+
+New Scripts (2 files):
+
+evaluation/semantic_search/aggregate_manual_evaluations.py - Analyze evaluations
+evaluation/semantic_search/generate_decision_report.py - Final recommendation
+
+New Directories (5):
+
+models/data/baseline_clean/
+models/data/enriched_v1_subjects/
+models/data/enriched_v2_subjects/
+models/data/enriched_v2_full/
+models/data/comparison_experiment/
+
+
+Prerequisites & Dependencies
+Before Building Indexes:
+
+✅ V2 enrichment job ≥98% complete
+✅ Existing baseline and v1-full indexes working
+✅ Embedding model available: sentence-transformers/all-MiniLM-L6-v2
+✅ Sufficient disk space: ~2GB for all indexes
+
+Before Running Comparison:
+
+✅ All 6 indexes built successfully
+✅ Test queries JSON prepared
+✅ Web browser for manual evaluation
+
+For Manual Evaluation:
+
+✅ Access to web search (for unfamiliar books)
+✅ Time for thorough evaluation (50 queries × 6 models = substantial)
+✅ Clear evaluation criteria (what makes a result "relevant"?)
+
+
+Success Criteria
+Experiment Complete When:
+
+✅ All 6 indexes built and validated
+✅ HTML comparison report generated
+✅ All test queries manually evaluated
+✅ Analysis report shows clear patterns
+✅ Decision made with statistical backing
+
+Production Ready When:
+
+✅ Winner identified
+✅ Implementation plan approved
+✅ New index built with winning strategy
+✅ A/B test validates improvement
