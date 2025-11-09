@@ -1,0 +1,298 @@
+{
+  "tool_selection_warm_user": [
+    {
+      "name": "vague_query_warm_with_profile",
+      "query": "recommend something good for me",
+      "user_id": 278859,
+      "user_state": {
+        "num_ratings": 12,
+        "allow_profile": true,
+        "is_warm": true
+      },
+      "expected_tools": {
+        "should_use_user_profile": true,
+        "profile_before_retrieval": true,
+        "should_use_any_retrieval_tool": true
+      },
+      "expected_output": {
+        "min_candidates": 20
+      }
+    },
+    {
+      "name": "vague_query_warm_no_profile",
+      "query": "suggest a book for me to read next",
+      "user_id": 278859,
+      "user_state": {
+        "num_ratings": 12,
+        "allow_profile": false,
+        "is_warm": true
+      },
+      "expected_tools": {
+        "should_use_user_profile": false,
+        "should_use_any_retrieval_tool": true
+      },
+      "expected_output": {
+        "min_candidates": 20
+      }
+    },
+    {
+      "name": "descriptive_atmospheric_query",
+      "query": "I want a dark atmospheric mystery with gothic vibes and a brooding protagonist dealing with psychological tension",
+      "user_id": 278859,
+      "user_state": {
+        "num_ratings": 12,
+        "allow_profile": true,
+        "is_warm": true
+      },
+      "expected_tools": {
+        "should_use_semantic_search": true,
+        "should_not_use_profile": true
+      },
+      "expected_output": {
+        "min_candidates": 20
+      }
+    },
+    {
+      "name": "descriptive_cozy_query",
+      "query": "looking for a cozy heartwarming story with small town charm and feel-good moments that's light and uplifting",
+      "user_id": 278859,
+      "user_state": {
+        "num_ratings": 12,
+        "allow_profile": false,
+        "is_warm": true
+      },
+      "expected_tools": {
+        "should_use_semantic_search": true,
+        "should_not_use_profile": true
+      },
+      "expected_output": {
+        "min_candidates": 20
+      }
+    },
+    {
+      "name": "genre_single_subject",
+      "query": "recommend historical fiction",
+      "user_id": 278859,
+      "user_state": {
+        "num_ratings": 12,
+        "allow_profile": false,
+        "is_warm": true
+      },
+      "expected_tools": {
+        "should_use_subject_search": true
+      },
+      "expected_output": {
+        "min_candidates": 20
+      }
+    },
+    {
+      "name": "genre_multiple_subjects",
+      "query": "I'm interested in science fiction with space opera and military themes",
+      "user_id": 278859,
+      "user_state": {
+        "num_ratings": 12,
+        "allow_profile": false,
+        "is_warm": true
+      },
+      "expected_tools": {
+        "should_use_subject_search": true
+      },
+      "expected_output": {
+        "min_candidates": 20
+      }
+    }
+  ],
+  "tool_selection_cold_user": [
+    {
+      "name": "vague_query_cold_with_profile",
+      "query": "what's a good book to start with",
+      "user_id": 278857,
+      "user_state": {
+        "num_ratings": 1,
+        "allow_profile": true,
+        "is_warm": false
+      },
+      "expected_tools": {
+        "should_use_user_profile": true,
+        "should_use_any_retrieval_tool": true,
+        "profile_before_retrieval": true,
+        "should_not_use_als": true
+      },
+      "expected_output": {
+        "min_candidates": 20
+      }
+    },
+    {
+      "name": "vague_query_new_user",
+      "query": "recommend me something to read",
+      "user_id": 278867,
+      "user_state": {
+        "num_ratings": 0,
+        "allow_profile": false,
+        "is_warm": false
+      },
+      "expected_tools": {
+        "should_use_user_profile": false,
+        "should_use_any_retrieval_tool": true,
+        "should_not_use_als": true
+      },
+      "expected_output": {
+        "min_candidates": 20
+      }
+    },
+    {
+      "name": "descriptive_fantasy_query",
+      "query": "I'm looking for an epic fantasy adventure with complex magic systems and sprawling world-building with political intrigue",
+      "user_id": 278857,
+      "user_state": {
+        "num_ratings": 1,
+        "allow_profile": false,
+        "is_warm": false
+      },
+      "expected_tools": {
+        "should_use_semantic_search": true,
+        "should_not_use_profile": true
+      },
+      "expected_output": {
+        "min_candidates": 20
+      }
+    },
+    {
+      "name": "descriptive_thriller_query",
+      "query": "want a fast-paced action thriller with high stakes and edge-of-your-seat suspense with unexpected plot twists",
+      "user_id": 278857,
+      "user_state": {
+        "num_ratings": 1,
+        "allow_profile": true,
+        "is_warm": false
+      },
+      "expected_tools": {
+        "should_use_semantic_search": true,
+        "should_not_use_profile": true
+      },
+      "expected_output": {
+        "min_candidates": 20
+      }
+    },
+    {
+      "name": "genre_romance_query",
+      "query": "suggest some romance novels",
+      "user_id": 278867,
+      "user_state": {
+        "num_ratings": 0,
+        "allow_profile": false,
+        "is_warm": false
+      },
+      "expected_tools": {
+        "should_use_subject_search": true
+      },
+      "expected_output": {
+        "min_candidates": 20
+      }
+    }
+  ],
+  "two_stage_integration": [
+    {
+      "name": "integration_warm_descriptive",
+      "query": "I need a haunting literary fiction novel with lyrical prose and deep character exploration with melancholic undertones",
+      "user_id": 278859,
+      "user_state": {
+        "num_ratings": 12,
+        "allow_profile": false,
+        "is_warm": true
+      },
+      "test_focus": "retrieval_to_curation_flow",
+      "expected_behavior": {
+        "retrieval_should_gather_candidates": true,
+        "retrieval_should_create_summary": true,
+        "curation_should_receive_candidates": true,
+        "curation_should_receive_summary": true,
+        "final_response_should_have_prose": true,
+        "final_response_should_have_books": true
+      }
+    },
+    {
+      "name": "integration_cold_vague_with_profile",
+      "query": "what should I read",
+      "user_id": 278857,
+      "user_state": {
+        "num_ratings": 1,
+        "allow_profile": true,
+        "is_warm": false
+      },
+      "test_focus": "profile_usage_flow",
+      "expected_behavior": {
+        "should_call_profile_in_retrieval": true,
+        "should_use_profile_insights": true,
+        "final_response_should_have_prose": true,
+        "final_response_should_have_books": true
+      }
+    },
+    {
+      "name": "integration_genre_multi_subject",
+      "query": "recommend historical fiction with mystery and detective elements",
+      "user_id": 278859,
+      "user_state": {
+        "num_ratings": 12,
+        "allow_profile": false,
+        "is_warm": true
+      },
+      "test_focus": "subject_resolution_flow",
+      "expected_behavior": {
+        "should_resolve_subjects": true,
+        "should_use_multiple_subjects": true,
+        "final_response_should_have_prose": true,
+        "final_response_should_have_books": true
+      }
+    },
+    {
+      "name": "integration_orchestrator_fallback_no_candidates",
+      "query": "books about extremely specific nonexistent topic xyz123",
+      "user_id": 278859,
+      "user_state": {
+        "num_ratings": 12,
+        "allow_profile": false,
+        "is_warm": true
+      },
+      "test_focus": "fallback_handling",
+      "expected_behavior": {
+        "retrieval_may_fail": true,
+        "orchestrator_should_handle_gracefully": true,
+        "should_return_error_or_fallback": true
+      }
+    }
+  ],
+  "edge_cases": [
+    {
+      "name": "empty_query",
+      "query": "",
+      "user_id": 278867,
+      "user_state": {
+        "num_ratings": 0,
+        "allow_profile": false,
+        "is_warm": false
+      },
+      "expected_behavior": {
+        "should_handle_gracefully": true
+      }
+    },
+    {
+      "name": "very_long_descriptive_query",
+      "query": "I'm searching for a book that combines elements of magical realism with historical fiction set in a Latin American context featuring strong female protagonists who navigate complex family dynamics while dealing with supernatural elements that are woven seamlessly into everyday life with beautiful prose that is both lyrical and accessible",
+      "user_id": 278859,
+      "user_state": {
+        "num_ratings": 12,
+        "allow_profile": false,
+        "is_warm": true
+      },
+      "expected_tools": {
+        "should_use_semantic_search": true
+      },
+      "expected_output": {
+        "min_candidates": 20,
+        "min_final_books": 3,
+        "max_final_books": 30
+      }
+    }
+  ]
+}

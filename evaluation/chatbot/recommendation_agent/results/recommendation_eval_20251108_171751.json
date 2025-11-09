@@ -1,0 +1,816 @@
+{
+  "results": [
+    {
+      "name": "vague_query_warm_with_profile",
+      "category": "tool_selection_warm_user",
+      "query": "recommend something good for me",
+      "user_state": {
+        "num_ratings": 12,
+        "allow_profile": true,
+        "is_warm": true
+      },
+      "agent_success": true,
+      "response_text_preview": "{\"action\": \"tool_call\", \"tool\": \"als_recs\", \"arguments\": {\"top_k\": 120}, \"reasoning\": \"The query is ",
+      "num_books": 120,
+      "tool_calls": 1,
+      "test_type": "retrieval_only",
+      "tool_selection": {
+        "tool_names": [
+          "als_recs"
+        ],
+        "checks": {
+          "user_profile_usage": {
+            "expected": true,
+            "actual": false,
+            "passed": false
+          },
+          "profile_ordering": {
+            "expected": "profile before retrieval",
+            "actual": "profile not called",
+            "passed": false
+          },
+          "any_retrieval_tool_usage": {
+            "expected": "at least one retrieval tool",
+            "actual": [
+              "als_recs"
+            ],
+            "passed": true
+          }
+        },
+        "all_passed": false
+      },
+      "output_structure": {
+        "checks": {
+          "min_candidates": {
+            "expected": ">= 20",
+            "actual": 120,
+            "passed": true
+          },
+          "final_book_count": {
+            "expected": "3-30",
+            "actual": 120,
+            "passed": false
+          },
+          "has_prose": {
+            "expected": "N/A (retrieval only)",
+            "actual": "N/A",
+            "passed": true
+          }
+        },
+        "all_passed": false
+      },
+      "overall_pass": false
+    },
+    {
+      "name": "vague_query_warm_no_profile",
+      "category": "tool_selection_warm_user",
+      "query": "suggest a book for me to read next",
+      "user_state": {
+        "num_ratings": 12,
+        "allow_profile": false,
+        "is_warm": true
+      },
+      "agent_success": true,
+      "response_text_preview": "{\"action\": \"tool_call\", \"tool\": \"als_recs\", \"arguments\": {\"top_k\": 120}, \"reasoning\": \"The query is ",
+      "num_books": 120,
+      "tool_calls": 1,
+      "test_type": "retrieval_only",
+      "tool_selection": {
+        "tool_names": [
+          "als_recs"
+        ],
+        "checks": {
+          "user_profile_usage": {
+            "expected": false,
+            "actual": false,
+            "passed": true
+          },
+          "any_retrieval_tool_usage": {
+            "expected": "at least one retrieval tool",
+            "actual": [
+              "als_recs"
+            ],
+            "passed": true
+          }
+        },
+        "all_passed": true
+      },
+      "output_structure": {
+        "checks": {
+          "min_candidates": {
+            "expected": ">= 20",
+            "actual": 120,
+            "passed": true
+          },
+          "final_book_count": {
+            "expected": "3-30",
+            "actual": 120,
+            "passed": false
+          },
+          "has_prose": {
+            "expected": "N/A (retrieval only)",
+            "actual": "N/A",
+            "passed": true
+          }
+        },
+        "all_passed": false
+      },
+      "overall_pass": false
+    },
+    {
+      "name": "descriptive_atmospheric_query",
+      "category": "tool_selection_warm_user",
+      "query": "I want a dark atmospheric mystery with gothic vibes and a brooding protagonist dealing with psychological tension",
+      "user_state": {
+        "num_ratings": 12,
+        "allow_profile": true,
+        "is_warm": true
+      },
+      "agent_success": true,
+      "response_text_preview": "{\"action\": \"tool_call\", \"tool\": \"book_semantic_search\", \"arguments\": {\"query\": \"dark atmospheric mys",
+      "num_books": 100,
+      "tool_calls": 1,
+      "test_type": "retrieval_only",
+      "tool_selection": {
+        "tool_names": [
+          "book_semantic_search"
+        ],
+        "checks": {
+          "semantic_search_usage": {
+            "expected": true,
+            "actual": true,
+            "passed": true
+          },
+          "profile_not_used": {
+            "expected": "should NOT use user_profile",
+            "actual": "not used",
+            "passed": true
+          }
+        },
+        "all_passed": true
+      },
+      "output_structure": {
+        "checks": {
+          "min_candidates": {
+            "expected": ">= 20",
+            "actual": 100,
+            "passed": true
+          },
+          "final_book_count": {
+            "expected": "3-30",
+            "actual": 100,
+            "passed": false
+          },
+          "has_prose": {
+            "expected": "N/A (retrieval only)",
+            "actual": "N/A",
+            "passed": true
+          }
+        },
+        "all_passed": false
+      },
+      "overall_pass": false
+    },
+    {
+      "name": "descriptive_cozy_query",
+      "category": "tool_selection_warm_user",
+      "query": "looking for a cozy heartwarming story with small town charm and feel-good moments that's light and uplifting",
+      "user_state": {
+        "num_ratings": 12,
+        "allow_profile": false,
+        "is_warm": true
+      },
+      "agent_success": true,
+      "response_text_preview": "{\"action\": \"answer\", \"text\": \"Here are some cozy and heartwarming stories with small town charm and ",
+      "num_books": 80,
+      "tool_calls": 1,
+      "test_type": "retrieval_only",
+      "tool_selection": {
+        "tool_names": [
+          "book_semantic_search"
+        ],
+        "checks": {
+          "semantic_search_usage": {
+            "expected": true,
+            "actual": true,
+            "passed": true
+          },
+          "profile_not_used": {
+            "expected": "should NOT use user_profile",
+            "actual": "not used",
+            "passed": true
+          }
+        },
+        "all_passed": true
+      },
+      "output_structure": {
+        "checks": {
+          "min_candidates": {
+            "expected": ">= 20",
+            "actual": 80,
+            "passed": true
+          },
+          "final_book_count": {
+            "expected": "3-30",
+            "actual": 80,
+            "passed": false
+          },
+          "has_prose": {
+            "expected": "N/A (retrieval only)",
+            "actual": "N/A",
+            "passed": true
+          }
+        },
+        "all_passed": false
+      },
+      "overall_pass": false
+    },
+    {
+      "name": "genre_single_subject",
+      "category": "tool_selection_warm_user",
+      "query": "recommend historical fiction",
+      "user_state": {
+        "num_ratings": 12,
+        "allow_profile": false,
+        "is_warm": true
+      },
+      "agent_success": true,
+      "response_text_preview": "{\"action\": \"tool_call\", \"tool\": \"subject_hybrid_pool\", \"arguments\": {\"fav_subjects_idxs\": [1415, 166",
+      "num_books": 100,
+      "tool_calls": 2,
+      "test_type": "retrieval_only",
+      "tool_selection": {
+        "tool_names": [
+          "subject_id_search",
+          "subject_hybrid_pool"
+        ],
+        "checks": {
+          "subject_search_usage": {
+            "expected": true,
+            "actual": "subject_id: True, subject_hybrid: True",
+            "passed": true
+          }
+        },
+        "all_passed": true
+      },
+      "output_structure": {
+        "checks": {
+          "min_candidates": {
+            "expected": ">= 20",
+            "actual": 100,
+            "passed": true
+          },
+          "final_book_count": {
+            "expected": "3-30",
+            "actual": 100,
+            "passed": false
+          },
+          "has_prose": {
+            "expected": "N/A (retrieval only)",
+            "actual": "N/A",
+            "passed": true
+          }
+        },
+        "all_passed": false
+      },
+      "overall_pass": false
+    },
+    {
+      "name": "genre_multiple_subjects",
+      "category": "tool_selection_warm_user",
+      "query": "I'm interested in science fiction with space opera and military themes",
+      "user_state": {
+        "num_ratings": 12,
+        "allow_profile": false,
+        "is_warm": true
+      },
+      "agent_success": true,
+      "response_text_preview": "{\"action\": \"tool_call\", \"tool\": \"subject_hybrid_pool\", \"arguments\": {\"fav_subjects_idxs\": [2922, 309",
+      "num_books": 100,
+      "tool_calls": 2,
+      "test_type": "retrieval_only",
+      "tool_selection": {
+        "tool_names": [
+          "subject_id_search",
+          "subject_hybrid_pool"
+        ],
+        "checks": {
+          "subject_search_usage": {
+            "expected": true,
+            "actual": "subject_id: True, subject_hybrid: True",
+            "passed": true
+          }
+        },
+        "all_passed": true
+      },
+      "output_structure": {
+        "checks": {
+          "min_candidates": {
+            "expected": ">= 20",
+            "actual": 100,
+            "passed": true
+          },
+          "final_book_count": {
+            "expected": "3-30",
+            "actual": 100,
+            "passed": false
+          },
+          "has_prose": {
+            "expected": "N/A (retrieval only)",
+            "actual": "N/A",
+            "passed": true
+          }
+        },
+        "all_passed": false
+      },
+      "overall_pass": false
+    },
+    {
+      "name": "vague_query_cold_with_profile",
+      "category": "tool_selection_cold_user",
+      "query": "what's a good book to start with",
+      "user_state": {
+        "num_ratings": 1,
+        "allow_profile": true,
+        "is_warm": false
+      },
+      "agent_success": true,
+      "response_text_preview": "{\"action\": \"tool_call\", \"tool\": \"subject_hybrid_pool\", \"arguments\": {\"top_k\": 120}, \"reasoning\": \"Th",
+      "num_books": 120,
+      "tool_calls": 1,
+      "test_type": "retrieval_only",
+      "tool_selection": {
+        "tool_names": [
+          "subject_hybrid_pool"
+        ],
+        "checks": {
+          "user_profile_usage": {
+            "expected": true,
+            "actual": false,
+            "passed": false
+          },
+          "profile_ordering": {
+            "expected": "profile before retrieval",
+            "actual": "profile not called",
+            "passed": false
+          },
+          "als_not_used": {
+            "expected": "should NOT use als_recs",
+            "actual": "not used",
+            "passed": true
+          },
+          "any_retrieval_tool_usage": {
+            "expected": "at least one retrieval tool",
+            "actual": [
+              "subject_hybrid_pool"
+            ],
+            "passed": true
+          }
+        },
+        "all_passed": false
+      },
+      "output_structure": {
+        "checks": {
+          "min_candidates": {
+            "expected": ">= 20",
+            "actual": 120,
+            "passed": true
+          },
+          "final_book_count": {
+            "expected": "3-30",
+            "actual": 120,
+            "passed": false
+          },
+          "has_prose": {
+            "expected": "N/A (retrieval only)",
+            "actual": "N/A",
+            "passed": true
+          }
+        },
+        "all_passed": false
+      },
+      "overall_pass": false
+    },
+    {
+      "name": "vague_query_new_user",
+      "category": "tool_selection_cold_user",
+      "query": "recommend me something to read",
+      "user_state": {
+        "num_ratings": 0,
+        "allow_profile": false,
+        "is_warm": false
+      },
+      "agent_success": true,
+      "response_text_preview": "{\"action\": \"tool_call\", \"tool\": \"subject_hybrid_pool\", \"arguments\": {\"top_k\": 120}, \"reasoning\": \"Th",
+      "num_books": 120,
+      "tool_calls": 1,
+      "test_type": "retrieval_only",
+      "tool_selection": {
+        "tool_names": [
+          "subject_hybrid_pool"
+        ],
+        "checks": {
+          "user_profile_usage": {
+            "expected": false,
+            "actual": false,
+            "passed": true
+          },
+          "als_not_used": {
+            "expected": "should NOT use als_recs",
+            "actual": "not used",
+            "passed": true
+          },
+          "any_retrieval_tool_usage": {
+            "expected": "at least one retrieval tool",
+            "actual": [
+              "subject_hybrid_pool"
+            ],
+            "passed": true
+          }
+        },
+        "all_passed": true
+      },
+      "output_structure": {
+        "checks": {
+          "min_candidates": {
+            "expected": ">= 20",
+            "actual": 120,
+            "passed": true
+          },
+          "final_book_count": {
+            "expected": "3-30",
+            "actual": 120,
+            "passed": false
+          },
+          "has_prose": {
+            "expected": "N/A (retrieval only)",
+            "actual": "N/A",
+            "passed": true
+          }
+        },
+        "all_passed": false
+      },
+      "overall_pass": false
+    },
+    {
+      "name": "descriptive_fantasy_query",
+      "category": "tool_selection_cold_user",
+      "query": "I'm looking for an epic fantasy adventure with complex magic systems and sprawling world-building with political intrigue",
+      "user_state": {
+        "num_ratings": 1,
+        "allow_profile": false,
+        "is_warm": false
+      },
+      "agent_success": true,
+      "response_text_preview": "{\"action\": \"tool_call\", \"tool\": \"book_semantic_search\", \"arguments\": {\"query\": \"epic fantasy adventu",
+      "num_books": 100,
+      "tool_calls": 1,
+      "test_type": "retrieval_only",
+      "tool_selection": {
+        "tool_names": [
+          "book_semantic_search"
+        ],
+        "checks": {
+          "semantic_search_usage": {
+            "expected": true,
+            "actual": true,
+            "passed": true
+          },
+          "profile_not_used": {
+            "expected": "should NOT use user_profile",
+            "actual": "not used",
+            "passed": true
+          }
+        },
+        "all_passed": true
+      },
+      "output_structure": {
+        "checks": {
+          "min_candidates": {
+            "expected": ">= 20",
+            "actual": 100,
+            "passed": true
+          },
+          "final_book_count": {
+            "expected": "3-30",
+            "actual": 100,
+            "passed": false
+          },
+          "has_prose": {
+            "expected": "N/A (retrieval only)",
+            "actual": "N/A",
+            "passed": true
+          }
+        },
+        "all_passed": false
+      },
+      "overall_pass": false
+    },
+    {
+      "name": "descriptive_thriller_query",
+      "category": "tool_selection_cold_user",
+      "query": "want a fast-paced action thriller with high stakes and edge-of-your-seat suspense with unexpected plot twists",
+      "user_state": {
+        "num_ratings": 1,
+        "allow_profile": true,
+        "is_warm": false
+      },
+      "agent_success": true,
+      "response_text_preview": "{\"action\": \"tool_call\", \"tool\": \"book_semantic_search\", \"arguments\": {\"query\": \"fast-paced action th",
+      "num_books": 100,
+      "tool_calls": 1,
+      "test_type": "retrieval_only",
+      "tool_selection": {
+        "tool_names": [
+          "book_semantic_search"
+        ],
+        "checks": {
+          "semantic_search_usage": {
+            "expected": true,
+            "actual": true,
+            "passed": true
+          },
+          "profile_not_used": {
+            "expected": "should NOT use user_profile",
+            "actual": "not used",
+            "passed": true
+          }
+        },
+        "all_passed": true
+      },
+      "output_structure": {
+        "checks": {
+          "min_candidates": {
+            "expected": ">= 20",
+            "actual": 100,
+            "passed": true
+          },
+          "final_book_count": {
+            "expected": "3-30",
+            "actual": 100,
+            "passed": false
+          },
+          "has_prose": {
+            "expected": "N/A (retrieval only)",
+            "actual": "N/A",
+            "passed": true
+          }
+        },
+        "all_passed": false
+      },
+      "overall_pass": false
+    },
+    {
+      "name": "genre_romance_query",
+      "category": "tool_selection_cold_user",
+      "query": "suggest some romance novels",
+      "user_state": {
+        "num_ratings": 0,
+        "allow_profile": false,
+        "is_warm": false
+      },
+      "agent_success": true,
+      "response_text_preview": "{\"action\": \"tool_call\", \"tool\": \"subject_hybrid_pool\", \"arguments\": {\"fav_subjects_idxs\": [2861], \"t",
+      "num_books": 100,
+      "tool_calls": 2,
+      "test_type": "retrieval_only",
+      "tool_selection": {
+        "tool_names": [
+          "subject_id_search",
+          "subject_hybrid_pool"
+        ],
+        "checks": {
+          "subject_search_usage": {
+            "expected": true,
+            "actual": "subject_id: True, subject_hybrid: True",
+            "passed": true
+          }
+        },
+        "all_passed": true
+      },
+      "output_structure": {
+        "checks": {
+          "min_candidates": {
+            "expected": ">= 20",
+            "actual": 100,
+            "passed": true
+          },
+          "final_book_count": {
+            "expected": "3-30",
+            "actual": 100,
+            "passed": false
+          },
+          "has_prose": {
+            "expected": "N/A (retrieval only)",
+            "actual": "N/A",
+            "passed": true
+          }
+        },
+        "all_passed": false
+      },
+      "overall_pass": false
+    },
+    {
+      "name": "integration_warm_descriptive",
+      "category": "two_stage_integration",
+      "query": "I need a haunting literary fiction novel with lyrical prose and deep character exploration with melancholic undertones",
+      "user_state": {
+        "num_ratings": 12,
+        "allow_profile": false,
+        "is_warm": true
+      },
+      "agent_success": true,
+      "response_text_preview": "Here are some haunting literary fiction novels with lyrical prose and deep character exploration:\n\n*",
+      "num_books": 12,
+      "tool_calls": 0,
+      "test_type": "full_pipeline",
+      "integration": {
+        "checks": {
+          "has_prose": {
+            "passed": true,
+            "actual": 2408
+          },
+          "has_books": {
+            "passed": true,
+            "actual": 12
+          }
+        },
+        "all_passed": true
+      },
+      "overall_pass": true
+    },
+    {
+      "name": "integration_cold_vague_with_profile",
+      "category": "two_stage_integration",
+      "query": "what should I read",
+      "user_state": {
+        "num_ratings": 1,
+        "allow_profile": true,
+        "is_warm": false
+      },
+      "agent_success": true,
+      "response_text_preview": "Here are some classic and popular books that you might enjoy:\n\n**Harry Potter and the Goblet of Fire",
+      "num_books": 12,
+      "tool_calls": 0,
+      "test_type": "full_pipeline",
+      "integration": {
+        "checks": {
+          "has_prose": {
+            "passed": true,
+            "actual": 1908
+          },
+          "has_books": {
+            "passed": true,
+            "actual": 12
+          }
+        },
+        "all_passed": true
+      },
+      "overall_pass": true
+    },
+    {
+      "name": "integration_genre_multi_subject",
+      "category": "two_stage_integration",
+      "query": "recommend historical fiction with mystery and detective elements",
+      "user_state": {
+        "num_ratings": 12,
+        "allow_profile": false,
+        "is_warm": true
+      },
+      "agent_success": true,
+      "response_text_preview": "Here are some intriguing historical fiction books with mystery and detective elements:\n\n**The Castle",
+      "num_books": 12,
+      "tool_calls": 0,
+      "test_type": "full_pipeline",
+      "integration": {
+        "checks": {
+          "has_prose": {
+            "passed": true,
+            "actual": 2102
+          },
+          "has_books": {
+            "passed": true,
+            "actual": 12
+          }
+        },
+        "all_passed": true
+      },
+      "overall_pass": true
+    },
+    {
+      "name": "integration_orchestrator_fallback_no_candidates",
+      "category": "two_stage_integration",
+      "query": "books about extremely specific nonexistent topic xyz123",
+      "user_state": {
+        "num_ratings": 12,
+        "allow_profile": false,
+        "is_warm": true
+      },
+      "agent_success": false,
+      "response_text_preview": "I couldn't find books matching your specific request in our catalog. Try broader search terms or dif",
+      "num_books": 0,
+      "tool_calls": 0,
+      "test_type": "full_pipeline",
+      "integration": {
+        "checks": {},
+        "all_passed": true
+      },
+      "overall_pass": false
+    },
+    {
+      "name": "empty_query",
+      "category": "edge_cases",
+      "query": "",
+      "user_state": {
+        "num_ratings": 0,
+        "allow_profile": false,
+        "is_warm": false
+      },
+      "agent_success": false,
+      "response_text_preview": "I couldn't find books matching your specific request in our catalog. Try broader search terms or dif",
+      "num_books": 0,
+      "tool_calls": 0,
+      "test_type": "full_pipeline",
+      "integration": {
+        "checks": {},
+        "all_passed": true
+      },
+      "overall_pass": false
+    },
+    {
+      "name": "very_long_descriptive_query",
+      "category": "edge_cases",
+      "query": "I'm searching for a book that combines elements of magical realism with historical fiction set in a Latin American context featuring strong female protagonists who navigate complex family dynamics while dealing with supernatural elements that are woven seamlessly into everyday life with beautiful prose that is both lyrical and accessible",
+      "user_state": {
+        "num_ratings": 12,
+        "allow_profile": false,
+        "is_warm": true
+      },
+      "agent_success": true,
+      "response_text_preview": "**Cien a\u00f1os de soledad** by Gabriel Garc\u00eda M\u00e1rquez - This iconic novel is a cornerstone of magical r",
+      "num_books": 10,
+      "tool_calls": 0,
+      "test_type": "full_pipeline",
+      "tool_selection": {
+        "tool_names": [],
+        "checks": {
+          "semantic_search_usage": {
+            "expected": true,
+            "actual": false,
+            "passed": false
+          }
+        },
+        "all_passed": false
+      },
+      "output_structure": {
+        "checks": {
+          "min_candidates": {
+            "expected": ">= 20",
+            "actual": 10,
+            "passed": false
+          },
+          "final_book_count": {
+            "expected": "3-30",
+            "actual": 10,
+            "passed": true
+          },
+          "has_prose": {
+            "expected": true,
+            "actual": true,
+            "passed": true
+          }
+        },
+        "all_passed": false
+      },
+      "overall_pass": false
+    }
+  ],
+  "category_stats": {
+    "tool_selection_warm_user": {
+      "passed": 0,
+      "total": 6,
+      "pass_rate": 0.0
+    },
+    "tool_selection_cold_user": {
+      "passed": 0,
+      "total": 5,
+      "pass_rate": 0.0
+    },
+    "two_stage_integration": {
+      "passed": 3,
+      "total": 4,
+      "pass_rate": 0.75
+    },
+    "edge_cases": {
+      "passed": 0,
+      "total": 2,
+      "pass_rate": 0.0
+    }
+  },
+  "overall": {
+    "passed": 3,
+    "total": 17,
+    "pass_rate": 0.17647058823529413
+  },
+  "timestamp": "2025-11-08T17:17:51.114688"
+}
