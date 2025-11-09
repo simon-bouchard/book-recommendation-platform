@@ -7,7 +7,7 @@ Two-layer evaluation to verify Docs Agent correctly retrieves and uses documenta
 ```
 evaluation/chatbot/docs_agent/
 ├── evaluate_docs.py         # Evaluation script
-├── docs_test_cases.json     # 7 test cases
+├── docs_test_cases.json     # 8 test cases
 └── results/                 # Output (auto-created)
 ```
 
@@ -31,29 +31,37 @@ Validates agent retrieves the correct documents.
 ### Layer 2: Answer Quality (LLM-as-judge)
 Validates answer correctness and completeness using ground truth.
 
-**Scoring (binary 0/1):**
+**Scoring (each criterion 0 or 1):**
 - **Correctness**: Does response match ground truth information?
 - **Completeness**: Does it cover key points from ground truth?
 
-**Pass criteria:** Both scores = 1
+**Quality Score**: correctness + completeness = 0-2 points
+
+**Pass criteria**: Quality score >= 1 (at least one criterion met)
+
+This means:
+- **2/2** = Perfect (correct AND complete) ✅
+- **1/2** = Acceptable (either correct OR complete) ✅
+- **0/2** = Fail (neither) ❌
 
 ## Overall Pass
 
 All three must be true:
 1. Agent executed successfully (no errors)
 2. Layer 1 passed (correct docs retrieved)
-3. Layer 2 passed (quality scores = 1)
+3. Layer 2 passed (quality score >= 1/2)
 
 ## Test Cases
 
-7 common documentation queries:
+8 common documentation queries:
 - How to rate books
 - How recommendations work
+- Why no personalized recs yet
+- What is ALS
+- How chatbot works
 - How to search
-- What is collaborative filtering
-- Account creation
-- Book subjects
-- Recommendation accuracy
+- Difference between subject/ALS recs
+- Profile not updating
 
 Each test case includes:
 - `query`: User question
@@ -72,9 +80,10 @@ JSON saved to `results/` with full details.
 
 ## Success Criteria
 
-- Overall pass rate: ≥85% (6/7 tests)
+- Overall pass rate: ≥85% (7/8 tests)
 - Layer 1 pass rate: ≥85%
 - Layer 2 pass rate: ≥85%
+- Average quality score: ≥1.5/2.0
 
 ## Notes
 

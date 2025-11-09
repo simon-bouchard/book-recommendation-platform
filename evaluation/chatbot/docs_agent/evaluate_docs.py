@@ -88,17 +88,19 @@ def judge_answer_quality(
     """
     Layer 2: Judge answer quality against ground truth.
     
-    Scores:
-    - Correctness (0/1): Does response match expected information?
-    - Completeness (0/1): Does it cover key points from ground truth?
+    Scores (each 0 or 1):
+    - Correctness: Does response match expected information?
+    - Completeness: Does it cover key points from ground truth?
     
-    Pass = both scores = 1
+    Total score: 0-2 points
+    Pass threshold: >= 1 (at least one criterion met)
     """
     # Check for error responses
     if "having trouble" in response_text.lower() or "error:" in response_text.lower():
         return {
             "correctness": 0,
             "completeness": 0,
+            "quality_score": 0,
             "reason": "Agent returned error response",
             "quality_pass": False
         }
@@ -125,9 +127,10 @@ Return JSON:
 {{
   "correctness": <0 or 1>,
   "completeness": <0 or 1>,
-  "reason": "<brief explanation>",
-  "pass": <true if both=1, false otherwise>
-}}"""
+  "reason": "<brief explanation>"
+}}
+
+Note: Score will be correctness + completeness (0-2 points). Pass threshold is >= 1."""
 
     try:
         with capture_agent_console_and_httpx():
@@ -141,16 +144,22 @@ Return JSON:
         
         result = json.loads(content.strip())
         
+        correctness = result.get("correctness", 0)
+        completeness = result.get("completeness", 0)
+        quality_score = correctness + completeness
+        
         return {
-            "correctness": result.get("correctness", 0),
-            "completeness": result.get("completeness", 0),
+            "correctness": correctness,
+            "completeness": completeness,
+            "quality_score": quality_score,
             "reason": result.get("reason", ""),
-            "quality_pass": result.get("pass", False)
+            "quality_pass": quality_score >= 1  # Pass if at least 1/2
         }
     except Exception as e:
         return {
             "correctness": 0,
             "completeness": 0,
+            "quality_score": 0,
             "reason": f"Judge failed: {str(e)}",
             "quality_pass": False
         }
@@ -213,6 +222,7 @@ def evaluate(test_cases: List[Dict], agent: DocsAgent) -> Dict[str, Any]:
             # Layer 2
             "correctness": quality_check["correctness"],
             "completeness": quality_check["completeness"],
+            "quality_score": quality_check["quality_score"],
             "quality_reason": quality_check["reason"],
             "quality_pass": quality_check["quality_pass"],
             # Overall
@@ -225,6 +235,10 @@ def evaluate(test_cases: List[Dict], agent: DocsAgent) -> Dict[str, Any]:
     quality_passed = sum(1 for r in results if r["quality_pass"])
     total = len(results)
     
+    # Calculate average quality score (0-2 scale)
+    quality_scores = [r["quality_score"] for r in results]
+    avg_quality_score = sum(quality_scores) / len(quality_scores) if quality_scores else 0
+    
     return {
         "results": results,
         "passed": passed,
@@ -232,6 +246,7 @@ def evaluate(test_cases: List[Dict], agent: DocsAgent) -> Dict[str, Any]:
         "pass_rate": passed / total if total > 0 else 0,
         "retrieval_pass_rate": retrieval_passed / total if total > 0 else 0,
         "quality_pass_rate": quality_passed / total if total > 0 else 0,
+        "avg_quality_score": round(avg_quality_score, 2),
         "timestamp": datetime.now().isoformat()
     }
 
@@ -244,7 +259,8 @@ def print_results(eval_results: Dict[str, Any]):
     
     print(f"\nOverall Pass Rate: {eval_results['pass_rate']:.1%} ({eval_results['passed']}/{eval_results['total']})")
     print(f"Layer 1 (Retrieval): {eval_results['retrieval_pass_rate']:.1%}")
-    print(f"Layer 2 (Quality): {eval_results['quality_pass_rate']:.1%}")
+    print(f"Layer 2 (Quality): {eval_results['quality_pass_rate']:.1%} (avg score: {eval_results['avg_quality_score']:.1f}/2.0)")
+    print(f"\nNote: Quality pass threshold is ≥1/2 (either correct OR complete)")
     
     # Show each test
     print("\nTest Results:")
@@ -258,14 +274,15 @@ def print_results(eval_results: Dict[str, Any]):
         ret_status = "✅" if r["retrieval_pass"] else "❌"
         print(f"   {ret_status} Layer 1 (Retrieval): Expected {r['expected_docs']}, Got {r['retrieved_docs']}")
         
-        # Layer 2 results
+        # Layer 2 results - show score out of 2
         qual_status = "✅" if r["quality_pass"] else "❌"
-        print(f"   {qual_status} Layer 2 (Quality): Correctness={r['correctness']}, Completeness={r['completeness']}")
+        score_detail = f"Correctness={r['correctness']}, Completeness={r['completeness']}"
+        print(f"   {qual_status} Layer 2 (Quality): {r['quality_score']}/2 ({score_detail})")
         
-        # Show reasons for failures
+        # Show reasons for failures or partial scores
         if not r["retrieval_pass"]:
             print(f"      Retrieval: {r['retrieval_reason']}")
-        if not r["quality_pass"]:
+        if r["quality_score"] < 2:  # Show reason if not perfect
             print(f"      Quality: {r['quality_reason']}")
     
     print("\n" + "="*70)

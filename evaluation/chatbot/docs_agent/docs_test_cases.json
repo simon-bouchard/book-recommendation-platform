@@ -1,37 +1,42 @@
 [
   {
     "query": "How do I rate a book?",
-    "expected_docs": ["rating", "ratings", "how-to-rate"],
-    "ground_truth": "To rate a book, you can use the star rating system. Click on the stars next to a book to give it a rating from 1 to 5 stars. Your ratings help improve recommendations."
+    "expected_docs": ["books", "profile"],
+    "ground_truth": "On each book page, you can rate or mark a book as read with optional comments. You can give ratings from 1 to 5 stars. Your ratings help unlock personalized recommendations once you have at least 10 ratings."
   },
   {
     "query": "How does the recommendation system work?",
-    "expected_docs": ["recommendations", "algorithm", "how-it-works"],
-    "ground_truth": "The recommendation system uses collaborative filtering based on user ratings. It finds users with similar rating patterns to you and suggests books they liked. The system also considers book metadata like subjects and genres."
+    "expected_docs": ["recommendations", "overview"],
+    "ground_truth": "The system combines behavioral signals (ALS collaborative filtering) with content-based signals (subjects). Subject-based recommendations focus on content similarity and can surface hidden gems. ALS recommendations use behavioral similarity based on user rating patterns and prioritize popular books. Hybrid recommendations balance both approaches. The system retrains daily to keep recommendations fresh."
+  },
+  {
+    "query": "Why don't I see personalized recommendations yet?",
+    "expected_docs": ["faq", "recommendations", "limits"],
+    "ground_truth": "You need to rate at least 10 books to unlock personalized ALS-based recommendations. Until then, only subject-based and Bayesian popularity recommendations are used. After you reach 10 ratings, your personalized results will appear after the next daily training run completes."
+  },
+  {
+    "query": "What is ALS?",
+    "expected_docs": ["glossary", "recommendations"],
+    "ground_truth": "ALS stands for Alternating Least Squares, a collaborative filtering method for warm users. It captures behavioral similarity based on patterns of how users rate books, even across different genres. ALS recommendations prioritize popular books with at least 10 ratings and are updated through daily training runs."
+  },
+  {
+    "query": "How does the chatbot work?",
+    "expected_docs": ["chatbot", "overview"],
+    "ground_truth": "The chatbot acts as a virtual librarian. You don't need to be logged in to use it, but logged-in users get better quotas. It currently works in Web mode using minimal external tools like DuckDuckGo and Wikipedia. It can access user profiles for better context and internal docs to answer site questions. Conversations are stored temporarily in Redis with a 3-turn rolling history that expires after 2 days."
   },
   {
     "query": "How do I search for books?",
-    "expected_docs": ["search", "finding-books", "how-to-search"],
-    "ground_truth": "You can search for books using the search bar. Enter book titles, author names, or keywords. The system will return matching books. You can also filter results by genre, publication year, or other criteria."
+    "expected_docs": ["search"],
+    "ground_truth": "The search page shows books sorted by Bayesian popularity by default. You can search by subject (results ranked by Bayesian popularity within that subject) or search by title (results ranked by title similarity). Subject filtering uses AND operation so all subjects must match. You can also filter title search results by subject."
   },
   {
-    "query": "What is collaborative filtering?",
-    "expected_docs": ["recommendations", "algorithm", "collaborative-filtering"],
-    "ground_truth": "Collaborative filtering is a recommendation technique that predicts your preferences based on similar users' behavior. If users with similar rating patterns to you enjoyed certain books, the system recommends those books to you."
+    "query": "What's the difference between subject-based and ALS recommendations?",
+    "expected_docs": ["recommendations"],
+    "ground_truth": "Subject-based recommendations focus on content similarity based on book subjects. They can surface books with very few ratings including hidden gems, but subjects can be noisy. ALS recommendations focus on behavioral similarity from user rating patterns. They capture taste overlap between readers and prioritize popular books with at least 10 ratings, but are less likely to surface niche titles. Hybrid recommendations balance both approaches."
   },
   {
-    "query": "How do I create an account?",
-    "expected_docs": ["account", "getting-started", "sign-up"],
-    "ground_truth": "To create an account, click the sign-up button and provide your email and password. You can optionally add profile information. An account allows you to save ratings and get personalized recommendations."
-  },
-  {
-    "query": "What are book subjects?",
-    "expected_docs": ["subjects", "metadata", "categories"],
-    "ground_truth": "Book subjects are topic labels assigned to books, like 'science fiction', 'history', or 'romance'. They help categorize books and improve search and recommendations. A book can have multiple subjects."
-  },
-  {
-    "query": "How accurate are the recommendations?",
-    "expected_docs": ["recommendations", "accuracy", "faq"],
-    "ground_truth": "Recommendation accuracy improves as you rate more books. With 10+ ratings, the system can better understand your preferences. The more ratings you provide, the more personalized your recommendations become."
+    "query": "Why is my profile not updating?",
+    "expected_docs": ["troubleshooting", "profile"],
+    "ground_truth": "Use the Edit Profile button to update your details and favorite subjects, then refresh the page. Your profile displays user info, stats, past interactions, and recommendations. Subject-based recommendations are always available, but behavioral ALS recommendations require at least 10 ratings and update after the next daily training run."
   }
 ]
