@@ -14,10 +14,10 @@ sys.path.insert(0, str(ROOT))
 
 from app.database import SessionLocal
 
-from app.semantic_index.embedding.ontology_resolver import OntologyResolver
+from app.semantic_index.shared.ontology_resolver import OntologyResolver
 from app.semantic_index.embedding.fingerprint_tracker import FingerprintTracker
 from app.semantic_index.embedding.enrichment_fetcher import EnrichmentFetcher
-from app.semantic_index.embedding.embedding_client import EmbeddingClient
+from app.semantic_index.shared.embedding_client import EmbeddingClient
 from app.semantic_index.embedding.accumulator_writer import AccumulatorWriter
 from app.semantic_index.embedding.coverage_monitor import CoverageMonitor
 
