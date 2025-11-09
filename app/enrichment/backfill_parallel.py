@@ -242,29 +242,43 @@ def get_or_create_run_id(db: Session, tags_version: str) -> tuple[str, str]:
 
 
 # ============================================================================
-# MAIN BACKFILL
+# MAIN BACKFILL RUNNER (improved with runner patterns)
 # ============================================================================
 
 def main(
     strategy: BackfillStrategy = BackfillStrategy.SQL_ERRORS,
     workers: int = 2,
-    sleep_s: float = 0.0,
     dry_run: bool = False,
+    sleep_s: float = 0.0,
     **filters
 ):
-    """Unified backfill with automatic run_id tracking."""
+    """
+    Main backfill runner with improved error handling and statistics tracking.
     
-    if not dry_run:
-        ensure_enrichment_ready()
+    Key improvements from runner_kafka.py:
+    - Tier statistics tracking with retry success counters
+    - Better error handling and logging
+    - Proper handling of enrichment_quality field
+    - Better progress reporting
+    """
+    ensure_enrichment_ready()
     
+    # Load ontologies (shared with runner)
     tone_rows, tone_slugs, valid_tone_ids, slug2id = load_tones(ONTOLOGY_VERSION)
     genre_rows, genre_id_slugs_line, valid_genre_ids, genre_id2slug, genre_slug2id = load_genres()
     
+    # Initialize tier statistics (like runner)
+    tier_stats = {
+        "RICH": {"ok": 0, "err": 0, "retry_success": 0},
+        "SPARSE": {"ok": 0, "err": 0, "retry_success": 0},
+        "MINIMAL": {"ok": 0, "err": 0, "retry_success": 0},
+        "BASIC": {"ok": 0, "err": 0, "retry_success": 0},
+    }
+    
+    # Get run IDs
     with SessionLocal() as db:
-        # Auto-detect previous run and create new run_id
         previous_run_id, new_run_id = get_or_create_run_id(db, VERSION_TAG)
-        
-        logger.info(f"Previous run: {previous_run_id or 'none (first run)'}")
+        logger.info(f"Previous run ID: {previous_run_id}")
         logger.info(f"New run ID: {new_run_id}")
         
         if strategy == BackfillStrategy.SQL_ERRORS:
@@ -272,7 +286,7 @@ def main(
             
             if not previous_run_id:
                 logger.info("No previous run found - nothing to backfill")
-                return {"ok": 0, "err": 0}
+                return {"ok": 0, "err": 0, "tier_stats": tier_stats}
             
             books_iter = iter_failed_books_from_sql(
                 db,
@@ -303,7 +317,7 @@ def main(
         books_list = list(books_iter)
         if not books_list:
             logger.info("No books to backfill.")
-            return {"ok": 0, "err": 0}
+            return {"ok": 0, "err": 0, "tier_stats": tier_stats}
         
         logger.info(f"Found {len(books_list)} books to backfill\n")
     
@@ -315,18 +329,19 @@ def main(
         if len(books_list) > 10:
             logger.info(f"  ... and {len(books_list) - 10} more")
         logger.info(f"\nTo execute, remove --dry-run flag")
-        return {"ok": 0, "err": 0, "dry_run": True}
+        return {"ok": 0, "err": 0, "dry_run": True, "tier_stats": tier_stats}
     
     producer = EnrichmentProducer(enable_kafka=True)
     workers = max(1, int(os.getenv("ENRICH_WORKERS", workers)))
-    ok = err = 0
+    count_ok, count_err = 0, 0
     start_time = time.time()
     
     def task(rec):
-        """Single enrichment task (uses shared core logic)"""
-        nonlocal ok, err
-        
-        # Use shared enrichment logic
+        """
+        Single enrichment task with improved error handling (matching runner).
+        Returns: ("ok", result) or ("err", error)
+        """
+        # Use shared enrichment logic with retry
         result, error = enrich_with_retry(
             rec, slug2id, valid_tone_ids, valid_genre_ids,
             genre_id2slug, genre_slug2id,
@@ -336,13 +351,14 @@ def main(
         )
         
         if result:
-            # Add run_id to result metadata
+            # Add run metadata (matching runner)
             if "metadata" not in result:
                 result["metadata"] = {}
             result["metadata"]["run_id"] = new_run_id
             result["metadata"]["model"] = os.getenv("DEEPINFRA_MODEL", "unknown")
             result["metadata"]["backfill"] = True
             
+            # Send to Kafka
             success = producer.send_result(
                 item_idx=result["item_idx"],
                 subjects=result["subjects"],
@@ -357,16 +373,19 @@ def main(
             if success:
                 if sleep_s:
                     time.sleep(sleep_s)
-                return True
-            return False
+                return ("ok", result)
+            return ("err", result)
         
-        else:
+        elif error:
+            # CRITICAL FIX: Add item_idx to error dict (from runner)
+            error["item_idx"] = rec["item_idx"]
+            
             # Send to DLQ
             producer.send_error(
                 item_idx=rec["item_idx"],
-                error_msg=error["error_msg"],
-                stage=error["stage"],
-                error_code=error["error_code"],
+                error_msg=error.get("error_msg", "Unknown error"),
+                stage=error.get("stage", "unknown"),
+                error_code=error.get("error_code", "UNKNOWN"),
                 error_field=error.get("error_field"),
                 title=rec["title"][:256],
                 author=rec["author"][:256],
@@ -374,20 +393,78 @@ def main(
                 tags_version=VERSION_TAG,
                 run_id=new_run_id,
             )
-            return False
+            return ("err", error)
+        else:
+            # Both result and error are None - shouldn't happen but handle it (from runner)
+            logger.error(f"enrich_with_retry returned (None, None) for item_idx={rec['item_idx']}")
+            return ("err", {
+                "item_idx": rec["item_idx"],
+                "error_code": "NULL_RESPONSE",
+                "error_msg": "Enrichment returned no result and no error",
+                "stage": "unknown",
+                "attempted": {}
+            })
     
     try:
         with ThreadPoolExecutor(max_workers=workers) as ex:
             futures = [ex.submit(task, rec) for rec in books_list]
             
             for fut in as_completed(futures):
-                if fut.result():
-                    ok += 1
-                else:
-                    err += 1
+                try:
+                    result_tuple = fut.result()
+                    
+                    # Improved error handling from runner
+                    if not isinstance(result_tuple, tuple) or len(result_tuple) != 2:
+                        count_err += 1
+                        logger.error(f"✗ Task returned invalid result: {result_tuple}")
+                        continue
+                    
+                    status, data = result_tuple
+                    
+                    if data is None:
+                        count_err += 1
+                        logger.error(f"✗ Task returned None data")
+                        continue
+                    
+                    if status == "ok":
+                        count_ok += 1
+                        tier = data.get("enrichment_quality", "UNKNOWN")
+                        retry_count = data.get("metadata", {}).get("retry_count", 0)
+                        item_idx = data.get("item_idx", "?")
+                        
+                        # Update tier stats (matching runner)
+                        if tier in tier_stats:
+                            tier_stats[tier]["ok"] += 1
+                            if retry_count > 0:
+                                tier_stats[tier]["retry_success"] += 1
+                        
+                        retry_msg = " (retry)" if retry_count > 0 else ""
+                        logger.info(f"✓ item_idx={item_idx} ({tier}){retry_msg}")
+                    
+                    else:  # status == "err"
+                        count_err += 1
+                        
+                        # Extract error info safely (improved from runner)
+                        item_idx = data.get("item_idx", "?")
+                        attempted = data.get("attempted", {}) if isinstance(data, dict) else {}
+                        tier = attempted.get("tier", "UNKNOWN") if isinstance(attempted, dict) else "UNKNOWN"
+                        error_code = data.get("error_code", "UNKNOWN")
+                        error_msg = data.get("error_msg", "")[:80]
+                        
+                        if tier in tier_stats:
+                            tier_stats[tier]["err"] += 1
+                        
+                        logger.error(f"✗ item_idx={item_idx} ({tier}): {error_code} - {error_msg}")
                 
-                # Progress with ETA
-                total = ok + err
+                except Exception as e:
+                    count_err += 1
+                    logger.error(f"✗ Task failed with exception: {e}")
+                    import traceback
+                    traceback.print_exc()
+                    continue
+                
+                # Progress with ETA (matching runner)
+                total = count_ok + count_err
                 if total % 50 == 0:
                     elapsed = time.time() - start_time
                     rate = total / elapsed if elapsed > 0 else 0
@@ -396,7 +473,7 @@ def main(
                     eta_str = f"{int(eta_seconds // 60)}m {int(eta_seconds % 60)}s"
                     
                     logger.info(
-                        f"Progress: {total}/{len(books_list)} ({ok} ✓, {err} ✗) | "
+                        f"Progress: {total}/{len(books_list)} ({count_ok} ✓, {count_err} ✗) | "
                         f"{rate:.1f}/s | ETA: {eta_str}"
                     )
     
@@ -404,7 +481,14 @@ def main(
         producer.flush()
         producer.close()
     
-    return {"ok": ok, "err": err}
+    elapsed = time.time() - start_time
+    
+    return {
+        "ok": count_ok,
+        "err": count_err,
+        "elapsed_s": elapsed,
+        "tier_stats": tier_stats
+    }
 
 
 if __name__ == "__main__":
@@ -438,6 +522,12 @@ if __name__ == "__main__":
         type=int,
         default=2,
         help="Number of parallel workers"
+    )
+    parser.add_argument(
+        "--sleep",
+        type=float,
+        default=0.0,
+        help="Sleep duration between enrichments in seconds"
     )
     parser.add_argument(
         "--dry-run",
@@ -479,12 +569,13 @@ if __name__ == "__main__":
     }
     
     logger.info("="*70)
-    logger.info("BACKFILL RUNNER")
+    logger.info("BACKFILL RUNNER (QUALITY TIERING)")
     logger.info("="*70)
     logger.info(f"Strategy: {args.strategy}")
     logger.info(f"Tags Version: {VERSION_TAG}")
     logger.info(f"Ontology Version: {ONTOLOGY_VERSION}")
     logger.info(f"Workers: {args.workers}")
+    logger.info(f"Sleep: {args.sleep}s")
     logger.info(f"Dry Run: {args.dry_run}")
     logger.info("="*70)
     
@@ -492,6 +583,7 @@ if __name__ == "__main__":
         strategy=strategy_map[args.strategy],
         workers=args.workers,
         dry_run=args.dry_run,
+        sleep_s=args.sleep,
         **{k: v for k, v in filters.items() if v is not None}
     )
     
@@ -500,8 +592,29 @@ if __name__ == "__main__":
     logger.info("="*70)
     logger.info(f"Success: {res.get('ok', 0)}")
     logger.info(f"Errors: {res.get('err', 0)}")
-    if res.get("dry_run"):
-        logger.info("(Dry run - no actual processing)")
+    logger.info(f"Elapsed: {res.get('elapsed_s', 0):.1f}s")
+    
+    # Show tier breakdown (matching runner)
+    logger.info("\nTier Breakdown:")
+    for tier, stats in res.get('tier_stats', {}).items():
+        total = stats['ok'] + stats['err']
+        if total > 0:
+            success_rate = stats['ok'] / total * 100
+            retry_success = stats.get('retry_success', 0)
+            logger.info(
+                f"  {tier:12} {stats['ok']:>6} ok, {stats['err']:>6} err "
+                f"({success_rate:.1f}% success, {retry_success} retries)"
+            )
+    
     logger.info("="*70)
     
-    sys.exit(0 if res.get("err", 0) == 0 else 2)
+    if res.get("dry_run"):
+        logger.info("(Dry run - no actual processing)")
+        sys.exit(0)
+    
+    # Exit code
+    code = 0
+    if res.get("ok", 0) == 0 and res.get("err", 0) > 0:
+        code = 2
+    
+    sys.exit(code)
