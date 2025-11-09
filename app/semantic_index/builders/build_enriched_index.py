@@ -256,10 +256,20 @@ def fetch_enriched_books(
 
 def embed_texts_batch(
     texts: List[Tuple[int, str, Dict]],
-    embedder
+    embedder=None,
+    use_multiprocess=False,
+    model=None,
+    num_processes=4
 ) -> Tuple[np.ndarray, np.ndarray, List[Dict]]:
     """
     Embed a list of (item_idx, text, meta) tuples.
+    
+    Args:
+        texts: List of (item_idx, text, meta) tuples
+        embedder: Embedding function (for single-process mode)
+        use_multiprocess: Use multi-process encoding (faster on multi-core CPU)
+        model: SentenceTransformer model (required if use_multiprocess=True)
+        num_processes: Number of processes for multiprocessing
     
     Returns:
         (embeddings, ids, metadata) tuple
@@ -278,12 +288,28 @@ def embed_texts_batch(
     
     print(f"\nEmbedding {len(text_strings):,} texts...")
     
-    embeddings = embedder(
-        text_strings,
-        batch_size=256,
-        show_progress_bar=True,
-        convert_to_numpy=True
-    )
+    if use_multiprocess:
+        print(f"🚀 Using multi-process encoding ({num_processes} processes)...")
+        pool = model.start_multi_process_pool(target_devices=['cpu'] * num_processes)
+        
+        embeddings = model.encode_multi_process(
+            text_strings,
+            pool,
+            batch_size=32,  # Per process
+            chunk_size=1000,
+            show_progress_bar=True
+        )
+        
+        model.stop_multi_process_pool(pool)
+        embeddings = np.array(embeddings)
+    else:
+        print("Embedding texts (single process)...")
+        embeddings = embedder(
+            text_strings,
+            batch_size=256,
+            show_progress_bar=True,
+            convert_to_numpy=True
+        )
     
     ids_array = np.array(ids, dtype=np.int64)
     
@@ -310,7 +336,10 @@ def main(
     tags_version: str,
     include_metadata: bool,
     output_dir: str,
-    embedder,
+    embedder=None,
+    use_multiprocess=False,
+    model=None,
+    num_processes=4,
     limit: int = None
 ):
     """
@@ -320,7 +349,10 @@ def main(
         tags_version: 'v1' or 'v2'
         include_metadata: True for full, False for subjects-only
         output_dir: Output directory
-        embedder: Embedding function
+        embedder: Embedding function (for single-process mode)
+        use_multiprocess: Use multi-process encoding (faster on multi-core CPU)
+        model: SentenceTransformer model (for multi-process mode)
+        num_processes: Number of processes for multiprocessing
         limit: Optional limit for testing
     """
     print(f"\n{'='*80}")
@@ -329,6 +361,10 @@ def main(
     print(f"Tags Version: {tags_version}")
     print(f"Variant: {'FULL (genre/tones/vibe)' if include_metadata else 'SUBJECTS-ONLY'}")
     print(f"Output: {output_dir}")
+    if use_multiprocess:
+        print(f"Mode: Multi-process ({num_processes} workers)")
+    else:
+        print(f"Mode: Single-process")
     if limit:
         print(f"Limit: {limit} books (testing mode)")
     print(f"{'='*80}\n")
@@ -352,7 +388,13 @@ def main(
         raise RuntimeError("No valid enriched books found")
     
     # Embed
-    embeddings, ids, metas = embed_texts_batch(texts, embedder)
+    embeddings, ids, metas = embed_texts_batch(
+        texts,
+        embedder=embedder,
+        use_multiprocess=use_multiprocess,
+        model=model,
+        num_processes=num_processes
+    )
     
     # Build index
     index = build_faiss_index(embeddings)
@@ -389,6 +431,9 @@ if __name__ == "__main__":
 Examples:
   # Rebuild V1-Full (corrected with genre and tone names)
   python -m app.semantic_index.builders.build_enriched_index --tags-version v1 --full --output models/data/enriched_v1
+  
+  # Build V1-Full with multiprocessing (faster on multi-core CPU)
+  python -m app.semantic_index.builders.build_enriched_index --tags-version v1 --full --multiprocess --num-processes 4 --output models/data/enriched_v1
   
   # Build V1-Subjects
   python -m app.semantic_index.builders.build_enriched_index --tags-version v1 --output models/data/enriched_v1_subjects
@@ -427,6 +472,19 @@ Examples:
     )
     
     parser.add_argument(
+        "--multiprocess",
+        action="store_true",
+        help="Use multi-process encoding (faster on multi-core CPU, 2-3x speedup)"
+    )
+    
+    parser.add_argument(
+        "--num-processes",
+        type=int,
+        default=4,
+        help="Number of processes for multi-process mode (default: 4)"
+    )
+    
+    parser.add_argument(
         "--limit",
         type=int,
         default=None,
@@ -439,8 +497,10 @@ Examples:
     from sentence_transformers import SentenceTransformer
     print(f"Loading embedding model: {args.embedder}...")
     model = SentenceTransformer(args.embedder)
-    embedder = lambda texts, **kwargs: model.encode(texts, **kwargs)
     print("✅ Model loaded\n")
+    
+    # Create embedder function for single-process mode
+    embedder = lambda texts, **kwargs: model.encode(texts, **kwargs) if not args.multiprocess else None
     
     # Build index
     main(
@@ -448,5 +508,8 @@ Examples:
         include_metadata=args.full,
         output_dir=args.output,
         embedder=embedder,
+        use_multiprocess=args.multiprocess,
+        model=model,
+        num_processes=args.num_processes,
         limit=args.limit
     )

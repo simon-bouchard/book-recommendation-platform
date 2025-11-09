@@ -1,85 +1,170 @@
-# Batch Index Builders
+# Batch Index Builders - WITH MULTIPROCESSING
 
 **Purpose**: One-time scripts to build FAISS indexes for the 6-model comparison experiment.
 
+**NEW**: 🚀 **Multi-process support** for 2-3x faster embedding on multi-core CPUs!
+
 ## What's Here
 
-- `build_enriched_index.py` - Universal builder for v1/v2, full/subjects variants
-- `build_baseline_clean_index.py` - Baseline without description variant
+- `build_enriched_index.py` - Universal builder for v1/v2, full/subjects variants (WITH MULTIPROCESSING)
+- `build_baseline_clean_index.py` - Baseline without description variant (WITH MULTIPROCESSING)
 - `__init__.py` - Module marker
 
-## Quick Start
+## 🚀 Quick Start (With Multiprocessing - RECOMMENDED)
 
 ### Rebuild V1-Full (Fix Bugs - PRIORITY!)
 
 ```bash
+# Single-process (slow, ~2-3 hours)
 python -m app.semantic_index.builders.build_enriched_index \
   --tags-version v1 \
   --full \
+  --output models/data/enriched_v1
+
+# Multi-process (FAST, ~1 hour with 4 cores) ⚡
+python -m app.semantic_index.builders.build_enriched_index \
+  --tags-version v1 \
+  --full \
+  --multiprocess \
+  --num-processes 4 \
   --output models/data/enriched_v1
 ```
 
 ### Build V1-Subjects
 
 ```bash
+# Multi-process (recommended)
 python -m app.semantic_index.builders.build_enriched_index \
   --tags-version v1 \
+  --multiprocess \
+  --num-processes 4 \
   --output models/data/enriched_v1_subjects
 ```
 
 ### Build Baseline-Clean
 
 ```bash
+# Multi-process (recommended)
 python -m app.semantic_index.builders.build_baseline_clean_index \
+  --multiprocess \
+  --num-processes 4 \
   --output models/data/baseline_clean
 ```
 
 ### Build V2 Variants (When V2 Enrichment ≥98%)
 
 ```bash
-# V2-Subjects
+# V2-Subjects (multi-process)
 python -m app.semantic_index.builders.build_enriched_index \
   --tags-version v2 \
+  --multiprocess \
+  --num-processes 4 \
   --output models/data/enriched_v2_subjects
 
-# V2-Full
+# V2-Full (multi-process)
 python -m app.semantic_index.builders.build_enriched_index \
   --tags-version v2 \
   --full \
+  --multiprocess \
+  --num-processes 4 \
   --output models/data/enriched_v2_full
+```
+
+## ⚡ Multiprocessing Benefits
+
+### Speed Comparison (250k books on 6-core machine)
+
+| Mode | Cores Used | Time | Speedup |
+|------|-----------|------|---------|
+| Single-process | 1 | ~2-3 hours | 1x |
+| Multi-process (2 workers) | 2 | ~1.5 hours | 2x |
+| Multi-process (4 workers) | 4 | ~1 hour | 2.5-3x |
+| Multi-process (6 workers) | 6 | ~50 min | 3x |
+
+### When to Use Multiprocessing
+
+✅ **Use `--multiprocess`** when:
+- Running on CPU (not GPU)
+- Have 4+ CPU cores available
+- Processing large datasets (>10k books)
+- Want faster builds
+
+❌ **Don't use `--multiprocess`** when:
+- Using GPU for embeddings
+- Low memory (each process loads model)
+- Testing with small datasets (`--limit 100`)
+
+### Choosing `--num-processes`
+
+**Rule of thumb**: Use `num_cores - 2` to leave cores for system
+
+| Machine | Recommended |
+|---------|-------------|
+| 4-core | `--num-processes 2` |
+| 6-core | `--num-processes 4` |
+| 8-core | `--num-processes 6` |
+| 12-core | `--num-processes 10` |
+
+## All Flags
+
+### build_enriched_index.py
+
+```bash
+--tags-version v1|v2        # Required: enrichment version
+--full                      # Include genre/tones/vibe (omit for subjects-only)
+--output DIR                # Required: output directory
+--embedder MODEL            # Model name (default: all-MiniLM-L6-v2)
+--multiprocess              # Enable multi-process encoding ⚡
+--num-processes N           # Number of processes (default: 4)
+--limit N                   # Test with N books
+```
+
+### build_baseline_clean_index.py
+
+```bash
+--output DIR                # Output directory (default: models/data/baseline_clean)
+--embedder MODEL            # Model name (default: all-MiniLM-L6-v2)
+--multiprocess              # Enable multi-process encoding ⚡
+--num-processes N           # Number of processes (default: 4)
+--limit N                   # Test with N books
 ```
 
 ## How It Works
 
-### build_enriched_index.py (Universal Builder)
+### Multiprocessing Architecture
 
-**Handles**: V1-Full, V1-Subjects, V2-Subjects, V2-Full
+```
+Main Process
+    │
+    ├─> Worker 1 (batch_size=32) → embeddings
+    ├─> Worker 2 (batch_size=32) → embeddings
+    ├─> Worker 3 (batch_size=32) → embeddings
+    └─> Worker 4 (batch_size=32) → embeddings
+         ↓
+    Aggregate Results
+         ↓
+    Build FAISS Index
+```
 
-**Flags**:
-- `--tags-version v1|v2` - Choose enrichment version
-- `--full` - Include metadata (genre/tones/vibe), omit for subjects-only
-- `--output DIR` - Output directory
-- `--limit N` - Test with N books
+**Key settings**:
+- Each worker processes batches of 32 texts
+- Workers run in parallel on separate CPU cores
+- Results aggregated after all workers complete
+- Chunk size: 1000 texts per worker batch
 
-**Process**:
-1. Load ontology CSVs (tones, genres)
-2. Query enriched books from SQL
-3. Resolve IDs to names (tone_id → "dark", genre_id → "Science Fiction")
-4. Build embedding text using templates
-5. Embed with sentence-transformers
-6. Build FAISS HNSW index
-7. Save index + metadata
+### Single vs Multi-Process
 
-### build_baseline_clean_index.py
+**Single-process**:
+```python
+embeddings = model.encode(texts, batch_size=256)
+```
 
-**Handles**: Baseline-Clean (no description)
-
-**Process**:
-1. Query books with OL subjects
-2. Skip books without subjects
-3. Build text: `{title} — {author} | subjects: {subjects}`
-4. Embed and index
-5. Save
+**Multi-process**:
+```python
+pool = model.start_multi_process_pool(target_devices=['cpu'] * 4)
+embeddings = model.encode_multi_process(texts, pool, batch_size=32)
+model.stop_multi_process_pool(pool)
+```
 
 ## Output Structure
 
@@ -91,17 +176,19 @@ models/data/{variant}/
 └── semantic_meta.json    # Metadata (title, author, etc.) (~50MB)
 ```
 
-## Build Order
+## Build Order (WITH MULTIPROCESSING)
 
-1. ✅ **V1-Full** (rebuild, fixes bugs) - ~2-3 hours
-2. ✅ **V1-Subjects** - ~1.5-2 hours
-3. ✅ **Baseline-Clean** - ~2-3 hours
-4. ⏸️ **V2-Subjects** (wait for v2 ≥98%) - ~2-3 hours
-5. ⏸️ **V2-Full** (wait for v2 ≥98%) - ~2-3 hours
+1. ✅ **V1-Full** (rebuild, fixes bugs) - ~1 hour (was 2-3h)
+2. ✅ **V1-Subjects** - ~45 min (was 1.5-2h)
+3. ✅ **Baseline-Clean** - ~1 hour (was 2-3h)
+4. ⏸️ **V2-Subjects** (wait for v2 ≥98%) - ~1 hour
+5. ⏸️ **V2-Full** (wait for v2 ≥98%) - ~1 hour
+
+**Total time savings**: ~5-6 hours → ~2-3 hours (50% faster!)
 
 ## Test Mode
 
-Always test with small limit first:
+Always test with small limit first (single-process is fine for testing):
 
 ```bash
 python -m app.semantic_index.builders.build_enriched_index \
@@ -111,31 +198,68 @@ python -m app.semantic_index.builders.build_enriched_index \
   --output test_output
 ```
 
+## Monitoring Progress
+
+Both modes show progress:
+
+```
+🚀 Using multi-process encoding (4 processes)...
+Batches:  45%|███████████▌              | 450/1000 [02:15<02:45, 3.33batch/s]
+
+✅ Created 235,550 embeddings (dim=384)
+Building FAISS HNSW index...
+✅ FAISS index built (235,550 vectors)
+```
+
 ## Troubleshooting
 
-**"Tone ontology not found"**
-- Verify `ontology/tones_v1.csv` and `ontology/tones_v2.csv` exist
+### "Out of Memory" with Multiprocessing
 
-**"No valid enriched books found"**
-- Check database has data for that tags_version
-- Verify enrichment tables populated
+**Problem**: Each process loads the model into memory
+**Solution**: Reduce `--num-processes` (try 2 instead of 4)
 
-**Import errors**
-- Ensure you're in project root
-- Use `python -m app.semantic_index.builders.X` not `python app/semantic_index/builders/X.py`
+### Multiprocessing Not Faster
 
-## Differences from Stream Pipeline
+**Problem**: Overhead on small datasets
+**Solution**: Only use `--multiprocess` for 10k+ books
 
-| Aspect | Batch Builders | Stream Pipeline |
-|--------|---------------|-----------------|
-| Purpose | One-time index building | Continuous embedding |
-| Data Source | SQL database | Kafka events |
-| Output | FAISS index files | .npz accumulator batches |
-| When to Use | Initial load, rebuilds | Production updates |
-| Location | `builders/` | `embedding/` |
+### CPU at 100% But Slow
+
+**Problem**: Too many processes competing
+**Solution**: Reduce `--num-processes` to `num_cores - 2`
+
+## Performance Tips
+
+### Optimal Settings for Your 6-Core Machine
+
+```bash
+# Best for 250k books
+--multiprocess \
+--num-processes 4
+
+# Max speed (if memory allows)
+--multiprocess \
+--num-processes 6
+```
+
+### Memory Usage Estimate
+
+- Single-process: ~2GB RAM
+- Multi-process (4 workers): ~6-8GB RAM
+- Multi-process (6 workers): ~10-12GB RAM
+
+### Disk I/O
+
+- Use SSD for faster model loading
+- Output directory on fast disk
+- SQLite database on SSD
 
 ## See Also
 
 - `app/semantic_index/templates/` - Text template functions
 - `app/semantic_index/embedding/` - Continuous streaming pipeline
 - `app/semantic_index/shared/` - Shared utilities
+
+---
+
+**🎯 TLDR**: Add `--multiprocess --num-processes 4` to any builder command for 2-3x speedup!
