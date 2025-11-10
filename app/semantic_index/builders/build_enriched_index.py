@@ -15,7 +15,10 @@ ROOT = Path(__file__).resolve().parents[3]  # Go up to project root
 sys.path.insert(0, str(ROOT))
 
 from app.database import SessionLocal
-from app.table_models import Book, Author, BookLLMSubject, BookTone, BookGenre, BookVibe
+from app.table_models import (
+    Book, Author, BookLLMSubject, LLMSubject, 
+    BookTone, Tone, BookGenre, Genre, BookVibe, Vibe
+)
 from app.semantic_index.index_store import IndexStore
 
 # Import text templates from templates folder
@@ -28,16 +31,16 @@ from app.semantic_index.templates.text_templates import (
 )
 
 
-def load_ontology_mappings(tags_version: str) -> Tuple[Dict[int, str], Dict[int, str]]:
+def load_ontology_mappings(tags_version: str) -> Tuple[Dict[int, str], Dict[str, str]]:
     """
     Load ontology CSVs and create ID->name mappings.
     
     Returns:
-        (tone_id_to_name, genre_id_to_name) tuple
+        (tone_id_to_slug, genre_slug_to_display) tuple
     """
     import csv
     
-    # Load tones
+    # Load tones: tone_id,slug,display_name,bucket
     tone_file = ROOT / "ontology" / f"tones_{tags_version}.csv"
     if not tone_file.exists():
         raise FileNotFoundError(f"Tone ontology not found: {tone_file}")
@@ -50,7 +53,7 @@ def load_ontology_mappings(tags_version: str) -> Tuple[Dict[int, str], Dict[int,
             tone_slug = row["slug"]
             tone_map[tone_id] = tone_slug
     
-    # Load genres (version-independent)
+    # Load genres: genre_idx,slug,display
     genre_file = ROOT / "ontology" / "genres_v1.csv"
     if not genre_file.exists():
         raise FileNotFoundError(f"Genre ontology not found: {genre_file}")
@@ -59,9 +62,9 @@ def load_ontology_mappings(tags_version: str) -> Tuple[Dict[int, str], Dict[int,
     with open(genre_file, encoding="utf-8") as f:
         reader = csv.DictReader(f)
         for row in reader:
-            genre_id = int(row["genre_id"])
-            display_name = row["display_name"]
-            genre_map[genre_id] = display_name
+            genre_slug = row["slug"]
+            display_name = row["display"]  # Column is named 'display' not 'display_name'
+            genre_map[genre_slug] = display_name
     
     print(f"✅ Loaded {len(tone_map)} tones and {len(genre_map)} genres")
     
@@ -72,7 +75,7 @@ def fetch_enriched_books(
     tags_version: str,
     include_metadata: bool,
     tone_map: Dict[int, str],
-    genre_map: Dict[int, str],
+    genre_map: Dict[str, str],
     limit: int = None
 ) -> Generator[Tuple[int, str, Dict], None, None]:
     """
@@ -81,8 +84,8 @@ def fetch_enriched_books(
     Args:
         tags_version: 'v1' or 'v2'
         include_metadata: True for full (genre/tones/vibe), False for subjects-only
-        tone_map: tone_id -> tone_name mapping
-        genre_map: genre_id -> genre_name mapping
+        tone_map: tone_id -> tone_slug mapping
+        genre_map: genre_slug -> display_name mapping
         limit: Optional limit for testing
     
     Yields:
@@ -124,9 +127,10 @@ def fetch_enriched_books(
                 skipped += 1
                 continue
             
-            # Fetch LLM subjects
+            # Fetch LLM subjects (join with LLMSubject table to get the actual subject text)
             subjects_query = (
-                db.query(BookLLMSubject.subject)
+                db.query(LLMSubject.subject)
+                .join(BookLLMSubject, BookLLMSubject.llm_subject_idx == LLMSubject.llm_subject_idx)
                 .filter(
                     BookLLMSubject.item_idx == item_idx,
                     BookLLMSubject.tags_version == tags_version
@@ -135,18 +139,15 @@ def fetch_enriched_books(
             )
             subjects = [s for (s,) in subjects_query if s]
             
-            # Skip books without enrichment
-            if not subjects:
-                skipped += 1
-                continue
+            # Note: Books without subjects will be embedded with empty subjects list
             
             # Build embedding text based on variant
             if include_metadata:
                 # Full variant: fetch genre, tones, vibe
                 
-                # Fetch genre
+                # Fetch genre (BookGenre has genre_slug, not genre_id)
                 genre_row = (
-                    db.query(BookGenre.genre_id)
+                    db.query(BookGenre.genre_slug)
                     .filter(
                         BookGenre.item_idx == item_idx,
                         BookGenre.tags_version == tags_version
@@ -158,8 +159,8 @@ def fetch_enriched_books(
                     skipped += 1
                     continue  # Skip books without genre for full variant
                 
-                genre_id = genre_row[0]
-                genre_name = genre_map.get(genre_id, f"Unknown-{genre_id}")
+                genre_slug = genre_row[0]
+                genre_name = genre_map.get(genre_slug, genre_slug)
                 
                 # Fetch tones
                 tone_rows = (
@@ -173,9 +174,10 @@ def fetch_enriched_books(
                 tone_ids = [t for (t,) in tone_rows]
                 tone_names = [tone_map.get(tid, f"unknown-{tid}") for tid in tone_ids]
                 
-                # Fetch vibe
+                # Fetch vibe (join with Vibe table to get the text)
                 vibe_row = (
-                    db.query(BookVibe.vibe)
+                    db.query(Vibe.text)
+                    .join(BookVibe, BookVibe.vibe_id == Vibe.vibe_id)
                     .filter(
                         BookVibe.item_idx == item_idx,
                         BookVibe.tags_version == tags_version
@@ -245,28 +247,28 @@ def fetch_enriched_books(
                 continue
             
             processed += 1
+            yield (item_idx, text, meta)
             
+            # Progress update every 1000 books
             if processed % 1000 == 0:
-                print(f"  Processed: {processed:,}/{total:,} ({skipped:,} skipped)")
-            
-            yield item_idx, text, meta
+                print(f"  Processed {processed:,}/{total:,} books...")
         
-        print(f"\n✅ Final: {processed:,} books processed, {skipped:,} skipped")
+        print(f"\n✅ Processed {processed:,} books (skipped {skipped:,})")
 
 
 def embed_texts_batch(
     texts: List[Tuple[int, str, Dict]],
     embedder=None,
-    use_multiprocess=False,
+    use_multiprocess: bool = False,
     model=None,
-    num_processes=4
+    num_processes: int = 4
 ) -> Tuple[np.ndarray, np.ndarray, List[Dict]]:
     """
-    Embed a list of (item_idx, text, meta) tuples.
+    Embed texts using the provided embedder.
     
     Args:
-        texts: List of (item_idx, text, meta) tuples
-        embedder: Embedding function (for single-process mode)
+        texts: List of (item_idx, text, metadata) tuples
+        embedder: Embedding function (required if use_multiprocess=False)
         use_multiprocess: Use multi-process encoding (faster on multi-core CPU)
         model: SentenceTransformer model (required if use_multiprocess=True)
         num_processes: Number of processes for multiprocessing
