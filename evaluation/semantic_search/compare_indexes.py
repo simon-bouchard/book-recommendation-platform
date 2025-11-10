@@ -1,12 +1,11 @@
 #!/usr/bin/env python3
+# evaluation/semantic_search/compare_indexes.py
 """
-Semantic Search Index Comparison Tool
+Multi-index semantic search comparison tool.
 
-Compares baseline (raw metadata) vs enriched (LLM-enhanced) semantic search indexes
-to evaluate the impact of LLM enrichment on search quality.
-
-MODIFIED: Removes LLM-generated metadata (subjects, tones, genres, vibes) from results
-to avoid hallucinations. Only keeps original metadata fields.
+Compares multiple semantic search indexes (baseline, baseline_clean, v1_subjects, 
+v1_full, v2_subjects, v2_full) to evaluate search quality across different 
+enrichment strategies.
 """
 from pathlib import Path
 import json
@@ -19,7 +18,6 @@ import sys
 # Add project root to path for imports
 FILE_PATH = Path(__file__).resolve().parents[0]
 ROOT = FILE_PATH.parents[1]
-print(ROOT)
 sys.path.insert(0, str(ROOT))
 
 
@@ -29,6 +27,7 @@ LLM_GENERATED_FIELDS = {
     'llm_subjects', 
     'tone_ids',
     'tones',
+    'tone_names',
     'genre',
     'genre_slug',
     'vibe',
@@ -92,60 +91,6 @@ def load_test_queries(queries_path: Path) -> Dict[str, Any]:
     """Load test queries from JSON file."""
     with open(queries_path, encoding="utf-8") as f:
         return json.load(f)
-
-
-def calculate_overlap(baseline_results: List[Dict], enriched_results: List[Dict], top_k: int) -> int:
-    """Calculate number of overlapping books in top K results."""
-    baseline_ids = {r["book_id"] for r in baseline_results[:top_k]}
-    enriched_ids = {r["book_id"] for r in enriched_results[:top_k]}
-    return len(baseline_ids & enriched_ids)
-
-
-def calculate_rank_correlation(baseline_results: List[Dict], enriched_results: List[Dict]) -> float:
-    """
-    Calculate Spearman's rank correlation between two result lists.
-    Returns 0.0 if there's no overlap.
-    """
-    # Get common book IDs
-    baseline_ids = {r["book_id"]: i for i, r in enumerate(baseline_results)}
-    enriched_ids = {r["book_id"]: i for i, r in enumerate(enriched_results)}
-    common_ids = set(baseline_ids.keys()) & set(enriched_ids.keys())
-    
-    if len(common_ids) < 2:
-        return 0.0
-    
-    # Get ranks for common books
-    baseline_ranks = [baseline_ids[book_id] for book_id in common_ids]
-    enriched_ranks = [enriched_ids[book_id] for book_id in common_ids]
-    
-    # Calculate Spearman's rho
-    from scipy.stats import spearmanr
-    try:
-        corr, _ = spearmanr(baseline_ranks, enriched_ranks)
-        return float(corr) if not np.isnan(corr) else 0.0
-    except:
-        return 0.0
-
-
-def calculate_metrics(query: Dict, baseline_results: List[Dict], enriched_results: List[Dict]) -> Dict[str, Any]:
-    """Calculate comparison metrics for a query."""
-    metrics = {}
-    
-    # Overlap metrics
-    metrics["overlap_top_5"] = calculate_overlap(baseline_results, enriched_results, 5)
-    metrics["overlap_top_10"] = calculate_overlap(baseline_results, enriched_results, 10)
-    
-    # Rank correlation
-    metrics["rank_correlation"] = calculate_rank_correlation(baseline_results, enriched_results)
-    
-    # Diversity metrics (optional) - only using non-LLM fields
-    baseline_authors = {r["meta"].get("author") for r in baseline_results[:10] if r["meta"].get("author")}
-    enriched_authors = {r["meta"].get("author") for r in enriched_results[:10] if r["meta"].get("author")}
-    
-    metrics["baseline_author_diversity"] = len(baseline_authors)
-    metrics["enriched_author_diversity"] = len(enriched_authors)
-    
-    return metrics
 
 
 def fuzzy_match(text1: str, text2: str, threshold: float = 0.8) -> bool:
@@ -222,7 +167,7 @@ def check_expected_in_results(expected: Dict, results: List[Dict], top_k: Option
     }
 
 
-def run_assertions(query: Dict, baseline_results: List[Dict], enriched_results: List[Dict]) -> Optional[Dict[str, Any]]:
+def run_assertions(query: Dict, all_index_results: Dict[str, List[Dict]]) -> Optional[Dict[str, Any]]:
     """
     Run programmatic assertions for exact_match queries.
     Returns None for non-exact_match queries.
@@ -240,28 +185,26 @@ def run_assertions(query: Dict, baseline_results: List[Dict], enriched_results: 
     }
     
     for expected in expected_items:
-        must_appear_in_top = expected.get("must_appear_in_top", 10)
-        
-        # Check baseline
-        baseline_check = check_expected_in_results(expected, baseline_results, must_appear_in_top)
-        
-        # Check enriched
-        enriched_check = check_expected_in_results(expected, enriched_results, must_appear_in_top)
-        
-        expected_title = expected.get("title", "")
-        expected_author = expected.get("author", "")
+        top_k = expected.get("must_appear_in_top", 10)
         
         detail = {
-            "expected_book": f"{expected_title} by {expected_author}" if expected_title else f"item_idx={expected.get('item_idx')}",
-            "must_appear_in_top": must_appear_in_top,
-            "baseline_found": baseline_check["found"],
-            "baseline_rank": baseline_check["rank"],
-            "enriched_found": enriched_check["found"],
-            "enriched_rank": enriched_check["rank"]
+            "expected": expected,
+            "results_by_index": {}
         }
         
-        # Assertion passes if book appears in both indexes within top K
-        if not (baseline_check["found"] and enriched_check["found"]):
+        all_found = True
+        for index_name, results in all_index_results.items():
+            check = check_expected_in_results(expected, results, top_k)
+            detail["results_by_index"][index_name] = {
+                "found": check["found"],
+                "rank": check["rank"],
+                "matched_by": check["matched_by"]
+            }
+            if not check["found"]:
+                all_found = False
+        
+        # Assertion passes if book appears in ALL indexes within top K
+        if not all_found:
             assertions["passed"] = False
         
         assertions["details"].append(detail)
@@ -269,15 +212,29 @@ def run_assertions(query: Dict, baseline_results: List[Dict], enriched_results: 
     return assertions
 
 
-def run_comparison(baseline_searcher, enriched_searcher, queries: List[Dict], top_k: int = 10) -> Dict[str, Any]:
-    """Run comparison between baseline and enriched indexes."""
+def calculate_pairwise_overlap(results1: List[Dict], results2: List[Dict], top_k: int) -> int:
+    """Calculate number of overlapping books in top K results between two indexes."""
+    ids1 = {r["book_id"] for r in results1[:top_k]}
+    ids2 = {r["book_id"] for r in results2[:top_k]}
+    return len(ids1 & ids2)
+
+
+def calculate_author_diversity(results: List[Dict], top_k: int = 10) -> int:
+    """Calculate number of unique authors in top K results."""
+    authors = {r["meta"].get("author") for r in results[:top_k] if r["meta"].get("author")}
+    return len(authors)
+
+
+def run_multi_index_comparison(
+    searchers: Dict[str, Any], 
+    queries: List[Dict], 
+    top_k: int = 10
+) -> Dict[str, Any]:
+    """Run comparison across multiple indexes."""
     results = {
-        "exact_match_queries": [],
-        "quality_queries": []
+        "queries": [],
+        "index_names": list(searchers.keys())
     }
-    
-    exact_match_passed = 0
-    exact_match_total = 0
     
     for i, query in enumerate(queries, 1):
         query_text = query.get("text")
@@ -285,148 +242,177 @@ def run_comparison(baseline_searcher, enriched_searcher, queries: List[Dict], to
         
         print(f"\n[{i}/{len(queries)}] Running query: '{query_text}' (type: {query_type})")
         
-        # Run searches
-        baseline_results = baseline_searcher.search(query_text, top_k=top_k)
-        enriched_results = enriched_searcher.search(query_text, top_k=top_k)
-        
-        # Calculate metrics
-        metrics = calculate_metrics(query, baseline_results, enriched_results)
+        # Run searches on all indexes
+        all_results = {}
+        for index_name, searcher in searchers.items():
+            print(f"  Searching {index_name}...")
+            all_results[index_name] = searcher.search(query_text, top_k=top_k)
         
         # Run assertions for exact_match queries
-        assertions = run_assertions(query, baseline_results, enriched_results)
-        
-        # Format results for output
-        result = {
-            "query_text": query_text,
-            "query_type": query_type,
-            "description": query.get("description", ""),
-            "metrics": metrics,
-            "baseline_results": [
-                {
-                    "rank": i + 1,
-                    "book_id": r["book_id"],
-                    "title": r["meta"].get("title"),
-                    "author": r["meta"].get("author")
-                }
-                for i, r in enumerate(baseline_results)
-            ],
-            "enriched_results": [
-                {
-                    "rank": i + 1,
-                    "book_id": r["book_id"],
-                    "title": r["meta"].get("title"),
-                    "author": r["meta"].get("author")
-                }
-                for i, r in enumerate(enriched_results)
-            ]
-        }
+        assertions = run_assertions(query, all_results)
         
         if assertions:
-            result["assertions"] = assertions
-            exact_match_total += 1
             if assertions["passed"]:
-                exact_match_passed += 1
                 print(f"  ✅ Assertions PASSED")
             else:
                 print(f"  ❌ Assertions FAILED")
-                for detail in assertions["details"]:
-                    if not (detail["baseline_found"] and detail["enriched_found"]):
-                        print(f"     - {detail['expected_book']}: baseline={detail['baseline_rank']}, enriched={detail['enriched_rank']}")
         
-        # Categorize by query type
-        if query_type == "exact_match":
-            results["exact_match_queries"].append(result)
-        else:
-            results["quality_queries"].append(result)
+        # Format results for output
+        query_result = {
+            "query_id": query.get("id"),
+            "query_text": query_text,
+            "query_type": query_type,
+            "complexity_level": query.get("complexity_level", ""),
+            "description": query.get("description", ""),
+            "manual_review": query.get("manual_review", False),
+            "results_by_index": {}
+        }
         
-        print(f"  Overlap (top 5): {metrics['overlap_top_5']}/5")
-        print(f"  Overlap (top 10): {metrics['overlap_top_10']}/10")
-        print(f"  Rank correlation: {metrics['rank_correlation']:.2f}")
-    
-    # Summary statistics
-    results["summary"] = {
-        "total_queries": len(queries),
-        "exact_match_queries": exact_match_total,
-        "exact_match_passed": exact_match_passed,
-        "exact_match_failed": exact_match_total - exact_match_passed,
-        "quality_queries": len(results["quality_queries"])
-    }
+        # Add results for each index
+        for index_name, results_list in all_results.items():
+            query_result["results_by_index"][index_name] = [
+                {
+                    "rank": j + 1,
+                    "book_id": r["book_id"],
+                    "title": r["meta"].get("title"),
+                    "author": r["meta"].get("author")
+                }
+                for j, r in enumerate(results_list)
+            ]
+        
+        # Add metrics (pairwise overlaps, diversity, etc.)
+        metrics = {}
+        index_names = list(searchers.keys())
+        
+        # Calculate pairwise overlaps (top 5 and top 10)
+        for idx1 in range(len(index_names)):
+            for idx2 in range(idx1 + 1, len(index_names)):
+                name1 = index_names[idx1]
+                name2 = index_names[idx2]
+                pair_key = f"{name1}_vs_{name2}"
+                metrics[f"overlap_top5_{pair_key}"] = calculate_pairwise_overlap(
+                    all_results[name1], all_results[name2], 5
+                )
+                metrics[f"overlap_top10_{pair_key}"] = calculate_pairwise_overlap(
+                    all_results[name1], all_results[name2], 10
+                )
+        
+        # Calculate author diversity for each index
+        for index_name in index_names:
+            metrics[f"author_diversity_{index_name}"] = calculate_author_diversity(
+                all_results[index_name], top_k=10
+            )
+        
+        query_result["metrics"] = metrics
+        
+        if assertions:
+            query_result["assertions"] = assertions
+        
+        results["queries"].append(query_result)
     
     return results
 
 
-def generate_json_output(results: Dict, metadata: Dict, output_path: Path):
-    """Generate full JSON output with all results."""
-    output = {
-        "metadata": metadata,
-        "summary": results["summary"],
-        "results": {
-            "exact_match_queries": results["exact_match_queries"],
-            "quality_queries": results["quality_queries"]
+def save_index_results(results: Dict[str, Any], output_dir: Path, timestamp: str):
+    """Save separate JSON file for each index's results."""
+    for index_name in results["index_names"]:
+        index_results = {
+            "index_name": index_name,
+            "queries": []
         }
-    }
-    
-    with open(output_path, "w", encoding="utf-8") as f:
-        json.dump(output, f, indent=2, ensure_ascii=False)
-    
-    print(f"✅ Full JSON saved to: {output_path}")
+        
+        for query in results["queries"]:
+            query_data = {
+                "query_id": query.get("query_id"),
+                "query_text": query["query_text"],
+                "query_type": query["query_type"],
+                "complexity_level": query.get("complexity_level", ""),
+                "description": query.get("description", ""),
+                "results": query["results_by_index"].get(index_name, [])
+            }
+            
+            # Add assertion results if available
+            if "assertions" in query and query["query_type"] == "exact_match":
+                query_data["assertion_results"] = []
+                for detail in query["assertions"]["details"]:
+                    result = detail["results_by_index"].get(index_name, {})
+                    query_data["assertion_results"].append({
+                        "expected": detail["expected"],
+                        "found": result.get("found", False),
+                        "rank": result.get("rank"),
+                        "matched_by": result.get("matched_by")
+                    })
+            
+            index_results["queries"].append(query_data)
+        
+        # Save to file
+        output_path = output_dir / f"{index_name}_{timestamp}.json"
+        with open(output_path, "w", encoding="utf-8") as f:
+            json.dump(index_results, f, indent=2, ensure_ascii=False)
+        print(f"✅ Saved {index_name} results to: {output_path}")
 
 
-def generate_summary_json(results: Dict, metadata: Dict, output_path: Path):
-    """Generate summary JSON with aggregated metrics."""
-    exact_match_queries = results["exact_match_queries"]
-    quality_queries = results["quality_queries"]
-    
-    # Aggregate metrics
-    avg_overlap_5 = np.mean([q["metrics"]["overlap_top_5"] for q in quality_queries]) if quality_queries else 0
-    avg_overlap_10 = np.mean([q["metrics"]["overlap_top_10"] for q in quality_queries]) if quality_queries else 0
-    avg_rank_corr = np.mean([q["metrics"]["rank_correlation"] for q in quality_queries]) if quality_queries else 0
-    
+def generate_summary_json(results: Dict[str, Any], metadata: Dict[str, Any], output_path: Path):
+    """Generate summary JSON with high-level metrics."""
     summary = {
         "metadata": metadata,
-        "summary_stats": {
-            "total_queries": results["summary"]["total_queries"],
-            "exact_match_passed": results["summary"]["exact_match_passed"],
-            "exact_match_failed": results["summary"]["exact_match_failed"],
-            "avg_overlap_top_5": float(avg_overlap_5),
-            "avg_overlap_top_10": float(avg_overlap_10),
-            "avg_rank_correlation": float(avg_rank_corr)
-        },
-        "exact_match_details": [
-            {
-                "query": q["query_text"],
-                "passed": q["assertions"]["passed"],
-                "details": q["assertions"]["details"]
-            }
-            for q in exact_match_queries
-        ]
+        "indexes": results["index_names"],
+        "total_queries": len(results["queries"]),
+        "exact_match_results": {},
+        "query_type_breakdown": {}
     }
+    
+    # Count exact match passes per index
+    exact_match_queries = [q for q in results["queries"] if q["query_type"] == "exact_match"]
+    
+    if exact_match_queries:
+        for index_name in results["index_names"]:
+            passed = 0
+            total = 0
+            
+            for query in exact_match_queries:
+                if "assertions" in query:
+                    total += 1
+                    # Check if all expected items found in this index
+                    all_found = all(
+                        detail["results_by_index"].get(index_name, {}).get("found", False)
+                        for detail in query["assertions"]["details"]
+                    )
+                    if all_found:
+                        passed += 1
+            
+            summary["exact_match_results"][index_name] = {
+                "passed": passed,
+                "total": total,
+                "pass_rate": passed / total if total > 0 else 0.0
+            }
+    
+    # Query type breakdown
+    type_counts = {}
+    for query in results["queries"]:
+        qtype = query["query_type"]
+        type_counts[qtype] = type_counts.get(qtype, 0) + 1
+    summary["query_type_breakdown"] = type_counts
     
     with open(output_path, "w", encoding="utf-8") as f:
         json.dump(summary, f, indent=2, ensure_ascii=False)
-    
-    print(f"✅ Summary JSON saved to: {output_path}")
+    print(f"✅ Summary saved to: {output_path}")
 
 
-def generate_html_output(results: Dict, metadata: Dict, output_path: Path):
-    """Generate HTML report."""
-    exact_match_queries = results["exact_match_queries"]
-    quality_queries = results["quality_queries"]
-    
-    # Calculate summary stats
-    avg_overlap_5 = np.mean([q["metrics"]["overlap_top_5"] for q in quality_queries]) if quality_queries else 0
-    avg_overlap_10 = np.mean([q["metrics"]["overlap_top_10"] for q in quality_queries]) if quality_queries else 0
-    avg_rank_corr = np.mean([q["metrics"]["rank_correlation"] for q in quality_queries]) if quality_queries else 0
+def generate_html_output(results: Dict[str, Any], metadata: Dict[str, Any], output_path: Path):
+    """Generate HTML comparison report showing all indexes side-by-side."""
+    index_names = results["index_names"]
+    num_indexes = len(index_names)
     
     html = f"""<!DOCTYPE html>
 <html>
 <head>
     <meta charset="UTF-8">
-    <title>Semantic Search Comparison Report</title>
+    <title>Multi-Index Semantic Search Comparison</title>
     <style>
         body {{
-            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
-            max-width: 1400px;
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+            max-width: 1600px;
             margin: 0 auto;
             padding: 20px;
             background: #f5f5f5;
@@ -438,17 +424,13 @@ def generate_html_output(results: Dict, metadata: Dict, output_path: Path):
             margin-bottom: 30px;
             box-shadow: 0 2px 4px rgba(0,0,0,0.1);
         }}
-        h1 {{
+        .header h1 {{
             margin: 0 0 10px 0;
             color: #333;
         }}
-        .metadata {{
+        .header .meta {{
             color: #666;
             font-size: 14px;
-            margin-top: 15px;
-        }}
-        .metadata-item {{
-            margin: 5px 0;
         }}
         .summary {{
             background: white;
@@ -464,48 +446,43 @@ def generate_html_output(results: Dict, metadata: Dict, output_path: Path):
         .summary-grid {{
             display: grid;
             grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
-            gap: 20px;
+            gap: 15px;
             margin-top: 20px;
         }}
-        .summary-item {{
-            text-align: center;
+        .summary-card {{
+            background: #f8f9fa;
+            padding: 15px;
+            border-radius: 6px;
+            border-left: 4px solid #007bff;
         }}
-        .summary-value {{
-            font-size: 32px;
-            font-weight: bold;
-            color: #2196F3;
-        }}
-        .summary-label {{
+        .summary-card h3 {{
+            margin: 0 0 10px 0;
             font-size: 14px;
             color: #666;
-            margin-top: 5px;
+            text-transform: uppercase;
+        }}
+        .summary-card .value {{
+            font-size: 24px;
+            font-weight: bold;
+            color: #333;
         }}
         .section {{
-            margin-bottom: 40px;
-        }}
-        .section h2 {{
-            color: #333;
-            border-bottom: 2px solid #2196F3;
-            padding-bottom: 10px;
-        }}
-        .query {{
             background: white;
-            padding: 20px;
+            padding: 25px;
             border-radius: 8px;
-            margin-bottom: 20px;
+            margin-bottom: 30px;
             box-shadow: 0 2px 4px rgba(0,0,0,0.1);
         }}
-        .query.passed {{
-            border-left: 4px solid #4CAF50;
+        .query {{
+            margin-bottom: 40px;
+            padding-bottom: 30px;
+            border-bottom: 1px solid #e0e0e0;
         }}
-        .query.failed {{
-            border-left: 4px solid #f44336;
-        }}
-        .query.manual {{
-            border-left: 4px solid #FF9800;
+        .query:last-child {{
+            border-bottom: none;
         }}
         .query-header {{
-            margin-bottom: 15px;
+            margin-bottom: 20px;
         }}
         .query-header h3 {{
             margin: 0 0 5px 0;
@@ -517,161 +494,165 @@ def generate_html_output(results: Dict, metadata: Dict, output_path: Path):
         }}
         .badge {{
             display: inline-block;
-            padding: 4px 12px;
-            border-radius: 12px;
+            padding: 4px 8px;
+            border-radius: 4px;
             font-size: 12px;
             font-weight: 600;
-            text-transform: uppercase;
+            margin-left: 10px;
         }}
-        .badge.passed {{
-            background: #4CAF50;
-            color: white;
+        .badge.pass {{
+            background: #d4edda;
+            color: #155724;
         }}
-        .badge.failed {{
-            background: #f44336;
-            color: white;
+        .badge.fail {{
+            background: #f8d7da;
+            color: #721c24;
         }}
         .badge.manual {{
-            background: #FF9800;
-            color: white;
+            background: #fff3cd;
+            color: #856404;
         }}
-        .assertions {{
-            background: #f9f9f9;
-            border: 1px solid #e0e0e0;
-            border-radius: 4px;
-            padding: 15px;
-            margin: 15px 0;
-        }}
-        .assertion-detail {{
-            padding: 8px 0;
-            border-bottom: 1px solid #e0e0e0;
-        }}
-        .assertion-detail:last-child {{
-            border-bottom: none;
-        }}
-        .assertion-book {{
-            font-weight: 600;
-            color: #333;
-        }}
-        .assertion-result {{
-            font-size: 13px;
-            color: #666;
-            margin-top: 4px;
-        }}
-        .check {{
-            color: #4CAF50;
-            font-weight: bold;
-        }}
-        .cross {{
-            color: #f44336;
-            font-weight: bold;
-        }}
-        .metrics {{
-            background: #f9f9f9;
-            border: 1px solid #e0e0e0;
-            border-radius: 4px;
-            padding: 15px;
-            margin: 15px 0;
-        }}
-        .metrics-grid {{
+        .results-grid {{
             display: grid;
-            grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+            grid-template-columns: repeat({num_indexes}, 1fr);
             gap: 15px;
-        }}
-        .metric {{
-            display: flex;
-            flex-direction: column;
-        }}
-        .metric-label {{
-            font-size: 12px;
-            color: #666;
-            text-transform: uppercase;
-            letter-spacing: 0.5px;
-        }}
-        .metric-value {{
-            font-size: 20px;
-            font-weight: 600;
-            color: #333;
-            margin-top: 4px;
-        }}
-        .results-comparison {{
-            display: grid;
-            grid-template-columns: 1fr 1fr;
-            gap: 20px;
-            margin-top: 15px;
+            margin-top: 20px;
         }}
         .result-column {{
-            background: #fafafa;
-            border: 1px solid #e0e0e0;
-            border-radius: 4px;
+            background: #f8f9fa;
             padding: 15px;
+            border-radius: 6px;
         }}
         .result-column h4 {{
             margin: 0 0 15px 0;
-            color: #333;
             font-size: 14px;
+            color: #666;
             text-transform: uppercase;
-            letter-spacing: 0.5px;
+            border-bottom: 2px solid #007bff;
+            padding-bottom: 8px;
         }}
         .result-item {{
             padding: 10px;
-            border-bottom: 1px solid #e0e0e0;
-            display: grid;
-            grid-template-columns: 30px 1fr;
-            gap: 10px;
-            align-items: start;
-        }}
-        .result-item:last-child {{
-            border-bottom: none;
+            margin-bottom: 8px;
+            background: white;
+            border-radius: 4px;
+            border-left: 3px solid #007bff;
         }}
         .result-rank {{
-            font-weight: 600;
-            color: #666;
+            font-weight: bold;
+            color: #007bff;
+            margin-right: 8px;
         }}
         .result-title {{
             font-weight: 500;
             color: #333;
-            font-size: 14px;
         }}
         .result-author {{
+            font-size: 13px;
             color: #666;
-            font-size: 12px;
             margin-top: 2px;
+        }}
+        .metrics {{
+            background: #f8f9fa;
+            padding: 15px;
+            border-radius: 6px;
+            margin: 15px 0;
+        }}
+        .metrics-grid {{
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 10px;
+        }}
+        .metric {{
+            padding: 8px;
+        }}
+        .metric-label {{
+            font-size: 13px;
+            color: #666;
+        }}
+        .metric-value {{
+            font-weight: 600;
+            color: #333;
+            margin-left: 5px;
+        }}
+        .assertion-details {{
+            background: #f8f9fa;
+            padding: 15px;
+            border-radius: 6px;
+            margin-top: 15px;
+        }}
+        .assertion-row {{
+            display: grid;
+            grid-template-columns: 300px repeat({num_indexes}, 1fr);
+            gap: 10px;
+            margin-bottom: 10px;
+            padding: 10px;
+            background: white;
+            border-radius: 4px;
+        }}
+        .assertion-expected {{
+            font-weight: 500;
+        }}
+        .assertion-result {{
+            text-align: center;
+            padding: 4px 8px;
+            border-radius: 4px;
+        }}
+        .assertion-result.found {{
+            background: #d4edda;
+            color: #155724;
+        }}
+        .assertion-result.not-found {{
+            background: #f8d7da;
+            color: #721c24;
         }}
     </style>
 </head>
 <body>
     <div class="header">
-        <h1>🔍 Semantic Search Index Comparison Report</h1>
-        <div class="metadata">
-            <div class="metadata-item"><strong>Generated:</strong> {metadata['timestamp']}</div>
-            <div class="metadata-item"><strong>Baseline Index:</strong> {metadata['baseline_index']}</div>
-            <div class="metadata-item"><strong>Enriched Index:</strong> {metadata['enriched_index']}</div>
-            <div class="metadata-item"><strong>Embedding Model:</strong> {metadata['embedding_model']}</div>
-            <div class="metadata-item"><strong>Top K:</strong> {metadata['top_k']}</div>
-            <div class="metadata-item"><strong>Test Queries:</strong> {metadata['num_queries']}</div>
+        <h1>Multi-Index Semantic Search Comparison</h1>
+        <div class="meta">
+            Generated: {metadata['timestamp']}<br>
+            Embedding Model: {metadata['embedding_model']}<br>
+            Top K: {metadata['top_k']}<br>
+            Indexes: {', '.join(index_names)}
         </div>
     </div>
     
     <div class="summary">
-        <h2>📊 Summary Statistics</h2>
+        <h2>Summary</h2>
         <div class="summary-grid">
-            <div class="summary-item">
-                <div class="summary-value">{results['summary']['exact_match_passed']}/{results['summary']['exact_match_queries']}</div>
-                <div class="summary-label">Exact Match Passed</div>
+            <div class="summary-card">
+                <h3>Total Queries</h3>
+                <div class="value">{len(results['queries'])}</div>
             </div>
-            <div class="summary-item">
-                <div class="summary-value">{avg_overlap_5:.1f}/5</div>
-                <div class="summary-label">Avg Overlap (Top 5)</div>
+"""
+    
+    # Add exact match pass rates per index
+    exact_match_queries = [q for q in results["queries"] if q["query_type"] == "exact_match"]
+    if exact_match_queries:
+        for index_name in index_names:
+            passed = 0
+            total = 0
+            for query in exact_match_queries:
+                if "assertions" in query:
+                    total += 1
+                    all_found = all(
+                        detail["results_by_index"].get(index_name, {}).get("found", False)
+                        for detail in query["assertions"]["details"]
+                    )
+                    if all_found:
+                        passed += 1
+            
+            pass_rate = (passed / total * 100) if total > 0 else 0
+            html += f"""
+            <div class="summary-card">
+                <h3>{index_name} Pass Rate</h3>
+                <div class="value">{passed}/{total} ({pass_rate:.0f}%)</div>
             </div>
-            <div class="summary-item">
-                <div class="summary-value">{avg_overlap_10:.1f}/10</div>
-                <div class="summary-label">Avg Overlap (Top 10)</div>
-            </div>
-            <div class="summary-item">
-                <div class="summary-value">{avg_rank_corr:.2f}</div>
-                <div class="summary-label">Avg Rank Correlation</div>
-            </div>
+"""
+    
+    html += """
         </div>
     </div>
 """
@@ -680,168 +661,132 @@ def generate_html_output(results: Dict, metadata: Dict, output_path: Path):
     if exact_match_queries:
         html += """
     <div class="section">
-        <h2>✅ Exact Match Queries (Programmatic Validation)</h2>
+        <h2>🎯 Exact Match Queries</h2>
 """
         
-        for result in exact_match_queries:
-            status_class = "passed" if result["assertions"]["passed"] else "failed"
-            status_badge = "passed" if result["assertions"]["passed"] else "failed"
-            status_text = "PASSED" if result["assertions"]["passed"] else "FAILED"
+        for query in exact_match_queries:
+            passed = query.get("assertions", {}).get("passed", False)
+            badge_class = "pass" if passed else "fail"
+            badge_text = "PASS" if passed else "FAIL"
             
             html += f"""
-        <div class="query {status_class}">
+        <div class="query">
             <div class="query-header">
-                <h3>"{result['query_text']}" <span class="badge {status_badge}">{status_text}</span></h3>
-                <div class="query-meta">{result.get('description', '')} | Type: {result['query_type']}</div>
+                <h3>"{query['query_text']}" <span class="badge {badge_class}">{badge_text}</span></h3>
+                <div class="query-meta">{query.get('description', '')} | Complexity: {query.get('complexity_level', 'N/A')}</div>
             </div>
-            
-            <div class="assertions">
-                <strong>Assertions:</strong>
 """
             
-            for detail in result["assertions"]["details"]:
-                baseline_icon = "✓" if detail["baseline_found"] else "✗"
-                enriched_icon = "✓" if detail["enriched_found"] else "✗"
-                baseline_class = "check" if detail["baseline_found"] else "cross"
-                enriched_class = "check" if detail["enriched_found"] else "cross"
-                
+            # Show assertion details
+            if "assertions" in query:
+                html += """
+            <div class="assertion-details">
+                <h4>Expected Items</h4>
+"""
+                for detail in query["assertions"]["details"]:
+                    expected = detail["expected"]
+                    html += f"""
+                <div class="assertion-row">
+                    <div class="assertion-expected">
+                        <strong>{expected.get('title', 'N/A')}</strong><br>
+                        by {expected.get('author', 'N/A')}<br>
+                        <small>Must appear in top {expected.get('must_appear_in_top', 10)}</small>
+                    </div>
+"""
+                    for index_name in index_names:
+                        result = detail["results_by_index"].get(index_name, {})
+                        if result.get("found"):
+                            html += f"""
+                    <div class="assertion-result found">
+                        ✓ Rank {result.get('rank', 'N/A')}
+                    </div>
+"""
+                        else:
+                            html += """
+                    <div class="assertion-result not-found">
+                        ✗ Not found
+                    </div>
+"""
+                    html += """
+                </div>
+"""
+                html += """
+            </div>
+"""
+            
+            # Show top results
+            html += f"""
+            <div class="results-grid">
+"""
+            for index_name in index_names:
+                results_list = query["results_by_index"].get(index_name, [])
                 html += f"""
-                <div class="assertion-detail">
-                    <div class="assertion-book">{detail['expected_book']}</div>
-                    <div class="assertion-result">
-                        Must appear in top {detail['must_appear_in_top']} | 
-                        Baseline: <span class="{baseline_class}">{baseline_icon} {detail['baseline_rank'] or 'Not found'}</span> | 
-                        Enriched: <span class="{enriched_class}">{enriched_icon} {detail['enriched_rank'] or 'Not found'}</span>
-                    </div>
-                </div>
-"""
-            
-            html += """
-            </div>
-            
-            <div class="metrics">
-                <div class="metrics-grid">
-                    <div class="metric">
-                        <span class="metric-label">Overlap (top 5):</span>
-                        <span class="metric-value">""" + str(result['metrics']['overlap_top_5']) + """/5</span>
-                    </div>
-                    <div class="metric">
-                        <span class="metric-label">Overlap (top 10):</span>
-                        <span class="metric-value">""" + str(result['metrics']['overlap_top_10']) + """/10</span>
-                    </div>
-                    <div class="metric">
-                        <span class="metric-label">Rank correlation:</span>
-                        <span class="metric-value">""" + f"{result['metrics']['rank_correlation']:.2f}" + """</span>
-                    </div>
-                </div>
-            </div>
-            
-            <div class="results-comparison">
                 <div class="result-column">
-                    <h4>Baseline Results</h4>
+                    <h4>{index_name}</h4>
 """
-            
-            for r in result["baseline_results"][:8]:
-                html += f"""
+                for r in results_list[:5]:
+                    html += f"""
                     <div class="result-item">
                         <span class="result-rank">{r['rank']}.</span>
                         <div>
-                            <div class="result-title">{r['title'] or 'Unknown'}</div>
-                            <div class="result-author">{r['author'] or 'Unknown'}</div>
+                            <div class="result-title">{r.get('title') or 'Unknown'}</div>
+                            <div class="result-author">{r.get('author') or 'Unknown'}</div>
                         </div>
                     </div>
 """
-            
-            html += """
+                html += """
                 </div>
-                <div class="result-column">
-                    <h4>Enriched Results</h4>
 """
-            
-            for r in result["enriched_results"][:8]:
-                html += f"""
-                    <div class="result-item">
-                        <span class="result-rank">{r['rank']}.</span>
-                        <div>
-                            <div class="result-title">{r['title'] or 'Unknown'}</div>
-                            <div class="result-author">{r['author'] or 'Unknown'}</div>
-                        </div>
-                    </div>
-"""
-            
             html += """
-                </div>
             </div>
         </div>
 """
     
-    # Quality queries
+    html += """
+    </div>
+"""
+    
+    # Quality/manual review queries
+    quality_queries = [q for q in results["queries"] if q.get("manual_review", False) or q["query_type"] != "exact_match"]
+    
     if quality_queries:
         html += """
     <div class="section">
         <h2>📝 Quality Queries (Manual Review)</h2>
 """
         
-        for result in quality_queries:
+        for query in quality_queries:
             html += f"""
-        <div class="query manual">
+        <div class="query">
             <div class="query-header">
-                <h3>"{result['query_text']}" <span class="badge manual">MANUAL REVIEW</span></h3>
-                <div class="query-meta">{result.get('description', '')} | Type: {result['query_type']}</div>
+                <h3>"{query['query_text']}" <span class="badge manual">MANUAL REVIEW</span></h3>
+                <div class="query-meta">{query.get('description', '')} | Type: {query['query_type']} | Complexity: {query.get('complexity_level', 'N/A')}</div>
             </div>
             
-            <div class="metrics">
-                <div class="metrics-grid">
-                    <div class="metric">
-                        <span class="metric-label">Overlap (top 5):</span>
-                        <span class="metric-value">{result['metrics']['overlap_top_5']}/5</span>
-                    </div>
-                    <div class="metric">
-                        <span class="metric-label">Overlap (top 10):</span>
-                        <span class="metric-value">{result['metrics']['overlap_top_10']}/10</span>
-                    </div>
-                    <div class="metric">
-                        <span class="metric-label">Rank correlation:</span>
-                        <span class="metric-value">{result['metrics']['rank_correlation']:.2f}</span>
-                    </div>
-                </div>
-            </div>
-            
-            <div class="results-comparison">
-                <div class="result-column">
-                    <h4>Baseline Results</h4>
+            <div class="results-grid">
 """
             
-            for r in result["baseline_results"][:8]:
+            for index_name in index_names:
+                results_list = query["results_by_index"].get(index_name, [])
                 html += f"""
+                <div class="result-column">
+                    <h4>{index_name}</h4>
+"""
+                for r in results_list[:8]:
+                    html += f"""
                     <div class="result-item">
                         <span class="result-rank">{r['rank']}.</span>
                         <div>
-                            <div class="result-title">{r['title'] or 'Unknown'}</div>
-                            <div class="result-author">{r['author'] or 'Unknown'}</div>
+                            <div class="result-title">{r.get('title') or 'Unknown'}</div>
+                            <div class="result-author">{r.get('author') or 'Unknown'}</div>
                         </div>
                     </div>
 """
-            
-            html += """
+                html += """
                 </div>
-                <div class="result-column">
-                    <h4>Enriched Results</h4>
-"""
-            
-            for r in result["enriched_results"][:8]:
-                html += f"""
-                    <div class="result-item">
-                        <span class="result-rank">{r['rank']}.</span>
-                        <div>
-                            <div class="result-title">{r['title'] or 'Unknown'}</div>
-                            <div class="result-author">{r['author'] or 'Unknown'}</div>
-                        </div>
-                    </div>
 """
             
             html += """
-                </div>
             </div>
         </div>
 """
@@ -854,23 +799,40 @@ def generate_html_output(results: Dict, metadata: Dict, output_path: Path):
     
     with open(output_path, "w", encoding="utf-8") as f:
         f.write(html)
-    
     print(f"✅ HTML report saved to: {output_path}")
 
 
 def main():
     parser = argparse.ArgumentParser(
-        description="Compare baseline vs enriched semantic search indexes (LLM metadata removed)"
+        description="Compare multiple semantic search indexes",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog="""
+Examples:
+  # Compare all indexes
+  python compare_indexes.py \\
+    --index baseline=~/bookrec/models/data/baseline \\
+    --index baseline_clean=~/bookrec/models/data/baseline_clean \\
+    --index v1_subjects=~/bookrec/models/data/enriched_v1_subjects \\
+    --index v1_full=~/bookrec/models/data/enriched_v1 \\
+    --index v2_subjects=~/bookrec/models/data/enriched_v2_subjects \\
+    --index v2_full=~/bookrec/models/data/enriched_v2 \\
+    --output results/
+  
+  # Compare subset of indexes
+  python compare_indexes.py \\
+    --index baseline=models/data/baseline \\
+    --index v1_full=models/data/enriched_v1 \\
+    --index v2_full=models/data/enriched_v2
+"""
     )
+    
     parser.add_argument(
-        "--baseline",
-        default="~/bookrec/models/data/baseline",
-        help="Path to baseline index directory"
-    )
-    parser.add_argument(
-        "--enriched",
-        default="~/bookrec/models/data/enriched_v1",
-        help="Path to enriched index directory"
+        "--index",
+        action="append",
+        dest="indexes",
+        required=True,
+        metavar="NAME=PATH",
+        help="Index to compare (format: name=path). Can be specified multiple times."
     )
     parser.add_argument(
         "--queries",
@@ -896,22 +858,29 @@ def main():
     
     args = parser.parse_args()
     
-    # Expand paths
-    baseline_path = Path(args.baseline).expanduser()
-    enriched_path = Path(args.enriched).expanduser()
+    # Parse index arguments
+    index_paths = {}
+    for idx_arg in args.indexes:
+        if "=" not in idx_arg:
+            print(f"❌ Invalid index format: {idx_arg}")
+            print("   Expected format: name=path")
+            return 1
+        name, path = idx_arg.split("=", 1)
+        index_paths[name] = Path(path).expanduser()
+    
     queries_path = Path(args.queries)
     output_dir = Path(args.output)
     
     print("\n" + "=" * 80)
-    print("SEMANTIC SEARCH INDEX COMPARISON (NO LLM METADATA)")
+    print("MULTI-INDEX SEMANTIC SEARCH COMPARISON")
     print("=" * 80)
-    print(f"Baseline index: {baseline_path}")
-    print(f"Enriched index: {enriched_path}")
+    print(f"Indexes to compare: {len(index_paths)}")
+    for name, path in index_paths.items():
+        print(f"  - {name}: {path}")
     print(f"Test queries: {queries_path}")
     print(f"Output dir: {output_dir}")
     print(f"Top K: {args.top_k}")
     print(f"Embedder: {args.embedder}")
-    print("\n⚠️  LLM-generated metadata will be removed from results")
     print("=" * 80)
     
     # Load embedder
@@ -927,19 +896,15 @@ def main():
     
     # Load indexes
     print("\nLoading indexes...")
-    try:
-        baseline_searcher = load_semantic_searcher(str(baseline_path), embedder)
-        print(f"✅ Loaded baseline index ({len(baseline_searcher.ids)} books)")
-    except Exception as e:
-        print(f"❌ Failed to load baseline index: {e}")
-        return 1
-    
-    try:
-        enriched_searcher = load_semantic_searcher(str(enriched_path), embedder)
-        print(f"✅ Loaded enriched index ({len(enriched_searcher.ids)} books)")
-    except Exception as e:
-        print(f"❌ Failed to load enriched index: {e}")
-        return 1
+    searchers = {}
+    for name, path in index_paths.items():
+        try:
+            searcher = load_semantic_searcher(str(path), embedder)
+            searchers[name] = searcher
+            print(f"✅ Loaded {name} index ({len(searcher.ids)} books)")
+        except Exception as e:
+            print(f"❌ Failed to load {name} index: {e}")
+            return 1
     
     # Load test queries
     print("\nLoading test queries...")
@@ -956,12 +921,7 @@ def main():
         return 1
     
     # Run comparison
-    results = run_comparison(
-        baseline_searcher,
-        enriched_searcher,
-        queries,
-        top_k=args.top_k
-    )
+    results = run_multi_index_comparison(searchers, queries, top_k=args.top_k)
     
     # Generate outputs
     output_dir.mkdir(parents=True, exist_ok=True)
@@ -969,27 +929,24 @@ def main():
     
     metadata = {
         "timestamp": datetime.now().isoformat(),
-        "baseline_index": str(baseline_path),
-        "enriched_index": str(enriched_path),
+        "indexes": {name: str(path) for name, path in index_paths.items()},
         "embedding_model": args.embedder,
         "top_k": args.top_k,
         "num_queries": len(queries),
-        "test_queries_version": queries_data.get("version", "unknown"),
-        "note": "LLM-generated metadata (subjects, tones, genres, vibes) removed to avoid hallucinations"
+        "test_queries_version": queries_data.get("version", "unknown")
     }
     
     print("\nGenerating outputs...")
     
-    # Full JSON
-    json_path = output_dir / f"comparison_no_llm_{timestamp}.json"
-    generate_json_output(results, metadata, json_path)
+    # Save individual index results
+    save_index_results(results, output_dir, timestamp)
     
     # Summary JSON
-    summary_path = output_dir / f"summary_no_llm_{timestamp}.json"
+    summary_path = output_dir / f"summary_{timestamp}.json"
     generate_summary_json(results, metadata, summary_path)
     
     # HTML report
-    html_path = output_dir / f"comparison_no_llm_{timestamp}.html"
+    html_path = output_dir / f"comparison_{timestamp}.html"
     generate_html_output(results, metadata, html_path)
     
     print("\n" + "=" * 80)
@@ -997,8 +954,8 @@ def main():
     print("=" * 80)
     print(f"\nView results:")
     print(f"  HTML Report: {html_path}")
-    print(f"  Full JSON: {json_path}")
     print(f"  Summary: {summary_path}")
+    print(f"  Individual index results: {output_dir}/*_{timestamp}.json")
     print()
     
     return 0
