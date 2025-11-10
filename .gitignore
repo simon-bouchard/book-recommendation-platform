@@ -16,7 +16,7 @@ enrich.err
 backfill.out
 ops/enrichment/test_*.csv
 ops/enrichment/test_*.txt
-**/resluts/**
+**/results/**
 
 # Model artifacts
 *.pickle
