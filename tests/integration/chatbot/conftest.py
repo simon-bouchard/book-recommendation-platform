@@ -142,13 +142,16 @@ def test_user_with_profile(db_session) -> User:
     
     Prefers warm user with profile for realistic testing.
     """
-    from sqlalchemy import func
+    from sqlalchemy import func, exists, select
+    from app.table_models import UserFavSubject
     
-    # Find warm user with favorite_subjects
+    # Find warm user with favorite_subjects (using exists subquery)
+    subquery = exists(select(UserFavSubject.id).where(UserFavSubject.user_id == User.user_id))
+    
     user = (
         db_session.query(User)
         .join(Interaction, User.user_id == Interaction.user_id)
-        .filter(User.favorite_subjects.isnot(None))
+        .filter(subquery)
         .group_by(User.user_id)
         .having(func.count(Interaction.id) >= 10)
         .first()
@@ -156,9 +159,7 @@ def test_user_with_profile(db_session) -> User:
     
     if not user:
         # Fallback: any user with profile
-        user = db_session.query(User).filter(
-            User.favorite_subjects.isnot(None)
-        ).first()
+        user = db_session.query(User).filter(subquery).first()
     
     if not user:
         pytest.skip("No users with profile data available in test database")

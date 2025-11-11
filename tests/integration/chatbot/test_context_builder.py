@@ -5,7 +5,7 @@ Validates that history truncation and context preparation work correctly.
 """
 import pytest
 from app.agents.orchestrator.conductor import Conductor
-from app.agents.schemas import Target, AgentResult
+from app.agents.schemas import AgentResult
 
 
 class TestContextBuilders:
@@ -159,7 +159,7 @@ class TestContextBuilders:
             current_user=test_user_warm,
             db=db_session,
             user_num_ratings=10,
-            force_target=Target.DOCS,  # Force docs agent instead
+            force_target="docs",  # Force docs agent instead
         )
         
         assert result.success, \
@@ -178,10 +178,10 @@ class TestContextBuilders:
         conductor = Conductor()
         
         targets_to_test = [
-            Target.RECSYS,
-            Target.WEB,
-            Target.DOCS,
-            Target.RESPOND
+            "recsys",
+            "web",
+            "docs",
+            "respond"
         ]
         
         for target in targets_to_test:
@@ -190,8 +190,8 @@ class TestContextBuilders:
                 user_text="test query",
                 use_profile=False,
                 current_user=test_user_warm,
-                db=db_session if target == Target.RECSYS else None,
-                user_num_ratings=10 if target == Target.RECSYS else 0,
+                db=db_session if target == "recsys" else None,
+                user_num_ratings=10 if target == "recsys" else 0,
                 force_target=target,
             )
             
