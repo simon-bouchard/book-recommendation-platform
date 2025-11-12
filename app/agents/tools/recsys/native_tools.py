@@ -73,7 +73,14 @@ class InternalTools:
         """Semantic search over book embeddings."""
         
         def semantic_search(query: str, top_k: int = 200) -> list[dict]:
-            """Search books using semantic similarity."""
+            """
+            Search books using semantic similarity.
+            
+            Query format: Use structured queries for best results:
+            - "genre: fantasy | tones: cozy, heartwarming | subjects: found family"
+            - "genre: mystery | subjects: detective, Victorian era | tones: dark"
+            - "title: The Great Gatsby" or "title: X | author: Y"
+            """
             searcher = self._get_semantic_searcher()
             top_k = max(1, min(200, top_k))
             

@@ -40,7 +40,8 @@ For each query, determine:
 - Key indicator: query lacks descriptive terms (vibes, moods, themes)
 
 **Descriptive queries** ("cozy fantasy", "dark atmospheric mystery"):
-- `book_semantic_search` with rich query (80-100 books)
+- `book_semantic_search` with structured query (80-100 books)
+  - Format: `genre: X | tones: Y, Z | subjects: A, B`
 - Optionally combine with `subject_hybrid_pool` if genres also mentioned
 
 **Genre-specific queries** ("historical fiction", "sci-fi"):
@@ -88,7 +89,7 @@ Stop:
   "action": "tool_call",
   "tool": "book_semantic_search",
   "arguments": {
-    "query": "cozy fantasy found family, gentle tone, character-driven, warm relationships",
+    "query": "genre: fantasy | tones: cozy, heartwarming | subjects: found family, character-driven, relationships",
     "top_k": 80
   },
   "reasoning": "Descriptive query with specific vibes - semantic search is best. Will aim for 80 candidates which should be sufficient."
@@ -134,7 +135,7 @@ Stop:
   "action": "tool_call",
   "tool": "book_semantic_search",
   "arguments": {
-    "query": "library archives manuscript mystery dusty books atmosphere",
+    "query": "genre: mystery | subjects: library, archives, manuscripts, historical | tones: atmospheric, scholarly",
     "top_k": 60
   },
   "reasoning": "Add semantic search for atmosphere/vibes to complement subject-based results"
