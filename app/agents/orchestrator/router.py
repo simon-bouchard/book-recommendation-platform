@@ -51,7 +51,7 @@ class RouterLLM:
         """
         self.system_prompt = read_prompt("router.system.md")
         self.llm = llm_client if llm_client is not None else get_llm(
-            tier="small", json_mode=True, temperature=0, timeout=15
+            tier="medium", json_mode=True, temperature=0, timeout=15
         )
 
     def _chat(self, messages: List[Dict[str, str]]) -> str:
