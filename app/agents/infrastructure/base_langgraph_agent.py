@@ -160,9 +160,13 @@ class BaseLangGraphAgent(BaseAgent):
             append_chatbot_log(f"Decision: {json.dumps(decision, indent=2)}")
             state.add_reasoning_step(json.dumps(decision))
             
-            # Validate decision
-            if not self._is_decision_valid(state, decision):
-                return self._force_finalize(state, "Invalid decision")
+            # CHANGED: Validate decision with new signature
+            is_valid, error_msg = self._validate_decision(state, decision)
+            if not is_valid:
+                append_chatbot_log(f"Invalid decision: {error_msg}")
+                # Store error for next iteration
+                state.intermediate_outputs["validation_error"] = error_msg
+                return self._force_finalize(state, f"Validation failed: {error_msg}")
             
             self._process_decision(state, decision)
             
@@ -176,31 +180,38 @@ class BaseLangGraphAgent(BaseAgent):
             state.intermediate_outputs["next_action"] = {"type": "finalize"}
         
         return state
-    
+       
     def _build_messages(self, state: AgentExecutionState) -> List:
-        """
-        Build message list for LLM.
-        Override this method in subclasses for custom message construction.
-        """
-        messages = [
-            SystemMessage(content=self._get_system_prompt())
-        ]
+        """Build message list for LLM."""
+        messages = []
         
-        # Add few-shot examples (first iteration only)
-        if len(state.reasoning_steps) == 0:
-            few_shots = self._get_few_shot_messages()
-            if few_shots:
-                messages.extend(few_shots)
+        # System message
+        system_prompt = self._get_system_prompt()
+        messages.append(SystemMessage(content=system_prompt))
         
-        # Add conversation history
-        history_msgs = self._format_conversation_history(state)
-        if history_msgs:
-            messages.extend(history_msgs)
+        # Few-shot examples (if any)
+        examples = self._get_few_shot_messages()
+        if examples:
+            messages.extend(examples)
+        
+        # Conversation history
+        history = self._format_conversation_history(state)
+        if history:
+            messages.extend(history)
         
         # Add tool results from previous iterations
         tool_msgs = self._format_tool_results(state)
         if tool_msgs:
             messages.extend(tool_msgs)
+        
+        # ADDED: Show validation error if present
+        if "validation_error" in state.intermediate_outputs:
+            messages.append(HumanMessage(
+                content=f"❌ VALIDATION ERROR: {state.intermediate_outputs['validation_error']}\n"
+                        f"Your previous decision was rejected. Try a DIFFERENT approach."
+            ))
+            # Clear the error after showing it once
+            del state.intermediate_outputs["validation_error"]
         
         # Add current situation/query
         messages.append(
@@ -208,7 +219,7 @@ class BaseLangGraphAgent(BaseAgent):
         )
         
         return messages
-    
+
     def _get_few_shot_messages(self) -> List:
         """
         Get few-shot example messages.
@@ -248,6 +259,7 @@ class BaseLangGraphAgent(BaseAgent):
         for i, exec in enumerate(state.tool_executions[-3:], 1):
             status = "✓ SUCCESS" if exec.succeeded else "✗ FAILED"
             parts.append(f"\n{i}. {exec.tool_name} ({status}) [{exec.execution_time_ms}ms]")
+            parts.append(f"   Arguments: {json.dumps(exec.arguments)}")
             
             if exec.error:
                 parts.append(f"   ERROR: {exec.error}")
@@ -257,7 +269,11 @@ class BaseLangGraphAgent(BaseAgent):
                 limit = self._get_truncation_limit(exec.tool_name)
                 result_str = str(exec.result)
                 
-                if limit < float('inf') and len(result_str) > limit:
+                # ADDED: Special handling for guardrail messages
+                if "[Guardrail]" in result_str:
+                    parts.append(f"   ⚠️  GUARDRAIL: {result_str}")
+                    parts.append(f"   → This query was already searched. Use existing results.")
+                elif limit < float('inf') and len(result_str) > limit:
                     parts.append(f"   Result: {result_str[:limit]}... [truncated]")
                 else:
                     parts.append(f"   Result: {result_str}")
@@ -265,7 +281,7 @@ class BaseLangGraphAgent(BaseAgent):
         messages.append(HumanMessage(content="\n".join(parts)))
         
         return messages
-    
+       
     def _get_truncation_limit(self, tool_name: str) -> int:
         """
         Get truncation limit for tool results.
@@ -356,7 +372,9 @@ class BaseLangGraphAgent(BaseAgent):
         parts.append("- Arguments must be a dict matching tool parameters")
         parts.append("- Don't call the same tool twice with identical arguments")
         parts.append("- If you have sufficient information, choose 'answer'")
-        
+        parts.append("- If you see '[Guardrail]' or '⚠️ GUARDRAIL' in tool results, DON'T repeat that call")
+        parts.append("- If tool results contain relevant info, use them confidently in your answer")
+
         return "\n".join(parts)
     
     # ============================================================================
@@ -403,19 +421,40 @@ class BaseLangGraphAgent(BaseAgent):
         
         return decision
     
-    def _is_decision_valid(self, state: AgentExecutionState, decision: Dict[str, Any]) -> bool:
-        """Validate decision makes sense given current state."""
+    def _validate_decision(self, state: AgentExecutionState, decision: Dict[str, Any]) -> tuple[bool, Optional[str]]:
+        """
+        Validate decision makes sense given current state.
+        
+        Returns:
+            (is_valid, error_message)
+        """
         action = decision.get("action")
         
         if action == "tool_call":
             tool_name = decision.get("tool")
             
+            # Check tool exists
             if tool_name not in self.tool_executor._tools:
-                append_chatbot_log(f"Tool '{tool_name}' not available")
-                return False
+                return False, f"Tool '{tool_name}' not available"
+            
+            # ADDED: Check for duplicate tool calls to prevent infinite loops
+            tool_args = decision.get("arguments", {})
+            
+            # Normalize arguments for comparison (sort keys, convert to string)
+            normalized_args = json.dumps(tool_args, sort_keys=True)
+            
+            # Check last 2 tool executions for duplicates
+            for exec in state.tool_executions[-2:]:
+                if exec.tool_name == tool_name:
+                    exec_normalized = json.dumps(exec.arguments, sort_keys=True)
+                    if exec_normalized == normalized_args:
+                        return False, (
+                            f"Tool '{tool_name}' already called with identical arguments. "
+                            f"Try different arguments or provide final answer."
+                        )
         
-        return True
-    
+        return True, None
+       
     def _process_decision(self, state: AgentExecutionState, decision: Dict[str, Any]) -> None:
         """Process parsed decision and update state."""
         action = decision["action"]
