@@ -1,8 +1,7 @@
 # evaluation/chatbot/web_agent/evaluate_web.py
 """
-Web Agent evaluation with two-layer testing:
-Layer 1 (Deterministic): Web search tool usage validation
-Layer 2 (LLM-as-judge): Answer relevance and recency
+Web Agent evaluation with explicit tool requirement control.
+Determines agent success based on actual output quality rather than internal success flag.
 """
 import json
 from pathlib import Path
@@ -24,9 +23,57 @@ def load_test_cases(json_path: Path) -> List[Dict]:
         return json.load(f)
 
 
+def check_agent_success(response_text: str) -> tuple[bool, str]:
+    """
+    Determine if agent execution was successful based on response text.
+    
+    Don't rely on response.success flag - agent may mark itself as failed
+    even when producing good output. Instead, check the actual response.
+    
+    Returns:
+        (success, reason)
+    """
+    # Check for explicit error patterns
+    error_indicators = [
+        "error:",
+        "exception:",
+        "failed to",
+        "couldn't find",
+        "unable to",
+        "don't have the information",
+        "training data only",
+        "has not yet occurred"
+    ]
+    
+    lower_text = response_text.lower()
+    
+    # Check for error indicators
+    for indicator in error_indicators:
+        if indicator in lower_text:
+            return False, f"Response contains error indicator: '{indicator}'"
+    
+    # Check for minimum substance
+    if len(response_text.strip()) < 30:
+        return False, "Response too short (< 30 chars)"
+    
+    # Check for cop-out responses
+    cop_out_phrases = [
+        "having trouble",
+        "couldn't summarize",
+        "check these sources",
+        "see the following links"
+    ]
+    
+    for phrase in cop_out_phrases:
+        if phrase in lower_text and len(response_text) < 200:
+            return False, f"Response is a cop-out: contains '{phrase}'"
+    
+    return True, "Response is substantive"
+
+
 def check_web_search_usage(tool_executions: List) -> Dict[str, Any]:
     """
-    Layer 1: Check if agent used web_search tool.
+    Check if agent used web_search tool.
     
     Args:
         tool_executions: List of ToolExecution objects from agent
@@ -34,7 +81,6 @@ def check_web_search_usage(tool_executions: List) -> Dict[str, Any]:
     Returns:
         Dict with tool usage validation results
     """
-    # Find web_search calls
     web_search_calls = [
         exec for exec in tool_executions 
         if exec.tool_name == "web_search"
@@ -59,7 +105,7 @@ def judge_answer_quality(
     judge_llm
 ) -> Dict[str, Any]:
     """
-    Layer 2: Judge answer relevance and recency.
+    Judge answer relevance and recency using LLM.
     
     Scores:
     - Relevance (0/1): Does response address the query?
@@ -67,24 +113,15 @@ def judge_answer_quality(
     
     Pass = both scores = 1
     """
-    # Check for error responses
-    if "having trouble" in response_text.lower() or "error:" in response_text.lower():
-        return {
-            "relevance": 0,
-            "recency": 0,
-            "reason": "Agent returned error response",
-            "quality_pass": False
-        }
-    
     recency_instruction = ""
     if recency_expected:
         recency_instruction = """
 2. RECENCY: Does the response contain current/recent information (2024-2025)?
-   - 1 = Yes, references recent information
-   - 0 = No, information seems outdated or not time-specific"""
+   - 1 = Yes, references recent information with dates/specifics
+   - 0 = No, information seems outdated or lacks temporal specificity"""
     else:
         recency_instruction = """
-2. RECENCY: Not applicable for this query (set to 1 by default)"""
+2. RECENCY: Not applicable for this query (automatically set to 1)"""
     
     judge_prompt = f"""Query: {query}
 
@@ -94,12 +131,12 @@ Agent Response:
 Evaluate the agent's response with binary scoring:
 
 1. RELEVANCE: Does the response properly address the query?
-   - 1 = Yes, addresses the query appropriately
-   - 0 = No, off-topic or doesn't answer the question
+   - 1 = Yes, directly addresses the query
+   - 0 = No, off-topic or doesn't answer
 
 {recency_instruction}
 
-Return JSON:
+Return ONLY valid JSON:
 {{
   "relevance": <0 or 1>,
   "recency": <0 or 1>,
@@ -112,6 +149,7 @@ Return JSON:
             response = judge_llm.invoke([{"role": "user", "content": judge_prompt}])
         content = response.content if hasattr(response, 'content') else str(response)
         
+        # Strip markdown code blocks
         if "```json" in content:
             content = content.split("```json")[1].split("```")[0]
         elif "```" in content:
@@ -119,7 +157,7 @@ Return JSON:
         
         result = json.loads(content.strip())
         
-        # If recency not expected, auto-set to 1
+        # Auto-set recency to 1 if not expected
         if not recency_expected:
             result["recency"] = 1
         
@@ -141,11 +179,13 @@ Return JSON:
 def evaluate(test_cases: List[Dict], agent: WebAgent) -> Dict[str, Any]:
     """Evaluate web agent on test cases."""
     results = []
-    judge_llm = agent.llm  # Reuse agent's LLM for judging
+    judge_llm = agent.llm
     
     for test in test_cases:
         query = test["query"]
         recency_expected = test.get("recency_expected", False)
+        tool_required = test.get("tool_required", True)
+        rationale = test.get("rationale", "")
         
         # Execute agent
         request = AgentRequest(
@@ -157,17 +197,13 @@ def evaluate(test_cases: List[Dict], agent: WebAgent) -> Dict[str, Any]:
         try:
             response = agent.execute(request)
             response_text = response.text
-            agent_success = response.success
             tool_executions = response.execution_state.tool_executions if response.execution_state else []
-            
-            # Check for error patterns
-            if not agent_success or "having trouble" in response_text.lower():
-                agent_success = False
-                
         except Exception as e:
-            response_text = f"ERROR: {str(e)}"
-            agent_success = False
+            response_text = f"EXCEPTION: {str(e)}"
             tool_executions = []
+        
+        # Determine agent success based on response quality, not internal flag
+        agent_success, success_reason = check_agent_success(response_text)
         
         # Layer 1: Tool usage validation
         tool_check = check_web_search_usage(tool_executions)
@@ -175,18 +211,52 @@ def evaluate(test_cases: List[Dict], agent: WebAgent) -> Dict[str, Any]:
         # Layer 2: Answer quality
         quality_check = judge_answer_quality(query, response_text, recency_expected, judge_llm)
         
-        # Overall pass: agent success AND tool used AND quality good
-        overall_pass = (
-            agent_success and 
-            tool_check["tool_used"] and 
-            quality_check["quality_pass"]
-        )
+        # Overall pass logic based on tool_required flag
+        if tool_required:
+            overall_pass = (
+                agent_success and 
+                tool_check["tool_used"] and 
+                quality_check["quality_pass"]
+            )
+            pass_logic = "Tool required: web search + quality answer"
+            
+            if not overall_pass:
+                if not agent_success:
+                    failure_reason = f"Agent failed: {success_reason}"
+                elif not tool_check["tool_used"]:
+                    failure_reason = "Required web search not used"
+                elif not quality_check["quality_pass"]:
+                    failure_reason = f"Quality failed: {quality_check['reason']}"
+                else:
+                    failure_reason = "Unknown"
+            else:
+                failure_reason = None
+        else:
+            overall_pass = (
+                agent_success and 
+                quality_check["quality_pass"]
+            )
+            pass_logic = "Tool optional: quality answer sufficient"
+            
+            if not overall_pass:
+                if not agent_success:
+                    failure_reason = f"Agent failed: {success_reason}"
+                elif not quality_check["quality_pass"]:
+                    failure_reason = f"Quality failed: {quality_check['reason']}"
+                else:
+                    failure_reason = "Unknown"
+            else:
+                failure_reason = None
         
         results.append({
             "query": query,
             "response": response_text,
+            "rationale": rationale,
             "agent_success": agent_success,
+            "agent_success_reason": success_reason,
             "recency_expected": recency_expected,
+            "tool_required": tool_required,
+            "pass_logic": pass_logic,
             # Layer 1
             "tool_used": tool_check["tool_used"],
             "tool_reason": tool_check["reason"],
@@ -196,13 +266,23 @@ def evaluate(test_cases: List[Dict], agent: WebAgent) -> Dict[str, Any]:
             "quality_reason": quality_check["reason"],
             "quality_pass": quality_check["quality_pass"],
             # Overall
-            "overall_pass": overall_pass
+            "overall_pass": overall_pass,
+            "failure_reason": failure_reason
         })
     
     # Stats
     passed = sum(1 for r in results if r["overall_pass"])
     tool_passed = sum(1 for r in results if r["tool_used"])
     quality_passed = sum(1 for r in results if r["quality_pass"])
+    agent_success_count = sum(1 for r in results if r["agent_success"])
+    
+    # Breakdown by tool requirement
+    tool_required_tests = [r for r in results if r["tool_required"]]
+    tool_optional_tests = [r for r in results if not r["tool_required"]]
+    
+    tool_required_passed = sum(1 for r in tool_required_tests if r["overall_pass"])
+    tool_optional_passed = sum(1 for r in tool_optional_tests if r["overall_pass"])
+    
     total = len(results)
     
     return {
@@ -210,8 +290,17 @@ def evaluate(test_cases: List[Dict], agent: WebAgent) -> Dict[str, Any]:
         "passed": passed,
         "total": total,
         "pass_rate": passed / total if total > 0 else 0,
+        "agent_success_rate": agent_success_count / total if total > 0 else 0,
         "tool_pass_rate": tool_passed / total if total > 0 else 0,
         "quality_pass_rate": quality_passed / total if total > 0 else 0,
+        "tool_required_pass_rate": tool_required_passed / len(tool_required_tests) if tool_required_tests else 0,
+        "tool_optional_pass_rate": tool_optional_passed / len(tool_optional_tests) if tool_optional_tests else 0,
+        "breakdown": {
+            "tool_required_tests": len(tool_required_tests),
+            "tool_required_passed": tool_required_passed,
+            "tool_optional_tests": len(tool_optional_tests),
+            "tool_optional_passed": tool_optional_passed
+        },
         "timestamp": datetime.now().isoformat()
     }
 
@@ -223,31 +312,40 @@ def print_results(eval_results: Dict[str, Any]):
     print("="*70)
     
     print(f"\nOverall Pass Rate: {eval_results['pass_rate']:.1%} ({eval_results['passed']}/{eval_results['total']})")
+    print(f"Agent Success Rate: {eval_results['agent_success_rate']:.1%}")
     print(f"Layer 1 (Tool Usage): {eval_results['tool_pass_rate']:.1%}")
     print(f"Layer 2 (Quality): {eval_results['quality_pass_rate']:.1%}")
     
-    # Show each test
+    breakdown = eval_results['breakdown']
+    print(f"\nBreakdown by Tool Requirement:")
+    print(f"  Tool-Required: {eval_results['tool_required_pass_rate']:.1%} ({breakdown['tool_required_passed']}/{breakdown['tool_required_tests']})")
+    print(f"  Tool-Optional: {eval_results['tool_optional_pass_rate']:.1%} ({breakdown['tool_optional_passed']}/{breakdown['tool_optional_tests']})")
+    
     print("\nTest Results:")
     for i, r in enumerate(eval_results["results"], 1):
         status = "✅ PASS" if r["overall_pass"] else "❌ FAIL"
         print(f"\n{i}. {status}")
         print(f"   Query: {r['query']}")
+        print(f"   Rationale: {r['rationale']}")
         print(f"   Response: {r['response'][:100]}...")
         
-        # Layer 1 results
-        tool_status = "✅" if r["tool_used"] else "❌"
-        print(f"   {tool_status} Layer 1 (Tool Usage): {r['tool_reason']}")
+        # Agent success
+        agent_icon = "✅" if r["agent_success"] else "❌"
+        print(f"   {agent_icon} Agent: {r['agent_success_reason']}")
         
-        # Layer 2 results
-        qual_status = "✅" if r["quality_pass"] else "❌"
+        # Tool usage
+        requirement = "REQUIRED" if r["tool_required"] else "OPTIONAL"
+        tool_icon = "✅" if r["tool_used"] else ("❌" if r["tool_required"] else "ℹ️")
+        print(f"   {tool_icon} Layer 1 (Tool - {requirement}): {r['tool_reason']}")
+        
+        # Quality
+        qual_icon = "✅" if r["quality_pass"] else "❌"
         recency_note = " (recency checked)" if r["recency_expected"] else ""
-        print(f"   {qual_status} Layer 2 (Quality): Relevance={r['relevance']}, Recency={r['recency']}{recency_note}")
+        print(f"   {qual_icon} Layer 2 (Quality): Rel={r['relevance']}, Rec={r['recency']}{recency_note}")
         
-        # Show reasons for failures
-        if not r["tool_used"]:
-            print(f"      Tool: {r['tool_reason']}")
-        if not r["quality_pass"]:
-            print(f"      Quality: {r['quality_reason']}")
+        # Failure reason
+        if not r["overall_pass"]:
+            print(f"   ⚠️  {r['failure_reason']}")
     
     print("\n" + "="*70)
 
@@ -274,13 +372,17 @@ def main():
     test_cases = load_test_cases(test_cases_path)
     print(f"Loaded {len(test_cases)} test cases")
     
-    print("Initializing Web Agent...")
+    tool_required = sum(1 for t in test_cases if t.get("tool_required", True))
+    tool_optional = len(test_cases) - tool_required
+    print(f"  - {tool_required} tool-required tests")
+    print(f"  - {tool_optional} tool-optional tests")
+    
+    print("\nInitializing Web Agent...")
     try:
         agent = WebAgent()
-        print("✓ Agent initialized successfully\n")
+        print("✓ Agent initialized\n")
     except Exception as e:
-        print(f"\n❌ ERROR: Failed to initialize Web Agent")
-        print(f"   {str(e)}")
+        print(f"\n❌ Failed to initialize: {e}")
         return
     
     print("Running evaluation...\n")
