@@ -14,7 +14,7 @@ class AgentCapability(Enum):
     """Agent capabilities that determine what an agent can do."""
     WEB_SEARCH = "web_search"
     DOCUMENT_SEARCH = "docs_search"
-    INTERNAL_TOOLS = "internal_tools"  # Includes recommendation tools
+    INTERNAL_TOOLS = "internal_tools"  
     CONVERSATIONAL = "conversational"
 
 

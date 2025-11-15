@@ -100,7 +100,8 @@ class BaseLangGraphAgent(BaseAgent):
         return ToolRegistry(
             web=AgentCapability.WEB_SEARCH in config.capabilities,
             docs=AgentCapability.DOCUMENT_SEARCH in config.capabilities,
-            internal=AgentCapability.INTERNAL_TOOLS in config.capabilities,
+            retrieval=AgentCapability.INTERNAL_TOOLS in config.capabilities,
+            context=AgentCapability.INTERNAL_TOOLS in config.capabilities
             gates=gates,
             ctx_user=ctx_user,
             ctx_db=ctx_db,
