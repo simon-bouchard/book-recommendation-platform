@@ -264,8 +264,8 @@ class ToolRegistry:
             "web_enabled": self.web_enabled,
             "docs_enabled": self.docs_enabled,
             "retrieval_enabled": self.retrieval_enabled,
-            "include_context_tools": self.include_context_tools,
-            "include_retrieval_tools": self.include_retrieval_tools,
+            "include_context_tools": self.context_enabled,
+            "include_retrieval_tools": self.retrieval_enabled,
             "is_warm_user": self.gates.is_warm_user,
             "profile_allowed": self.gates.profile_allowed,
             "tools_by_category": {
@@ -275,22 +275,3 @@ class ToolRegistry:
             },
             "tool_names": self.get_tool_names(),
         }
-
-
-# Backward compatibility adapter for legacy code
-class ToolRegistry(ToolRegistry):
-    """
-    Backward-compatible wrapper that maintains the old ToolRegistry API.
-    
-    This allows gradual migration without breaking existing code.
-    Maps the new native tools to look like LangChain tools where needed.
-    """
-    
-    def get_tools(self) -> list:
-        """
-        Return tools in a format compatible with legacy code.
-        
-        For now, this returns native ToolDefinitions. If legacy code
-        expects LangChain Tools, we can add a compatibility layer here.
-        """
-        return super().get_tools()

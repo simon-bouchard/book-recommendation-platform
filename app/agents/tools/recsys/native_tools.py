@@ -210,7 +210,7 @@ class InternalTools:
             weight = max(0.0, min(1.0, weight))
             
             # Build user object for recommender
-            if fav_subjects_idxs is not None:
+            if fav_subjects_idxs is not None and len(fav_subjects_idxs) > 0:
                 user_obj = SimpleNamespace(
                     user_id=getattr(self.current_user, "user_id", None),
                     fav_subjects_idxs=fav_subjects_idxs
