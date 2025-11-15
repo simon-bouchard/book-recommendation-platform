@@ -35,26 +35,44 @@ class InternalTools:
         """Lazy-load semantic searcher."""
         if self._semantic_searcher is None:
             self._semantic_searcher = SemanticSearcher(
-                dir_path="models/data/enriched_v2",
+                dir_path="models/data/enriched_v1",
                 embedder=settings.embedder
             )
         return self._semantic_searcher
     
-    def get_tools(self, is_warm: bool) -> list[ToolDefinition]:
+    def get_context_tools(self) -> list[ToolDefinition]:
         """
-        Get available internal tools based on user state.
+        Get context tools for PlannerAgent.
+        
+        These tools provide user preference data to inform strategy decisions.
+        They do NOT retrieve books.
+        
+        Returns:
+            List of context tools (empty if profile not allowed)
+        """
+        if not self.allow_profile or not self.current_user or not self.db:
+            return []
+        
+        return self._create_user_context_tools()
+    
+    def get_retrieval_tools(self, is_warm: bool) -> list[ToolDefinition]:
+        """
+        Get retrieval tools for CandidateGeneratorAgent.
+        
+        These tools retrieve candidate books based on different strategies.
         
         Args:
-            is_warm: Whether user has enough ratings for warm recommendations
+            is_warm: Whether user has enough ratings for collaborative filtering
             
         Returns:
-            List of available tools
+            List of retrieval tools
         """
         tools = []
         
-        # Always available
+        # Always available retrieval tools
         tools.append(self._create_semantic_search_tool())
-        tools.append(self._create_return_book_ids_tool())
+        tools.append(self._create_subject_id_search_tool())
+        tools.append(self._create_popular_books_tool())
         
         # Conditional on user state
         if is_warm and self.current_user and self.db:
@@ -62,10 +80,32 @@ class InternalTools:
         
         if self.current_user and self.db:
             tools.append(self._create_subject_hybrid_tool())
-            tools.append(self._create_subject_id_search_tool())
         
-        if self.allow_profile and self.current_user and self.db:
-            tools.extend(self._create_user_context_tools())
+        return tools
+    
+    def get_tools(self, is_warm: bool) -> list[ToolDefinition]:
+        """
+        Get all available internal tools based on user state.
+        
+        DEPRECATED: Use get_context_tools() or get_retrieval_tools() instead.
+        This method is kept for backward compatibility.
+        
+        Args:
+            is_warm: Whether user has enough ratings for warm recommendations
+            
+        Returns:
+            List of all available tools
+        """
+        tools = []
+        
+        # Add context tools
+        tools.extend(self.get_context_tools())
+        
+        # Add retrieval tools
+        tools.extend(self.get_retrieval_tools(is_warm))
+        
+        # Add the finalizer tool
+        tools.append(self._create_return_book_ids_tool())
         
         return tools
     
@@ -73,14 +113,7 @@ class InternalTools:
         """Semantic search over book embeddings."""
         
         def semantic_search(query: str, top_k: int = 200) -> list[dict]:
-            """
-            Search books using semantic similarity.
-            
-            Query format: Use structured queries for best results:
-            - "genre: fantasy | tones: cozy, heartwarming | subjects: found family"
-            - "genre: mystery | subjects: detective, Victorian era | tones: dark"
-            - "title: The Great Gatsby" or "title: X | author: Y"
-            """
+            """Search books using semantic similarity."""
             searcher = self._get_semantic_searcher()
             top_k = max(1, min(200, top_k))
             
@@ -262,6 +295,61 @@ class InternalTools:
             category=ToolCategory.INTERNAL,
             requires_db=True,
         )(subject_id_search)
+    
+    def _create_popular_books_tool(self) -> ToolDefinition:
+        """Get popular books ranked by Bayesian average rating."""
+        
+        def popular_books(top_k: int = 100) -> list[dict]:
+            """
+            Get popular books ranked by Bayesian average rating.
+            
+            Use for cold users with vague queries when no other context available.
+            Returns books sorted by rating quality + popularity.
+            
+            Args:
+                top_k: Number of popular books to return
+                
+            Returns:
+                List of popular books with metadata
+            """
+            if not self.current_user or not self.db:
+                return [{"error": "Popular books requires authenticated user"}]
+            
+            top_k = max(1, min(500, top_k))
+            
+            try:
+                recommender = ColdRecommender()
+                results = recommender.recommend(
+                    user=self.current_user,
+                    db=self.db,
+                    top_k=top_k,
+                    top_k_bayes=max(top_k, 200),  # Pure Bayesian ranking
+                    top_k_sim=0,
+                    top_k_mixed=0,
+                    w=0.0,  # No mixing
+                )
+                
+                # Exclude already-read books
+                user_id = getattr(self.current_user, "user_id", None)
+                if user_id:
+                    already_read = get_read_books(user_id=user_id, db=self.db)
+                    results = [
+                        r for r in results
+                        if int(r.get("item_idx", -1)) not in already_read
+                    ]
+                
+                return results[:top_k]
+                
+            except Exception as e:
+                return [{"error": f"Popular books failed: {e}"}]
+        
+        return tool(
+            name="popular_books",
+            description="Get popular books ranked by Bayesian average rating for cold users",
+            category=ToolCategory.INTERNAL,
+            requires_auth=True,
+            requires_db=True,
+        )(popular_books)
     
     def _create_return_book_ids_tool(self) -> ToolDefinition:
         """Finalize and return selected book IDs."""

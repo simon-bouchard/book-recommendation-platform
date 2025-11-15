@@ -53,7 +53,8 @@ class ToolRegistry:
         *,
         web: bool = True,
         docs: bool = True,
-        internal: bool = False,
+        retrieval: bool = False,
+        context: bool = False,
         gates: Optional[InternalToolGates] = None,
         ctx_user: Any = None,
         ctx_db: Optional[Session] = None,
@@ -64,14 +65,16 @@ class ToolRegistry:
         Args:
             web: Enable web tools
             docs: Enable documentation tools
-            internal: Enable internal recommendation tools
+            retrieval: Enable retrieval tools (semantic_search, als_recs, subject_hybrid, etc.)
+            context: Enable context tools (user_profile, recent_interactions)
             gates: Access control for internal tools
             ctx_user: Current user object (for internal tools)
             ctx_db: Database session (for internal tools)
         """
         self.web_enabled = web
         self.docs_enabled = docs
-        self.internal_enabled = internal
+        self.retrieval_enabled = retrieval
+        self.context_enabled = context
         self.gates = gates or InternalToolGates()
         self.ctx_user = ctx_user
         self.ctx_db = ctx_db
@@ -83,6 +86,69 @@ class ToolRegistry:
         
         # Cached tool list
         self._tools_cache: Optional[list[ToolDefinition]] = None
+    
+    @classmethod
+    def for_context(
+        cls,
+        *,
+        gates: Optional[InternalToolGates] = None,
+        ctx_user: Any = None,
+        ctx_db: Optional[Session] = None,
+    ) -> 'ToolRegistry':
+        """
+        Create a registry for context tools only (PlannerAgent).
+        
+        Returns only user_profile and recent_interactions tools.
+        
+        Args:
+            gates: Access control for internal tools
+            ctx_user: Current user object
+            ctx_db: Database session
+            
+        Returns:
+            ToolRegistry configured for context tools
+        """
+        return cls(
+            web=False,
+            docs=False,
+            retrieval=False,
+            context=True,
+            gates=gates,
+            ctx_user=ctx_user,
+            ctx_db=ctx_db,
+        )
+    
+    @classmethod
+    def for_retrieval(
+        cls,
+        *,
+        gates: Optional[InternalToolGates] = None,
+        ctx_user: Any = None,
+        ctx_db: Optional[Session] = None,
+    ) -> 'ToolRegistry':
+        """
+        Create a registry for retrieval tools only (CandidateGeneratorAgent).
+        
+        Returns book retrieval tools: als_recs, semantic_search, subject_hybrid, 
+        subject_id_search, and popular_books.
+        
+        Args:
+            gates: Access control for internal tools
+            ctx_user: Current user object
+            ctx_db: Database session
+            
+        Returns:
+            ToolRegistry configured for retrieval tools
+        """
+        return cls(
+            web=False,
+            docs=False,
+            retrieval=True,
+            context=False,
+            gates=gates,
+            ctx_user=ctx_user,
+            ctx_db=ctx_db,
+        )
     
     def get_tools(self) -> list[ToolDefinition]:
         """
@@ -113,7 +179,7 @@ class ToolRegistry:
             tools.extend(self._docs_tools.get_tools())
         
         # Internal recommendation tools
-        if self.internal_enabled:
+        if self.retrieval_enabled or self.context_enabled:
             if self._internal_tools is None:
                 self._internal_tools = InternalTools(
                     current_user=self.ctx_user,
@@ -121,9 +187,21 @@ class ToolRegistry:
                     user_num_ratings=self.gates.user_num_ratings or 0,
                     allow_profile=self.gates.profile_allowed,
                 )
-            tools.extend(self._internal_tools.get_tools(
-                is_warm=self.gates.is_warm_user
-            ))
+            
+            # Get tools based on inclusion flags
+            if self.context_enabled and self.retrieval_enabled:
+                # Both enabled - use backward compatible get_tools
+                tools.extend(self._internal_tools.get_tools(
+                    is_warm=self.gates.is_warm_user
+                ))
+            else:
+                # Selective inclusion
+                if self.context_enabled:
+                    tools.extend(self._internal_tools.get_context_tools())
+                if self.retrieval_enabled:
+                    tools.extend(self._internal_tools.get_retrieval_tools(
+                        is_warm=self.gates.is_warm_user
+                    ))
         
         self._tools_cache = tools
         return tools
@@ -185,7 +263,9 @@ class ToolRegistry:
             "total_tools": len(tools),
             "web_enabled": self.web_enabled,
             "docs_enabled": self.docs_enabled,
-            "internal_enabled": self.internal_enabled,
+            "retrieval_enabled": self.retrieval_enabled,
+            "include_context_tools": self.include_context_tools,
+            "include_retrieval_tools": self.include_retrieval_tools,
             "is_warm_user": self.gates.is_warm_user,
             "profile_allowed": self.gates.profile_allowed,
             "tools_by_category": {
