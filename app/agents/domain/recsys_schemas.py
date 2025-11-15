@@ -3,7 +3,7 @@
 Data structures for the recommendation system multi-agent pipeline.
 Defines inputs and outputs for each stage: Planner, CandidateGenerator, and Curation.
 """
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from typing import Optional
 
 
@@ -59,30 +59,6 @@ class PlannerStrategy:
 
 
 @dataclass
-class ToolExecution:
-    """
-    Record of a single tool execution during candidate generation.
-    
-    Tracks which tool was called, with what parameters, and the result quality.
-    Used for execution context passed to CurationAgent.
-    """
-    tool_name: str
-    """Name of the tool that was executed"""
-    
-    arguments: dict
-    """Parameters passed to the tool"""
-    
-    book_count: int
-    """Number of books returned by this tool"""
-    
-    relevance_assessment: str
-    """Quality assessment: 'good match' | 'off-target' | 'mixed'"""
-    
-    order: int
-    """Execution sequence number (1st, 2nd, 3rd, etc.)"""
-
-
-@dataclass
 class CandidateGeneratorInput:
     """
     Input for CandidateGeneratorAgent - execute strategy and gather candidates.
@@ -101,12 +77,30 @@ class CandidateGeneratorInput:
 
 
 @dataclass
+class ExecutionContext:
+    """
+    Context about how candidates were generated - passed to CurationAgent.
+    
+    Minimal info for Curator to write appropriate prose explanations.
+    Curator can derive personalization and method from tools_used and profile_data.
+    """
+    planner_reasoning: str
+    """Why Planner chose this strategy"""
+    
+    tools_used: list[str]
+    """Tools executed, in order: ['als_recs'] or ['book_semantic_search', 'popular_books']"""
+    
+    profile_data: Optional[dict] = None
+    """Profile data from Planner (if user profile was accessed)"""
+
+
+@dataclass
 class CandidateGeneratorOutput:
     """
     Output from CandidateGeneratorAgent - pool of candidate books.
     
-    Contains 60-120 books with full metadata, plus execution history
-    for transparency and debugging.
+    Contains 60-120 books with full metadata, plus execution context
+    for CurationAgent.
     """
     candidates: list[dict]
     """
@@ -114,30 +108,11 @@ class CandidateGeneratorOutput:
     Each dict contains: item_idx, title, author, subjects, tones, description, score
     """
     
-    tool_executions: list[ToolExecution]
-    """History of tool calls made during candidate generation"""
+    execution_context: ExecutionContext
+    """Context about how candidates were generated"""
     
     reasoning: str
     """Explanation of execution decisions (why stopped, what was tried, etc.)"""
-
-
-@dataclass
-class ExecutionContext:
-    """
-    Context about how candidates were generated - passed to CurationAgent.
-    
-    Provides transparency about the retrieval process so the curator can
-    explain recommendations appropriately (e.g., "personalized for you" vs
-    "popular books matching your interests").
-    """
-    planner_reasoning: str
-    """Why the planner chose this strategy"""
-    
-    tool_executions: list[ToolExecution]
-    """What tools were called and in what order"""
-    
-    profile_data: Optional[dict] = None
-    """Whether profile data was used in retrieval"""
 
 
 @dataclass
