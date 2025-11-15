@@ -1,0 +1,582 @@
+Recommendation System Refactoring - Implementation Plan (Phase 1)
+Overview
+This document outlines the refactoring plan to split the monolithic recommendation agent into a multi-stage pipeline with clear separation of concerns.
+Core Architecture:
+User Query
+    ↓
+PlannerAgent (analyze + decide strategy)
+    ↓
+CandidateGeneratorAgent (execute + gather)
+    ↓
+CurationAgent (filter + rank + prose)
+    ↓
+Final Response
+Note: The decision to split CurationAgent into separate Ranking and Explainer components will be deferred until after Phases 1-3 are complete. We need to investigate whether curator ranking issues can be resolved through better prompts and candidate preparation before adding architectural complexity.
+
+Phase 1: Tool Reorganization
+Goal: Separate tools by responsibility and create clear boundaries between different tool types.
+1.1 Tool Category Definitions
+Context Tools (for Planner):
+
+user_profile - Get user's favorite subjects
+recent_interactions - Get recent ratings/interactions
+Purpose: Inform strategy decisions, NOT retrieve books
+Returns: User preference data (subjects, genres, recent activity)
+
+Retrieval Tools (for Candidate Generator):
+
+als_recs - Collaborative filtering recommendations
+book_semantic_search - Semantic/vibe-based search
+subject_id_search - Convert subject names to IDs
+subject_hybrid_pool - Subject-based recommendations
+popular_books - Bayesian-ranked popular books (NEW)
+Purpose: Retrieve candidate books
+Returns: Lists of book candidates with metadata
+
+1.2 New Tool: popular_books
+Purpose: Extract Bayesian average logic from subject_hybrid_pool into dedicated tool
+Current Problem:
+
+subject_hybrid_pool(fav_subjects_idxs=None) → returns popular books
+subject_hybrid_pool(fav_subjects_idxs=[1,2,3]) → returns subject-based recs
+Mixed responsibility makes tool selection unclear
+
+Solution:
+
+Create popular_books tool with single responsibility
+subject_hybrid_pool ONLY handles subject-based retrieval
+Makes LLM tool selection more intuitive
+
+Tool Signature:
+pythondef popular_books(top_k: int = 100) -> ToolResult
+```
+
+**Tool Description for LLM:**
+```
+Get popular books ranked by Bayesian average rating.
+Use for cold users with vague queries when no other context available.
+Returns books sorted by rating quality + popularity.
+1.3 Tool Registry Separation
+Create Two Registries:
+ContextToolRegistry:
+
+Used by: PlannerAgent
+Contains: user_profile, recent_interactions
+Gating: Based on allow_profile flag
+Returns: Empty list if profile not allowed
+
+RetrievalToolRegistry:
+
+Used by: CandidateGeneratorAgent
+Contains: als_recs (conditional), book_semantic_search, subject_id_search, subject_hybrid_pool, popular_books
+Gating: Based on has_als_recs_available flag
+Returns: All retrieval tools with proper gating
+
+Key Principle: ZERO OVERLAP between registries
+Registry Interface:
+pythonclass ToolRegistry:
+    def __init__(self, ctx_user, ctx_db, gates)
+    def get_tools(self) -> list[LangChainTool]
+    def get_tool_names(self) -> list[str]
+
+Phase 2: PlannerAgent
+Goal: Analyze query and determine retrieval strategy
+2.1 Responsibilities
+
+Query Analysis:
+
+Classify query type (vague/descriptive/genre)
+Identify explicit constraints (genres, tones, themes)
+Detect negative constraints (for logging only)
+
+
+Profile Tool Calling (Conditional):
+
+Call user_profile if: vague query + allow_profile = True
+Call recent_interactions if: needed for recency context
+Store results for passing to Candidate Generator
+
+
+Strategy Determination:
+
+Recommend 1-2 primary tools
+Recommend 1-2 fallback tools
+Explain reasoning
+
+
+
+2.2 Input Schema
+pythonPlannerInput:
+    query: str                          # User's request
+    has_als_recs_available: bool        # Can use collaborative filtering?
+    allow_profile: bool                 # Can access user preferences?
+    available_retrieval_tools: list[str] # Tool names for context
+2.3 Output Schema
+pythonPlannerStrategy:
+    recommended_tools: list[str]        # Primary tools, ordered by preference
+    fallback_tools: list[str]           # Backup tools if primary underperforms
+    reasoning: str                      # Why this strategy was chosen
+    profile_data: Optional[dict]        # Results from user_profile/recent_interactions
+    negative_constraints: Optional[list[str]]  # Detected negatives (for logging)
+Example Outputs:
+Vague query, warm user:
+json{
+  "recommended_tools": ["als_recs"],
+  "fallback_tools": ["popular_books"],
+  "reasoning": "Vague query with ALS available - personalized recs best",
+  "profile_data": null
+}
+Vague query, cold user with profile:
+json{
+  "recommended_tools": ["subject_hybrid_pool"],
+  "fallback_tools": ["popular_books"],
+  "reasoning": "Cold user but profile shows favorite subjects - use subject search",
+  "profile_data": {
+    "user_profile": {"favorite_subjects": [12, 45, 78], "favorite_genres": ["fantasy", "mystery"]}
+  }
+}
+Descriptive query:
+json{
+  "recommended_tools": ["book_semantic_search"],
+  "fallback_tools": ["subject_hybrid_pool"],
+  "reasoning": "Descriptive query with atmosphere terms - semantic search ideal",
+  "profile_data": null
+}
+```
+
+### 2.4 Decision Logic
+
+**Query Type Classification:**
+
+| Query Type | Indicators | Recommended Tools | Fallback Tools |
+|-----------|-----------|-------------------|----------------|
+| **Vague** | "recommend", "what to read", no specifics | `als_recs` (warm) OR `subject_hybrid_pool` (cold w/ profile) OR `popular_books` (cold no profile) | `popular_books`, `book_semantic_search` |
+| **Descriptive** | Atmosphere/mood/tone words ("dark", "cozy", "atmospheric") | `book_semantic_search` | `subject_hybrid_pool`, `popular_books` |
+| **Genre-specific** | Explicit genres ("mystery", "fantasy", "historical fiction") | `subject_id_search` → `subject_hybrid_pool` | `book_semantic_search` |
+| **Complex** | Multiple requirements (genre + vibe + constraints) | `subject_id_search` → `subject_hybrid_pool` + `book_semantic_search` | `popular_books` |
+
+**Profile Tool Decision Tree:**
+```
+Should call user_profile?
+├─ allow_profile = False → NO
+├─ Query is descriptive (has atmosphere/genre terms) → NO (enough info in query)
+└─ Query is vague → YES (need context to inform strategy)
+```
+
+### 2.5 Implementation Approach
+
+**Agent Type:** Simple LLM call (NOT ReAct loop)
+- Single analysis pass
+- May call 0-2 profile tools via tool binding
+- Returns strategy JSON
+- No iteration needed
+
+**LLM Configuration:**
+- Tier: "medium" (strategy is simpler than execution)
+- Temperature: 0.1 (want consistent strategy)
+- JSON mode: Yes (for strategy output)
+- Tool binding: Only if allow_profile=True
+
+**Prompt Structure:**
+```
+[System prompt with strategy logic]
+
+Query: {query}
+ALS available: {has_als_recs_available}
+Profile allowed: {allow_profile}
+[Profile data: {profile_data}]  # If tools were called
+
+Determine the best retrieval strategy.
+Return JSON with recommended_tools, fallback_tools, reasoning.
+
+Phase 3: CandidateGeneratorAgent
+Goal: Execute retrieval tools and gather 60-120 candidate books
+3.1 Responsibilities
+
+Strategy Execution:
+
+Receive strategy from Planner
+Execute recommended tools with appropriate parameters
+Accumulate book candidates with metadata
+
+
+Quality Assessment:
+
+After each tool call, inspect results
+Check if books match query intent (subjects, genres, tones)
+Detect relevance mismatches
+
+
+Adaptive Fallback:
+
+If primary tool returns irrelevant results → try fallback
+If primary tool returns < 30 books → try additional tools
+If primary tool excellent → stop early (60+ books)
+
+
+Negative Constraint Handling:
+
+Strip negative terms from semantic search queries
+Example: "dark fantasy but no vampires" → search "dark fantasy"
+Let Curator handle filtering
+
+
+
+3.2 Input Schema
+pythonCandidateGeneratorInput:
+    query: str                          # Original user query
+    strategy: PlannerStrategy           # Strategy from Planner
+    profile_data: Optional[dict]        # Profile data if Planner gathered it
+3.3 Output Schema
+pythonCandidateGeneratorOutput:
+    candidates: list[BookRecommendation]  # 60-120 books with full metadata
+    tool_executions: list[ToolExecution]  # History of what was called
+    reasoning: str                        # Why stopped, what was tried
+pythonToolExecution:
+    tool_name: str                      # Which tool
+    arguments: dict                     # Parameters used
+    book_count: int                     # How many books returned
+    relevance_assessment: str           # "good match" | "off-target" | "mixed"
+    order: int                          # Execution sequence
+```
+
+### 3.4 Decision Logic
+
+**Tool Parameter Selection:**
+
+| Tool | Parameter Decisions |
+|------|-------------------|
+| `als_recs` | `top_k=120` (fixed, always want many for curation) |
+| `book_semantic_search` | `top_k=80-100`, `query=` structured format (genre/tones/subjects) |
+| `subject_hybrid_pool` | `fav_subjects_idxs=` from profile or query, `top_k=100-120`, `weight=0.6-0.8` |
+| `subject_id_search` | `phrases=` extracted genre terms, `top_k=5-10` |
+| `popular_books` | `top_k=100-120` |
+
+**Stopping Conditions:**
+```
+STOP if:
+- Have 60+ books AND primary tool succeeded AND results are relevant
+- Have 100+ books (regardless of quality - let Curator filter)
+- Have tried primary + fallback AND both returned books
+- Hit max iterations (7)
+
+CONTINUE if:
+- Under 30 books total
+- Primary tool returned off-target results AND fallback available
+- Only tried 1 tool and results seem incomplete
+Underperformance Detection:
+After each tool call, LLM inspects results:
+python# Pseudo-logic for LLM reasoning:
+if tool_result.books:
+    # Check subjects/genres in results
+    result_subjects = extract_subjects_from_books(tool_result.books)
+    query_intent = extract_intent_from_query(original_query)
+    
+    if mismatch(result_subjects, query_intent):
+        # Example: User wanted fiction, got non-fiction
+        # Example: User wanted fantasy, got romance
+        decision = "try_fallback"
+        reasoning = "Results don't match query intent"
+    elif len(tool_result.books) < 30:
+        decision = "try_additional"
+        reasoning = "Insufficient candidates"
+    else:
+        decision = "stop"
+        reasoning = "Good results, sufficient quantity"
+Relevance Assessment Logic:
+
+LLM examines book subjects, genres, tones in tool results
+Compares against query keywords and intent
+Classifications:
+
+"good match": Majority of books align with query
+"off-target": Majority of books don't match (wrong genre/subject)
+"mixed": Some matches, some misses
+"insufficient": Too few books to assess
+
+
+
+3.5 Implementation Approach
+Agent Type: ReAct loop (BaseLangGraphAgent)
+
+Iterative execution (plan → act → observe → decide)
+Can adapt strategy based on observations
+Follows Planner's recommendations but has autonomy
+
+LLM Configuration:
+
+Tier: "large" (needs good reasoning for adaptation)
+Temperature: 0.2 (some flexibility in execution)
+JSON mode: Yes (for decisions)
+Max iterations: 7
+
+ReAct Decision Format:
+json{
+  "action": "tool_call" | "answer",
+  "tool": "tool_name",
+  "arguments": {...},
+  "reasoning": "Why calling this tool / Why stopping"
+}
+```
+
+**Negative Constraint Handling in Prompt:**
+```
+## CRITICAL: Negative Constraints
+
+If query contains negative terms (e.g., "no vampires", "without romance"):
+
+DO NOT include these in your tool arguments, especially semantic_search.
+
+Example:
+- User: "dark fantasy but no vampire stories"
+- Your semantic_search query: "dark fantasy, atmospheric, character-driven"
+- DO NOT include: "no vampires" (embeddings don't handle negation)
+
+The Curator will filter out unwanted content after retrieval.
+
+Phase 4: Update CurationAgent
+Goal: Enhance existing CurationAgent with execution context and negative filtering
+4.1 Current State
+
+Already exists and works
+Single LLM call: ranking + prose generation
+Returns ordered book IDs + formatted text
+
+4.2 Enhancements Needed
+Add Execution Context:
+pythonExecutionContext:
+    planner_reasoning: str              # Why this strategy was chosen
+    tool_executions: list[ToolExecution] # What was called, results
+    profile_data: Optional[dict]        # If profile was used
+Purpose: Let Curator understand:
+
+Which tools were tried and in what order
+Whether results came from personalization vs. generic search
+Context for explaining recommendations
+
+Add Negative Constraint Filtering:
+
+Update prompt to explicitly check for negative terms in query
+Filter out books matching negative patterns
+Log what was filtered in reasoning
+
+Prompt Addition:
+markdown## Negative Constraint Filtering
+
+After quality filtering, check the original query for negative constraints:
+- "no vampires" → exclude vampire books
+- "without romance" → exclude romance-heavy books  
+- "avoid sad endings" → exclude tragedies
+
+Filter candidates matching these patterns.
+Log what you filtered in your reasoning.
+4.3 Input Schema (Updated)
+pythonCurationInput:
+    query: str                          # Original query
+    candidates: list[BookRecommendation] # 60-120 unfiltered candidates
+    execution_context: ExecutionContext  # NEW: History from previous stages
+```
+
+### 4.4 Implementation Approach
+
+**Minimal Changes:**
+- Add `execution_context` parameter to `execute()` method
+- Format context into prompt as "RETRIEVAL HISTORY" section
+- Add negative filtering instruction to prompt
+- Everything else stays the same
+
+**Context Formatting Example:**
+```
+RETRIEVAL HISTORY:
+Strategy: Vague query with ALS available - personalized recs best
+1. als_recs(top_k=120) → 120 books (good match)
+
+Note: Results are personalized based on user's reading history.
+
+Phase 5: Orchestrator Updates
+Goal: Wire together PlannerAgent → CandidateGeneratorAgent → CurationAgent
+5.1 New Orchestrator Flow
+pythondef execute(request: AgentRequest) -> AgentResponse:
+    # Stage 1: Planning
+    planner_result = self.planner.execute(request)
+    strategy = planner_result.strategy
+    profile_data = planner_result.profile_data
+    
+    # Stage 2: Candidate Generation
+    generator_input = {
+        "query": request.user_text,
+        "strategy": strategy,
+        "profile_data": profile_data
+    }
+    generator_result = self.candidate_generator.execute(generator_input)
+    candidates = generator_result.candidates
+    tool_executions = generator_result.tool_executions
+    
+    # Stage 3: Curation
+    execution_context = ExecutionContext(
+        planner_reasoning=strategy.reasoning,
+        tool_executions=tool_executions,
+        profile_data=profile_data
+    )
+    curation_result = self.curation_agent.execute(
+        request=request,
+        candidates=candidates,
+        execution_context=execution_context
+    )
+    
+    return curation_result
+5.2 Fallback Handling
+Planner Failure:
+
+Use hardcoded fallback strategy
+Warm user → als_recs, cold user → popular_books
+
+Generator Failure (no candidates):
+
+Return helpful error message
+Check if query mentions recent years (catalog is ≤2004)
+
+Curator Failure:
+
+Return first 10 candidates with generic prose
+Partial success response
+
+5.3 State Transfer
+No shared mutable state - orchestrator manages data flow:
+
+Planner produces strategy → passed to Generator
+Generator produces candidates → passed to Curator
+Each agent is stateless (functional)
+
+
+Phase 6: Testing Strategy
+6.1 Unit Tests Per Component
+PlannerAgent Tests:
+
+Vague query + ALS available → recommends als_recs
+Vague query + cold user + no profile → recommends popular_books
+Vague query + cold user + profile → calls user_profile, recommends subject_hybrid_pool
+Descriptive query → recommends book_semantic_search
+Genre query → recommends subject_id_search + subject_hybrid_pool
+
+CandidateGeneratorAgent Tests:
+
+Executes primary tool from strategy
+Tries fallback on underperformance (off-target results)
+Stops early with 60+ good candidates
+Continues if under 30 candidates
+Strips negative terms from semantic queries
+
+CurationAgent Tests:
+
+Filters low-quality books (non-English, corrupted)
+Filters negative constraints ("no vampires" removes vampire books)
+Orders books by relevance score
+Generates prose about top 8-12 books
+
+6.2 Integration Tests
+End-to-End Scenarios:
+
+Warm user, vague query → ALS recs → curated list
+Cold user, vague query, no profile → Popular books → curated list
+Cold user, vague query, with profile → Profile call → subject search → curated list
+Descriptive query → Semantic search → curated list
+Genre query → Subject ID search → subject hybrid → curated list
+Negative constraint query → Retrieval ignores negatives → Curator filters
+
+6.3 Regression Tests
+Known Issues to Prevent:
+
+integration_cold_vague_with_profile → Should call profile tools (currently fails)
+Empty results for valid queries
+Off-target recommendations (romance when asked for sci-fi)
+
+
+Implementation Order
+Week 1: Tool Reorganization
+
+Create popular_books tool
+Create ContextToolRegistry
+Create RetrievalToolRegistry
+Update existing tools to work with new registries
+Write unit tests for registries
+
+Week 2: PlannerAgent
+
+Implement PlannerAgent class
+Create recsys.planner.md prompt
+Wire up profile tool calling
+Write unit tests
+Integration test with mock Candidate Generator
+
+Week 3: CandidateGeneratorAgent
+
+Implement CandidateGeneratorAgent class
+Create recsys.candidate_generator.md prompt
+Implement underperformance detection logic
+Write unit tests
+Integration test with PlannerAgent
+
+Week 4: Integration & Testing
+
+Update CurationAgent with execution context
+Wire up Orchestrator
+End-to-end integration tests
+Regression test suite
+Performance benchmarking
+
+
+Curator/Explainer Split - Decision Deferred
+Status: To be investigated after Phase 1-3 complete
+Question: Does CurationAgent have a systematic ranking bias (taking first N books from candidates)?
+Investigation Plan:
+
+Run eval suite with current 3-stage pipeline
+Manually inspect 20-30 recommendation results
+Check if book order correlates with candidate order
+Try prompt engineering fixes:
+
+Explicit "DO NOT take first N" instruction
+Request explicit scoring in reasoning
+Shuffle candidates before sending to curator
+Add examples of reordering in prompt
+
+
+
+If ranking bias is real and unfixable:
+
+Split into Curator (ranking only) → Explainer (prose only)
+Curator returns ordered IDs
+Explainer receives top 8-12 books with metadata
+Two LLM calls instead of one
+
+If ranking works well with prompt fixes:
+
+Keep single CurationAgent (simpler, faster, cheaper)
+Document the effective prompt pattern
+
+Evaluation Criteria:
+
+Order correlation: Are returned books always in candidate order?
+Query relevance: Do top books actually match query better than others?
+Quality distribution: Are high-quality books at top regardless of candidate position?
+
+
+Success Metrics
+Functionality:
+
+✅ All existing tests pass
+✅ integration_cold_vague_with_profile test passes (regression fix)
+✅ New query types handled correctly (negative constraints, complex queries)
+
+Performance:
+
+⏱️ Total latency ≤ current system (< 5s for most queries)
+💰 LLM cost ≤ current system (prefer fewer calls with larger models)
+📊 Recommendation relevance improved (manual eval)
+
+Code Quality:
+
+🏗️ Clear separation of concerns (each agent has single responsibility)
+🧪 80%+ test coverage
+📖 Well-documented prompt engineering decisions
