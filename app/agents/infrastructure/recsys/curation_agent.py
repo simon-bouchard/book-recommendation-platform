@@ -1,12 +1,10 @@
 # app/agents/infrastructure/recsys/curation_agent.py
-# Currently broken!
-
 """
 Curation agent for ranking and selecting final book recommendations.
 Stage 2 of two-stage recommendation pipeline.
 """
 import json
-from typing import List, Dict, Any, Optional
+from typing import List, Dict, Any
 
 from langchain_core.messages import HumanMessage
 
@@ -14,8 +12,8 @@ from app.agents.domain.entities import (
     AgentRequest,
     AgentResponse,
     BookRecommendation,
-    AgentExecutionState,
 )
+from app.agents.domain.recsys_schemas import ExecutionContext
 from app.agents.settings import get_llm
 from app.agents.prompts.loader import read_prompt
 from app.agents.logging import append_chatbot_log
@@ -36,7 +34,7 @@ class CurationAgent:
         self,
         request: AgentRequest,
         candidates: List[BookRecommendation],
-        retrieval_summary: Optional[List[Dict]] = None
+        execution_context: ExecutionContext
     ) -> AgentResponse:
         """
         Curate candidates and generate response.
@@ -44,7 +42,7 @@ class CurationAgent:
         Args:
             request: Original user request
             candidates: Books from retrieval stage (unfiltered)
-            retrieval_summary: Context about which tools were called
+            execution_context: Context about retrieval strategy and execution
             
         Returns:
             Final agent response with ordered books and prose
@@ -59,7 +57,7 @@ class CurationAgent:
         prompt = self._build_curation_prompt(
             query=request.user_text,
             candidates=prepared,
-            retrieval_summary=retrieval_summary or []
+            execution_context=execution_context
         )
         
         # Single LLM call
@@ -134,13 +132,13 @@ class CurationAgent:
         self,
         query: str,
         candidates: List[Dict],
-        retrieval_summary: List[Dict]
+        execution_context: ExecutionContext
     ) -> str:
-        """Build the curation prompt."""
+        """Build the curation prompt with execution context."""
         base_prompt = read_prompt("recsys.curation.md")
         
-        # Format retrieval context
-        context = self._format_retrieval_context(retrieval_summary)
+        # Format execution context
+        context = self._format_execution_context(execution_context)
         
         # Build full prompt
         return f"""{base_prompt}
@@ -155,26 +153,42 @@ CANDIDATES ({len(candidates)} books):
 Respond with JSON only.
 """
     
-    def _format_retrieval_context(self, retrieval_summary: List[Dict]) -> str:
-        """Format tool execution history."""
-        if not retrieval_summary:
-            return "RETRIEVAL HISTORY: No context available"
+    def _format_execution_context(self, execution_context: ExecutionContext) -> str:
+        """
+        Format execution context from planner and retrieval stages.
         
-        lines = ["RETRIEVAL HISTORY:"]
-        for entry in retrieval_summary:
-            tool = entry.get("tool", "unknown")
-            count = entry.get("book_count", 0)
-            order = entry.get("order", 0)
-            args = entry.get("arguments", {})
-            
-            top_k = args.get("top_k", "")
-            lines.append(f"{order}. {tool} (top_k={top_k}) → {count} books")
+        Shows the strategy reasoning, which tools were used, and profile data
+        to help the curator understand how these candidates were generated.
+        """
+        lines = ["EXECUTION CONTEXT:"]
+        lines.append("")
         
-        if len(retrieval_summary) > 1:
-            lines.append(
-                "\nNote: Later tool calls may be refinements. "
-                "Consider recency when evaluating candidates."
-            )
+        # Strategy reasoning from planner
+        lines.append(f"STRATEGY: {execution_context.planner_reasoning}")
+        lines.append("")
+        
+        # Tools used in order
+        if execution_context.tools_used:
+            lines.append("TOOLS USED:")
+            for i, tool in enumerate(execution_context.tools_used, 1):
+                lines.append(f"  {i}. {tool}")
+            lines.append("")
+        
+        # Profile data if available
+        if execution_context.profile_data:
+            lines.append("PROFILE DATA:")
+            for key, value in execution_context.profile_data.items():
+                lines.append(f"  {key}: {value}")
+            lines.append("")
+        
+        # Guidance on personalization
+        if execution_context.tools_used:
+            if "als_recs" in execution_context.tools_used:
+                lines.append("Note: Results are personalized based on collaborative filtering.")
+            elif execution_context.profile_data:
+                lines.append("Note: Results are informed by user profile data.")
+            elif "popular_books" in execution_context.tools_used:
+                lines.append("Note: Results are based on popular books (cold user).")
         
         return "\n".join(lines)
     
