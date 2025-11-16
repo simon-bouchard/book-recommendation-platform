@@ -14,7 +14,7 @@ class AgentCapability(Enum):
     """Agent capabilities that determine what an agent can do."""
     WEB_SEARCH = "web_search"
     DOCUMENT_SEARCH = "docs_search"
-    INTERNAL_TOOLS = "internal_tools"  
+    INTERNAL_TOOLS = "internal_tools"  # Includes recommendation tools
     CONVERSATIONAL = "conversational"
 
 
@@ -151,7 +151,7 @@ class BookRecommendation:
     # Extended metadata for curation (from tool results)
     subjects: Optional[List[str]] = None
     tones: Optional[List[str]] = None
-    description: Optional[str] = None
+    vibe: Optional[str] = None
     genre: Optional[str] = None
     
     def is_complete(self) -> bool:
@@ -160,7 +160,7 @@ class BookRecommendation:
     
     def has_rich_metadata(self) -> bool:
         """Check if recommendation has extended metadata for curation."""
-        return bool(self.subjects or self.tones or self.description or self.genre)
+        return bool(self.subjects or self.tones or self.vibe or self.genre)
     
     def to_curation_dict(self) -> Dict[str, Any]:
         """
@@ -176,7 +176,7 @@ class BookRecommendation:
             "subjects": self.subjects or [],
             "tones": self.tones or [],
             "genre": self.genre or "",
-            "description": self.description or "",
+            "vibe": self.vibe or "",
             "score": self.recommendation_score,
         }
 

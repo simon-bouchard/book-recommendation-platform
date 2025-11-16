@@ -115,14 +115,14 @@ class CurationAgent:
                     "subjects": getattr(book, 'subjects', []) or [],
                     "tones": getattr(book, 'tones', []) or [],
                     "genre": getattr(book, 'genre', "") or "",
-                    "description": getattr(book, 'description', "") or "",
+                    "vibe": getattr(book, 'vibe', "") or "",
                     "score": book.recommendation_score,
                 }
             
-            # Truncate description if too long (token limit)
-            description = book_dict.get("description", "")
-            if description and len(description) > 200:
-                book_dict["description"] = description[:200] + "..."
+            # Truncate vibe if too long (token limit)
+            vibe = book_dict.get("vibe", "")
+            if vibe and len(vibe) > 200:
+                book_dict["vibe"] = vibe[:200] + "..."
             
             prepared.append(book_dict)
         

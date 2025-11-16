@@ -88,12 +88,12 @@ class StandardResultProcessor:
             
             # Add extended metadata if available (not in base BookRecommendation)
             # Store in a dict for passing to curation
-            if 'subjects' in obj or 'tones' in obj or 'description' in obj or 'genre' in obj:
+            if 'subjects' in obj or 'tones' in obj or 'vibe' in obj or 'genre' in obj:
                 # We need to extend BookRecommendation or store metadata separately
                 # For now, let's add these as attributes dynamically
                 rec.subjects = obj.get('subjects', [])
                 rec.tones = obj.get('tones', [])
-                rec.description = obj.get('description')
+                rec.vibe = obj.get('vibe')
                 rec.genre = obj.get('genre')
             
             recommendations.append(rec)

@@ -1,14 +1,14 @@
 # app/agents/tools/recsys/native_tools.py
 """
-Modernized internal recommendation tools with clean interfaces.
-No string parsing gymnastics - just typed function signatures.
+Modernized internal recommendation tools with output standardization.
+All retrieval tools return consistent schema with enrichment data where available.
 """
 from typing import Optional
 from sqlalchemy.orm import Session
 from types import SimpleNamespace
 
 from models.recommender_strategy import WarmRecommender, ColdRecommender
-from models.shared_utils import get_read_books
+from models.shared_utils import get_read_books, ModelStore
 from app.semantic_index.search import SemanticSearcher
 from app.agents.settings import settings
 
@@ -16,7 +16,7 @@ from ..native_tool import tool, ToolCategory, ToolDefinition
 
 
 class InternalTools:
-    """Factory for internal recommendation tools."""
+    """Factory for internal recommendation tools with standardized outputs."""
     
     def __init__(
         self,
@@ -30,6 +30,7 @@ class InternalTools:
         self.user_num_ratings = user_num_ratings
         self.allow_profile = allow_profile
         self._semantic_searcher: Optional[SemanticSearcher] = None
+        self._tone_map: Optional[dict[int, str]] = None
     
     def _get_semantic_searcher(self) -> SemanticSearcher:
         """Lazy-load semantic searcher."""
@@ -39,6 +40,105 @@ class InternalTools:
                 embedder=settings.embedder
             )
         return self._semantic_searcher
+    
+    def _ensure_tone_map(self) -> dict[int, str]:
+        """
+        Lazy-load tone ID to name mapping from database.
+        
+        Cached for lifetime of tool instance to avoid repeated queries.
+        Single query returns ~36 rows (all tones in ontology).
+        
+        Returns:
+            Dictionary mapping tone_id (int) to tone name (str)
+        """
+        if self._tone_map is None and self.db:
+            from app.table_models import Tone
+            
+            try:
+                tones = self.db.query(Tone.tone_id, Tone.name).all()
+                self._tone_map = {tone_id: name for tone_id, name in tones}
+            except Exception:
+                # Fallback to empty map if query fails
+                self._tone_map = {}
+        
+        return self._tone_map or {}
+    
+    def _standardize_tool_output(self, raw_results: list[dict]) -> list[dict]:
+        """
+        Standardize tool outputs to consistent schema.
+        
+        Ensures all retrieval tools return same field structure:
+        - Core metadata: item_idx, title, author, year, num_ratings (always present)
+        - Enrichment: subjects, tones, genre, vibe (optional, from semantic_search)
+        - Internal: score (tool's relevance score, kept for debugging)
+        
+        Operations:
+        1. Resolve tone_ids → tone names (from cached DB map)
+        2. Add num_ratings from books.pkl (via ModelStore, in-memory)
+        3. Standardize field names (vibe not description)
+        4. Handle missing fields gracefully
+        
+        Args:
+            raw_results: Raw output from recommender or searcher
+            
+        Returns:
+            Standardized list of book dicts with consistent schema
+        """
+        if not raw_results:
+            return []
+        
+        # Load shared resources once
+        store = ModelStore()
+        book_meta = store.get_book_meta()  # books.pkl, cached in-memory
+        tone_map = self._ensure_tone_map()  # Cached DB query result
+        
+        standardized = []
+        
+        for book in raw_results:
+            # Pass through error results unchanged
+            if "error" in book:
+                standardized.append(book)
+                continue
+            
+            item_idx = book.get("item_idx")
+            if not item_idx:
+                continue
+            
+            # Get num_ratings from books.pkl (always available, zero queries)
+            num_ratings = 0
+            if item_idx in book_meta.index:
+                num_ratings = int(book_meta.loc[item_idx].get("num_ratings", 0))
+            
+            # Resolve tone IDs to names (only if present - semantic_search has this)
+            tone_ids = book.get("tone_ids", [])
+            tone_names = []
+            if tone_ids:
+                tone_names = [
+                    tone_map.get(tid) 
+                    for tid in tone_ids 
+                    if tid in tone_map
+                ]
+            
+            # Build standardized dict
+            standardized.append({
+                # Core metadata (always present)
+                "item_idx": item_idx,
+                "title": book.get("title", ""),
+                "author": book.get("author", ""),
+                "year": book.get("year"),
+                "num_ratings": num_ratings,
+                
+                # Enrichment metadata (optional - only semantic_search provides)
+                "subjects": book.get("subjects", []),
+                "tones": tone_names,
+                "genre": book.get("genre"),
+                "vibe": book.get("vibe"),
+                
+                # Internal only (not sent to curation)
+                "score": book.get("score", 0.0),
+            })
+        
+        return standardized
     
     def get_context_tools(self) -> list[ToolDefinition]:
         """
@@ -60,6 +160,7 @@ class InternalTools:
         Get retrieval tools for CandidateGeneratorAgent.
         
         These tools retrieve candidate books based on different strategies.
+        All tools return standardized output format.
         
         Args:
             is_warm: Whether user has enough ratings for collaborative filtering
@@ -110,33 +211,50 @@ class InternalTools:
         return tools
     
     def _create_semantic_search_tool(self) -> ToolDefinition:
-        """Semantic search over book embeddings."""
+        """Semantic search over book embeddings with full enrichment metadata."""
         
         def semantic_search(query: str, top_k: int = 200) -> list[dict]:
-            """Search books using semantic similarity."""
+            """
+            Search books using semantic similarity.
+            
+            Returns books with full enrichment metadata from semantic_meta.json:
+            - subjects, tones, genre, vibe (from enrichment pipeline)
+            - Standardized to include num_ratings from books.pkl
+            
+            Args:
+                query: Search query describing books to find
+                top_k: Number of results (max 200)
+                
+            Returns:
+                Standardized list of books with enrichment metadata
+            """
             searcher = self._get_semantic_searcher()
             top_k = max(1, min(200, top_k))
             
             try:
                 raw_results = searcher.search(query, top_k=top_k)
                 
-                # Flatten metadata structure for consistency
-                flattened = []
+                # Build intermediate format with metadata from JSON
+                intermediate = []
                 for r in raw_results:
                     meta = r.get('meta', {})
-                    flattened.append({
-                        'item_idx': r.get('book_id'),  # Rename to item_idx
+                    intermediate.append({
+                        'item_idx': r.get('book_id'),
                         'score': r.get('score'),
                         'title': meta.get('title'),
                         'author': meta.get('author'),
                         'subjects': meta.get('subjects', []),
-                        'tones': meta.get('tone_ids', []),  # Rename to tones
-                        'description': meta.get('vibe'),  # Use vibe as description
+                        'tone_ids': meta.get('tone_ids', []),  # Will be resolved to names
+                        'vibe': meta.get('vibe'),
+                        'genre': meta.get('genre'),
                     })
                 
-                return flattened
+                # Standardize (adds num_ratings, resolves tones)
+                return self._standardize_tool_output(intermediate)
+                
             except Exception as e:
                 return [{"error": f"Semantic search failed: {e}"}]
+        
         return tool(
             name="book_semantic_search",
             description="Semantic search for books by description, vibe, or themes",
@@ -152,11 +270,14 @@ class InternalTools:
             
             Requires: User must have rated at least 10 books.
             
+            Returns basic metadata (title, author, year, num_ratings).
+            No enrichment data since ALS is based on rating patterns, not content.
+            
             Args:
                 top_k: Number of candidates to generate
                 
             Returns:
-                List of recommended books with scores and metadata
+                Standardized list of books with basic metadata
             """
             if not self.current_user or not self.db:
                 return [{"error": "ALS requires authenticated user with database"}]
@@ -165,12 +286,15 @@ class InternalTools:
             
             try:
                 recommender = WarmRecommender()
-                results = recommender.recommend(
+                raw_results = recommender.recommend(
                     user=self.current_user,
                     db=self.db,
                     top_k=top_k
                 )
-                return results
+                
+                # Standardize (adds num_ratings, no enrichment data expected)
+                return self._standardize_tool_output(raw_results)
+                
             except Exception as e:
                 return [{"error": f"ALS recommendations failed: {e}"}]
         
@@ -194,6 +318,7 @@ class InternalTools:
             Generate recommendations based on subject preferences.
             
             Uses a hybrid approach combining subject matching and Bayesian popularity.
+            Returns basic metadata (title, author, year, num_ratings).
             
             Args:
                 top_k: Number of candidates to generate
@@ -201,7 +326,7 @@ class InternalTools:
                 weight: Blend weight for subject vs popularity (0.0-1.0)
                 
             Returns:
-                List of recommended books excluding already-read items
+                Standardized list of books excluding already-read items
             """
             if not self.current_user or not self.db:
                 return [{"error": "Subject hybrid requires authenticated user"}]
@@ -210,7 +335,7 @@ class InternalTools:
             weight = max(0.0, min(1.0, weight))
             
             # Build user object for recommender
-            if fav_subjects_idxs is not None and len(fav_subjects_idxs) > 0:
+            if fav_subjects_idxs is not None:
                 user_obj = SimpleNamespace(
                     user_id=getattr(self.current_user, "user_id", None),
                     fav_subjects_idxs=fav_subjects_idxs
@@ -220,7 +345,7 @@ class InternalTools:
             
             try:
                 recommender = ColdRecommender()
-                results = recommender.recommend(
+                raw_results = recommender.recommend(
                     user=user_obj,
                     db=self.db,
                     top_k=top_k,
@@ -234,12 +359,15 @@ class InternalTools:
                 user_id = getattr(self.current_user, "user_id", None)
                 if user_id:
                     already_read = get_read_books(user_id=user_id, db=self.db)
-                    results = [
-                        r for r in results
+                    raw_results = [
+                        r for r in raw_results
                         if int(r.get("item_idx", -1)) not in already_read
                     ]
                 
-                return results[:top_k]
+                raw_results = raw_results[:top_k]
+                
+                # Standardize (adds num_ratings)
+                return self._standardize_tool_output(raw_results)
                 
             except Exception as e:
                 return [{"error": f"Subject hybrid failed: {e}"}]
@@ -263,6 +391,7 @@ class InternalTools:
             Resolve free-text subject phrases to subject indices.
             
             Uses TF-IDF similarity to match phrases to database subjects.
+            Returns different format than other tools (subject matches, not books).
             
             Args:
                 phrases: List of subject phrases to resolve
@@ -305,12 +434,13 @@ class InternalTools:
             
             Use for cold users with vague queries when no other context available.
             Returns books sorted by rating quality + popularity.
+            Returns basic metadata (title, author, year, num_ratings).
             
             Args:
                 top_k: Number of popular books to return
                 
             Returns:
-                List of popular books with metadata
+                Standardized list of popular books with basic metadata
             """
             if not self.current_user or not self.db:
                 return [{"error": "Popular books requires authenticated user"}]
@@ -319,7 +449,7 @@ class InternalTools:
             
             try:
                 recommender = ColdRecommender()
-                results = recommender.recommend(
+                raw_results = recommender.recommend(
                     user=self.current_user,
                     db=self.db,
                     top_k=top_k,
@@ -333,12 +463,15 @@ class InternalTools:
                 user_id = getattr(self.current_user, "user_id", None)
                 if user_id:
                     already_read = get_read_books(user_id=user_id, db=self.db)
-                    results = [
-                        r for r in results
+                    raw_results = [
+                        r for r in raw_results
                         if int(r.get("item_idx", -1)) not in already_read
                     ]
                 
-                return results[:top_k]
+                raw_results = raw_results[:top_k]
+                
+                # Standardize (adds num_ratings)
+                return self._standardize_tool_output(raw_results)
                 
             except Exception as e:
                 return [{"error": f"Popular books failed: {e}"}]
