@@ -59,7 +59,7 @@ class PlannerStrategy:
 
 
 @dataclass
-class CandidateGeneratorInput:
+class RetrievalInput:
     """
     Input for CandidateGeneratorAgent - execute strategy and gather candidates.
     
@@ -95,7 +95,7 @@ class ExecutionContext:
 
 
 @dataclass
-class CandidateGeneratorOutput:
+class RetrievalOutput:
     """
     Output from CandidateGeneratorAgent - pool of candidate books.
     

@@ -14,8 +14,8 @@ from app.agents.domain.entities import (
     AgentExecutionState,
 )
 from app.agents.domain.recsys_schemas import (
-    CandidateGeneratorInput,
-    CandidateGeneratorOutput,
+    RetrievalInput,
+    RetrievalOutput,
     ExecutionContext,
 )
 from app.agents.prompts.loader import read_prompt
@@ -99,7 +99,7 @@ class RetrievalAgent(BaseLangGraphAgent):
     
     def _get_system_prompt(self) -> str:
         """Load candidate generator system prompt."""
-        return read_prompt("recsys.candidate_generator.md")
+        return read_prompt("recsys.retrieval.md")
     
     def _get_target_category(self) -> str:
         """Target category for agent adapter."""
@@ -197,8 +197,8 @@ class RetrievalAgent(BaseLangGraphAgent):
     
     def execute(
         self, 
-        generator_input: CandidateGeneratorInput
-    ) -> CandidateGeneratorOutput:
+        generator_input: RetrievalInput
+    ) -> RetrievalOutput:
         """
         Execute retrieval strategy and gather candidates.
         
@@ -212,7 +212,7 @@ class RetrievalAgent(BaseLangGraphAgent):
             generator_input: Strategy and query from PlannerAgent
             
         Returns:
-            CandidateGeneratorOutput with 60-120 candidates and context
+            RetrievalOutput with 60-120 candidates and context
             
         Raises:
             RuntimeError: If agent execution fails
@@ -261,7 +261,7 @@ class RetrievalAgent(BaseLangGraphAgent):
         )
         
         # Build output
-        output = CandidateGeneratorOutput(
+        output = RetrievalOutput(
             candidates=candidates,
             execution_context=execution_context,
             reasoning=self._build_reasoning_summary(response.execution_state),
