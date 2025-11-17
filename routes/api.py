@@ -14,7 +14,7 @@ from routes.auth import get_current_user
 from app.database import get_db
 from app.table_models import Book, User, Interaction, BookSubject, Subject, UserFavSubject
 from app.models import get_all_subject_counts, clean_float_values
-from app.search_engine import get_search_results
+from app.search.search_utils import get_search_results
 from models.book_similarity_engine import get_similarity_strategy
 from models.recommender_strategy import RecommenderStrategy, WarmRecommender, ColdRecommender
 from models.shared_utils import PAD_IDX, ModelStore

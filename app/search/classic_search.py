@@ -112,7 +112,7 @@ def _get_strategy(query: str, subject_idxs, BOOK_META, bayesian_tensor, book_ids
         return _NoQueryGlobalStrategy(BOOK_META, bayesian_tensor, book_ids, item_idx_to_row)
     return _QueryStrategy(BOOK_META, bayesian_tensor, book_ids, item_idx_to_row)
 
-def get_search_results(query, subject_idxs, page, per_page, db):
+def ClassicSearch(query, subject_idxs, page, per_page, db):
     store = ModelStore()
 
     BOOK_META = store.get_book_meta()
