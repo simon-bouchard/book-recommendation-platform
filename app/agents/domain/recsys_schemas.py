@@ -105,7 +105,7 @@ class RetrievalOutput:
     candidates: list[dict]
     """
     List of 60-120 book candidates with metadata.
-    Each dict contains: item_idx, title, author, subjects, tones, description, score
+    Each dict contains: item_idx, title, author, subjects, tones, vibe, score
     """
     
     execution_context: ExecutionContext
