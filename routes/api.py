@@ -447,13 +447,7 @@ async def recommend_for_user(
         raise HTTPException(status_code=500, detail="Internal server error")
 
 @router.get("/search")
-def search_books(
-    request: Request,
-    query: str = "",
-    subjects: Optional[str] = Query(default=None),
-    page: int = Query(default=0),
-    db: Session = Depends(get_db)
-):
+def search_books(request: Request, query: str = "", subjects: Optional[str] = None, page: int = Query(default=0), db: Session = Depends(get_db)):
     subject_list = []
     subject_idxs = []
     if subjects:
@@ -461,8 +455,9 @@ def search_books(
         subject_rows = db.query(Subject).filter(Subject.subject.in_(subject_list)).all()
         subject_idxs = [s.subject_idx for s in subject_rows]
 
-    results, has_next = get_search_results(query, subject_idxs, page, 60, db)
+    results, has_next, total = get_search_results(query, subject_idxs, page, 60, db)
     subject_suggestions = get_all_subject_counts(db)
+    total_pages = (total + 60 - 1) // 60 if total > 0 else 0
     
     return templates.TemplateResponse("search.html", {
         "request": request,
@@ -472,27 +467,33 @@ def search_books(
         "subject_suggestions": subject_suggestions[:20],
         "page": "search",
         "has_next": has_next,
-        "has_prev": page > 0
+        "has_prev": page > 0,
+        "total_results": total,
+        "total_pages": total_pages,
+        "current_page": page,
     })
 
 @router.get("/search/json")
-def search_books_json(
-    query: str = "",
-    subjects: Optional[str] = Query(default=None),
-    page: int = Query(default=0),
-    db: Session = Depends(get_db)
-):
+def search_books_json(query: str = "", subjects: Optional[str] = None, page: int = Query(default=0), db: Session = Depends(get_db)):
     subject_idxs = []
     if subjects:
         subject_list = [s.strip() for s in subjects.split(",") if s.strip()]
         subject_rows = db.query(Subject).filter(Subject.subject.in_(subject_list)).all()
         subject_idxs = [s.subject_idx for s in subject_rows]
 
-    results, has_next = get_search_results(query, subject_idxs, page, 60, db)
+    results, has_next, total = get_search_results(query, subject_idxs, page, 60, db)
+    total_pages = (total + 60 - 1) // 60 if total > 0 else 0
+    
     return {
         "results": clean_float_values(results),
-        "has_next": has_next,
-        "has_prev": page > 0
+        "pagination": {
+            "page": page,
+            "page_size": 60,
+            "total_results": total,
+            "total_pages": total_pages,
+            "has_next": has_next,
+            "has_prev": page > 0
+        }
     }
 
 @router.get("/subjects/suggestions")

@@ -1,41 +1,48 @@
 # app/search/engine.py
-
-from .meilisearch import MeiliSearch
-from .classic_search import ClassicSearch
-# from .semantic_search import SemanticSearch
-
+from typing import Dict, List
+from .adapters.meili import MeiliSearchAdapter
+from .models import SearchRequest, SearchMode, SearchResult
+from .adapters.base import SearchAdapter
 
 class SearchEngine:
     """
-    Routes queries to the correct search mode.
-    API should only interact with this class.
+    Thin orchestrator that routes to appropriate adapter.
+    No business logic - just delegation and error handling.
     """
-
+    
     def __init__(self):
-        self.meili = MeiliSearch()
-        #self.classic = ClassicSearch()
-        # self.semantic = SemanticSearch()
-
-    def search(
-        self,
-        query: str,
-        mode: str = "meili",
-        sort: str | None = None,
-        filters: dict | None = None,
-        limit: int = 50,
-    ):
-        mode = mode.lower()
-
-        if mode == "meili":
-            return self.meili.search(query, sort=sort, filters=filters, limit=limit)
-
-        elif mode == "classic":
-            #return self.classic.search(query, sort=sort, filters=filters, limit=limit)
-            raise ValueError("Mode not implemented yet")
-
-        elif mode == "semantic":
-            return self.semantic.search(query, limit=limit)
-
-        else:
-            raise ValueError(f"Unknown search mode: {mode}")
-
+        self._adapters = self._initialize_adapters()
+    
+    def _initialize_adapters(self) -> Dict[SearchMode, SearchAdapter]:
+        """Factory method - easily add new adapters here"""
+        return {
+            SearchMode.MEILI: MeiliSearchAdapter(),
+            # SearchMode.CLASSIC: ClassicSearchAdapter(),  # Add later
+            # SearchMode.SEMANTIC: SemanticSearchAdapter(), # Add later
+        }
+    
+    def search(self, request: SearchRequest) -> SearchResult:
+        """Main entry point - pure delegation"""
+        adapter = self._adapters.get(request.mode)
+        if not adapter:
+            raise ValueError(f"Unsupported search mode: {request.mode}")
+            
+        if not adapter.is_available():
+            # Optional: fallback to another mode
+            return self._fallback_search(request)
+        
+        # Delegate ALL search logic to the adapter
+        results, total = adapter.search(request)
+        
+        return SearchResult(
+            results=results,
+            total=total,
+            page=request.page,
+            page_size=request.page_size,
+            # ... other metadata
+        )
+    
+    def get_available_modes(self) -> List[SearchMode]:
+        """Dynamic discovery of available search modes"""
+        return [mode for mode, adapter in self._adapters.items() 
+                if adapter.is_available()]
