@@ -21,36 +21,78 @@ class MeiliSearchAdapter(SearchAdapter):
             item_idx=hit.get("item_idx"),
             title=hit.get("title"),
             author=hit.get("author"),
+			isbn=hit.get('isbn'),
+            year=hit.get("year"),
             cover_id=hit.get("cover_id"),
             _score=hit.get("_rankingScore"),
         )
 
-    def search(self, request: SearchRequest) -> Tuple[List[SearchResult], int]:
-        offset = request.page * request.page_size
+    def search(self, request: SearchRequest) -> Tuple[List[SearchResult], int, Dict]:
         params = {
             "limit": request.page_size,
-            "offset": offset,
+            "offset": request.page * request.page_size,
+            "showRankingScore": True,
         }
-        
+
         if request.sort:
             params["sort"] = [request.sort]
-            
-        if request.filters:
-            filter_strings = []
-            for key, value in request.filters.items():
-                if isinstance(value, list):
-                    joined = " OR ".join(f'{key} = "{v}"' for v in value)
-                    filter_strings.append(f"({joined})")
-                else:
-                    filter_strings.append(f'{key} = "{value}"')
-            params["filter"] = filter_strings
 
-        result = self.index.search(request.query, params)
+        if request.filters:
+            params["filter"] = self._build_meili_filter(request.filters)
+
+        if request.facets:
+            params["facets"] = request.facets
+
+        if request.attributes_to_retrieve is not None:
+            params["attributesToRetrieve"] = request.attributes_to_retrieve
+        else:
+            # Explicit sensible default — never return the kitchen sink
+            params["attributesToRetrieve"] = [
+                "item_idx",
+                "title",
+                "author",
+                "cover_id",
+                "year",
+                "isbn",
+            ]
+
+        if request.min_score is not None:
+            params["rankingScoreThreshold"] = request.min_score
+
+        # Highlight + crop
+        if request.highlight:
+            params["attributesToHighlight"] = ["title", "author"]
+            params["highlightPreTag"] = "<b>"
+            params["highlightPostTag"] = "</b>"
+
+        if request.crop and isinstance(request.crop, int):
+            params["attributesToCrop"] = ["description"]
+            params["cropLength"] = request.crop
+            params["cropMarker"] = "…"
+
+        result = self.index.search(request.query or "", params)
+
+        # Use _formatted when available
+        use_formatted = request.highlight or (request.crop and isinstance(request.crop, int))
         hits = result.get("hits", [])
-        total = result.get("estimatedTotalHits", 0)
-        
-        return [self._convert_hit(h) for h in hits], total
-       
+
+        results = []
+        for hit in hits:
+            formatted = hit.get("_formatted", hit)
+            r = SearchResult(
+				item_idx=hit["item_idx"],
+				title=formatted.get("title", hit["title"]),
+				author=formatted.get("author", hit["author"]),
+				cover_id=hit.get("cover_id"),
+				year=hit.get("year"),
+				isbn=hit.get("isbn"),
+				_score=hit.get("_rankingScore"),
+				description_snippet=formatted.get("description") if use_formatted else None,
+            )
+            results.append(r)
+
+        return results, result.get("estimatedTotalHits", 0), result
+          
     def _build_meili_params(self, request: SearchRequest) -> dict:
         """Push ALL filtering/sorting/pagination to Meili"""
         params = {

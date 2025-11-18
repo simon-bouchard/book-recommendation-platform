@@ -1,13 +1,13 @@
 # app/search/adapters/base.py
 from abc import ABC, abstractmethod
-from typing import List, Tuple
+from typing import List, Tuple, Optional, Dict, Any
 from ..models import SearchRequest, SearchResult, SearchMode
 
 class SearchAdapter(ABC):
     """Base interface all search adapters must implement"""
     
     @abstractmethod
-    def search(self, request: SearchRequest) -> Tuple[List[SearchResult], int]:
+    def search(self, request: SearchRequest) -> Tuple[List[SearchResult], int, Optional[Dict[str, Any]]]:
         """Return (results, total_count) - adapter handles its own pagination"""
         pass
     

@@ -32,15 +32,16 @@ class SearchEngine:
             return self._fallback_search(request)
         
         # Delegate ALL search logic to the adapter
-        results, total = adapter.search(request)
-        
+        results, total, raw_response = adapter.search(request)
+            
         return SearchResponse(
             results=results,
             total=total,
             page=request.page,
             page_size=request.page_size,
+            raw_response=raw_response,   
         )
-    
+
     def get_available_modes(self) -> List[SearchMode]:
         """Dynamic discovery of available search modes"""
         return [mode for mode, adapter in self._adapters.items() 
