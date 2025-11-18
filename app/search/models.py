@@ -15,7 +15,7 @@ class SearchRequest(BaseModel):
     sort: Optional[str] = None    # "year:desc", "bayes_pop:desc"
     page: int = 0
     page_size: int = 50
-    highlight: bool = True
+    highlight: bool = False
     crop: Union[bool, int] = 25          # false → no crop, int → crop length
     facets: Optional[List[str]] = None
     attributes_to_retrieve: Optional[List[str]] = None
