@@ -24,6 +24,12 @@ class SearchResult(BaseModel):
     # ... other fields
     _score: Optional[float] = None  # Engine-specific score
 
+class SearchResponse(BaseModel):
+    results: List[SearchResult]
+    total: int
+    page: int
+    page_size: int
+
 DEFAULT_SEARCH_CONFIG = {
     "page_size": 60,
     "default_mode": SearchMode.MEILI,

@@ -11,19 +11,33 @@ class MeiliSearchAdapter(SearchAdapter):
     Optimized MeiliSearch adapter that pushes everything to Meili.
     No application-layer filtering/sorting/pagination.
     """
-    def search(self, query: str, sort: Optional[str] = None, filters: Optional[Dict[str, Any]] = None, page: int = 0, page_size: int = 50):
-        offset = page * page_size
+    def __init__(self):
+        load_dotenv()
+        self.client = Client("http://localhost:7700", os.getenv("MEILI_MASTER_KEY"))
+        self.index = self.client.index("books")
+
+    def _convert_hit(self, hit: dict) -> SearchResult:
+        return SearchResult(
+            item_idx=hit.get("item_idx"),
+            title=hit.get("title"),
+            author=hit.get("author"),
+            cover_id=hit.get("cover_id"),
+            _score=hit.get("_rankingScore"),
+        )
+
+    def search(self, request: SearchRequest) -> Tuple[List[SearchResult], int]:
+        offset = request.page * request.page_size
         params = {
-            "limit": page_size,
+            "limit": request.page_size,
             "offset": offset,
         }
         
-        if sort:
-            params["sort"] = [sort]
+        if request.sort:
+            params["sort"] = [request.sort]
             
-        if filters:
+        if request.filters:
             filter_strings = []
-            for key, value in filters.items():
+            for key, value in request.filters.items():
                 if isinstance(value, list):
                     joined = " OR ".join(f'{key} = "{v}"' for v in value)
                     filter_strings.append(f"({joined})")
@@ -31,12 +45,12 @@ class MeiliSearchAdapter(SearchAdapter):
                     filter_strings.append(f'{key} = "{value}"')
             params["filter"] = filter_strings
 
-        result = self.index.search(query, params)
+        result = self.index.search(request.query, params)
         hits = result.get("hits", [])
         total = result.get("estimatedTotalHits", 0)
         
         return [self._convert_hit(h) for h in hits], total
-    
+       
     def _build_meili_params(self, request: SearchRequest) -> dict:
         """Push ALL filtering/sorting/pagination to Meili"""
         params = {

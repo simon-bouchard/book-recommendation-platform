@@ -1,7 +1,7 @@
 # app/search/engine.py
 from typing import Dict, List
 from .adapters.meili import MeiliSearchAdapter
-from .models import SearchRequest, SearchMode, SearchResult
+from .models import SearchRequest, SearchMode, SearchResponse
 from .adapters.base import SearchAdapter
 
 class SearchEngine:
@@ -21,7 +21,7 @@ class SearchEngine:
             # SearchMode.SEMANTIC: SemanticSearchAdapter(), # Add later
         }
     
-    def search(self, request: SearchRequest) -> SearchResult:
+    def search(self, request: SearchRequest) -> SearchResponse:
         """Main entry point - pure delegation"""
         adapter = self._adapters.get(request.mode)
         if not adapter:
@@ -34,12 +34,11 @@ class SearchEngine:
         # Delegate ALL search logic to the adapter
         results, total = adapter.search(request)
         
-        return SearchResult(
+        return SearchResponse(
             results=results,
             total=total,
             page=request.page,
             page_size=request.page_size,
-            # ... other metadata
         )
     
     def get_available_modes(self) -> List[SearchMode]:
