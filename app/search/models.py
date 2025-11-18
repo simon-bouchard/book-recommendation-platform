@@ -12,7 +12,7 @@ class SearchRequest(BaseModel):
     query: str = ""
     mode: SearchMode = SearchMode.MEILI
     filters: Dict[str, Any] = {}  # Simple key-value filters
-    sort: Optional[str] = None    # "year:desc", "bayes_pop:desc"
+    sort: Optional[str] = "bayes_pop:desc"    # "year:desc", "bayes_pop:desc"
     page: int = 0
     page_size: int = 50
     highlight: bool = False

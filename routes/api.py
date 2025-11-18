@@ -9,6 +9,9 @@ from datetime import datetime
 from datetime import datetime
 from sqlalchemy import func, desc, case
 from sqlalchemy.orm import Session, joinedload
+import traceback
+import pycountry
+from typing import List, Optional, Union
 
 from routes.auth import get_current_user
 from app.database import get_db
@@ -18,13 +21,14 @@ from app.search.search_utils import get_search_results
 from models.book_similarity_engine import get_similarity_strategy
 from models.recommender_strategy import RecommenderStrategy, WarmRecommender, ColdRecommender
 from models.shared_utils import PAD_IDX, ModelStore
-
-import traceback
-import pycountry
-from typing import List, Optional
+from app.search.models import SearchRequest, SearchMode
+from app.search.engine import SearchEngine
+from app.search.search_utils import _build_search_request
 
 from app.agents.logging import get_logger
 logger = get_logger(__name__)
+
+search_engine = SearchEngine()
 
 router = APIRouter()
 templates = Jinja2Templates(directory="templates")
@@ -450,56 +454,106 @@ async def recommend_for_user(
         raise HTTPException(status_code=500, detail="Internal server error")
 
 @router.get("/search")
-def search_books(request: Request, query: str = "", subjects: Optional[str] = None, page: int = Query(default=0), db: Session = Depends(get_db)):
-    subject_idxs = []
-    subject_list = []
-    if subjects:
-        subject_list = [s.strip() for s in subjects.split(",") if s.strip()]
-        subject_rows = db.query(Subject).filter(Subject.subject.in_(subject_list)).all()
-        subject_idxs = [s.subject_idx for s in subject_rows]
+def search_books(
+    request: Request,
+    query: str = "",
+    subjects: Optional[str] = None,
+    page: int = Query(0, ge=0),
+    page_size: int = Query(60, ge=1, le=200),
+    mode: SearchMode = Query(SearchMode.MEILI),
+    sort: Optional[str] = Query("bayes_pop:desc", description="e.g. bayes_pop:desc, year:asc"),
+    highlight: bool = Query(False),
+    crop: Union[bool, int] = Query(False, description="False = no crop, int = crop length"),
+    min_score: Optional[float] = Query(None, ge=0, le=1),
+    db: Session = Depends(get_db),
+):
+    search_req = _build_search_request(
+        query=query,
+        subjects=subjects,
+        page=page,
+        page_size=page_size,
+        mode=mode,
+        sort=sort,
+        highlight=highlight,
+        crop=crop,
+        min_score=min_score,
+    )
 
-    results, has_next, total = get_search_results(query, subject_idxs, page, 60, db)
-    subject_suggestions = get_all_subject_counts(db)
-    total_pages = (total + 60 - 1) // 60 if total > 0 else 0
-    
-    results_dict = [result.dict() for result in results]
-    
+    search_response = search_engine.search(search_req)
+
+    # For HTML template
+    subject_list = [s.strip() for s in (subjects or "").split(",") if s.strip()]
+    subject_suggestions = get_all_subject_counts(db)[:20]
+
+    total_pages = (search_response.total + page_size - 1) // page_size
+
     return templates.TemplateResponse("search.html", {
         "request": request,
-        "results": clean_float_values(results_dict),
+        "results": clean_float_values([r.dict() for r in search_response.results]),
         "query": query,
         "subjects": subject_list,
-        "subject_suggestions": subject_suggestions[:20],
+        "subject_suggestions": subject_suggestions,
         "page": "search",
-        "has_next": has_next,
-        "has_prev": page > 0,
-        "total_results": total,
+        "total_results": search_response.total,
         "total_pages": total_pages,
         "current_page": page,
+        "has_next": (page + 1) * page_size < search_response.total,
+        "has_prev": page > 0,
+        "page_size": page_size,
     })
 
+
 @router.get("/search/json")
-def search_books_json(query: str = "", subjects: Optional[str] = None, page: int = Query(default=0), db: Session = Depends(get_db)):
-    subject_idxs = []
-    if subjects:
-        subject_list = [s.strip() for s in subjects.split(",") if s.strip()]
-        subject_rows = db.query(Subject).filter(Subject.subject.in_(subject_list)).all()
-        subject_idxs = [s.subject_idx for s in subject_rows]
+def search_books_json(
+    query: str = Query(""),
+    subjects: Optional[str] = Query(None),
+    page: int = Query(0, ge=0),
+    page_size: int = Query(60, ge=1, le=200),
+    mode: SearchMode = Query(SearchMode.MEILI, description="Currently only 'meili' is supported"),
+    sort: Optional[str] = Query("bayes_pop:desc", regex=r"^[\w]+:(asc|desc)$", description="e.g. bayes_pop:desc"),
+    highlight: bool = Query(False),
+    crop: Union[bool, int] = Query(False),
+    min_score: Optional[float] = Query(None, ge=0, le=1),
+):
+    """
+    Fully-featured search API exposing all MeiliSearch capabilities.
+    """
+    search_req = _build_search_request(
+        query=query,
+        subjects=subjects,
+        page=page,
+        page_size=page_size + 1,  # +1 to detect has_more accurately
+        mode=mode,
+        sort=sort,
+        highlight=highlight,
+        crop=crop,
+        min_score=min_score,
+    )
 
-    results, has_next, total = get_search_results(query, subject_idxs, page, 60, db)
-    total_pages = (total + 60 - 1) // 60 if total > 0 else 0
+    search_response = search_engine.search(search_req)
 
-    results_dict = [result.dict() for result in results]
-    
+    results = search_response.results
+    has_more = len(results) > page_size
+    results = results[:page_size]
+
+    total_pages = (search_response.total + page_size - 1) // page_size
+
     return {
-        "results": clean_float_values(results_dict),
+        "results": clean_float_values([r.dict() for r in results]),
         "pagination": {
             "current_page": page,
-            "page_size": 60,
-            "total_results": total,
+            "page_size": page_size,
+            "total_results": search_response.total,
             "total_pages": total_pages,
-            "has_next": has_next,
-            "has_prev": page > 0
+            "has_next": has_more or (page + 1) * page_size < search_response.total,
+            "has_prev": page > 0,
+        },
+        "applied": {
+            "mode": mode.value,
+            "sort": sort,
+            "highlight": highlight,
+            "crop": crop if isinstance(crop, int) else None,
+            "min_score": min_score,
         }
     }
 
