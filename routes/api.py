@@ -477,6 +477,7 @@ def search_books(
         highlight=highlight,
         crop=crop,
         min_score=min_score,
+        db=db
     )
 
     search_response = search_engine.search(search_req)
@@ -514,6 +515,7 @@ def search_books_json(
     highlight: bool = Query(False),
     crop: Union[bool, int] = Query(False),
     min_score: Optional[float] = Query(None, ge=0, le=1),
+    db: Session = Depends(get_db),
 ):
     """
     Fully-featured search API exposing all MeiliSearch capabilities.
@@ -528,6 +530,7 @@ def search_books_json(
         highlight=highlight,
         crop=crop,
         min_score=min_score,
+        db=db
     )
 
     search_response = search_engine.search(search_req)

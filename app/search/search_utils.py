@@ -1,6 +1,9 @@
 # app/search/search_utils.py
 
 from typing import Optional, Union
+from sqlalchemy.orm import Session
+from app.table_models import Subject
+
 from app.search.engine import SearchEngine
 from app.search.models import SearchRequest, SearchMode
 
@@ -40,6 +43,7 @@ def _build_search_request(
     highlight: bool,
     crop: Union[bool, int],
     min_score: Optional[float],
+    db: Session,
 ) -> SearchRequest:
     filters = {}
     if subjects:

@@ -24,7 +24,7 @@ class SearchRequest(BaseModel):
 class SearchResult(BaseModel):
     item_idx: int
     title: str
-    author: str
+    author: Optional[str]
     cover_id: Optional[int]
     _score: Optional[float] = None  # Engine-specific score
     isbn: Optional[str] = None
