@@ -459,9 +459,11 @@ def search_books(request: Request, query: str = "", subjects: Optional[str] = No
     subject_suggestions = get_all_subject_counts(db)
     total_pages = (total + 60 - 1) // 60 if total > 0 else 0
     
+    results_dict = [result.dict() for result in results]
+    
     return templates.TemplateResponse("search.html", {
         "request": request,
-        "results": clean_float_values(results),
+        "results": clean_float_values(results_dict),
         "query": query,
         "subjects": subject_list,
         "subject_suggestions": subject_suggestions[:20],
@@ -483,9 +485,11 @@ def search_books_json(query: str = "", subjects: Optional[str] = None, page: int
 
     results, has_next, total = get_search_results(query, subject_idxs, page, 60, db)
     total_pages = (total + 60 - 1) // 60 if total > 0 else 0
+
+    results_dict = [result.dict() for result in results]
     
     return {
-        "results": clean_float_values(results),
+        "results": clean_float_values(results_dict),
         "pagination": {
             "page": page,
             "page_size": 60,
