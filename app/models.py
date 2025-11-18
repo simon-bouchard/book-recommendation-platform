@@ -28,32 +28,79 @@ def get_all_subject_counts(db: Session):
     if _subject_cache and (now - _last_subject_fetch) < SUBJECT_CACHE_TTL:
         return _subject_cache
 
-    # Group by subject_idx and order by count descending
-    counts = (
-        db.query(BookSubject.subject_idx, func.count().label("c"))
-          .group_by(BookSubject.subject_idx)
-          .order_by(func.count().desc())
-          .all()
-    )
-    if not counts:
-        _subject_cache, _last_subject_fetch = [], now
-        return _subject_cache
+    # NEW: Try MeiliSearch facets first (fast & always in sync with searchable data)
+    try:
+        load_dotenv()
+        client = Client("http://localhost:7700", os.getenv("MEILI_MASTER_KEY"))
+        index = client.index("books")
+        
+        # Minimal facet query: empty search, facets only, no hits
+        result = index.search(
+            "",  # Empty query = match everything
+            {
+                "facets": ["subject_ids"],
+                "limit": 0,  # No hits needed, just counts
+            }
+        )
+        
+        facet_dist = result.get("facetDistribution", {}).get("subject_ids", {})
+        if not facet_dist:
+            raise ValueError("No facet data returned")
+        
+        # Convert {str(idx): count} to sorted list of (int(idx), count)
+        subject_counts = sorted(
+            [(int(idx), count) for idx, count in facet_dist.items()],
+            key=lambda x: x[1],
+            reverse=True
+        )
+        
+        # Batch-resolve names with one SQL query (fast)
+        if subject_counts:
+            subject_idxs = [idx for idx, _ in subject_counts[:100]]  # Top 100 max
+            name_rows = (
+                db.query(Subject.subject_idx, Subject.subject)
+                .filter(Subject.subject_idx.in_(subject_idxs))
+                .all()
+            )
+            name_map = {row.subject_idx: row.subject for row in name_rows}
+        
+        _subject_cache = [
+            {
+                "subject_idx": idx,
+                "subject": name_map.get(idx, "[Unknown]"),
+                "count": count
+            }
+            for idx, count in subject_counts
+            if idx in name_map and name_map[idx] != "[NO_SUBJECT]"
+        ]
+        
+    except Exception as e:
+        # Fallback to your original SQL (logs warning if you add logging)
+        print(f"Meili facet fetch failed, using SQL fallback: {e}")  # Or use logger
+        counts = (
+            db.query(BookSubject.subject_idx, func.count().label("c"))
+            .group_by(BookSubject.subject_idx)
+            .order_by(func.count().desc())
+            .all()
+        )
+        if not counts:
+            _subject_cache, _last_subject_fetch = [], now
+            return _subject_cache
 
-    subject_ids = [sid for sid, _ in counts]
-    names = db.query(Subject.subject_idx, Subject.subject)\
-              .filter(Subject.subject_idx.in_(subject_ids))\
-              .all()
-    name_map = {i: s for i, s in names}
+        subject_ids = [sid for sid, _ in counts]
+        names = db.query(Subject.subject_idx, Subject.subject)\
+                  .filter(Subject.subject_idx.in_(subject_ids))\
+                  .all()
+        name_map = {i: s for i, s in names}
 
-    # return subject_idx too (and drop placeholders)
-    _subject_cache = [
-        {"subject_idx": int(sid), "subject": name_map.get(sid, ""), "count": int(c)}
-        for sid, c in counts
-        if name_map.get(sid) and name_map[sid] != "[NO_SUBJECT]"
-    ]
+        _subject_cache = [
+            {"subject_idx": int(sid), "subject": name_map.get(sid, ""), "count": int(c)}
+            for sid, c in counts
+            if name_map.get(sid) and name_map[sid] != "[NO_SUBJECT]"
+        ]
+
     _last_subject_fetch = now
     return _subject_cache
-
 
 def clean_float_values(data: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
     """
