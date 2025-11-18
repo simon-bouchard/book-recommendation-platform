@@ -12,12 +12,13 @@
 <div class="layout">
     {% include 'navbar.html' %}
     <div class="container">
-        <h1>Search Books</h1>
+        <h1>Book Search</h1>
         <form method="get" action="/search" id="searchForm">
-            <label for="query">Book Title:</label>
-            <input type="text" id="query" name="query" value="{{ query or '' }}" placeholder="Search by keyword...">
+            <label for="query">Search Terms:</label>
+            <input type="text" id="query" name="query" value="{{ query or '' }}" placeholder="Enter title, author, or keywords...">
 
-            <label for="subjects">Subjects (up to 3):</label>
+			<label for="subjects">Filter by Subjects:</label>
+			<div class="filter-help">Select up to 3 subjects</div>
             <div id="subject-input-container">
                 <input type="text" id="subject-input" placeholder="Start typing a subject..." autocomplete="off">
                 <div id="subject-suggestions" class="suggestions-box"></div>
