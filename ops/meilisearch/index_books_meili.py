@@ -29,7 +29,7 @@ def configure_index():
         "searchableAttributes": [
             "title",
             "author",
-            "subjects",
+            "subject_ids",
             "description"
         ],
         "sortableAttributes": [
@@ -37,7 +37,7 @@ def configure_index():
             "year"
         ],
         "filterableAttributes": [
-            "subjects",
+            "subject_ids",
             "year"
         ],
          "rankingRules": [
@@ -56,7 +56,7 @@ def book_to_doc(b, item_to_row, bayes_tensor):
     row = item_to_row.get(b.item_idx)
     bayes_pop = float(bayes_tensor[row]) if row is not None else 0.0
 
-    subjects = [s.subject.subject for s in b.subjects]
+    subject_ids = [s.subject_idx for s in b.subjects]
     author = b.author.name if getattr(b, "author", None) else None
 
     return {
@@ -64,7 +64,7 @@ def book_to_doc(b, item_to_row, bayes_tensor):
         "title": b.title,
         "author": author,
         "description": b.description,
-        "subjects": subjects,
+        "subject_ids": subject_ids,
         "year": b.year,
         "bayes_pop": bayes_pop,
         "cover_id": b.cover_id,
