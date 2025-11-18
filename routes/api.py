@@ -448,8 +448,8 @@ async def recommend_for_user(
 
 @router.get("/search")
 def search_books(request: Request, query: str = "", subjects: Optional[str] = None, page: int = Query(default=0), db: Session = Depends(get_db)):
-    subject_list = []
     subject_idxs = []
+    subject_list = []
     if subjects:
         subject_list = [s.strip() for s in subjects.split(",") if s.strip()]
         subject_rows = db.query(Subject).filter(Subject.subject.in_(subject_list)).all()
