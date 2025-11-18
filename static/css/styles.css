@@ -531,7 +531,7 @@ form select {
 
 /* Context-specific messages */
 #simModeSelector .toggle-option.disabled::after {
-    content: "Unavailable for this book (no ALS data)";
+    content: "Unavailable for this book";
 }
 
 #modeSelector .toggle-option.disabled::after {

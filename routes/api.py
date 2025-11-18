@@ -307,6 +307,8 @@ async def book_recommendation(request: Request, item_idx: int, current_user: Use
     subject_names = db.query(Subject.subject).filter(Subject.subject_idx.in_(subject_ids)).all()
     subjects = [s.subject for s in subject_names]
 
+    has_real_subjects = any(s != "[NO_SUBJECT]" for s in subjects)
+
     book_info = {
         'isbn': book.isbn,
         'item_idx': book.item_idx,
@@ -340,7 +342,8 @@ async def book_recommendation(request: Request, item_idx: int, current_user: Use
         "request": request,
         "book": book_info,
         "user_rating": user_rating,
-        'has_als': has_als
+        'has_als': has_als,
+        'has_real_subjects': has_real_subjects,
     })
 
 @router.get("/book/{item_idx}/comments")

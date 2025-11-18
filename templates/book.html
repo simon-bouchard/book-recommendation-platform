@@ -132,12 +132,28 @@
             <div id="bookCommentsList" class="interactions-list"></div>
         </div>
 
+
         <h3>See Similar Books</h3>
-        <div class="toggle-group" id="simModeSelector">
-            <div class="toggle-option selected" data-mode="subject">Subject</div>
-            <div class="toggle-option {% if not has_als %}disabled{% endif %}" data-mode="als">Behavioral</div>
-            <div class="toggle-option {% if not has_als %}disabled{% endif %}" data-mode="hybrid">Hybrid</div>
-        </div>
+
+		<div class="toggle-group" id="simModeSelector">
+			<div class="toggle-option
+				{% if not has_real_subjects %}disabled{% endif %}
+				{% if has_real_subjects and (not has_als or selected_default == 'subject') %}selected{% endif %}"
+				data-mode="subject">
+				Subject
+			</div>
+			<div class="toggle-option
+				{% if not has_als %}disabled{% endif %}
+				{% if has_als and not has_real_subjects %}selected{% endif %}"
+				data-mode="als">
+				Behavioral
+			</div>
+			<div class="toggle-option
+				{% if not has_als or not has_real_subjects %}disabled{% endif %}"
+				data-mode="hybrid">
+				Hybrid
+			</div>
+		</div>
 
         <div class="blend-controls" id="hybridControls">
             <div class="blend-row">
