@@ -491,7 +491,7 @@ def search_books_json(query: str = "", subjects: Optional[str] = None, page: int
     return {
         "results": clean_float_values(results_dict),
         "pagination": {
-            "page": page,
+            "current_page": page,
             "page_size": 60,
             "total_results": total,
             "total_pages": total_pages,

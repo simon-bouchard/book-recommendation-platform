@@ -8,131 +8,175 @@
     <link rel="icon" type="image/png" href="{{ url_for('static', path='favicon.png') }}">
     <link rel="shortcut icon" href="{{ url_for('static', path='favicon.ico') }}">
 </head>
-</head>
 <body>
 <div class="layout">
-    
     {% include 'navbar.html' %}
     <div class="container">
         <h1>Search Books</h1>
-            <form method="get" action="/search" id="searchForm">
-                <label for="query">Book Title:</label>
-                <input type="text" id="query" name="query" value="{{ query or '' }}" placeholder="Search by title...">
+        <form method="get" action="/search" id="searchForm">
+            <label for="query">Book Title:</label>
+            <input type="text" id="query" name="query" value="{{ query or '' }}" placeholder="Search by title...">
 
-                <label for="subjects">Subjects (up to 3):</label>
-                <div id="subject-input-container">
-                    <input type="text" id="subject-input" placeholder="Start typing a subject..." autocomplete="off">
-                    <div id="subject-suggestions" class="suggestions-box"></div>
-                </div>
-                <div id="subject-pills" class="pill-container"></div>
-                <input type="hidden" name="subjects" id="fav_subjects-hidden" value="{{ subjects or '' }}">
-
-                <button type="submit" class="btn btn--primary">Search</button>
-            </form>
-
-        {% if results %}
-            <h2>Results</h2>
-            <div id="search-results" style="display: none;"></div>
-            <div class="pagination-buttons">
-                <button id="prevButton" class="btn btn--secondary btn--sm" style="display: none;">Previous</button>
-                <button id="nextButton" class="btn btn--secondary btn--sm" style="display: none;">Next</button>
+            <label for="subjects">Subjects (up to 3):</label>
+            <div id="subject-input-container">
+                <input type="text" id="subject-input" placeholder="Start typing a subject..." autocomplete="off">
+                <div id="subject-suggestions" class="suggestions-box"></div>
             </div>
+            <div id="subject-pills" class="pill-container"></div>
+            <input type="hidden" name="subjects" id="fav_subjects-hidden" value="{{ subjects or '' }}">
 
-            <script type="module">
-                import { setupPaginatedBookDisplay } from "/static/js/paginated_books.js";
+            <button type="submit" class="btn btn--primary">Search</button>
+        </form>
 
-                const containerId = "search-results";
-                const prevButtonId = "prevButton";
-                const nextButtonId = "nextButton";
+        <h2>Results</h2>
+        <div id="search-results"></div>
+        <div class="pagination-buttons">
+            <button id="prevButton" class="btn btn--secondary btn--sm" style="display: none;">Previous</button>
+            <button id="nextButton" class="btn btn--secondary btn--sm" style="display: none;">Next</button>
+        </div>
 
-                const booksContainer = document.getElementById(containerId);
-                const prevBtn = document.getElementById(prevButtonId);
-                const nextBtn = document.getElementById(nextButtonId);
+<script>
+    const booksContainer = document.getElementById("search-results");
+    const prevBtn = document.getElementById("prevButton");
+    const nextBtn = document.getElementById("nextButton");
 
-                const baseParams = new URLSearchParams(window.location.search);
+    let currentPage = {{ current_page }};
+    let hasNext = {{ has_next | tojson }};
+    let hasPrev = {{ has_prev | tojson }};
 
-                let currentPage = 0;
+    function escapeHtml(unsafe) {
+      if (unsafe == null) return "";
+      return String(unsafe)
+        .replace(/&/g, "&amp;")
+        .replace(/</g, "&lt;")
+        .replace(/>/g, "&gt;")
+        .replace(/"/g, "&quot;")
+        .replace(/'/g, "&#039;");
+    }
 
-                function getCurrentPageFromURL() {
-                    const urlParams = new URLSearchParams(window.location.search);
-                    return parseInt(urlParams.get("page") || "0");
-                }
-                
-                function updateURLParam(key, value) {
-                    const params = new URLSearchParams(window.location.search);
-                    params.set(key, value);
-                    const newUrl = `${window.location.pathname}?${params.toString()}`;
-                    window.history.replaceState({}, "", newUrl);
-                }
-                
-                async function fetchPage(page = 0, shouldScroll = false) {
-                    currentPage = page;
-                    const params = new URLSearchParams(baseParams);
-                    params.set("page", page);
+    function placeholderDataURI(titleText = "No cover") {
+      const svg = `
+      <svg xmlns="http://www.w3.org/2000/svg" width="150" height="220" viewBox="0 0 150 220">
+        <defs>
+          <linearGradient id="g" x1="0" y1="0" x2="1" y2="1">
+            <stop offset="0%" stop-color="#f1f1f1"/>
+            <stop offset="100%" stop-color="#e7e7e7"/>
+          </linearGradient>
+        </defs>
+        <rect width="150" height="220" fill="url(#g)" />
+        <rect x="10" y="10" width="130" height="200" rx="6" ry="6" fill="none" stroke="#cfcfcf" stroke-dasharray="6 4" />
+        <text x="75" y="110" font-size="18" text-anchor="middle" fill="#7a7a7a" font-family="Arial, sans-serif">No cover</text>
+        <text x="75" y="132" font-size="10" text-anchor="middle" fill="#9a9a9a" font-family="Arial, sans-serif">
+          ${escapeHtml(titleText).slice(0, 26)}
+        </text>
+      </svg>`;
+      return "data:image/svg+xml;utf8," + encodeURIComponent(svg);
+    }
 
-                    const response = await fetch(`/search/json?${params}`);
-                    const data = await response.json();
-                    const books = data.results;
+    function renderCoverImg(book) {
+      const cid = book?.cover_id;
+      const alt = `Cover for ${escapeHtml(book?.title || "")}`;
+      const fallback = placeholderDataURI(book?.title);
 
-                    if (books.length === 0) {
-                        booksContainer.innerHTML = "<p>No results to display.</p>";
-                        booksContainer.style.display = "block";
-                        prevBtn.style.display = "none";
-                        nextBtn.style.display = "none";
-                        return;
-                    }
+      const hasCover = cid !== null && cid !== undefined && String(cid).trim() !== "" && String(cid) !== "0";
+      if (!hasCover) {
+        return `<img src="${fallback}" alt="${alt}" class="book-cover-img" />`;
+      }
 
-                    setupPaginatedBookDisplay({
-                        books,
-                        containerId,
-                        prevButtonId,
-                        nextButtonId,
-                        limit: 60,
-                        scrollOnFirstRender: false,
-                        manualPagination: true
-                    });
+      const src = `https://covers.openlibrary.org/b/id/${cid}-M.jpg`;
+      return `<img src="${src}" alt="${alt}" class="book-cover-img"
+                  onerror="this.onerror=null; this.src='${fallback}';" />`;
+    }
 
-                    booksContainer.style.display = "block";
-                    prevBtn.style.display = data.has_prev ? "inline-block" : "none";
-                    nextBtn.style.display = data.has_next ? "inline-block" : "none";
+    function renderBooks(books) {
+      if (!books || books.length === 0) {
+        booksContainer.innerHTML = "<p>No books found.</p>";
+        return;
+      }
 
-                    if (shouldScroll) {
-                        booksContainer.scrollIntoView({ behavior: "smooth" });
-                    }
-                }
+      const booksHTML = books.map(book => `
+        <a href="/book/${book.item_idx}">
+          <div class="book-card">
+            ${renderCoverImg(book)}
+            <h3 class="book-title">
+              <span class="book-title-text">${escapeHtml(book.title || "")}</span>
+            </h3>
+            ${book.author ? `<p class="author"><i>${escapeHtml(book.author)}</i></p>` : ""}
+            ${book.year != null ? `<p class="year">${escapeHtml(String(book.year))}</p>` : ""}
+            ${book.isbn ? `<p class="isbn">${escapeHtml(book.isbn)}</p>` : ""}
+          </div>
+        </a>
+      `).join("");
 
+      booksContainer.innerHTML = `<div class="book-grid">${booksHTML}</div>`;
+    }
 
-                prevBtn.onclick = () => {
-                    if (currentPage > 0) {
-                        fetchPage(currentPage - 1, true); // scroll on click
-                    }
-                };
+    function updateURL(page) {
+      const urlParams = new URLSearchParams(window.location.search);
+      urlParams.set("page", page);
+      const newUrl = `${window.location.pathname}?${urlParams}`;
+      window.history.replaceState({}, "", newUrl);
+    }
 
-                nextBtn.onclick = () => {
-                    fetchPage(currentPage + 1, true);   // scroll on click
-                };
+    async function fetchPage(page) {
+      const urlParams = new URLSearchParams(window.location.search);
+      urlParams.set("page", page);
 
-                // Initial load: no scroll
-                fetchPage(0, false);
+      try {
+        const response = await fetch(`/search/json?${urlParams}`);
+        const data = await response.json();
 
-            </script>
-        {% endif %}
+        if (data.results?.length > 0) {
+          currentPage = page;
+          hasNext = data.pagination.has_next;
+          hasPrev = data.pagination.has_prev;
+
+          renderBooks(data.results);
+
+          prevBtn.style.display = hasPrev ? "inline-block" : "none";
+          nextBtn.style.display = hasNext ? "inline-block" : "none";
+
+          updateURL(page);
+          booksContainer.scrollIntoView({ behavior: "smooth", block: "start" });
+        } else {
+          booksContainer.innerHTML = "<p>No more results.</p>";
+          nextBtn.style.display = "none";
+        }
+      } catch (error) {
+        console.error("Fetch error:", error);
+        booksContainer.innerHTML = "<p>Error loading results.</p>";
+      }
+    }
+
+    prevBtn.onclick = () => {
+      if (currentPage > 0) fetchPage(currentPage - 1);
+    };
+
+    nextBtn.onclick = () => fetchPage(currentPage + 1);
+
+    // Initial render
+    renderBooks({{ results | tojson }});
+
+    prevBtn.style.display = hasPrev ? "inline-block" : "none";
+    nextBtn.style.display = hasNext ? "inline-block" : "none";
+</script>
     </div>
     {% include 'footer.html' %}
-</div>    
-    <script type="module">
-        import { initSubjectPicker } from "/static/js/subject_picker.js";
-    
-        const prefill = {{ (subjects or []) | tojson }};
+</div>
 
-        initSubjectPicker({
-            inputId: "subject-input",
-            suggestionsBoxId: "subject-suggestions",
-            pillsContainerId: "subject-pills",
-            hiddenInputId: "fav_subjects-hidden",
-            maxSubjects: 3,
-            prefill 
-        });
-    </script>
+<script type="module">
+    import { initSubjectPicker } from "/static/js/subject_picker.js";
+
+    const prefill = {{ (subjects or []) | tojson }};
+
+    initSubjectPicker({
+        inputId: "subject-input",
+        suggestionsBoxId: "subject-suggestions",
+        pillsContainerId: "subject-pills",
+        hiddenInputId: "fav_subjects-hidden",
+        maxSubjects: 3,
+        prefill
+    });
+</script>
 </body>
 </html>

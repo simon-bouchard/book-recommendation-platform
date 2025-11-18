@@ -6,6 +6,8 @@ from sqlalchemy.orm import Session
 from sqlalchemy import func
 from app.table_models import BookSubject, Subject
 from time import time
+from typing import Any, Dict, List
+import math
 
 _subject_cache = []
 _last_subject_fetch = 0
@@ -52,15 +54,28 @@ def get_all_subject_counts(db: Session):
     _last_subject_fetch = now
     return _subject_cache
 
-def clean_float_values(obj):
-    """Recursively replace NaN, inf, -inf with None (for JSON compliance)."""
-    if isinstance(obj, dict):
-        return {k: clean_float_values(v) for k, v in obj.items()}
-    elif isinstance(obj, list):
-        return [clean_float_values(v) for v in obj]
-    elif isinstance(obj, float):
-        if obj != obj or obj in [float("inf"), float("-inf")]:
+
+def clean_float_values(data: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    """
+    Clean NaN, Inf, and other non-serializable values so | tojson works perfectly.
+    """
+    def clean_value(val: Any) -> Any:
+        if isinstance(val, float):
+            if math.isnan(val) or math.isinf(val):
+                return None
+            return val
+        if val is None:
             return None
-        return obj
-    else:
-        return obj
+        if isinstance(val, (int, str, bool)):
+            return val
+        # Last resort: convert to str (should never happen)
+        try:
+            return str(val)
+        except:
+            return None
+
+    cleaned = []
+    for item in data:
+        cleaned_item = {k: clean_value(v) for k, v in item.items()}
+        cleaned.append(cleaned_item)
+    return cleaned
