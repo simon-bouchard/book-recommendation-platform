@@ -1343,6 +1343,21 @@ li {
     font-style: italic;
 }
 
+.autocomplete-suggestion-link {
+    text-decoration: none;
+    color: inherit;
+    display: block;
+}
+
+.autocomplete-suggestion-link:hover {
+    text-decoration: none;
+}
+
+.autocomplete-suggestion:hover {
+    background-color: #e9ecef;
+    cursor: pointer;
+}
+
 
 /* Responsive Design */
 @media (max-width: 600px) {

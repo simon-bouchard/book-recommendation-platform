@@ -253,12 +253,14 @@ function displaySuggestions(suggestions) {
     }
 
     const suggestionsHTML = suggestions.map((suggestion, index) => `
-        <div class="autocomplete-suggestion" data-index="${index}" data-item-idx="${suggestion.item_idx}">
-            <div>
-                <div class="suggestion-title">${escapeHtml(suggestion.title)}</div>
-                <div class="suggestion-author">${escapeHtml(suggestion.author || 'Unknown Author')}</div>
+        <a href="/book/${suggestion.item_idx}" class="autocomplete-suggestion-link">
+            <div class="autocomplete-suggestion" data-index="${index}" data-item-idx="${suggestion.item_idx}">
+                <div>
+                    <div class="suggestion-title">${escapeHtml(suggestion.title)}</div>
+                    <div class="suggestion-author">${escapeHtml(suggestion.author || 'Unknown Author')}</div>
+                </div>
             </div>
-        </div>
+        </a>
     `).join('');
 
     suggestionsContainer.innerHTML = suggestionsHTML;
@@ -288,19 +290,15 @@ function attachSuggestionEvents() {
     
     suggestions.forEach(suggestion => {
         suggestion.addEventListener('click', () => {
-            const title = suggestion.querySelector('.suggestion-title').textContent;
-            queryInput.value = title;
+            // The link will handle navigation automatically
             hideSuggestions();
-            
-            // Optional: Auto-submit form on selection
-            // document.getElementById('searchForm').submit();
         });
     });
 }
 
 // Keyboard navigation
 function handleKeyboardNavigation(e) {
-    const suggestions = suggestionsContainer.querySelectorAll('.autocomplete-suggestion');
+    const suggestions = suggestionsContainer.querySelectorAll('.autocomplete-suggestion-link');
     
     if (suggestions.length === 0) return;
 
@@ -320,7 +318,9 @@ function handleKeyboardNavigation(e) {
         case 'Enter':
             if (selectedSuggestionIndex >= 0) {
                 e.preventDefault();
-                suggestions[selectedSuggestionIndex].click();
+                // Navigate to the selected suggestion's link
+                const selectedLink = suggestions[selectedSuggestionIndex];
+                window.location.href = selectedLink.href;
             }
             break;
             
@@ -332,7 +332,10 @@ function handleKeyboardNavigation(e) {
 
 function updateSelectedSuggestion(suggestions) {
     suggestions.forEach((suggestion, index) => {
-        suggestion.style.backgroundColor = index === selectedSuggestionIndex ? '#e9ecef' : '';
+        const suggestionDiv = suggestion.querySelector('.autocomplete-suggestion');
+        if (suggestionDiv) {
+            suggestionDiv.style.backgroundColor = index === selectedSuggestionIndex ? '#e9ecef' : '';
+        }
     });
 }
 
@@ -358,6 +361,5 @@ document.getElementById('searchForm').addEventListener('submit', () => {
     hideSuggestions();
 });
 </script>
-
 </body>
 </html>
