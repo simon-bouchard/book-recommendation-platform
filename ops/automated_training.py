@@ -160,6 +160,9 @@ def main():
     except Exception as e:
         print(f"❌ Exception during reload: {e}")
 
+	print("📊 Updating bayes_pop in Meilisearch...")
+	run(f"python {PROJECT_ROOT}/ops/meilisearch/update_bayes_pop.py")
+
     print("✅ Done. Logs saved to:", log_file_local)
 
 if __name__ == "__main__":
