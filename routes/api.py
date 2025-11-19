@@ -38,14 +38,12 @@ load_dotenv()
 
 @router.get('/login', response_class=HTMLResponse)
 def signup_page(request: Request):
-    countries = sorted([c.name for c in pycountry.countries])
     message = request.session.pop("flash_success", None)
     error = request.session.pop("flash_error", None)
     warning = request.session.pop("flash_warning", None)
 
     return templates.TemplateResponse("login.html", {
         "request": request,
-        "countries": countries,
         "page": "login",
         "message": message,
         "error": error,
@@ -78,8 +76,6 @@ def profile_page(request: Request, current_user: dict = Depends(get_current_user
         "id": current_user.user_id,
         "username": current_user.username,
         "email": current_user.email,
-        "age": current_user.age,
-        "country": current_user.country,
         "num_books_read": num_books_read,
         "num_ratings": num_ratings,
         "is_warm": is_warm,
@@ -112,8 +108,6 @@ async def update_profile(
 
     user.username = data.get("username", user.username)
     user.email = data.get("email", user.email)
-    user.age = data.get("age", user.age)
-    user.country = data.get("country", user.country)
 
     # Update favorite subjects
     new_subjects = data.get("favorite_subjects", [])
