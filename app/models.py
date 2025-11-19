@@ -33,7 +33,6 @@ def get_all_subject_counts(db: Session):
 
     # NEW: Try MeiliSearch facets first (fast & always in sync with searchable data)
     try:
-        print("loading_subjects")
         load_dotenv()
         client = Client("http://localhost:7700", os.getenv("MEILI_MASTER_KEY"))
         index = client.index("books")

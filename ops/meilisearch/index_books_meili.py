@@ -48,7 +48,12 @@ def configure_index():
             "bayes_pop", "num_ratings", "avg_rating", "year"
         ],
         "rankingRules": ["words", "typo", "proximity", "attribute", "sort", "exactness"],
-        "faceting": {"maxValuesPerFacet": 200}
+		"faceting": {
+			"maxValuesPerFacet": 200000,     # large enough—effectively unlimited
+            "sortFacetValuesBy": {
+                "subject_ids": "count"
+            }
+		}
     })
     print("Meilisearch settings applied (subject_ids preserved)")
 
