@@ -14,8 +14,13 @@
     <div class="container">
         <h1>Book Search</h1>
         <form method="get" action="/search" id="searchForm">
-            <label for="query">Search Terms:</label>
-            <input type="text" id="query" name="query" value="{{ query or '' }}" placeholder="Enter title, author, or keywords...">
+		<div class="autocomplete-wrapper">
+			<label for="query">Search Terms:</label>
+			<input type="text" id="query" name="query" value="{{ query or '' }}" 
+				   placeholder="Enter title, author, or keywords..." 
+				   autocomplete="off">
+			<div id="autocomplete-suggestions" class="autocomplete-suggestions"></div>
+		</div>
 
 			<label for="subjects">Filter by Subjects:</label>
 			<div class="filter-help">Select up to 3 subjects</div>
@@ -179,5 +184,180 @@
         prefill
     });
 </script>
+
+<script>
+// Autocomplete functionality
+let currentRequest = null;
+let selectedSuggestionIndex = -1;
+
+const queryInput = document.getElementById('query');
+const suggestionsContainer = document.getElementById('autocomplete-suggestions');
+
+// Debounce function to limit API calls
+function debounce(func, wait) {
+    let timeout;
+    return function executedFunction(...args) {
+        const later = () => {
+            clearTimeout(timeout);
+            func(...args);
+        };
+        clearTimeout(timeout);
+        timeout = setTimeout(later, wait);
+    };
+}
+
+// Fetch autocomplete suggestions
+async function fetchSuggestions(query) {
+    if (currentRequest) {
+        currentRequest.abort();
+    }
+
+    if (query.length < 2) {
+        hideSuggestions();
+        return;
+    }
+
+    showLoading();
+
+    const controller = new AbortController();
+    currentRequest = controller;
+
+    try {
+        const params = new URLSearchParams({
+            q: query,
+            limit: 5
+        });
+
+        const response = await fetch(`/search/autocomplete?${params}`, {
+            signal: controller.signal
+        });
+        
+        const data = await response.json();
+        displaySuggestions(data.suggestions);
+    } catch (error) {
+        if (error.name !== 'AbortError') {
+            console.error('Autocomplete error:', error);
+            hideSuggestions();
+        }
+    } finally {
+        currentRequest = null;
+    }
+}
+
+// Display suggestions in the dropdown
+function displaySuggestions(suggestions) {
+    if (!suggestions || suggestions.length === 0) {
+        suggestionsContainer.innerHTML = '<div class="autocomplete-empty">No matches found</div>';
+        showSuggestions();
+        return;
+    }
+
+    const suggestionsHTML = suggestions.map((suggestion, index) => `
+        <div class="autocomplete-suggestion" data-index="${index}" data-item-idx="${suggestion.item_idx}">
+            <div>
+                <div class="suggestion-title">${escapeHtml(suggestion.title)}</div>
+                <div class="suggestion-author">${escapeHtml(suggestion.author || 'Unknown Author')}</div>
+            </div>
+        </div>
+    `).join('');
+
+    suggestionsContainer.innerHTML = suggestionsHTML;
+    showSuggestions();
+    attachSuggestionEvents();
+}
+
+// Show loading state
+function showLoading() {
+    suggestionsContainer.innerHTML = '<div class="autocomplete-loading">Searching...</div>';
+    showSuggestions();
+}
+
+// Show/hide suggestions
+function showSuggestions() {
+    suggestionsContainer.style.display = 'block';
+}
+
+function hideSuggestions() {
+    suggestionsContainer.style.display = 'none';
+    selectedSuggestionIndex = -1;
+}
+
+// Attach click events to suggestions
+function attachSuggestionEvents() {
+    const suggestions = suggestionsContainer.querySelectorAll('.autocomplete-suggestion');
+    
+    suggestions.forEach(suggestion => {
+        suggestion.addEventListener('click', () => {
+            const title = suggestion.querySelector('.suggestion-title').textContent;
+            queryInput.value = title;
+            hideSuggestions();
+            
+            // Optional: Auto-submit form on selection
+            // document.getElementById('searchForm').submit();
+        });
+    });
+}
+
+// Keyboard navigation
+function handleKeyboardNavigation(e) {
+    const suggestions = suggestionsContainer.querySelectorAll('.autocomplete-suggestion');
+    
+    if (suggestions.length === 0) return;
+
+    switch(e.key) {
+        case 'ArrowDown':
+            e.preventDefault();
+            selectedSuggestionIndex = Math.min(selectedSuggestionIndex + 1, suggestions.length - 1);
+            updateSelectedSuggestion(suggestions);
+            break;
+            
+        case 'ArrowUp':
+            e.preventDefault();
+            selectedSuggestionIndex = Math.max(selectedSuggestionIndex - 1, -1);
+            updateSelectedSuggestion(suggestions);
+            break;
+            
+        case 'Enter':
+            if (selectedSuggestionIndex >= 0) {
+                e.preventDefault();
+                suggestions[selectedSuggestionIndex].click();
+            }
+            break;
+            
+        case 'Escape':
+            hideSuggestions();
+            break;
+    }
+}
+
+function updateSelectedSuggestion(suggestions) {
+    suggestions.forEach((suggestion, index) => {
+        suggestion.style.backgroundColor = index === selectedSuggestionIndex ? '#e9ecef' : '';
+    });
+}
+
+// Event listeners
+const debouncedFetch = debounce(fetchSuggestions, 300);
+
+queryInput.addEventListener('input', (e) => {
+    selectedSuggestionIndex = -1;
+    debouncedFetch(e.target.value);
+});
+
+queryInput.addEventListener('keydown', handleKeyboardNavigation);
+
+// Close suggestions when clicking outside
+document.addEventListener('click', (e) => {
+    if (!queryInput.contains(e.target) && !suggestionsContainer.contains(e.target)) {
+        hideSuggestions();
+    }
+});
+
+// Hide suggestions when form is submitted
+document.getElementById('searchForm').addEventListener('submit', () => {
+    hideSuggestions();
+});
+</script>
+
 </body>
 </html>
