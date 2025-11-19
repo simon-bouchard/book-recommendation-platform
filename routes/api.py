@@ -17,7 +17,7 @@ from routes.auth import get_current_user
 from app.database import get_db
 from app.table_models import Book, User, Interaction, BookSubject, Subject, UserFavSubject
 from app.models import get_all_subject_counts, clean_float_values
-from app.search.search_utils import get_search_results
+from app.search.search_utils import get_search_results, update_book_ratings_in_meili
 from models.book_similarity_engine import get_similarity_strategy
 from models.recommender_strategy import RecommenderStrategy, WarmRecommender, ColdRecommender
 from models.shared_utils import PAD_IDX, ModelStore
@@ -262,6 +262,8 @@ async def new_rating(current_user = Depends(get_current_user), data: dict = Body
     db.commit()
     db.close()
 
+    update_book_ratings_in_meili(item_idx)
+
     return {'message': 'Interaction recorded successfully'}
 
 @router.delete("/rating/{item_idx}")
@@ -284,6 +286,9 @@ async def delete_rating(
 
     db.delete(interaction)
     db.commit()
+
+    update_book_ratings_in_meili(item_idx)
+
     return {"message": "Rating deleted"}
 
 
