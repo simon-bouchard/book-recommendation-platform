@@ -559,6 +559,54 @@ def search_books_json(
         }
     }
 
+@router.get("/search/autocomplete")
+def autocomplete_suggestions(
+    q: str = Query(..., min_length=2, description="Search query for autocomplete"),
+    limit: int = Query(5, ge=1, le=10),
+    highlight: bool = Query(False, description="Enable highlight formatting"),
+    attributes_to_retrieve: Optional[List[str]] = Query(
+        None, 
+        description="Fields to return. Default: ['item_idx', 'title', 'author']"
+    ),
+    db: Session = Depends(get_db)
+):
+    """
+    Fast typo-tolerant autocomplete using Meilisearch
+    Returns book titles and authors as suggestions
+    """
+    # Set default attributes if none provided
+    if attributes_to_retrieve is None:
+        attributes_to_retrieve = ["item_idx", "title", "author"]
+    
+    search_req = SearchRequest(
+        query=q,
+        mode=SearchMode.MEILI,
+        page=0,
+        page_size=limit,
+        highlight=highlight,
+        crop=False,  # No cropping for autocomplete
+        attributes_to_retrieve=attributes_to_retrieve,
+    )
+    
+    search_response = search_engine.search(search_req)
+    
+    suggestions = []
+    for result in search_response.results:
+        suggestion_data = {
+            "item_idx": result.item_idx,
+            "title": result.title,
+            "author": result.author,
+            "type": "book"
+        }
+        
+        # Include highlighted fields if available and requested
+        if highlight and hasattr(result, 'description_snippet') and result.description_snippet:
+            suggestion_data["highlighted_description"] = result.description_snippet
+            
+        suggestions.append(suggestion_data)
+    
+    return {"suggestions": suggestions}
+
 @router.get("/subjects/suggestions")
 def subject_suggestions(q: Optional[str] = Query(default=None), db: Session = Depends(get_db)):
     """
