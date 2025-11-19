@@ -41,18 +41,6 @@
             <label for="email">Email:</label>
             <input type="email" name="email" required>
             
-            <label for="age">Age:</label>
-            <input type="number" name="age" id="age" min="5" required>
-            <div id="age-error" class="form-error"></div>
-
-            <label for="country">Country:</label>
-            <select name="country" required>
-                <option value="">-- Select your country --</option>
-                {% for country in countries %}
-                    <option value="{{ country }}">{{ country }}</option>
-                {% endfor %}
-            </select>
-
             <label for="fav_subjects">Favorite Subjects (1–5):</label>
             <div id="subject-input-container">
                 <input type="text" id="subject-input" placeholder="Start typing a subject..." autocomplete="off">
@@ -98,37 +86,29 @@
         return raw.split(",").map(s => s.trim()).filter(Boolean);
     }
 
-    function validateSignupForm() {
-        let valid = true;
+	function validateSignupForm() {
+		let valid = true;
 
-        const pw = document.getElementById("password").value;
-        const repeat = document.getElementById("repeat_password").value;
-        const ageVal = document.getElementById("age").value;
-        const age = Number(ageVal);
-        const subjects = getSelectedSubjects();
+		const pw = document.getElementById("password").value;
+		const repeat = document.getElementById("repeat_password").value;
+		const subjects = getSelectedSubjects();
 
-        // clear previous errors
-        document.getElementById("password-error").textContent = "";
-        document.getElementById("age-error").textContent = "";
+		// clear previous errors
+		document.getElementById("password-error").textContent = "";
 
-        if (pw !== repeat) {
-            document.getElementById("password-error").textContent = "Passwords do not match.";
-            valid = false;
-        }
+		if (pw !== repeat) {
+			document.getElementById("password-error").textContent = "Passwords do not match.";
+			valid = false;
+		}
 
-        if (!Number.isFinite(age) || age < 5) {
-            document.getElementById("age-error").textContent = "Please enter a valid age (5 or older).";
-            valid = false;
-        }
+		if (subjects.length < 1 || subjects.length > 5) {
+			alert("Please select between 1 and 5 favorite subjects.");
+			valid = false;
+		}
 
-        if (subjects.length < 1 || subjects.length > 5) {
-            alert("Please select between 1 and 5 favorite subjects.");
-            valid = false;
-        }
-
-        return valid; // returning false blocks the submit
-    }
-    </script>
+		return valid;
+	}
+</script>
 
 </body>
 </html>
