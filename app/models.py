@@ -8,6 +8,9 @@ from app.table_models import BookSubject, Subject
 from time import time
 from typing import Any, Dict, List
 import math
+from dotenv import load_dotenv
+from meilisearch import Client
+import os
 
 _subject_cache = []
 _last_subject_fetch = 0
@@ -30,6 +33,7 @@ def get_all_subject_counts(db: Session):
 
     # NEW: Try MeiliSearch facets first (fast & always in sync with searchable data)
     try:
+        print("loading_subjects")
         load_dotenv()
         client = Client("http://localhost:7700", os.getenv("MEILI_MASTER_KEY"))
         index = client.index("books")
@@ -40,9 +44,9 @@ def get_all_subject_counts(db: Session):
             {
                 "facets": ["subject_ids"],
                 "limit": 0,  # No hits needed, just counts
-            }
-        )
-        
+			}	
+		)
+			
         facet_dist = result.get("facetDistribution", {}).get("subject_ids", {})
         if not facet_dist:
             raise ValueError("No facet data returned")
@@ -53,26 +57,28 @@ def get_all_subject_counts(db: Session):
             key=lambda x: x[1],
             reverse=True
         )
-        
+
         # Batch-resolve names with one SQL query (fast)
         if subject_counts:
-            subject_idxs = [idx for idx, _ in subject_counts[:100]]  # Top 100 max
+            subject_idxs = [idx for idx, _ in subject_counts]# Top 100 max
             name_rows = (
                 db.query(Subject.subject_idx, Subject.subject)
                 .filter(Subject.subject_idx.in_(subject_idxs))
                 .all()
             )
             name_map = {row.subject_idx: row.subject for row in name_rows}
+
+        # Preserve the count-based order from subject_counts
+        _subject_cache = []
+        for idx, count in subject_counts:
+            if idx in name_map and name_map[idx] != "[NO_SUBJECT]":
+                _subject_cache.append({
+                    "subject_idx": idx,
+                    "subject": name_map.get(idx, "[Unknown]"),
+                    "count": count
+                })
         
-        _subject_cache = [
-            {
-                "subject_idx": idx,
-                "subject": name_map.get(idx, "[Unknown]"),
-                "count": count
-            }
-            for idx, count in subject_counts
-            if idx in name_map and name_map[idx] != "[NO_SUBJECT]"
-        ]
+        _subject_cache.sort(key=lambda x: (-x['count'], x['subject']))
         
     except Exception as e:
         # Fallback to your original SQL (logs warning if you add logging)
