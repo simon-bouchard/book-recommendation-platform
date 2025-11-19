@@ -57,7 +57,6 @@ TRAIN_SCRIPTS.extend([
     "precompute_embs.py",
     "precompute_bayesian.py",
     "train_als.py",
-    "train_warm_gbt.py",
 ])
 
 def run(cmd, **kwargs):
