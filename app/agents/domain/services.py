@@ -83,7 +83,7 @@ class StandardResultProcessor:
                 author=obj.get('author'),
                 year=self._safe_int(obj.get('year')),
                 cover_id=obj.get('cover_id'),
-                recommendation_score=self._safe_float(obj.get('score') or obj.get('similarity')),
+                num_ratings=self._safe_int(obj.get('num_ratings')),
             )
             
             # Add extended metadata if available (not in base BookRecommendation)

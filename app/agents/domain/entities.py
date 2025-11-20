@@ -145,7 +145,7 @@ class BookRecommendation:
     author: Optional[str] = None
     year: Optional[int] = None
     cover_id: Optional[str] = None
-    recommendation_score: Optional[float] = None
+    num_ratings: Optional[int] = None  # Rating count for social proof
     recommendation_reason: Optional[str] = None
     
     # Extended metadata for curation (from tool results)
@@ -177,7 +177,7 @@ class BookRecommendation:
             "tones": self.tones or [],
             "genre": self.genre or "",
             "vibe": self.vibe or "",
-            "score": self.recommendation_score,
+            "num_ratings": self.num_ratings or 0,
         }
 
 @dataclass

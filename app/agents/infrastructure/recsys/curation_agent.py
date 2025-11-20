@@ -116,7 +116,7 @@ class CurationAgent:
                     "tones": getattr(book, 'tones', []) or [],
                     "genre": getattr(book, 'genre', "") or "",
                     "vibe": getattr(book, 'vibe', "") or "",
-                    "score": book.recommendation_score,
+                    "num_ratings": book.num_ratings or 0,
                 }
             
             # Truncate vibe if too long (token limit)

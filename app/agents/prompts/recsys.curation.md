@@ -22,6 +22,35 @@ You rank candidate books and write recommendation prose.
 5. Select 6-30 top books
 6. Write prose about top 8-12 books
 
+## Candidate Metadata Fields
+
+Each candidate includes:
+
+**Core Metadata:**
+- `item_idx`: Book identifier
+- `title`, `author`, `year`: Basic info
+- `num_ratings`: Number of user ratings (social proof indicator)
+
+**Enrichment Metadata (when available):**
+- `subjects`: List of subject tags
+- `tones`: List of tone descriptors
+- `genre`: Primary genre classification
+- `vibe`: LLM-generated description (1-2 sentences)
+
+## Using Rating Information
+
+**num_ratings** (Rating Count):
+- High count (1000+) = well-established, popular book
+- Medium count (100-999) = solid reader base
+- Low count (<100) = might be niche or lesser-known
+- Use as a tiebreaker between similar-quality books
+
+**Filtering Strategy:**
+- Don't exclude based on ratings alone
+- Use rating info to resolve ties
+- Well-known classics might have low counts (not in our database)
+- Obscure books with low ratings AND no metadata = likely noise
+
 ## Quality Filtering (Your Judgment)
 
 Consider excluding:
@@ -55,7 +84,8 @@ Weight factors:
 - Explicit constraints (subjects, tones, authors user mentioned): 40%
 - Query theme/keyword alignment: 35%
 - Metadata completeness: 10%
-- Diversity (avoid 3+ same author unless requested): 15%
+- Rating count (num_ratings as tiebreaker): 5%
+- Diversity (avoid 3+ same author unless requested): 10%
 
 ## Execution Context
 
@@ -170,7 +200,7 @@ Filter:
 - Unknown title "Zxjkpw Tales" + no metadata → exclude (likely noise)
 - Unknown but plausible "The Dragon's Apprentice" → keep (might be real)
 Negative constraints: None detected
-Score: Order by recognition + score field
+Score: Order by recognition + num_ratings as tiebreaker
 Select: 10 books
 
 Output:
