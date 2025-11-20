@@ -1,6 +1,8 @@
 # app/agents/logging.py
 import logging
-import os
+import os, json
+from datetime import datetime
+from typing import Any, Dict, Union
 import io
 import sys
 from contextlib import contextmanager, redirect_stdout, redirect_stderr
@@ -11,7 +13,6 @@ from langchain.schema import LLMResult
 from langchain_core.agents import AgentAction, AgentFinish
 from langchain_core.messages import BaseMessage
 from langchain_core.prompt_values import PromptValue
-from datetime import datetime
 
 # -------- Normal app logger (unchanged) --------
 _LOG_LEVEL = os.getenv("LOG_LEVEL", "INFO").upper()
@@ -378,3 +379,82 @@ class LogCallbackHandler(BaseCallbackHandler):
         """Log arbitrary text (often Thought/Observation parts)."""
         if text.strip() and self._should_log_component("verbose"):
             self._log_event("text", text, "verbose")
+
+def log_data_transform(
+    stage: str, 
+    input_data: Any, 
+    output_data: Any, 
+    description: str = ""
+) -> None:
+    """
+    Log data transformation in DEBUG mode only.
+    Shows how data changes between stages for debugging.
+    
+    Args:
+        stage: Name of the transformation stage
+        input_data: Data before transformation
+        output_data: Data after transformation
+        description: Optional description of what's happening
+        
+    Usage:
+        log_data_transform(
+            "tool_to_BookRecommendation",
+            raw_tool_results[:3],  # Sample
+            recommendations[:3],
+            f"Built {len(recommendations)} BookRecommendation objects"
+        )
+    """
+    # Only log in DEBUG mode
+    if not os.getenv("LOG_PROMPT", "0").lower() in ("1", "true", "yes"):
+        return
+    
+    timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    
+    # Format as JSON if possible
+    try:
+        if isinstance(input_data, (dict, list)):
+            input_str = json.dumps(input_data, indent=2, default=str)
+        else:
+            input_str = str(input_data)
+            
+        if isinstance(output_data, (dict, list)):
+            output_str = json.dumps(output_data, indent=2, default=str)
+        else:
+            output_str = str(output_data)
+    except Exception:
+        input_str = str(input_data)
+        output_str = str(output_data)
+    
+    # Limit size to avoid huge logs
+    if len(input_str) > 5000:
+        input_str = input_str[:5000] + "\n...[truncated]"
+    if len(output_str) > 5000:
+        output_str = output_str[:5000] + "\n...[truncated]"
+    
+    log_content = f"""
+{timestamp} DEBUG | [TRANSFORM: {stage}]
+{description}
+
+INPUT:
+{input_str}
+
+OUTPUT:
+{output_str}
+{'='*80}
+"""
+    append_chatbot_log(log_content)
+
+
+def is_debug_mode() -> bool:
+    """Check if DEBUG logging mode is enabled."""
+    return os.getenv("LOG_PROMPT", "0").lower() in ("1", "true", "yes")
+
+
+# Re-export everything from the original module
+__all__ = [
+    'append_chatbot_log',
+    'LogCallbackHandler', 
+    'capture_agent_console_and_httpx',
+    'log_data_transform',
+    'is_debug_mode',
+]

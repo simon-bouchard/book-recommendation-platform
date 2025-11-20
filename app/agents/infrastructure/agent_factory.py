@@ -6,6 +6,7 @@ from typing import Optional, Any
 
 from app.agents.schemas import Target
 from app.agents.domain.interfaces import Agent
+from app.agents.logging import append_chatbot_log
 from .recsys.orchestrator import RecommendationAgent
 from .web_agent import WebAgent
 from .docs_agent import DocsAgent
@@ -39,7 +40,14 @@ class AgentFactory:
         Returns:
             Agent instance implementing the Agent protocol
         """
+        append_chatbot_log(f"AgentFactory: Creating {target} agent")
+        
         if target == "recsys":
+            is_warm = (user_num_ratings or 0) >= 10
+            append_chatbot_log(
+                f"  - RecsysAgent: ratings={user_num_ratings}, warm={is_warm}, "
+                f"profile={use_profile}"
+            )
             return RecommendationAgent(
                 current_user=current_user,
                 db=db,
@@ -49,10 +57,13 @@ class AgentFactory:
             )
         
         elif target == "web":
+            append_chatbot_log(f"  - WebAgent: search enabled")
             return WebAgent()
         
         elif target == "docs":
+            append_chatbot_log(f"  - DocsAgent: document search")
             return DocsAgent()
         
         else:  # "respond" or fallback
+            append_chatbot_log(f"  - ResponseAgent: conversational")
             return ResponseAgent()
