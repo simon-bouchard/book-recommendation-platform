@@ -25,9 +25,6 @@ ALGORITHM = 'HS256'
 ACCESS_TOKEN_EXPIRE_MINUTES = 60
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl='token')
 
-allowed_countries = {country.name for country in pycountry.countries}
-allowed_countries.add("Unknown")
-
 templates = Jinja2Templates(directory='templates')
 templates.env.globals['now'] = datetime.utcnow
 
@@ -60,45 +57,25 @@ async def signup(
     username: str = Form(...),
     email: str = Form(...),
     password: str = Form(...),
-    age: int = Form(None),
-    country: str = Form(...),
     fav_subjects: str = Form(""),
     db: Session = Depends(get_db)
 ):
     existing_user = db.query(User).filter(User.username == username).first()
     
-    countries = sorted([c.name for c in pycountry.countries])
     if existing_user:
         return templates.TemplateResponse("login.html", {
             "request": request,
-            "countries": countries,
             "page": "login",
             "error": "Username already exists. Please choose another."
         },
         status_code=status.HTTP_400_BAD_REQUEST,
     )
 
-    try:
-        country_name = pycountry.countries.lookup(country).name
-    except LookupError:
-        return templates.TemplateResponse("login.html", {
-            "request": request,
-            "countries": countries,
-            "page": "login",
-            "error": "Invalid country name."
-        },
-        status_code=status.HTTP_400_BAD_REQUEST,
-    )
+    final_age = None
+    filled_age = False
+    age_group = "unknown_age"
+    country_name = "Unknown"
 
-    # Correct age handling logic
-    if age is None:
-        final_age = GLOBAL_AVG_AGE
-        filled_age = True
-    else:
-        final_age = age
-        filled_age = False
-
-    age_group = assign_age_group(final_age)
     hashed_pw = hash_password(password)
 
     new_user = User(
@@ -146,13 +123,10 @@ async def login(
 
     # On any auth failure, re-render login.html with a friendly message
     if not db_user or not verify_password(password, db_user.password):
-        # keep country list and page context so the template renders fully
-        countries = sorted([c.name for c in pycountry.countries])
         return templates.TemplateResponse(
             "login.html",
             {
                 "request": request,
-                "countries": countries,
                 "page": "login",
                 "error": "Invalid username or password."
             },
@@ -164,21 +138,3 @@ async def login(
     response = RedirectResponse(url="/profile", status_code=status.HTTP_303_SEE_OTHER)
     response.set_cookie(key="access_token", value=access_token, httponly=True, max_age=3600)
     return response
-
-def assign_age_group(age):
-    if pd.isna(age):
-        return "unknown_age"
-    elif age <= 12:
-        return "child"
-    elif age <= 17:
-        return "teen"
-    elif age <= 24:
-        return "young_adult"
-    elif age <= 34:
-        return "early_adult"
-    elif age <= 49:
-        return "mid_adult"
-    elif age <= 64:
-        return "late_adult"
-    else:
-        return "senior"

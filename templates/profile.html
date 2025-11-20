@@ -53,8 +53,6 @@
                 <div><strong>Username:</strong></div><div>{{ user.username }}</div>
                 <div><strong>User ID:</strong></div><div>{{ user.id }}</div>
                 <div><strong>Email:</strong></div><div>{{ user.email }}</div>
-                <div><strong>Age:</strong></div><div>{{ user.age }}</div>
-                <div><strong>Country:</strong></div><div>{{ user.country }}</div>
                 <div><strong>Ratings:</strong></div><div>{{ user.num_ratings }}</div>
                 <div><strong>Books Read:</strong></div><div>{{ user.num_books_read }}</div>
                 
@@ -79,12 +77,6 @@
                 </label>
                 <label>Email:
                     <input type="email" name="email" value="{{ user.email }}">
-                </label>
-                <label>Age:
-                    <input type="number" name="age" value="{{ user.age }}">
-                </label>
-                <label>Country:
-                    <input type="text" name="country" value="{{ user.country }}">
                 </label>
 
                 <label>Favorite Subjects (up to 3):</label>

@@ -9,22 +9,26 @@ from datetime import datetime
 from datetime import datetime
 from sqlalchemy import func, desc, case
 from sqlalchemy.orm import Session, joinedload
+import traceback
+import pycountry
+from typing import List, Optional, Union
 
 from routes.auth import get_current_user
 from app.database import get_db
 from app.table_models import Book, User, Interaction, BookSubject, Subject, UserFavSubject
 from app.models import get_all_subject_counts, clean_float_values
-from app.search_engine import get_search_results
+from app.search.search_utils import get_search_results, update_book_ratings_in_meili
 from models.book_similarity_engine import get_similarity_strategy
 from models.recommender_strategy import RecommenderStrategy, WarmRecommender, ColdRecommender
 from models.shared_utils import PAD_IDX, ModelStore
-
-import traceback
-import pycountry
-from typing import List, Optional
+from app.search.models import SearchRequest, SearchMode
+from app.search.engine import SearchEngine
+from app.search.search_utils import _build_search_request
 
 from app.agents.logging import get_logger
 logger = get_logger(__name__)
+
+search_engine = SearchEngine()
 
 router = APIRouter()
 templates = Jinja2Templates(directory="templates")
@@ -34,14 +38,12 @@ load_dotenv()
 
 @router.get('/login', response_class=HTMLResponse)
 def signup_page(request: Request):
-    countries = sorted([c.name for c in pycountry.countries])
     message = request.session.pop("flash_success", None)
     error = request.session.pop("flash_error", None)
     warning = request.session.pop("flash_warning", None)
 
     return templates.TemplateResponse("login.html", {
         "request": request,
-        "countries": countries,
         "page": "login",
         "message": message,
         "error": error,
@@ -74,8 +76,6 @@ def profile_page(request: Request, current_user: dict = Depends(get_current_user
         "id": current_user.user_id,
         "username": current_user.username,
         "email": current_user.email,
-        "age": current_user.age,
-        "country": current_user.country,
         "num_books_read": num_books_read,
         "num_ratings": num_ratings,
         "is_warm": is_warm,
@@ -108,8 +108,6 @@ async def update_profile(
 
     user.username = data.get("username", user.username)
     user.email = data.get("email", user.email)
-    user.age = data.get("age", user.age)
-    user.country = data.get("country", user.country)
 
     # Update favorite subjects
     new_subjects = data.get("favorite_subjects", [])
@@ -258,6 +256,8 @@ async def new_rating(current_user = Depends(get_current_user), data: dict = Body
     db.commit()
     db.close()
 
+    update_book_ratings_in_meili(item_idx)
+
     return {'message': 'Interaction recorded successfully'}
 
 @router.delete("/rating/{item_idx}")
@@ -280,6 +280,9 @@ async def delete_rating(
 
     db.delete(interaction)
     db.commit()
+
+    update_book_ratings_in_meili(item_idx)
+
     return {"message": "Rating deleted"}
 
 
@@ -306,6 +309,8 @@ async def book_recommendation(request: Request, item_idx: int, current_user: Use
     subject_ids = [s.subject_idx for s in book.subjects]
     subject_names = db.query(Subject.subject).filter(Subject.subject_idx.in_(subject_ids)).all()
     subjects = [s.subject for s in subject_names]
+
+    has_real_subjects = any(s != "[NO_SUBJECT]" for s in subjects)
 
     book_info = {
         'isbn': book.isbn,
@@ -340,7 +345,8 @@ async def book_recommendation(request: Request, item_idx: int, current_user: Use
         "request": request,
         "book": book_info,
         "user_rating": user_rating,
-        'has_als': has_als
+        'has_als': has_als,
+        'has_real_subjects': has_real_subjects,
     })
 
 @router.get("/book/{item_idx}/comments")
@@ -450,50 +456,156 @@ async def recommend_for_user(
 def search_books(
     request: Request,
     query: str = "",
-    subjects: Optional[str] = Query(default=None),
-    page: int = Query(default=0),
-    db: Session = Depends(get_db)
+    subjects: Optional[str] = None,
+    page: int = Query(0, ge=0),
+    page_size: int = Query(60, ge=1, le=200),
+    mode: SearchMode = Query(SearchMode.MEILI),
+    sort: Optional[str] = Query("bayes_pop:desc", description="e.g. bayes_pop:desc, year:asc"),
+    highlight: bool = Query(False),
+    crop: Union[bool, int] = Query(False, description="False = no crop, int = crop length"),
+    min_score: Optional[float] = Query(None, ge=0, le=1),
+    db: Session = Depends(get_db),
 ):
-    subject_list = []
-    subject_idxs = []
-    if subjects:
-        subject_list = [s.strip() for s in subjects.split(",") if s.strip()]
-        subject_rows = db.query(Subject).filter(Subject.subject.in_(subject_list)).all()
-        subject_idxs = [s.subject_idx for s in subject_rows]
+    search_req = _build_search_request(
+        query=query,
+        subjects=subjects,
+        page=page,
+        page_size=page_size,
+        mode=mode,
+        sort=sort,
+        highlight=highlight,
+        crop=crop,
+        min_score=min_score,
+        db=db
+    )
 
-    results, has_next = get_search_results(query, subject_idxs, page, 60, db)
-    subject_suggestions = get_all_subject_counts(db)
-    
+    search_response = search_engine.search(search_req)
+
+    # For HTML template
+    subject_list = [s.strip() for s in (subjects or "").split(",") if s.strip()]
+    subject_suggestions = get_all_subject_counts(db)[:20]
+
+    total_pages = (search_response.total + page_size - 1) // page_size
+
     return templates.TemplateResponse("search.html", {
         "request": request,
-        "results": clean_float_values(results),
+        "results": clean_float_values([r.dict() for r in search_response.results]),
         "query": query,
         "subjects": subject_list,
-        "subject_suggestions": subject_suggestions[:20],
+        "subject_suggestions": subject_suggestions,
         "page": "search",
-        "has_next": has_next,
-        "has_prev": page > 0
+        "total_results": search_response.total,
+        "total_pages": total_pages,
+        "current_page": page,
+        "has_next": (page + 1) * page_size < search_response.total,
+        "has_prev": page > 0,
+        "page_size": page_size,
     })
+
 
 @router.get("/search/json")
 def search_books_json(
-    query: str = "",
-    subjects: Optional[str] = Query(default=None),
-    page: int = Query(default=0),
+    query: str = Query(""),
+    subjects: Optional[str] = Query(None),
+    page: int = Query(0, ge=0),
+    page_size: int = Query(60, ge=1, le=200),
+    mode: SearchMode = Query(SearchMode.MEILI, description="Currently only 'meili' is supported"),
+    sort: Optional[str] = Query("bayes_pop:desc", regex=r"^[\w]+:(asc|desc)$", description="e.g. bayes_pop:desc"),
+    highlight: bool = Query(False),
+    crop: Union[bool, int] = Query(False),
+    min_score: Optional[float] = Query(None, ge=0, le=1),
+    db: Session = Depends(get_db),
+):
+    """
+    Fully-featured search API exposing all MeiliSearch capabilities.
+    """
+    search_req = _build_search_request(
+        query=query,
+        subjects=subjects,
+        page=page,
+        page_size=page_size + 1,  # +1 to detect has_more accurately
+        mode=mode,
+        sort=sort,
+        highlight=highlight,
+        crop=crop,
+        min_score=min_score,
+        db=db
+    )
+
+    search_response = search_engine.search(search_req)
+
+    results = search_response.results
+    has_more = len(results) > page_size
+    results = results[:page_size]
+
+    total_pages = (search_response.total + page_size - 1) // page_size
+
+    return {
+        "results": clean_float_values([r.dict() for r in results]),
+        "pagination": {
+            "current_page": page,
+            "page_size": page_size,
+            "total_results": search_response.total,
+            "total_pages": total_pages,
+            "has_next": has_more or (page + 1) * page_size < search_response.total,
+            "has_prev": page > 0,
+        },
+        "applied": {
+            "mode": mode.value,
+            "sort": sort,
+            "highlight": highlight,
+            "crop": crop if isinstance(crop, int) else None,
+            "min_score": min_score,
+        }
+    }
+
+@router.get("/search/autocomplete")
+def autocomplete_suggestions(
+    q: str = Query(..., min_length=2, description="Search query for autocomplete"),
+    limit: int = Query(5, ge=1, le=10),
+    highlight: bool = Query(False, description="Enable highlight formatting"),
+    attributes_to_retrieve: Optional[List[str]] = Query(
+        None, 
+        description="Fields to return. Default: ['item_idx', 'title', 'author']"
+    ),
     db: Session = Depends(get_db)
 ):
-    subject_idxs = []
-    if subjects:
-        subject_list = [s.strip() for s in subjects.split(",") if s.strip()]
-        subject_rows = db.query(Subject).filter(Subject.subject.in_(subject_list)).all()
-        subject_idxs = [s.subject_idx for s in subject_rows]
-
-    results, has_next = get_search_results(query, subject_idxs, page, 60, db)
-    return {
-        "results": clean_float_values(results),
-        "has_next": has_next,
-        "has_prev": page > 0
-    }
+    """
+    Fast typo-tolerant autocomplete using Meilisearch
+    Returns book titles and authors as suggestions
+    """
+    # Set default attributes if none provided
+    if attributes_to_retrieve is None:
+        attributes_to_retrieve = ["item_idx", "title", "author"]
+    
+    search_req = SearchRequest(
+        query=q,
+        mode=SearchMode.MEILI,
+        page=0,
+        page_size=limit,
+        highlight=highlight,
+        crop=False,  # No cropping for autocomplete
+        attributes_to_retrieve=attributes_to_retrieve,
+    )
+    
+    search_response = search_engine.search(search_req)
+    
+    suggestions = []
+    for result in search_response.results:
+        suggestion_data = {
+            "item_idx": result.item_idx,
+            "title": result.title,
+            "author": result.author,
+            "type": "book"
+        }
+        
+        # Include highlighted fields if available and requested
+        if highlight and hasattr(result, 'description_snippet') and result.description_snippet:
+            suggestion_data["highlighted_description"] = result.description_snippet
+            
+        suggestions.append(suggestion_data)
+    
+    return {"suggestions": suggestions}
 
 @router.get("/subjects/suggestions")
 def subject_suggestions(q: Optional[str] = Query(default=None), db: Session = Depends(get_db)):

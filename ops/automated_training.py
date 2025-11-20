@@ -57,7 +57,6 @@ TRAIN_SCRIPTS.extend([
     "precompute_embs.py",
     "precompute_bayesian.py",
     "train_als.py",
-    "train_warm_gbt.py",
 ])
 
 def run(cmd, **kwargs):
@@ -159,6 +158,9 @@ def main():
             print(f"❌ API reload failed: {resp.status_code} {resp.text}")
     except Exception as e:
         print(f"❌ Exception during reload: {e}")
+
+	print("📊 Updating bayes_pop in Meilisearch...")
+	run(f"python {PROJECT_ROOT}/ops/meilisearch/update_bayes_pop.py")
 
     print("✅ Done. Logs saved to:", log_file_local)
 

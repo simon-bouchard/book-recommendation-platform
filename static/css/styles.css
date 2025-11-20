@@ -531,7 +531,7 @@ form select {
 
 /* Context-specific messages */
 #simModeSelector .toggle-option.disabled::after {
-    content: "Unavailable for this book (no ALS data)";
+    content: "Unavailable for this book";
 }
 
 #modeSelector .toggle-option.disabled::after {
@@ -1278,6 +1278,130 @@ li {
   max-width: 90%;
   box-shadow: 0 2px 8px rgba(0,0,0,0.2);
 }
+
+/* Autocomplete in search bar - Enhanced version */
+.autocomplete-wrapper {
+    position: relative;
+    width: 100%;
+    margin-bottom: 15px;
+}
+
+.autocomplete-suggestions {
+    position: absolute;
+    top: 100%;
+    left: 0;
+    right: 0;
+    background: var(--color-surface);
+    border: 1px solid var(--color-border-light);
+    border-radius: 0 0 8px 8px;
+    box-shadow: 0 4px 12px rgba(0,0,0,0.1);
+    max-height: 320px;
+    overflow-y: auto;
+    z-index: 1000;
+    display: none;
+    margin-top: -1px;
+}
+
+.autocomplete-suggestion-link {
+    text-decoration: none;
+    color: inherit;
+    display: block;
+    transition: all 0.15s ease;
+    border-bottom: 1px solid var(--color-border-lighter);
+}
+
+.autocomplete-suggestion-link:last-child {
+    border-bottom: none;
+}
+
+.autocomplete-suggestion-link:hover {
+    text-decoration: none;
+    background-color: #f8f9fa;
+    border-left: 3px solid var(--color-primary);
+}
+
+.autocomplete-suggestion {
+    padding: 12px 16px;
+    display: block;
+}
+
+.autocomplete-suggestion:hover {
+    cursor: pointer;
+}
+
+.suggestion-title {
+    font-weight: 600;
+    color: var(--color-primary-dark);
+    font-size: 0.95rem;
+    line-height: 1.3;
+    margin-bottom: 4px;
+    display: -webkit-box;
+    -webkit-line-clamp: 2;
+    -webkit-box-orient: vertical;
+    overflow: hidden;
+}
+
+.suggestion-author {
+    color: var(--color-text-muted);
+    font-size: 0.85rem;
+    font-style: italic;
+    display: block;
+}
+
+.autocomplete-loading {
+    padding: 20px 16px;
+    color: var(--color-text-muted);
+    text-align: center;
+    font-size: 0.9rem;
+}
+
+.autocomplete-empty {
+    padding: 20px 16px;
+    color: var(--color-text-muted);
+    text-align: center;
+    font-size: 0.9rem;
+    font-style: italic;
+}
+
+/* Selected state for keyboard navigation */
+.autocomplete-suggestion.selected {
+    background-color: var(--color-primary);
+    border-left: 3px solid var(--color-primary-dark);
+}
+
+.autocomplete-suggestion.selected .suggestion-title {
+    color: #ffffff;
+    font-weight: 600;
+}
+
+.autocomplete-suggestion.selected .suggestion-author {
+    color: rgba(255, 255, 255, 0.9);
+}
+
+/* Thin scrollbar to match the site */
+.autocomplete-suggestions::-webkit-scrollbar {
+    width: 6px;
+}
+
+.autocomplete-suggestions::-webkit-scrollbar-thumb {
+    background: var(--color-border);
+    border-radius: 3px;
+}
+
+
+/* Selected state for keyboard navigation */
+.autocomplete-suggestion.selected {
+    background-color: var(--color-primary);
+}
+
+.autocomplete-suggestion.selected .suggestion-title {
+    color: #ffffff;
+}
+
+.autocomplete-suggestion.selected .suggestion-author {
+    color: rgba(255, 255, 255, 0.9);
+}
+
 
 /* Responsive Design */
 @media (max-width: 600px) {

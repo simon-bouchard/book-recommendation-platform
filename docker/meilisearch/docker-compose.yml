@@ -1,0 +1,15 @@
+services:
+  meilisearch:
+    image: getmeili/meilisearch:v1.8  # or latest stable tag
+    container_name: meilisearch
+    ports:
+      - "7700:7700"
+    env_file:
+      /etc/bookrec.env
+    volumes:
+      - meili_data:/data.ms
+    restart: unless-stopped
+
+volumes:
+  meili_data:
+
