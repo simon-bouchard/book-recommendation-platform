@@ -4,6 +4,7 @@ Two-stage recommendation agent: Retrieval → Curation
 Orchestrates the pipeline without implementing agent logic itself.
 """
 from typing import Optional, Any
+import time
 
 from app.agents.domain.entities import (
     AgentRequest,
@@ -100,26 +101,28 @@ class RecommendationAgent(BaseAgent):
         # ============================================================
         # STAGE 1: RETRIEVAL
         # ============================================================
+        append_chatbot_log("\n=== STAGE 1: RETRIEVAL ===")
+        retrieval_start = time.time()
+        
         try:
-            append_chatbot_log("\n>>> STAGE 1: RETRIEVAL <<<")
             retrieval_response = self.retrieval_agent.execute(request)
             
         except Exception as e:
-            append_chatbot_log(f"[RETRIEVAL ERROR] {e}")
+            retrieval_time = int((time.time() - retrieval_start) * 1000)
+            append_chatbot_log(f"[RETRIEVAL ERROR after {retrieval_time}ms] {e}")
             return self._retrieval_error_fallback(request, str(e))
         
         # Extract candidates
         candidates = retrieval_response.book_recommendations
+        retrieval_time = int((time.time() - retrieval_start) * 1000)
         
         # Safely get execution info
         exec_state = retrieval_response.execution_state
         tool_count = len(exec_state.tool_executions) if exec_state else 0
-        exec_time = exec_state.execution_time_ms if exec_state else 0
         
         append_chatbot_log(
-            f"Retrieval complete: {len(candidates)} candidates, "
-            f"{tool_count} tool calls, "
-            f"{exec_time}ms"
+            f"Retrieval: {len(candidates)} candidates in {retrieval_time}ms "
+            f"({tool_count} tool calls)"
         )
         
         # Check if we got any candidates
@@ -133,16 +136,16 @@ class RecommendationAgent(BaseAgent):
             if hasattr(c, 'has_rich_metadata') and c.has_rich_metadata()
         )
         append_chatbot_log(
-            f"Candidate metadata: {rich_metadata_count}/{len(candidates)} "
-            f"have rich metadata (subjects/tones/description)"
+            f"Metadata: {rich_metadata_count}/{len(candidates)} with enrichment"
         )
         
         # ============================================================
         # STAGE 2: CURATION
         # ============================================================
+        append_chatbot_log("\n=== STAGE 2: CURATION ===")
+        curation_start = time.time()
+        
         try:
-            append_chatbot_log("\n>>> STAGE 2: CURATION <<<")
-            
             # Extract retrieval context for curation agent
             retrieval_summary = []
             if retrieval_response.execution_state:
@@ -157,8 +160,11 @@ class RecommendationAgent(BaseAgent):
             )
             
         except Exception as e:
-            append_chatbot_log(f"[CURATION ERROR] {e}")
+            curation_time = int((time.time() - curation_start) * 1000)
+            append_chatbot_log(f"[CURATION ERROR after {curation_time}ms] {e}")
             return self._curation_error_fallback(request, candidates, str(e))
+        
+        curation_time = int((time.time() - curation_start) * 1000)
         
         # ============================================================
         # VALIDATION
@@ -167,27 +173,26 @@ class RecommendationAgent(BaseAgent):
         # Basic sanity check
         if not final_response.book_recommendations:
             append_chatbot_log(
-                "[VALIDATION ERROR] Curation returned no books, "
-                "using fallback"
+                "[VALIDATION ERROR] Curation returned no books, using fallback"
             )
             return self._curation_empty_fallback(request, candidates)
         
         if not final_response.text or len(final_response.text.strip()) < 10:
             append_chatbot_log(
-                "[VALIDATION WARNING] Curation returned minimal text, "
-                "but proceeding"
+                "[VALIDATION WARNING] Curation returned minimal text, but proceeding"
             )
         
         # Log final stats
-        retrieval_time = retrieval_response.execution_time_ms or 0
-        curation_time = final_response.execution_time_ms or 0
+        total_time = retrieval_time + curation_time
         
+        append_chatbot_log(
+            f"Curation: {len(final_response.book_recommendations)} books in {curation_time}ms"
+        )
         append_chatbot_log(
             f"\n{'='*60}\n"
             f"RECOMMENDATION COMPLETE\n"
-            f"Retrieval: {len(candidates)} candidates\n"
-            f"Curation: {len(final_response.book_recommendations)} final books\n"
-            f"Total time: {retrieval_time + curation_time}ms\n"
+            f"Total: {total_time}ms (retrieval: {retrieval_time}ms, curation: {curation_time}ms)\n"
+            f"Books: {len(candidates)} → {len(final_response.book_recommendations)}\n"
             f"{'='*60}\n"
         )
         
@@ -198,121 +203,53 @@ class RecommendationAgent(BaseAgent):
     # ================================================================
     
     def _retrieval_error_fallback(
-        self, 
-        request: AgentRequest, 
-        error: str
+        self, request: AgentRequest, error_msg: str
     ) -> AgentResponse:
-        """
-        Handle complete retrieval failure.
-        
-        This means tools didn't work or agent crashed entirely.
-        """
-        append_chatbot_log(f"Using retrieval error fallback: {error[:100]}")
-        
+        """Fallback when retrieval stage fails."""
         return AgentResponse(
-            text=(
-                "I had trouble accessing the book catalog. "
-                "Please try again in a moment."
-            ),
+            text="I'm having trouble finding book recommendations right now. Please try again.",
             target_category="recsys",
             success=False,
-            policy_version="recsys.orchestrator",
+            policy_version="recsys.orchestrator.retrieval_error",
         )
     
     def _no_candidates_fallback(self, request: AgentRequest) -> AgentResponse:
-        """
-        Handle case where retrieval found zero books.
-        
-        This typically means query is too specific or outside catalog scope.
-        """
-        # Check if query mentions dates/years
-        query_lower = request.user_text.lower()
-        has_year = any(
-            year_str in query_lower 
-            for year_str in ['2004', '2005', '2010', '2015', '2020', '2024', '2025']
-        )
-        
-        if has_year or 'recent' in query_lower or 'new' in query_lower:
-            text = (
-                "Our catalog only includes books published before 2004. "
-                "Try searching for older books in similar genres or themes?"
-            )
-        else:
-            text = (
-                "I couldn't find books matching your specific request in our catalog. "
-                "Try broader search terms or different subjects?"
-            )
-        
+        """Fallback when retrieval returns no candidates."""
         return AgentResponse(
-            text=text,
+            text="I couldn't find any books matching your request. Could you try rephrasing or being more specific?",
             target_category="recsys",
-            success=False,
-            policy_version="recsys.orchestrator",
+            success=True,
+            policy_version="recsys.orchestrator.no_candidates",
         )
     
     def _curation_error_fallback(
-        self,
-        request: AgentRequest,
-        candidates: list,
-        error: str,
+        self, 
+        request: AgentRequest, 
+        candidates: list, 
+        error_msg: str
     ) -> AgentResponse:
-        """
-        Handle curation failure with valid candidates.
-        
-        Return first 10 candidates with generic prose.
-        """
-        append_chatbot_log(f"Using curation error fallback: {error[:100]}")
-        
-        # Take first 10 candidates
-        fallback_books = candidates[:10]
-        
-        # Generate simple prose
-        if self._user_num_ratings >= self._warm_threshold:
-            text = (
-                "Here are some books from our catalog that might interest you "
-                "based on your reading history."
-            )
-        else:
-            text = (
-                "Here are some popular books from our catalog. "
-                "Rate a few books to get personalized recommendations!"
-            )
+        """Fallback when curation stage fails - return top candidates without prose."""
+        # Take top 10 candidates as fallback
+        top_books = candidates[:10]
         
         return AgentResponse(
-            text=text,
+            text="Here are some book recommendations (I had trouble generating descriptions):",
             target_category="recsys",
-            book_recommendations=fallback_books,
-            success=True,  # Partial success
-            policy_version="recsys.orchestrator",
+            success=True,
+            book_recommendations=top_books,
+            policy_version="recsys.orchestrator.curation_error",
         )
     
     def _curation_empty_fallback(
-        self,
-        request: AgentRequest,
-        candidates: list,
+        self, request: AgentRequest, candidates: list
     ) -> AgentResponse:
-        """
-        Handle case where curation returned no books despite having candidates.
-        
-        This shouldn't happen often - means curation filtered everything out.
-        """
-        append_chatbot_log(
-            f"Curation filtered out all {len(candidates)} candidates, "
-            f"using first 8"
-        )
-        
-        # Just take first 8 candidates
-        fallback_books = candidates[:8]
-        
-        text = (
-            "Here are some books from our catalog. "
-            "Let me know if you'd like different recommendations!"
-        )
+        """Fallback when curation returns empty results - return top candidates."""
+        top_books = candidates[:10]
         
         return AgentResponse(
-            text=text,
+            text="Here are some book recommendations for you:",
             target_category="recsys",
-            book_recommendations=fallback_books,
-            success=True,  # Partial success
-            policy_version="recsys.orchestrator",
+            success=True,
+            book_recommendations=top_books,
+            policy_version="recsys.orchestrator.curation_empty",
         )
