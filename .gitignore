@@ -32,6 +32,7 @@ test.py
 .vscode/
 tree.txt
 code_instructions_prompt.txt
+.envrc
 
 #Junk
 __pycache__/
