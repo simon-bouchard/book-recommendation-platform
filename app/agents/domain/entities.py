@@ -36,11 +36,11 @@ class AgentConfiguration:
     llm_tier: str = "medium"
     timeout_seconds: int = 60
     max_iterations: int = 10
-    
+
     def has_capability(self, capability: AgentCapability) -> bool:
         """Check if agent has a specific capability."""
         return capability in self.capabilities
-    
+
     def can_use_tool(self, tool_name: str) -> bool:
         """Check if tool is allowed."""
         return not self.allowed_tools or tool_name in self.allowed_tools
@@ -65,7 +65,7 @@ class ToolExecution:
     error: Optional[str] = None
     execution_time_ms: Optional[int] = None
     timestamp: float = field(default_factory=time.time)
-    
+
     @property
     def succeeded(self) -> bool:
         """Check if tool execution was successful."""
@@ -84,7 +84,7 @@ class AgentExecutionState:
     error_message: Optional[str] = None
     start_time: float = field(default_factory=time.time)
     end_time: Optional[float] = None
-    
+
     @property
     def execution_time_ms(self) -> Optional[int]:
         """Calculate execution time in milliseconds."""
@@ -95,16 +95,16 @@ class AgentExecutionState:
     def add_tool_execution(self, execution: ToolExecution) -> None:
         """Add a tool execution record."""
         self.tool_executions.append(execution)
-    
+
     def add_reasoning_step(self, step: str) -> None:
         """Add a reasoning step."""
         self.reasoning_steps.append(step)
-    
+
     def mark_completed(self) -> None:
         """Mark execution as completed."""
         self.status = ExecutionStatus.COMPLETED
         self.end_time = time.time()
-    
+
     def mark_failed(self, error_message: str) -> None:
         """Mark execution as failed."""
         self.status = ExecutionStatus.FAILED
@@ -119,7 +119,7 @@ class AgentRequest:
     conversation_history: List[Dict[str, str]] = field(default_factory=list)
     context: ExecutionContext = field(default_factory=ExecutionContext)
     configuration_overrides: Dict[str, Any] = field(default_factory=dict)
-    
+
     def with_context(self, **kwargs) -> AgentRequest:
         """Create a new request with updated context."""
         new_context = ExecutionContext(
@@ -147,25 +147,25 @@ class BookRecommendation:
     cover_id: Optional[str] = None
     num_ratings: Optional[int] = None  # Rating count for social proof
     recommendation_reason: Optional[str] = None
-    
+
     # Extended metadata for curation (from tool results)
     subjects: Optional[List[str]] = None
     tones: Optional[List[str]] = None
     vibe: Optional[str] = None
     genre: Optional[str] = None
-    
+
     def is_complete(self) -> bool:
         """Check if recommendation has minimum required data."""
         return self.item_idx is not None and (self.title is not None or self.author is not None)
-    
+
     def has_rich_metadata(self) -> bool:
         """Check if recommendation has extended metadata for curation."""
         return bool(self.subjects or self.tones or self.vibe or self.genre)
-    
+
     def to_curation_dict(self) -> Dict[str, Any]:
         """
         Convert to dictionary format for curation agent.
-        
+
         Returns dict with all available metadata, ready for JSON serialization.
         """
         return {
@@ -190,17 +190,17 @@ class AgentResponse:
     citations: List[Dict[str, Any]] = field(default_factory=list)
     execution_state: Optional[AgentExecutionState] = None
     policy_version: Optional[str] = None
-    
+
     @property
     def execution_time_ms(self) -> Optional[int]:
         """Get execution time from state if available."""
         return self.execution_state.execution_time_ms if self.execution_state else None
-    
+
     @property
     def tool_calls_count(self) -> int:
         """Get number of tool calls made."""
         return len(self.execution_state.tool_executions) if self.execution_state else 0
-    
+
     def get_book_ids(self) -> List[int]:
         """Extract book IDs from recommendations."""
         return [rec.item_idx for rec in self.book_recommendations if rec.item_idx is not None]
