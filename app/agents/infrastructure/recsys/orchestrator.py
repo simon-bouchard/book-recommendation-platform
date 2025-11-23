@@ -1,7 +1,7 @@
 # app/agents/infrastructure/recsys/orchestrator.py
 """
-Two-stage recommendation agent: Retrieval → Curation
-Orchestrates the pipeline without implementing agent logic itself.
+Three-stage recommendation agent: Planning → Retrieval → Curation
+Orchestrates the complete pipeline without implementing agent logic itself.
 """
 from typing import Optional, Any
 import time
@@ -12,19 +12,26 @@ from app.agents.domain.entities import (
     AgentConfiguration,
     AgentCapability,
 )
+from app.agents.domain.recsys_schemas import (
+    PlannerInput,
+    RetrievalInput,
+)
 from app.agents.domain.interfaces import BaseAgent
+from app.agents.domain.services import StandardResultProcessor
 from app.agents.logging import append_chatbot_log
 
+from .planner_agent import PlannerAgent
 from .retrieval_agent import RetrievalAgent
 from .curation_agent import CurationAgent
 
 
 class RecommendationAgent(BaseAgent):
     """
-    Orchestrates two-stage recommendation pipeline.
+    Orchestrates three-stage recommendation pipeline.
     
-    Stage 1 (RetrievalAgent): Gather 60-120 candidate books using tools
-    Stage 2 (CurationAgent): Rank, filter, and generate prose
+    Stage 1 (PlannerAgent): Analyze query and determine strategy
+    Stage 2 (RetrievalAgent): Execute strategy, gather 60-120 candidates
+    Stage 3 (CurationAgent): Rank, filter, and generate prose
     
     This class handles coordination and fallback logic only.
     """
@@ -52,7 +59,7 @@ class RecommendationAgent(BaseAgent):
             policy_name="recsys.orchestrator",
             capabilities=frozenset([AgentCapability.INTERNAL_TOOLS]),
             llm_tier="large",
-            timeout_seconds=90,  # Combined timeout for both stages
+            timeout_seconds=120,  # Combined timeout for all three stages
             max_iterations=0,  # Orchestrator doesn't iterate
         )
         
@@ -65,25 +72,38 @@ class RecommendationAgent(BaseAgent):
         self._warm_threshold = warm_threshold
         self._allow_profile = allow_profile
         
+        # Determine if ALS is available
+        self._has_als_recs = self._user_num_ratings >= warm_threshold
+        
         # Initialize sub-agents
+        self.planner_agent = PlannerAgent(
+            current_user=current_user,
+            db=db,
+            user_num_ratings=self._user_num_ratings,
+            has_als_recs_available=self._has_als_recs,
+            allow_profile=allow_profile,
+        )
+        
         self.retrieval_agent = RetrievalAgent(
             current_user=current_user,
             db=db,
-            user_num_ratings=user_num_ratings or 0,
-            allow_profile=allow_profile,
+            user_num_ratings=self._user_num_ratings,
+            has_als_recs_available=self._has_als_recs,
         )
         
         self.curation_agent = CurationAgent()
         
+        # Service for converting tool results to BookRecommendations
+        self.result_processor = StandardResultProcessor()
+        
         append_chatbot_log(
             f"Initialized RecommendationAgent orchestrator "
-            f"(warm={self._user_num_ratings >= self._warm_threshold}, "
-            f"profile={allow_profile})"
+            f"(warm={self._has_als_recs}, profile={allow_profile})"
         )
     
     def execute(self, request: AgentRequest) -> AgentResponse:
         """
-        Execute two-stage recommendation pipeline.
+        Execute three-stage recommendation pipeline.
         
         Args:
             request: User request with query and context
@@ -99,30 +119,75 @@ class RecommendationAgent(BaseAgent):
         )
         
         # ============================================================
-        # STAGE 1: RETRIEVAL
+        # STAGE 1: PLANNING
         # ============================================================
-        append_chatbot_log("\n=== STAGE 1: RETRIEVAL ===")
+        append_chatbot_log("\n=== STAGE 1: PLANNING ===")
+        planning_start = time.time()
+        
+        try:
+            # Determine available retrieval tools
+            available_tools = [
+                "book_semantic_search",
+                "subject_hybrid_pool",
+                "subject_id_search",
+                "popular_books",
+            ]
+            if self._has_als_recs:
+                available_tools.insert(0, "als_recs")  # Add ALS as first option
+            
+            planner_input = PlannerInput(
+                query=request.user_text,
+                has_als_recs_available=self._has_als_recs,
+                allow_profile=self._allow_profile,
+                available_retrieval_tools=available_tools,
+            )
+            
+            strategy = self.planner_agent.execute(planner_input)
+            
+        except Exception as e:
+            planning_time = int((time.time() - planning_start) * 1000)
+            append_chatbot_log(f"[PLANNING ERROR after {planning_time}ms] {e}")
+            return self._planning_error_fallback(request, str(e))
+        
+        planning_time = int((time.time() - planning_start) * 1000)
+        
+        append_chatbot_log(
+            f"Planning: {planning_time}ms\n"
+            f"Strategy: {strategy.reasoning[:150]}...\n"
+            f"Recommended: {', '.join(strategy.recommended_tools)}\n"
+            f"Fallback: {', '.join(strategy.fallback_tools)}"
+        )
+        
+        # ============================================================
+        # STAGE 2: RETRIEVAL (CANDIDATE GENERATION)
+        # ============================================================
+        append_chatbot_log("\n=== STAGE 2: RETRIEVAL ===")
         retrieval_start = time.time()
         
         try:
-            retrieval_response = self.retrieval_agent.execute(request)
+            retrieval_input = RetrievalInput(
+                query=request.user_text,
+                strategy=strategy,
+                profile_data=strategy.profile_data,
+            )
+            
+            retrieval_output = self.retrieval_agent.execute(retrieval_input)
             
         except Exception as e:
             retrieval_time = int((time.time() - retrieval_start) * 1000)
             append_chatbot_log(f"[RETRIEVAL ERROR after {retrieval_time}ms] {e}")
             return self._retrieval_error_fallback(request, str(e))
         
-        # Extract candidates
-        candidates = retrieval_response.book_recommendations
         retrieval_time = int((time.time() - retrieval_start) * 1000)
         
-        # Safely get execution info
-        exec_state = retrieval_response.execution_state
-        tool_count = len(exec_state.tool_executions) if exec_state else 0
+        # Convert candidates (dicts) to BookRecommendations
+        candidates = self.result_processor._build_recommendations_from_objects(
+            retrieval_output.candidates
+        )
         
         append_chatbot_log(
-            f"Retrieval: {len(candidates)} candidates in {retrieval_time}ms "
-            f"({tool_count} tool calls)"
+            f"Retrieval: {len(candidates)} candidates in {retrieval_time}ms\n"
+            f"Tools used: {', '.join(retrieval_output.execution_context.tools_used)}"
         )
         
         # Check if we got any candidates
@@ -140,23 +205,16 @@ class RecommendationAgent(BaseAgent):
         )
         
         # ============================================================
-        # STAGE 2: CURATION
+        # STAGE 3: CURATION
         # ============================================================
-        append_chatbot_log("\n=== STAGE 2: CURATION ===")
+        append_chatbot_log("\n=== STAGE 3: CURATION ===")
         curation_start = time.time()
         
         try:
-            # Extract retrieval context for curation agent
-            retrieval_summary = []
-            if retrieval_response.execution_state:
-                retrieval_summary = retrieval_response.execution_state.intermediate_outputs.get(
-                    "retrieval_summary", []
-                )
-            
             final_response = self.curation_agent.execute(
                 request=request,
                 candidates=candidates,
-                retrieval_summary=retrieval_summary,
+                execution_context=retrieval_output.execution_context,
             )
             
         except Exception as e:
@@ -183,7 +241,7 @@ class RecommendationAgent(BaseAgent):
             )
         
         # Log final stats
-        total_time = retrieval_time + curation_time
+        total_time = planning_time + retrieval_time + curation_time
         
         append_chatbot_log(
             f"Curation: {len(final_response.book_recommendations)} books in {curation_time}ms"
@@ -191,7 +249,8 @@ class RecommendationAgent(BaseAgent):
         append_chatbot_log(
             f"\n{'='*60}\n"
             f"RECOMMENDATION COMPLETE\n"
-            f"Total: {total_time}ms (retrieval: {retrieval_time}ms, curation: {curation_time}ms)\n"
+            f"Total: {total_time}ms (planning: {planning_time}ms, "
+            f"retrieval: {retrieval_time}ms, curation: {curation_time}ms)\n"
             f"Books: {len(candidates)} → {len(final_response.book_recommendations)}\n"
             f"{'='*60}\n"
         )
@@ -201,6 +260,17 @@ class RecommendationAgent(BaseAgent):
     # ================================================================
     # FALLBACK HANDLERS
     # ================================================================
+    
+    def _planning_error_fallback(
+        self, request: AgentRequest, error_msg: str
+    ) -> AgentResponse:
+        """Fallback when planning stage fails."""
+        return AgentResponse(
+            text="I'm having trouble analyzing your request. Please try rephrasing your query.",
+            target_category="recsys",
+            success=False,
+            policy_version="recsys.orchestrator.planning_error",
+        )
     
     def _retrieval_error_fallback(
         self, request: AgentRequest, error_msg: str
@@ -215,10 +285,28 @@ class RecommendationAgent(BaseAgent):
     
     def _no_candidates_fallback(self, request: AgentRequest) -> AgentResponse:
         """Fallback when retrieval returns no candidates."""
+        # Check if query mentions dates/years
+        query_lower = request.user_text.lower()
+        has_year = any(
+            str(year) in query_lower 
+            for year in range(2004, 2026)
+        )
+        
+        if has_year or 'recent' in query_lower or 'new' in query_lower:
+            text = (
+                "Our catalog only includes books published before 2004. "
+                "Try searching for older books in similar genres or themes?"
+            )
+        else:
+            text = (
+                "I couldn't find books matching your specific request in our catalog. "
+                "Try broader search terms or different subjects?"
+            )
+        
         return AgentResponse(
-            text="I couldn't find any books matching your request. Could you try rephrasing or being more specific?",
+            text=text,
             target_category="recsys",
-            success=True,
+            success=False,
             policy_version="recsys.orchestrator.no_candidates",
         )
     
