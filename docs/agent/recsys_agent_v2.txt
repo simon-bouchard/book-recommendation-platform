@@ -117,7 +117,6 @@ pythonPlannerStrategy:
     fallback_tools: list[str]           # Backup tools if primary underperforms
     reasoning: str                      # Why this strategy was chosen
     profile_data: Optional[dict]        # Results from user_profile/recent_interactions
-    negative_constraints: Optional[list[str]]  # Detected negatives (for logging)
 Example Outputs:
 Vague query, warm user:
 json{
@@ -216,7 +215,7 @@ If primary tool excellent → stop early (60+ books)
 
 Negative Constraint Handling:
 
-Strip negative terms from semantic search queries
+Tell the retrieval agent to strip negative terms from semantic search queries, but DON'T HANDLE THEM PROGRAMMATICALLY OR TRY TO DETECT THEM.
 Example: "dark fantasy but no vampires" → search "dark fantasy"
 Let Curator handle filtering
 
