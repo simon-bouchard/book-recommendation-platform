@@ -21,7 +21,7 @@ from app.agents.domain.interfaces import BaseAgent
 from app.agents.domain.services import StandardResultProcessor
 from app.agents.settings import get_llm
 from app.agents.tools.registry import ToolRegistry, InternalToolGates
-from app.agents.logging import append_chatbot_log
+from app.agents.logging import append_chatbot_log, capture_agent_console_and_httpx
 from .tool_executor import ToolExecutor
 
 
@@ -155,7 +155,10 @@ class BaseLangGraphAgent(BaseAgent):
                 temperature=0.0
             )
             
-            response = llm.invoke(messages)
+            # Log output
+            with capture_agent_console_and_httpx():
+                response = llm.invoke(messages)
+            
             decision = self._parse_json_decision(response.content)
             
             append_chatbot_log(f"Decision: {json.dumps(decision, indent=2)}")
@@ -550,13 +553,16 @@ class BaseLangGraphAgent(BaseAgent):
                 f"Provide a brief, helpful response (2-3 sentences)."
             )
             
-            response = llm.invoke([HumanMessage(content=prompt)])
+            # Log results
+            with capture_agent_console_and_httpx():
+                response = llm.invoke([HumanMessage(content=prompt)])
+            
             return response.content if hasattr(response, 'content') else str(response)
             
         except Exception as e:
             append_chatbot_log(f"Synthesis failed: {e}")
             return "I found some information but had trouble summarizing it."
-    
+
     # ============================================================================
     # ACT AND FINALIZE NODES
     # ============================================================================
