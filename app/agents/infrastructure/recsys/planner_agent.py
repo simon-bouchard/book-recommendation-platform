@@ -1,4 +1,4 @@
-# app/agents/infrastructure/planner_agent.py
+
 """
 PlannerAgent for recommendation system query analysis and strategy planning.
 First stage of the multi-agent pipeline: analyzes queries and determines retrieval strategy.
@@ -6,16 +6,17 @@ First stage of the multi-agent pipeline: analyzes queries and determines retriev
 import json
 from typing import Optional
 
-from app.agents.domain.entities import AgentConfiguration, AgentCapability
+from app.agents.domain.entities import AgentConfiguration, AgentCapability, AgentRequest
 from app.agents.domain.recsys_schemas import PlannerInput, PlannerStrategy
 from app.agents.prompts.loader import read_prompt
 from app.agents.tools.registry import InternalToolGates, ToolRegistry
+from app.agents.logging import append_chatbot_log
 from ..base_langgraph_agent import BaseLangGraphAgent
 
 
 class PlannerAgent(BaseLangGraphAgent):
     """
-    Query analysis and strategy planning agent.
+    Query analysis and strategy planning agent (ReAct-based).
     
     Analyzes user queries to determine the best retrieval strategy.
     Classifies query type (vague/descriptive/genre/complex) and recommends
@@ -24,7 +25,7 @@ class PlannerAgent(BaseLangGraphAgent):
     May call profile tools (user_profile, recent_interactions) if allowed
     to gather context for cold users with vague queries.
     
-    Uses medium-tier LLM (70B) with tight iteration limits (max 3):
+    Uses medium-tier LLM with tight iteration limits (max 3):
     - Iteration 1: Call user_profile (if needed)
     - Iteration 2: Call recent_interactions (if needed)  
     - Iteration 3: Return strategy as JSON
@@ -50,7 +51,6 @@ class PlannerAgent(BaseLangGraphAgent):
             has_als_recs_available: Whether ALS collaborative filtering is available
             allow_profile: Whether agent can access user profile tools
         """
-        # Build configuration
         configuration = AgentConfiguration(
             policy_name="recsys.planner.md",
             capabilities=frozenset([AgentCapability.INTERNAL_TOOLS]),
@@ -60,7 +60,6 @@ class PlannerAgent(BaseLangGraphAgent):
             max_iterations=3  # user_profile call + recent_interactions call + final answer
         )
         
-        # Store context for tool registry and prompt
         self._ctx_user = current_user
         self._ctx_db = db
         self._user_num_ratings = user_num_ratings
@@ -73,12 +72,11 @@ class PlannerAgent(BaseLangGraphAgent):
         """
         Create registry with ONLY context tools (user_profile, recent_interactions).
         
-        Retrieval tools are NOT available to planner - only used by CandidateGenerator.
-        Uses for_context() factory to get appropriate tool set.
+        Retrieval tools are NOT available to planner - only used by RetrievalAgent.
         """
         gates = InternalToolGates(
             user_num_ratings=self._user_num_ratings,
-            warm_threshold=10,  # Not used by context tools but required
+            warm_threshold=10,
             profile_allowed=self._allow_profile
         )
         
@@ -95,6 +93,36 @@ class PlannerAgent(BaseLangGraphAgent):
     def _get_target_category(self) -> str:
         """Target category for agent adapter."""
         return "recsys_planner"
+
+    def _build_current_situation(self, state) -> str:
+        """
+        Build current query context for the planner.
+        
+        Shows only the immediate context (query + available tools),
+        not the strategic framework (which is in system prompt).
+        """
+        parts = [
+            "CURRENT QUERY CONTEXT:",
+            "",
+            f"Query: {state.input_text}",
+            "",
+            f"User Context:",
+            f"- ALS collaborative filtering available: {self._has_als_recs_available}",
+            f"- Profile access allowed: {self._allow_profile}",
+            f"- User has {self._user_num_ratings} ratings",
+            "",
+            "Your Decision Process:",
+            "1. If vague query AND profile allowed → call user_profile first",
+            "2. Analyze query type and user context",
+            "3. Decide on 1-2 primary retrieval tools",
+            "4. Decide on 1-2 fallback tools",
+            "5. Return your final strategy JSON (see Output Format in system prompt)",
+            "",
+            "IMPORTANT: You can call profile tools (user_profile, recent_interactions)",
+            "but NEVER call retrieval tools directly. Only RECOMMEND which should be used.",
+        ]
+        
+        return "\n".join(parts)
     
     def execute(self, planner_input: PlannerInput) -> PlannerStrategy:
         """
@@ -118,31 +146,24 @@ class PlannerAgent(BaseLangGraphAgent):
             ValueError: If JSON parsing fails or required fields missing
             RuntimeError: If agent execution fails
         """
-        # Build the user message with query and context
+        append_chatbot_log("\n=== PLANNER AGENT ===")
+        append_chatbot_log(f"Query: {planner_input.query[:100]}...")
+        append_chatbot_log(f"Available tools: {', '.join(planner_input.available_retrieval_tools)}")
+        
+        # Build the user message with query and available tools
         context_lines = [
-            f"User Query: {planner_input.query}",
-            f"",
-            f"Available Context:",
-            f"- ALS collaborative filtering available: {planner_input.has_als_recs_available}",
-            f"- Profile access allowed: {planner_input.allow_profile}",
-            f"- User has {self._user_num_ratings} ratings",
-            f"",
-            f"Available Retrieval Tools:",
+            f"Available retrieval tools to recommend:",
         ]
         
         for tool_name in planner_input.available_retrieval_tools:
             context_lines.append(f"- {tool_name}")
         
-        context_lines.extend([
-            "",
-            "Analyze this query and determine the best retrieval strategy.",
-            "Call profile tools if needed, then return your strategy as JSON."
-        ])
+        context_lines.append("")
+        context_lines.append(f"User Query: {planner_input.query}")
         
         user_message = "\n".join(context_lines)
         
         # Create agent request
-        from app.agents.domain.entities import AgentRequest
         request = AgentRequest(
             user_text=user_message,
             conversation_history=[],
@@ -152,12 +173,15 @@ class PlannerAgent(BaseLangGraphAgent):
         try:
             response = super().execute(request)
         except Exception as e:
+            append_chatbot_log(f"Planner execution failed: {e}")
             raise RuntimeError(f"PlannerAgent execution failed: {e}") from e
         
         # Parse JSON response into PlannerStrategy
         try:
-            strategy_data = self._parse_strategy_response(response.response_text)
+            strategy_data = self._parse_strategy_response(response.text)
+            append_chatbot_log(f"Strategy: {strategy_data.reasoning[:150]}")
         except (json.JSONDecodeError, KeyError, ValueError) as e:
+            append_chatbot_log(f"Failed to parse strategy: {e}")
             raise ValueError(f"Failed to parse planner strategy: {e}") from e
         
         return strategy_data
@@ -184,9 +208,9 @@ class PlannerAgent(BaseLangGraphAgent):
         # Strip markdown code blocks if present
         text = response_text.strip()
         if text.startswith("```json"):
-            text = text[7:]  # Remove ```json
+            text = text[7:]
         if text.startswith("```"):
-            text = text[3:]  # Remove ```
+            text = text[3:]
         if text.endswith("```"):
             text = text[:-3]
         text = text.strip()
