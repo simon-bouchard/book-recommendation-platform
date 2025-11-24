@@ -158,10 +158,10 @@ class RetrievalAgent(BaseLangGraphAgent):
             situation_parts.append("**Tools Executed So Far**:")
             for i, exec_record in enumerate(tool_execs, 1):
                 book_count = len([b for b in candidates if b.get('tool_source') == exec_record.tool_name]) if candidates else 0
-                status = "✓" if exec_record.succeeded else "✗"
+                status = "âœ“" if exec_record.succeeded else "âœ—"
                 situation_parts.append(
                     f"{i}. {status} {exec_record.tool_name}({exec_record.arguments}) "
-                    f"→ {book_count} books"
+                    f"â†’ {book_count} books"
                 )
             situation_parts.append("")
         
@@ -174,13 +174,13 @@ class RetrievalAgent(BaseLangGraphAgent):
         situation_parts.append("**Next Steps**:")
         
         if total_candidates >= 120:
-            situation_parts.append("✓ Sufficient candidates (120+) - consider stopping")
+            situation_parts.append("âœ“ Sufficient candidates (120+) - consider stopping")
         elif total_candidates >= 60:
-            situation_parts.append("✓ Good candidate count (60+) - can stop or refine")
+            situation_parts.append("âœ“ Good candidate count (60+) - can stop or refine")
         elif total_candidates >= 30:
-            situation_parts.append("⚠ Moderate candidates (30-59) - may need more tools")
+            situation_parts.append("âš  Moderate candidates (30-59) - may need more tools")
         else:
-            situation_parts.append("⚠ Low candidates (<30) - try fallback tools if available")
+            situation_parts.append("âš  Low candidates (<30) - try fallback tools if available")
         
         # Check if all tools have been tried
         if strategy:
@@ -290,7 +290,14 @@ class RetrievalAgent(BaseLangGraphAgent):
         original_graph_invoke = self.graph.invoke
         
         # Wrap graph invoke to use our initial state
-        def invoke_with_state(state_dict):
+        def invoke_with_state(state_or_dict):
+            # Convert AgentExecutionState to dict if needed
+            from dataclasses import asdict
+            if isinstance(state_or_dict, AgentExecutionState):
+                state_dict = asdict(state_or_dict)
+            else:
+                state_dict = state_or_dict
+            
             # Override with our initial state values
             merged = {**state_dict}
             merged["intermediate_outputs"] = initial_state.intermediate_outputs
