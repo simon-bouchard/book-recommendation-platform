@@ -205,8 +205,24 @@ class PlannerAgent:
             
             fav_subjects = profile_data.get("favorite_subjects", [])
             if fav_subjects:
-                subjects_str = ", ".join(str(s) for s in fav_subjects[:5])
-                context_parts.append(f"- Favorite subjects: {subjects_str}")
+                # Show both names and IDs clearly
+                subject_display = []
+                subject_ids = []
+                
+                for subj in fav_subjects[:5]:
+                    if isinstance(subj, dict):
+                        # New format: {"subject_idx": 12, "subject": "Science Fiction"}
+                        subject_display.append(f"{subj['subject']} (ID: {subj['subject_idx']})")
+                        subject_ids.append(subj['subject_idx'])
+                    else:
+                        # Old format: just strings (backward compatibility)
+                        subject_display.append(str(subj))
+                
+                context_parts.append(f"- Favorite subjects: {', '.join(subject_display)}")
+                
+                # Provide IDs in easy-to-use format for tools
+                if subject_ids:
+                    context_parts.append(f"- Subject IDs for subject_hybrid_pool: {subject_ids}")
             
             interactions = profile_data.get("recent_interactions", [])
             if interactions:
