@@ -1,36 +1,30 @@
-
+# app/agents/infrastructure/recsys/planner_agent.py
 """
 PlannerAgent for recommendation system query analysis and strategy planning.
 First stage of the multi-agent pipeline: analyzes queries and determines retrieval strategy.
+
+Simple single-call implementation - pre-fetches profile data and makes one LLM call.
 """
 import json
-from typing import Optional
+from typing import Optional, Dict, Any
 
-from app.agents.domain.entities import AgentConfiguration, AgentCapability, AgentRequest
+from langchain_core.messages import HumanMessage
+
 from app.agents.domain.recsys_schemas import PlannerInput, PlannerStrategy
 from app.agents.prompts.loader import read_prompt
-from app.agents.tools.registry import InternalToolGates, ToolRegistry
+from app.agents.settings import get_llm
 from app.agents.logging import append_chatbot_log
-from ..base_langgraph_agent import BaseLangGraphAgent
 
 
-class PlannerAgent(BaseLangGraphAgent):
+class PlannerAgent:
     """
-    Query analysis and strategy planning agent (ReAct-based).
+    Simple planning agent that makes a single LLM call to determine retrieval strategy.
     
-    Analyzes user queries to determine the best retrieval strategy.
-    Classifies query type (vague/descriptive/genre/complex) and recommends
-    which retrieval tools to use with fallback options.
+    Pre-fetches user profile data if allowed, then asks LLM to analyze the query
+    and recommend which retrieval tools to use. Returns a PlannerStrategy object
+    for the CandidateGeneratorAgent to execute.
     
-    May call profile tools (user_profile, recent_interactions) if allowed
-    to gather context for cold users with vague queries.
-    
-    Uses medium-tier LLM with tight iteration limits (max 3):
-    - Iteration 1: Call user_profile (if needed)
-    - Iteration 2: Call recent_interactions (if needed)  
-    - Iteration 3: Return strategy as JSON
-    
-    Not a full ReAct exploration loop - focused strategy determination.
+    No ReAct loop needed - this is pure query classification and tool selection.
     """
     
     def __init__(
@@ -45,158 +39,226 @@ class PlannerAgent(BaseLangGraphAgent):
         Initialize PlannerAgent.
         
         Args:
-            current_user: Current user object (for profile tools)
-            db: Database session (for profile tools)
-            user_num_ratings: Number of ratings user has (for context)
+            current_user: Current user object (for profile data fetching)
+            db: Database session (for profile data fetching)
+            user_num_ratings: Number of ratings user has (for strategy decisions)
             has_als_recs_available: Whether ALS collaborative filtering is available
-            allow_profile: Whether agent can access user profile tools
+            allow_profile: Whether agent can access user profile data
         """
-        configuration = AgentConfiguration(
-            policy_name="recsys.planner.md",
-            capabilities=frozenset([AgentCapability.INTERNAL_TOOLS]),
-            allowed_tools=frozenset(["user_profile", "recent_interactions"]),
-            llm_tier="medium",  # 70B - good balance for query classification
-            timeout_seconds=30,
-            max_iterations=3  # user_profile call + recent_interactions call + final answer
-        )
-        
+        self.llm = get_llm(tier="medium", json_mode=True, temperature=0.0)
         self._ctx_user = current_user
         self._ctx_db = db
         self._user_num_ratings = user_num_ratings
         self._has_als_recs_available = has_als_recs_available
         self._allow_profile = allow_profile
-        
-        super().__init__(configuration, ctx_user=current_user, ctx_db=db)
-    
-    def _create_tool_registry(self, ctx_user, ctx_db):
-        """
-        Create registry with ONLY context tools (user_profile, recent_interactions).
-        
-        Retrieval tools are NOT available to planner - only used by RetrievalAgent.
-        """
-        gates = InternalToolGates(
-            user_num_ratings=self._user_num_ratings,
-            warm_threshold=10,
-            profile_allowed=self._allow_profile
-        )
-        
-        return ToolRegistry.for_context(
-            gates=gates,
-            ctx_user=ctx_user,
-            ctx_db=ctx_db,
-        )
-    
-    def _get_system_prompt(self) -> str:
-        """Load planner-specific system prompt with strategy logic."""
-        return read_prompt("recsys.planner.md")
-    
-    def _get_target_category(self) -> str:
-        """Target category for agent adapter."""
-        return "recsys_planner"
-
-    def _build_current_situation(self, state) -> str:
-        """
-        Build current query context for the planner.
-        
-        Shows only the immediate context (query + available tools),
-        not the strategic framework (which is in system prompt).
-        """
-        parts = [
-            "CURRENT QUERY CONTEXT:",
-            "",
-            f"Query: {state.input_text}",
-            "",
-            f"User Context:",
-            f"- ALS collaborative filtering available: {self._has_als_recs_available}",
-            f"- Profile access allowed: {self._allow_profile}",
-            f"- User has {self._user_num_ratings} ratings",
-            "",
-            "Your Decision Process:",
-            "1. If vague query AND profile allowed → call user_profile first",
-            "2. Analyze query type and user context",
-            "3. Decide on 1-2 primary retrieval tools",
-            "4. Decide on 1-2 fallback tools",
-            "5. Return your final strategy JSON (see Output Format in system prompt)",
-            "",
-            "IMPORTANT: You can call profile tools (user_profile, recent_interactions)",
-            "but NEVER call retrieval tools directly. Only RECOMMEND which should be used.",
-        ]
-        
-        return "\n".join(parts)
     
     def execute(self, planner_input: PlannerInput) -> PlannerStrategy:
         """
         Analyze query and determine retrieval strategy.
         
         Process:
-        1. Classifies query type (vague, descriptive, genre, complex)
-        2. May call profile tools if allowed and needed
-        3. Recommends 1-2 primary retrieval tools
-        4. Recommends 1-2 fallback tools
-        5. Provides reasoning for strategy
-        6. Detects negative constraints for logging
+        1. Pre-fetch profile data if allowed (direct function call)
+        2. Build prompt with all context (query, tools, profile, user stats)
+        3. Single LLM call for strategy
+        4. Parse JSON response into PlannerStrategy
         
         Args:
-            planner_input: Query and context about available tools
+            planner_input: Query and available tools context
             
         Returns:
             PlannerStrategy with tool recommendations and reasoning
             
         Raises:
             ValueError: If JSON parsing fails or required fields missing
-            RuntimeError: If agent execution fails
         """
         append_chatbot_log("\n=== PLANNER AGENT ===")
         append_chatbot_log(f"Query: {planner_input.query[:100]}...")
-        append_chatbot_log(f"Available tools: {', '.join(planner_input.available_retrieval_tools)}")
-        
-        # Build the user message with query and available tools
-        context_lines = [
-            f"Available retrieval tools to recommend:",
-        ]
-        
-        for tool_name in planner_input.available_retrieval_tools:
-            context_lines.append(f"- {tool_name}")
-        
-        context_lines.append("")
-        context_lines.append(f"User Query: {planner_input.query}")
-        
-        user_message = "\n".join(context_lines)
-        
-        # Create agent request
-        request = AgentRequest(
-            user_text=user_message,
-            conversation_history=[],
+        append_chatbot_log(
+            f"Context: ALS={self._has_als_recs_available}, "
+            f"Profile={self._allow_profile}, Ratings={self._user_num_ratings}"
         )
         
-        # Execute agent (may call profile tools)
+        # Step 1: Pre-fetch profile data if allowed
+        profile_data = None
+        if self._allow_profile and self._ctx_user and self._ctx_db:
+            profile_data = self._fetch_profile_data()
+            if profile_data:
+                append_chatbot_log(
+                    f"Fetched profile: {len(profile_data.get('favorite_subjects', []))} subjects, "
+                    f"{len(profile_data.get('recent_interactions', []))} interactions"
+                )
+        
+        # Step 2: Build complete prompt with all context
+        prompt = self._build_prompt(
+            query=planner_input.query,
+            available_tools=planner_input.available_retrieval_tools,
+            profile_data=profile_data
+        )
+        
+        # Step 3: Single LLM call
         try:
-            response = super().execute(request)
+            response = self.llm.invoke([HumanMessage(content=prompt)])
+            response_text = response.content if hasattr(response, 'content') else str(response)
+            
+            # Log raw response for debugging
+            append_chatbot_log(f"[PLANNER RESPONSE] Raw text ({len(response_text)} chars)")
+            if len(response_text) <= 500:
+                append_chatbot_log(response_text)
+            else:
+                append_chatbot_log(f"{response_text[:500]}... (truncated)")
+            
         except Exception as e:
-            append_chatbot_log(f"Planner execution failed: {e}")
-            raise RuntimeError(f"PlannerAgent execution failed: {e}") from e
+            append_chatbot_log(f"[PLANNER ERROR] LLM call failed: {e}")
+            raise RuntimeError(f"PlannerAgent LLM call failed: {e}") from e
         
-        # Parse JSON response into PlannerStrategy
+        # Step 4: Parse JSON response
         try:
-            strategy_data = self._parse_strategy_response(response.text)
-            append_chatbot_log(f"Strategy: {strategy_data.reasoning[:150]}")
-        except (json.JSONDecodeError, KeyError, ValueError) as e:
-            append_chatbot_log(f"Failed to parse strategy: {e}")
+            strategy = self._parse_strategy_response(response_text, profile_data)
+            
+            append_chatbot_log(f"[PLANNER SUCCESS] Strategy: {strategy.reasoning[:150]}")
+            append_chatbot_log(f"[PLANNER SUCCESS] Recommended: {', '.join(strategy.recommended_tools)}")
+            append_chatbot_log(f"[PLANNER SUCCESS] Fallback: {', '.join(strategy.fallback_tools)}")
+            
+            return strategy
+            
+        except json.JSONDecodeError as e:
+            append_chatbot_log(f"[PLANNER ERROR] JSON parse failed: {e}")
+            raise ValueError(f"Failed to parse planner strategy JSON: {e}") from e
+            
+        except KeyError as e:
+            append_chatbot_log(f"[PLANNER ERROR] Missing required field: {e}")
+            raise ValueError(f"Failed to parse planner strategy - missing field: {e}") from e
+            
+        except Exception as e:
+            append_chatbot_log(f"[PLANNER ERROR] Unexpected parsing error: {e}")
             raise ValueError(f"Failed to parse planner strategy: {e}") from e
-        
-        return strategy_data
     
-    def _parse_strategy_response(self, response_text: str) -> PlannerStrategy:
+    def _fetch_profile_data(self) -> Optional[Dict[str, Any]]:
         """
-        Parse LLM response into PlannerStrategy.
+        Directly fetch profile data from database.
         
-        Handles common issues:
-        - JSON wrapped in markdown code blocks
-        - Extra whitespace
-        - Missing optional fields
+        Calls the user_context module directly instead of going through tool wrappers.
+        Returns None if user has no profile data or fetching fails.
+        
+        Returns:
+            Dictionary with favorite_subjects and recent_interactions, or None
+        """
+        from app.agents.user_context import fetch_user_context
+        
+        user_id = getattr(self._ctx_user, "user_id", None)
+        if not user_id:
+            return None
+        
+        try:
+            ctx = fetch_user_context(self._ctx_db, user_id, limit=5)
+            
+            # Extract relevant data
+            favorite_subjects = ctx.get("fav_subjects", [])
+            recent_interactions = ctx.get("interactions", [])[:3]  # Keep top 3
+            
+            # Only return if we have any data
+            if not favorite_subjects and not recent_interactions:
+                return None
+            
+            return {
+                "favorite_subjects": favorite_subjects,
+                "recent_interactions": recent_interactions
+            }
+            
+        except Exception as e:
+            append_chatbot_log(f"[PLANNER WARNING] Profile fetch failed: {e}")
+            return None
+    
+    def _build_prompt(
+        self,
+        query: str,
+        available_tools: list[str],
+        profile_data: Optional[Dict[str, Any]]
+    ) -> str:
+        """
+        Build complete prompt with all context for strategy decision.
+        
+        Args:
+            query: User's query
+            available_tools: List of available retrieval tool names
+            profile_data: User profile data if available
+            
+        Returns:
+            Complete prompt string with system instructions and context
+        """
+        # Load base system prompt (decision logic)
+        system_prompt = read_prompt("recsys.planner.md")
+        
+        # Build context sections
+        context_parts = []
+        
+        # User context section
+        context_parts.append("# USER CONTEXT")
+        context_parts.append("")
+        context_parts.append(f"**User has {self._user_num_ratings} ratings**")
+        context_parts.append(f"**ALS collaborative filtering available:** {self._has_als_recs_available}")
+        context_parts.append("")
+        
+        # Profile data section (if available)
+        if profile_data:
+            context_parts.append("**User Profile Data:**")
+            
+            fav_subjects = profile_data.get("favorite_subjects", [])
+            if fav_subjects:
+                subjects_str = ", ".join(str(s) for s in fav_subjects[:5])
+                context_parts.append(f"- Favorite subjects: {subjects_str}")
+            
+            interactions = profile_data.get("recent_interactions", [])
+            if interactions:
+                context_parts.append(f"- Recent interactions: {len(interactions)} books")
+                for interaction in interactions:
+                    title = interaction.get("title", "Unknown")[:40]
+                    rating = interaction.get("rating", "?")
+                    context_parts.append(f"  - {title} (rating: {rating})")
+            
+            context_parts.append("")
+        
+        # Available tools section
+        context_parts.append("# AVAILABLE RETRIEVAL TOOLS")
+        context_parts.append("")
+        context_parts.append("The CandidateGeneratorAgent can use these tools:")
+        for tool_name in available_tools:
+            context_parts.append(f"- {tool_name}")
+        context_parts.append("")
+        
+        # Query section
+        context_parts.append("# USER QUERY")
+        context_parts.append("")
+        context_parts.append(query)
+        context_parts.append("")
+        
+        # Instructions section
+        context_parts.append("# YOUR TASK")
+        context_parts.append("")
+        context_parts.append("Analyze the query and user context, then return your strategy as JSON.")
+        context_parts.append("Use the decision logic in the system prompt above.")
+        context_parts.append("")
+        context_parts.append("**CRITICAL:** Return ONLY the JSON object. No explanations. No markdown.")
+        
+        # Combine system prompt with context
+        full_prompt = system_prompt + "\n\n" + "\n".join(context_parts)
+        
+        return full_prompt
+    
+    def _parse_strategy_response(
+        self,
+        response_text: str,
+        profile_data: Optional[Dict[str, Any]]
+    ) -> PlannerStrategy:
+        """
+        Parse LLM response into PlannerStrategy object.
+        
+        Handles markdown code blocks and validates required fields.
+        Attaches the pre-fetched profile_data to the strategy.
         
         Args:
             response_text: Raw LLM response (should be JSON)
+            profile_data: Pre-fetched profile data to attach
             
         Returns:
             Parsed PlannerStrategy object
@@ -222,13 +284,15 @@ class PlannerAgent(BaseLangGraphAgent):
         required_fields = ["recommended_tools", "fallback_tools", "reasoning"]
         for field in required_fields:
             if field not in data:
-                raise KeyError(f"Missing required field: {field}")
+                raise KeyError(field)
         
-        # Build PlannerStrategy with optional fields
+        # Build strategy object
+        # Note: We use the profile_data we fetched, not what LLM might return
+        # (LLM shouldn't see profile_data in output since it was in input)
         return PlannerStrategy(
             recommended_tools=data["recommended_tools"],
             fallback_tools=data["fallback_tools"],
             reasoning=data["reasoning"],
-            profile_data=data.get("profile_data"),
+            profile_data=profile_data,  # Use pre-fetched data
             negative_constraints=data.get("negative_constraints"),
         )
