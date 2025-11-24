@@ -306,111 +306,111 @@ class InternalTools:
             requires_db=True,
         )(als_recommendations)
     
-	def _create_subject_hybrid_tool(self) -> ToolDefinition:
-		"""Subject-based hybrid recommendations."""
-		
-		def subject_hybrid_pool(
-			top_k: int = 200,
-			fav_subjects_idxs: Optional[list[int]] = None,
-			weight: float = 0.6,
-		) -> list[dict]:
-			"""
-			Generate recommendations based on subject preferences.
-			
-			Uses a hybrid approach combining subject matching and Bayesian popularity.
-			Returns basic metadata (title, author, year, num_ratings).
-			
-			Args:
-				top_k: Number of candidates to generate
-				fav_subjects_idxs: Subject indices to use (auto-fetches from profile if None)
-				weight: Blend weight for subject vs popularity (0.0-1.0)
-				
-			Returns:
-				Standardized list of books excluding already-read items
-			"""
-			if not self.current_user or not self.db:
-				return [{"error": "Subject hybrid requires authenticated user"}]
-			
-			top_k = max(1, min(500, top_k))
-			weight = max(0.0, min(1.0, weight))
-			
-			# AUTO-FETCH: If no subjects provided, get from user profile
-			if fav_subjects_idxs is None:
-				# Try user object first (might have fav_subjects_idxs attribute)
-				user_favs = getattr(self.current_user, "fav_subjects_idxs", None)
-				
-				if user_favs:
-					fav_subjects_idxs = user_favs
-				else:
-					# Query from database directly
-					try:
-						from app.table_models import UserFavSubject
-						user_id = getattr(self.current_user, "user_id", None)
-						
-						if user_id:
-							results = self.db.query(UserFavSubject.subject_idx).filter(
-								UserFavSubject.user_id == user_id
-							).limit(10).all()  # Limit to top 10 favorite subjects
-							
-							fav_subjects_idxs = [r[0] for r in results if r[0] is not None]
-							
-							# Log what we fetched for debugging
-							if fav_subjects_idxs:
-								print(f"[subject_hybrid_pool] Auto-fetched {len(fav_subjects_idxs)} favorite subjects for user {user_id}")
-						
-					except Exception as e:
-						print(f"[subject_hybrid_pool] Failed to fetch user favorites: {e}")
-						# Continue without subjects - will fall back to popularity
-			
-			# Build user object for recommender
-			if fav_subjects_idxs is not None and fav_subjects_idxs:
-				# Have explicit subjects - use them
-				user_obj = SimpleNamespace(
-					user_id=getattr(self.current_user, "user_id", None),
-					fav_subjects_idxs=fav_subjects_idxs
-				)
-			else:
-				# No subjects available - pass user object as-is
-				# Recommender will fall back to Bayesian popularity
-				user_obj = self.current_user
-			
-			try:
-				recommender = ColdRecommender()
-				raw_results = recommender.recommend(
-					user=user_obj,
-					db=self.db,
-					top_k=top_k,
-					top_k_bayes=0,
-					top_k_sim=0,
-					top_k_mixed=max(top_k, 200),
-					w=weight,
-				)
-				
-				# Exclude already-read books
-				user_id = getattr(self.current_user, "user_id", None)
-				if user_id:
-					already_read = get_read_books(user_id=user_id, db=self.db)
-					raw_results = [
-						r for r in raw_results
-						if int(r.get("item_idx", -1)) not in already_read
-					]
-				
-				raw_results = raw_results[:top_k]
-				
-				# Standardize (adds num_ratings)
-				return self._standardize_tool_output(raw_results)
-				
-			except Exception as e:
-				return [{"error": f"Subject hybrid failed: {e}"}]
-		
-		return tool(
-			name="subject_hybrid_pool",
-			description="Generate recommendations based on subject preferences with popularity blending (auto-uses profile if no subjects specified)",
-			category=ToolCategory.INTERNAL,
-			requires_auth=True,
-			requires_db=True,
-		)(subject_hybrid_pool)
-	   
+    def _create_subject_hybrid_tool(self) -> ToolDefinition:
+        """Subject-based hybrid recommendations."""
+        
+        def subject_hybrid_pool(
+            top_k: int = 200,
+            fav_subjects_idxs: Optional[list[int]] = None,
+            weight: float = 0.6,
+        ) -> list[dict]:
+            """
+            Generate recommendations based on subject preferences.
+            
+            Uses a hybrid approach combining subject matching and Bayesian popularity.
+            Returns basic metadata (title, author, year, num_ratings).
+            
+            Args:
+                top_k: Number of candidates to generate
+                fav_subjects_idxs: Subject indices to use (auto-fetches from profile if None)
+                weight: Blend weight for subject vs popularity (0.0-1.0)
+                
+            Returns:
+                Standardized list of books excluding already-read items
+            """
+            if not self.current_user or not self.db:
+                return [{"error": "Subject hybrid requires authenticated user"}]
+            
+            top_k = max(1, min(500, top_k))
+            weight = max(0.0, min(1.0, weight))
+            
+            # AUTO-FETCH: If no subjects provided, get from user profile
+            if fav_subjects_idxs is None:
+                # Try user object first (might have fav_subjects_idxs attribute)
+                user_favs = getattr(self.current_user, "fav_subjects_idxs", None)
+                
+                if user_favs:
+                    fav_subjects_idxs = user_favs
+                else:
+                    # Query from database directly
+                    try:
+                        from app.table_models import UserFavSubject
+                        user_id = getattr(self.current_user, "user_id", None)
+                        
+                        if user_id:
+                            results = self.db.query(UserFavSubject.subject_idx).filter(
+                                UserFavSubject.user_id == user_id
+                            ).limit(10).all()  # Limit to top 10 favorite subjects
+                            
+                            fav_subjects_idxs = [r[0] for r in results if r[0] is not None]
+                            
+                            # Log what we fetched for debugging
+                            if fav_subjects_idxs:
+                                print(f"[subject_hybrid_pool] Auto-fetched {len(fav_subjects_idxs)} favorite subjects for user {user_id}")
+                        
+                    except Exception as e:
+                        print(f"[subject_hybrid_pool] Failed to fetch user favorites: {e}")
+                        # Continue without subjects - will fall back to popularity
+            
+            # Build user object for recommender
+            if fav_subjects_idxs is not None and fav_subjects_idxs:
+                # Have explicit subjects - use them
+                user_obj = SimpleNamespace(
+                    user_id=getattr(self.current_user, "user_id", None),
+                    fav_subjects_idxs=fav_subjects_idxs
+                )
+            else:
+                # No subjects available - pass user object as-is
+                # Recommender will fall back to Bayesian popularity
+                user_obj = self.current_user
+            
+            try:
+                recommender = ColdRecommender()
+                raw_results = recommender.recommend(
+                    user=user_obj,
+                    db=self.db,
+                    top_k=top_k,
+                    top_k_bayes=0,
+                    top_k_sim=0,
+                    top_k_mixed=max(top_k, 200),
+                    w=weight,
+                )
+                
+                # Exclude already-read books
+                user_id = getattr(self.current_user, "user_id", None)
+                if user_id:
+                    already_read = get_read_books(user_id=user_id, db=self.db)
+                    raw_results = [
+                        r for r in raw_results
+                        if int(r.get("item_idx", -1)) not in already_read
+                    ]
+                
+                raw_results = raw_results[:top_k]
+                
+                # Standardize (adds num_ratings)
+                return self._standardize_tool_output(raw_results)
+                
+            except Exception as e:
+                return [{"error": f"Subject hybrid failed: {e}"}]
+        
+        return tool(
+            name="subject_hybrid_pool",
+            description="Generate recommendations based on subject preferences with popularity blending (auto-uses profile if no subjects specified)",
+            category=ToolCategory.INTERNAL,
+            requires_auth=True,
+            requires_db=True,
+        )(subject_hybrid_pool)
+       
     def _create_subject_id_search_tool(self) -> ToolDefinition:
         """Resolve subject phrases to IDs."""
         
