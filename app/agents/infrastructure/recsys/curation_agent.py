@@ -18,7 +18,12 @@ from app.agents.domain.recsys_schemas import ExecutionContext
 from app.agents.domain.parsers import InlineReferenceParser
 from app.agents.settings import get_llm
 from app.agents.prompts.loader import read_prompt
-from app.agents.logging import append_chatbot_log
+from app.agents.logging import append_chatbot_log, log_data_transform, is_debug_mode
+from app.agents.logging_modes import should_log_component
+
+from app.agents.logging_modes import debug_mode
+
+debug_mode()
 
 
 class CurationAgent:
@@ -49,13 +54,36 @@ class CurationAgent:
         Returns:
             Final agent response with ordered books and prose
         """
-        append_chatbot_log("=== CURATION START ===")
+        append_chatbot_log(f"\n{'=' * 60}")
+        append_chatbot_log(f"=== CURATION START ===")
         append_chatbot_log(
-            f"Candidates: {len(candidates)}, Query: {request.user_text[:80]}"
+            f"Input: {len(candidates)} candidates, Query: {request.user_text[:80]}..."
         )
+
+        # Log detailed stats in verbose mode
+        if should_log_component("verbose"):
+            rich_count = sum(
+                1
+                for c in candidates
+                if hasattr(c, "has_rich_metadata") and c.has_rich_metadata()
+            )
+            append_chatbot_log(
+                f"Metadata: {rich_count}/{len(candidates)} with enrichment"
+            )
+            if execution_context.tools_used:
+                append_chatbot_log(f"Tools: {', '.join(execution_context.tools_used)}")
 
         # Prepare candidates for LLM (truncate descriptions only)
         prepared = self._prepare_candidates(candidates)
+
+        # Log data transform in debug mode
+        if is_debug_mode():
+            log_data_transform(
+                "curation_prepare",
+                [{"item_idx": c.item_idx, "title": c.title} for c in candidates[:3]],
+                prepared[:3],
+                f"Prepared {len(prepared)} candidates for LLM",
+            )
 
         # Build prompt
         prompt = self._build_curation_prompt(
@@ -64,9 +92,23 @@ class CurationAgent:
             execution_context=execution_context,
         )
 
+        # Log prompt size in debug mode
+        if is_debug_mode():
+            append_chatbot_log(
+                f"Prompt: {len(prompt)} chars (~{len(prompt) // 4} tokens)"
+            )
+
         # Single LLM call
         try:
+            import time
+
+            start = time.time()
+
             response = self.llm.invoke([HumanMessage(content=prompt)])
+
+            elapsed_ms = int((time.time() - start) * 1000)
+            append_chatbot_log(f"LLM: {elapsed_ms}ms")
+
             decision = json.loads(response.content)
 
             # Extract results
@@ -74,10 +116,24 @@ class CurationAgent:
             response_text = decision.get("response_text", "")
             reasoning = decision.get("reasoning", "")
 
-            if reasoning:
-                append_chatbot_log(f"Curation reasoning: {reasoning[:200]}")
+            append_chatbot_log(f"Output: {len(book_ids)} books selected")
 
-            append_chatbot_log(f"Selected {len(book_ids)} books")
+            # Log reasoning in verbose mode
+            if reasoning and should_log_component("verbose"):
+                append_chatbot_log(f"Reasoning: {reasoning[:150]}...")
+
+            # Log full decision in debug mode
+            if is_debug_mode():
+                log_data_transform(
+                    "curation_decision",
+                    {"query": request.user_text[:50], "candidates": len(candidates)},
+                    {
+                        "book_ids": book_ids,
+                        "response_preview": response_text[:200],
+                        "reasoning": reasoning[:200] if reasoning else None,
+                    },
+                    "Curation LLM output",
+                )
 
             # Reorder candidates to match LLM's ordering
             ordered_books = self._order_books(candidates, book_ids)
