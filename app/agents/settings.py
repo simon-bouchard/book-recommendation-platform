@@ -2,6 +2,10 @@
 import os
 from pydantic_settings import BaseSettings, SettingsConfigDict
 from typing import Any, Dict, Optional
+from sentence_transformers import SentenceTransformer
+import numpy as np
+from langchain_openai import ChatOpenAI
+
 
 class ChatSettings(BaseSettings):
     chat_require_login: bool = False
@@ -15,6 +19,11 @@ class ChatSettings(BaseSettings):
     chat_limits_per_day_system: int = 250
     chat_local_tz: str = "America/Toronto"
 
+    # Feature flags
+    enable_inline_book_refs: bool = (
+        os.getenv("ENABLE_INLINE_BOOK_REFS", "true").lower() == "true"
+    )
+
     # LLM selection (provider decided by environment)
     llm_provider: str = os.getenv("LLM_PROVIDER", "deepinfra")  # "deepinfra" | "openai"
 
@@ -24,10 +33,16 @@ class ChatSettings(BaseSettings):
 
     # DeepInfra (OpenAI-compatible API)
     deepinfra_api_key: Optional[str] = os.getenv("DEEPINFRA_API_KEY")
-    deepinfra_base_url: str = os.getenv("DEEPINFRA_BASE_URL", "https://api.deepinfra.com/v1/openai")
+    deepinfra_base_url: str = os.getenv(
+        "DEEPINFRA_BASE_URL", "https://api.deepinfra.com/v1/openai"
+    )
 
-    llm_model_small: str = os.getenv("LLM_MODEL_SMALL", "meta-llama/Meta-Llama-3.1-8B-Instruct")
-    llm_model_medium: str = os.getenv("LLM_MODEL_MEDIUM", "meta-llama/Meta-Llama-3.1-70B-Instruct")
+    llm_model_small: str = os.getenv(
+        "LLM_MODEL_SMALL", "meta-llama/Meta-Llama-3.1-8B-Instruct"
+    )
+    llm_model_medium: str = os.getenv(
+        "LLM_MODEL_MEDIUM", "meta-llama/Meta-Llama-3.1-70B-Instruct"
+    )
     llm_model_large: str = os.getenv("LLM_MODEL_LARGE", "openai/gpt-4")
 
     # Embedding hook (callable: List[str] -> np.ndarray [n, d])
@@ -39,9 +54,9 @@ class ChatSettings(BaseSettings):
         arbitrary_types_allowed=True,
     )
 
+
 # ---- Embedding factory ----
-from sentence_transformers import SentenceTransformer
-import numpy as np
+
 
 def _make_default_embedder():
     """
@@ -55,11 +70,12 @@ def _make_default_embedder():
 
     return _emb
 
+
 settings = ChatSettings()
 settings.embedder = _make_default_embedder()
 
 # ---- LLM provider + factory ----
-from langchain_openai import ChatOpenAI
+
 
 def get_provider() -> Dict[str, Any]:
     """
@@ -84,6 +100,7 @@ def get_provider() -> Dict[str, Any]:
         "default_model": settings.llm_model_medium,
     }
 
+
 def get_model_for_tier(tier: str) -> str:
     t = (tier or "").strip().lower()
     if t == "small":
@@ -93,6 +110,7 @@ def get_model_for_tier(tier: str) -> str:
     if t == "large":
         return settings.llm_model_large
     return settings.llm_model_medium
+
 
 def get_llm(
     model: Optional[str] = None,
@@ -124,7 +142,9 @@ def get_llm(
 
     # Defensive guard: blow up early if something is off
     if not isinstance(selected_model, str) or selected_model is str:
-        raise TypeError(f"Resolved model must be a string, got: {type(resolved)!r} ({resolved!r})")
+        raise TypeError(
+            f"Resolved model must be a string, got: {type(resolved)!r} ({resolved!r})"
+        )
 
     # Identify if this looks like an OpenAI-family model
     wants_openai = selected_model.startswith(("gpt-", "o3", "openai/"))
