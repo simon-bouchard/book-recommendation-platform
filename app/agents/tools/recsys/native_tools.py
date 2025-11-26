@@ -329,7 +329,7 @@ class InternalTools:
             weight = max(0.0, min(1.0, weight))
 
             # AUTO-FETCH: If no subjects provided, get from user profile
-            if fav_subjects_idxs is None:
+            if not fav_subjects_idxs:
                 # Try user object first (might have fav_subjects_idxs attribute)
                 user_favs = getattr(self.current_user, "fav_subjects_idxs", None)
 
