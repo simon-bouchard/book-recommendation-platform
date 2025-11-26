@@ -63,13 +63,9 @@ class CurationAgent:
         # Log detailed stats in verbose mode
         if should_log_component("verbose"):
             rich_count = sum(
-                1
-                for c in candidates
-                if hasattr(c, "has_rich_metadata") and c.has_rich_metadata()
+                1 for c in candidates if hasattr(c, "has_rich_metadata") and c.has_rich_metadata()
             )
-            append_chatbot_log(
-                f"Metadata: {rich_count}/{len(candidates)} with enrichment"
-            )
+            append_chatbot_log(f"Metadata: {rich_count}/{len(candidates)} with enrichment")
             if execution_context.tools_used:
                 append_chatbot_log(f"Tools: {', '.join(execution_context.tools_used)}")
 
@@ -94,9 +90,7 @@ class CurationAgent:
 
         # Log prompt size in debug mode
         if is_debug_mode():
-            append_chatbot_log(
-                f"Prompt: {len(prompt)} chars (~{len(prompt) // 4} tokens)"
-            )
+            append_chatbot_log(f"Prompt: {len(prompt)} chars (~{len(prompt) // 4} tokens)")
 
         # Single LLM call
         try:
@@ -160,9 +154,7 @@ class CurationAgent:
                     f"mentioned in prose (out of {len(book_ids)} total)"
                 )
             else:
-                append_chatbot_log(
-                    "No inline book references found - using card-only display"
-                )
+                append_chatbot_log("No inline book references found - using card-only display")
 
             return AgentResponse(
                 text=response_text,
@@ -267,9 +259,7 @@ Respond with JSON only.
         # Guidance on personalization
         if execution_context.tools_used:
             if "als_recs" in execution_context.tools_used:
-                lines.append(
-                    "Note: Results are personalized based on collaborative filtering."
-                )
+                lines.append("Note: Results are personalized based on collaborative filtering.")
             elif execution_context.profile_data:
                 lines.append("Note: Results are informed by user profile data.")
             elif "popular_books" in execution_context.tools_used:
