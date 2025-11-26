@@ -12,7 +12,7 @@
 <body>
 <div class="layout">
     {% include 'navbar.html' %}
-    
+
     <div class="container">
         {% if message %}
         <div class="page-banner">
@@ -26,7 +26,7 @@
         <h2 style='text-align:center'>Welcome, {{ user.username }}</h2>
 
         <div id="profileDisplay" class="profile-card">
-            
+
             <div class="profile-status-row" style="grid-column: 1 / -1;">
                 {% if user.is_warm %}
                     <div class="warm-user-banner">
@@ -55,7 +55,7 @@
                 <div><strong>Email:</strong></div><div>{{ user.email }}</div>
                 <div><strong>Ratings:</strong></div><div>{{ user.num_ratings }}</div>
                 <div><strong>Books Read:</strong></div><div>{{ user.num_books_read }}</div>
-                
+
             </div>
             <div><strong>Your Favorite Subjects:</strong></div>
             {% if user.favorite_subjects %}
@@ -143,7 +143,7 @@
             <button id="nextButton" class="btn btn--secondary btn--sm" style="display: none;">Next</button>
         </div>
     </div>
-    
+
     <script type="module">
     import { setupPaginatedBookDisplay } from "/static/js/paginated_books.js";
 
@@ -178,7 +178,7 @@
         const percent = Math.round(w * 100);
         wMeta.textContent = percent;   // single centered number
     }
-    
+
     function enableSubjectControls(enable) {
         subjectWeightControls.classList.toggle("disabled", !enable);
         if (wSlider) wSlider.disabled = !enable;
@@ -262,7 +262,7 @@
 
 <script type="module">
     import { initSubjectPicker } from "/static/js/subject_picker.js";
-    
+
         // Toggle edit mode
         document.getElementById("editProfileBtn").onclick = () => {
             document.getElementById("profileDisplay").style.display = "none";
@@ -287,8 +287,6 @@
             const data = {
                 username: form.username.value.trim(),
                 email: form.email.value.trim(),
-                age: parseInt(form.age.value),
-                country: form.country.value.trim(),
                 favorite_subjects: form["favorite_subjects"].value.split(",").map(s => s.trim()).filter(Boolean)
             };
 
