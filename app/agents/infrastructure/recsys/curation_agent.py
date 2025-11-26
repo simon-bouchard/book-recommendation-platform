@@ -1,7 +1,7 @@
 # app/agents/infrastructure/recsys/curation_agent.py
 """
 Curation agent for ranking and selecting final book recommendations.
-Stage 3 of three-stage recommendation pipeline (Planner → Retrieval → Curation).
+Stage 3 of three-stage recommendation pipeline (Planner â†’ Retrieval â†’ Curation).
 """
 
 import json
@@ -173,34 +173,41 @@ class CurationAgent:
 
     def _prepare_candidates(self, candidates: List[BookRecommendation]) -> List[Dict]:
         """
-        Prepare candidates for LLM with minimal processing.
-        Only truncate descriptions for token limits.
+        Prepare candidates for LLM.
+
+        Uses to_curation_dict() which now excludes empty fields.
+        Only truncates vibe descriptions for token limits.
         """
         prepared = []
 
         for book in candidates:
-            # Check if we have rich metadata
+            # Use optimized conversion that excludes empty fields
             if hasattr(book, "to_curation_dict"):
-                # Use the built-in conversion method
                 book_dict = book.to_curation_dict()
             else:
-                # Fallback: manual extraction
+                # Fallback: manual extraction (shouldn't happen with current code)
                 book_dict = {
                     "item_idx": book.item_idx,
                     "title": book.title or "",
                     "author": book.author or "",
                     "year": book.year or "",
-                    "subjects": getattr(book, "subjects", []) or [],
-                    "tones": getattr(book, "tones", []) or [],
-                    "genre": getattr(book, "genre", "") or "",
-                    "vibe": getattr(book, "vibe", "") or "",
                     "num_ratings": book.num_ratings or 0,
                 }
+                # Only add non-empty enrichment fields
+                if book.subjects:
+                    book_dict["subjects"] = book.subjects
+                if book.tones:
+                    book_dict["tones"] = book.tones
+                if book.genre:
+                    book_dict["genre"] = book.genre
+                if book.vibe:
+                    book_dict["vibe"] = book.vibe
 
             # Truncate vibe if too long (token limit)
-            vibe = book_dict.get("vibe", "")
-            if vibe and len(vibe) > 200:
-                book_dict["vibe"] = vibe[:200] + "..."
+            if "vibe" in book_dict and book_dict["vibe"]:
+                vibe = book_dict["vibe"]
+                if len(vibe) > 200:
+                    book_dict["vibe"] = vibe[:200] + "..."
 
             prepared.append(book_dict)
 

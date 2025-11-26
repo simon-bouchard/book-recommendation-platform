@@ -7,7 +7,6 @@ All retrieval tools return consistent schema with enrichment data where availabl
 from typing import Optional
 from sqlalchemy.orm import Session
 from types import SimpleNamespace
-import numpy as np
 
 from models.recommender_strategy import WarmRecommender, ColdRecommender
 from models.shared_utils import get_read_books, ModelStore
@@ -50,7 +49,7 @@ class InternalTools:
         Single query returns ~36 rows (all tones in ontology).
 
         Returns:
-                        Dictionary mapping tone_id (int) to tone name (str)
+            Dictionary mapping tone_id (int) to tone name (str)
         """
         if self._tone_map is None and self.db:
             from app.table_models import Tone
@@ -74,16 +73,16 @@ class InternalTools:
         - Internal: score (tool's relevance score, kept for debugging)
 
         Operations:
-        1. Resolve tone_ids → tone names (from cached DB map)
+        1. Resolve tone_ids -> tone names (from cached DB map)
         2. Add num_ratings from books.pkl (via ModelStore, in-memory)
         3. Standardize field names (vibe not description)
-        4. Handle missing fields gracefully
+        4. Exclude empty enrichment fields to reduce token usage
 
         Args:
-                        raw_results: Raw output from recommender or searcher
+            raw_results: Raw output from recommender or searcher
 
         Returns:
-                        Standardized list of book dicts with consistent schema
+            Standardized list of book dicts with consistent schema
         """
         if not raw_results:
             return []
@@ -116,24 +115,35 @@ class InternalTools:
             if tone_ids:
                 tone_names = [tone_map.get(tid) for tid in tone_ids if tid in tone_map]
 
-            # Build standardized dict
-            standardized.append(
-                {
-                    # Core metadata (always present)
-                    "item_idx": item_idx,
-                    "title": book.get("title", ""),
-                    "author": book.get("author", ""),
-                    "year": book.get("year"),
-                    "num_ratings": num_ratings,
-                    # Enrichment metadata (optional - only semantic_search provides)
-                    "subjects": book.get("subjects", []),
-                    "tones": tone_names,
-                    "genre": book.get("genre"),
-                    "vibe": book.get("vibe"),
-                    # Internal only (not sent to curation)
-                    "score": book.get("score", 0.0),
-                }
-            )
+            # Build standardized dict - only include fields with content
+            result = {
+                # Core metadata (always present)
+                "item_idx": item_idx,
+                "title": book.get("title", ""),
+                "author": book.get("author", ""),
+                "year": book.get("year"),
+                "num_ratings": num_ratings,
+                # Internal only (not sent to curation)
+                "score": book.get("score", 0.0),
+            }
+
+            # Add enrichment metadata only if present
+            subjects = book.get("subjects", [])
+            if subjects:
+                result["subjects"] = subjects
+
+            if tone_names:
+                result["tones"] = tone_names
+
+            genre = book.get("genre")
+            if genre:
+                result["genre"] = genre
+
+            vibe = book.get("vibe")
+            if vibe:
+                result["vibe"] = vibe
+
+            standardized.append(result)
 
         return standardized
 
@@ -145,7 +155,7 @@ class InternalTools:
         They do NOT retrieve books.
 
         Returns:
-                        List of context tools (empty if profile not allowed)
+            List of context tools (empty if profile not allowed)
         """
         if not self.allow_profile or not self.current_user or not self.db:
             return []
@@ -160,10 +170,10 @@ class InternalTools:
         All tools return standardized output format.
 
         Args:
-                        is_warm: Whether user has enough ratings for collaborative filtering
+            is_warm: Whether user has enough ratings for collaborative filtering
 
         Returns:
-                        List of retrieval tools
+            List of retrieval tools
         """
         tools = []
 
@@ -176,7 +186,7 @@ class InternalTools:
         if is_warm and self.current_user and self.db:
             tools.append(self._create_als_recs_tool())
 
-        if self.db:
+        if self.current_user and self.db:
             tools.append(self._create_subject_hybrid_tool())
 
         return tools
@@ -189,10 +199,10 @@ class InternalTools:
         This method is kept for backward compatibility.
 
         Args:
-                        is_warm: Whether user has enough ratings for warm recommendations
+            is_warm: Whether user has enough ratings for warm recommendations
 
         Returns:
-                        List of all available tools
+            List of all available tools
         """
         tools = []
 
@@ -219,11 +229,11 @@ class InternalTools:
             - Standardized to include num_ratings from books.pkl
 
             Args:
-                            query: Search query describing books to find
-                            top_k: Number of results (max 200)
+                query: Search query describing books to find
+                top_k: Number of results (max 200)
 
             Returns:
-                            Standardized list of books with enrichment metadata
+                Standardized list of books with enrichment metadata
             """
             searcher = self._get_semantic_searcher()
             top_k = max(1, min(200, top_k))
@@ -273,10 +283,10 @@ class InternalTools:
             No enrichment data since ALS is based on rating patterns, not content.
 
             Args:
-                            top_k: Number of candidates to generate
+                top_k: Number of candidates to generate
 
             Returns:
-                            Standardized list of books with basic metadata
+                Standardized list of books with basic metadata
             """
             if not self.current_user or not self.db:
                 return [{"error": "ALS requires authenticated user with database"}]
@@ -316,12 +326,12 @@ class InternalTools:
             Returns basic metadata (title, author, year, num_ratings).
 
             Args:
-                            top_k: Number of candidates to generate
-                            fav_subjects_idxs: Subject indices to use (auto-fetches from profile if None)
-                            weight: Blend weight for subject vs popularity (0.0-1.0)
+                top_k: Number of candidates to generate
+                fav_subjects_idxs: Subject indices to use (auto-fetches from profile if None)
+                weight: Blend weight for subject vs popularity (0.0-1.0)
 
             Returns:
-                            Standardized list of books excluding already-read items
+                Standardized list of books excluding already-read items
             """
             if not self.current_user or not self.db:
                 return [{"error": "Subject hybrid requires authenticated user"}]
@@ -330,7 +340,7 @@ class InternalTools:
             weight = max(0.0, min(1.0, weight))
 
             # AUTO-FETCH: If no subjects provided, get from user profile
-            if not fav_subjects_idxs:
+            if fav_subjects_idxs is None:
                 # Try user object first (might have fav_subjects_idxs attribute)
                 user_favs = getattr(self.current_user, "fav_subjects_idxs", None)
 
@@ -422,11 +432,11 @@ class InternalTools:
             Returns different format than other tools (subject matches, not books).
 
             Args:
-                            phrases: List of subject phrases to resolve
-                            top_k: Number of candidates per phrase
+                phrases: List of subject phrases to resolve
+                top_k: Number of candidates per phrase
 
             Returns:
-                            List of matches per phrase with scores
+                List of matches per phrase with scores
             """
             if not self.db:
                 return [{"error": "Subject search requires database"}]
@@ -462,58 +472,40 @@ class InternalTools:
             Returns books sorted by rating quality + popularity.
             Returns basic metadata (title, author, year, num_ratings).
 
-            Works for ANY user (authenticated or not) - no user context needed.
-
             Args:
-                    top_k: Number of popular books to return
+                top_k: Number of popular books to return
 
             Returns:
-                    Standardized list of popular books with basic metadata
+                Standardized list of popular books with basic metadata
             """
+            if not self.current_user or not self.db:
+                return [{"error": "Popular books requires authenticated user"}]
+
             top_k = max(1, min(500, top_k))
 
             try:
-                store = ModelStore()
+                recommender = ColdRecommender()
+                raw_results = recommender.recommend(
+                    user=self.current_user,
+                    db=self.db,
+                    top_k=top_k,
+                    top_k_bayes=max(top_k, 200),  # Pure Bayesian ranking
+                    top_k_sim=0,
+                    top_k_mixed=0,
+                    w=0.0,  # No mixing
+                )
 
-                # Get Bayesian scores and book ID mapping
-                bayesian_tensor = store.get_bayesian_tensor()
-                _, book_ids = store.get_book_embeddings()
-                book_meta = store.get_book_meta()
+                # Exclude already-read books
+                user_id = getattr(self.current_user, "user_id", None)
+                if user_id:
+                    already_read = get_read_books(user_id=user_id, db=self.db)
+                    raw_results = [
+                        r for r in raw_results if int(r.get("item_idx", -1)) not in already_read
+                    ]
 
-                # Get top K by Bayesian score (request extra to allow for filtering)
-                top_indices = np.argsort(-bayesian_tensor)[: top_k * 2]
-
-                # Build book objects with metadata
-                raw_results = []
-                for idx in top_indices:
-                    item_idx = book_ids[idx]
-
-                    # Look up metadata from books.pkl
-                    if item_idx in book_meta.index:
-                        book_row = book_meta.loc[item_idx]
-                        raw_results.append(
-                            {
-                                "item_idx": item_idx,
-                                "title": book_row.get("title", ""),
-                                "author": book_row.get("author", ""),
-                                "year": book_row.get("year"),
-                                "score": float(bayesian_tensor[idx]),
-                            }
-                        )
-
-                # Exclude already-read books if user context available
-                if self.current_user and self.db:
-                    user_id = getattr(self.current_user, "user_id", None)
-                    if user_id:
-                        already_read = get_read_books(user_id=user_id, db=self.db)
-                        raw_results = [
-                            r for r in raw_results if int(r.get("item_idx", -1)) not in already_read
-                        ]
-
-                # Take requested amount
                 raw_results = raw_results[:top_k]
 
-                # Standardize (adds num_ratings from books.pkl)
+                # Standardize (adds num_ratings)
                 return self._standardize_tool_output(raw_results)
 
             except Exception as e:
@@ -538,10 +530,10 @@ class InternalTools:
             of book IDs to show the user.
 
             Args:
-                            book_ids: List of item_idx values to return
+                book_ids: List of item_idx values to return
 
             Returns:
-                            Dictionary with deduplicated book_ids list
+                Dictionary with deduplicated book_ids list
             """
             # Deduplicate while preserving order
             seen = set()
@@ -573,10 +565,10 @@ class InternalTools:
             Requires: User consent for profile access.
 
             Args:
-                            limit: Maximum number of subjects to return (max 5)
+                limit: Maximum number of subjects to return (max 5)
 
             Returns:
-                            Dictionary with fav_subjects list
+                Dictionary with fav_subjects list
             """
             if not self.current_user or not self.db:
                 return {"error": "User profile requires authentication"}
@@ -611,11 +603,11 @@ class InternalTools:
             Requires: User consent for profile access.
 
             Args:
-                            limit: Maximum number of interactions (max 5)
-                            include_comments: Whether to include user comments
+                limit: Maximum number of interactions (max 5)
+                include_comments: Whether to include user comments
 
             Returns:
-                            Dictionary with interactions list
+                Dictionary with interactions list
             """
             if not self.current_user or not self.db:
                 return {"error": "Recent interactions requires authentication"}

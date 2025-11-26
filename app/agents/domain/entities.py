@@ -174,9 +174,7 @@ class BookRecommendation:
 
     def is_complete(self) -> bool:
         """Check if recommendation has minimum required data."""
-        return self.item_idx is not None and (
-            self.title is not None or self.author is not None
-        )
+        return self.item_idx is not None and (self.title is not None or self.author is not None)
 
     def has_rich_metadata(self) -> bool:
         """Check if recommendation has extended metadata for curation."""
@@ -188,17 +186,25 @@ class BookRecommendation:
 
         Returns dict with all available metadata, ready for JSON serialization.
         """
-        return {
+        result = {
             "item_idx": self.item_idx,
             "title": self.title or "",
             "author": self.author or "",
             "year": self.year or "",
             "num_ratings": self.num_ratings or 0,
-            "subjects": self.subjects or [],
-            "tones": self.tones or [],
-            "genre": self.genre or "",
-            "vibe": self.vibe or "",
         }
+
+        # Only add enrichment fields if they have content
+        if self.subjects:
+            result["subjects"] = self.subjects
+        if self.tones:
+            result["tones"] = self.tones
+        if self.genre:
+            result["genre"] = self.genre
+        if self.vibe:
+            result["vibe"] = self.vibe
+
+        return result
 
 
 @dataclass
@@ -225,8 +231,4 @@ class AgentResponse:
 
     def get_book_ids(self) -> List[int]:
         """Extract book IDs from recommendations."""
-        return [
-            rec.item_idx
-            for rec in self.book_recommendations
-            if rec.item_idx is not None
-        ]
+        return [rec.item_idx for rec in self.book_recommendations if rec.item_idx is not None]
