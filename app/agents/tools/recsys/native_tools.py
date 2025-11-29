@@ -107,7 +107,7 @@ class InternalTools:
             # Get num_ratings from books.pkl (always available, zero queries)
             num_ratings = 0
             if item_idx in book_meta.index:
-                num_ratings = int(book_meta.loc[item_idx].get("num_ratings", 0))
+                num_ratings = int(book_meta.loc[item_idx].get("book_num_ratings", 0))
 
             # Resolve tone IDs to names (only if present - semantic_search has this)
             tone_ids = book.get("tone_ids", [])
