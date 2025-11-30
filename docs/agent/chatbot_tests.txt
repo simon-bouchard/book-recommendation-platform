@@ -67,10 +67,6 @@ Multi-turn conversations
 Critical regression scenarios
 Performance benchmarks
 
-Why minimal: Expensive, slow, harder to debug - use for smoke testing only
-Agent-Specific Considerations
-Response Agent (conversational):
-
 Minimal testing needed
 Focus on routing TO it correctly
 Basic integration test for tone/appropriateness
