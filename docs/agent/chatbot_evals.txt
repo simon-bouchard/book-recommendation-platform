@@ -1,0 +1,475 @@
+PLANNER EVALUATION
+evaluation/chatbot/recommendation_agent/planner_eval.py
+Purpose: Test tool selection for different query types
+Test Cases: 18 total
+Vague Queries (6 tests)
+
+warm_user_vague_query
+
+User: 15 ratings, no profile
+Query: "recommend something good"
+Expected primary: als_recs
+Expected fallback: popular_books
+
+
+warm_user_vague_with_profile
+
+User: 15 ratings, has profile
+Query: "what should I read"
+Expected primary: als_recs (ALS over profile for warm users)
+Expected fallback: popular_books
+
+
+cold_user_vague_with_profile
+
+User: 3 ratings, has profile with subjects
+Query: "suggest a book"
+Expected primary: subject_hybrid_pool
+Expected fallback: popular_books
+
+
+cold_user_vague_no_profile
+
+User: 2 ratings, no profile
+Query: "what should I read"
+Expected primary: popular_books
+Expected fallback: book_semantic_search
+
+
+new_user_vague
+
+User: 0 ratings, no profile
+Query: "recommend me something"
+Expected primary: popular_books
+Expected fallback: book_semantic_search
+
+
+warm_user_vague_no_als_available
+
+User: 15 ratings, but has_als_recs_available=False (ALS model down)
+Query: "recommend something"
+Expected primary: NOT als_recs (should use fallback strategy)
+
+
+
+Descriptive Queries (6 tests)
+
+descriptive_atmospheric
+
+Query: "dark atmospheric mystery with gothic vibes"
+Expected primary: book_semantic_search
+Expected fallback: subject_hybrid_pool
+
+
+descriptive_cozy
+
+Query: "cozy heartwarming story with small town charm"
+Expected primary: book_semantic_search
+Expected fallback: subject_hybrid_pool
+
+
+descriptive_mood_light
+
+Query: "light fun adventure with humor"
+Expected primary: book_semantic_search
+Expected fallback: subject_hybrid_pool
+
+
+descriptive_with_user_profile_ignored
+
+User: has profile
+Query: "dark psychological thriller with unreliable narrator"
+Expected: book_semantic_search (should NOT use profile for specific queries)
+
+
+descriptive_long_vibe
+
+Query: "epic fantasy with complex magic systems sprawling world-building political intrigue"
+Expected primary: book_semantic_search
+
+
+descriptive_minimal_4_words
+
+Query: "cozy mystery small town" (exactly 4 descriptive words)
+Expected primary: book_semantic_search
+
+
+
+Genre/Subject Queries (4 tests)
+
+genre_single
+
+Query: "historical fiction"
+Expected primary: subject_id_search, subject_hybrid_pool
+Expected fallback: book_semantic_search
+
+
+genre_multiple
+
+Query: "science fiction with space opera and military themes"
+Expected primary: subject_id_search, subject_hybrid_pool
+Expected fallback: book_semantic_search
+
+
+genre_romance
+
+Query: "romance novels"
+Expected primary: subject_id_search, subject_hybrid_pool
+
+
+genre_with_vibe (complex query)
+
+Query: "cozy mystery set in England"
+Expected primary: book_semantic_search (vibe wins)
+NOT multiple tools
+
+
+
+Edge Cases (2 tests)
+
+empty_query
+
+Query: ""
+Expected: should not crash, returns some strategy
+
+
+very_long_query
+
+Query: 200+ word query
+Expected: should not crash, classifies query type
+
+
+
+What to check:
+
+Primary tools correct (exact match)
+Fallback tools reasonable (manual review)
+Strategy reasoning makes sense (manual review)
+
+Metrics:
+
+Primary tool accuracy: % correct
+Fallback appropriateness: manual pass/fail
+
+
+RETRIEVAL EVALUATION
+evaluation/chatbot/recommendation_agent/retrieval_eval.py
+Purpose: Test correct tool calling with correct arguments
+Test Cases: 15 total
+Correct Tool Arguments (10 tests)
+
+als_recs_args
+
+Strategy: primary=als_recs
+Check: tool called with top_k parameter
+Check: top_k is an integer (120 typical)
+
+
+semantic_search_args
+
+Strategy: primary=book_semantic_search
+Query: "dark mystery"
+Check: tool called with query and top_k
+Check: query is string
+
+
+subject_hybrid_pool_with_profile_subjects
+
+Strategy: primary=subject_hybrid_pool
+Profile data: has favorite_subjects=[12, 45, 78]
+Check: tool called with fav_subjects_idxs=[12, 45, 78]
+Check: NOT called with empty/null subjects
+
+
+subject_hybrid_pool_NO_SUBJECTS_BUG ⚠️ CRITICAL BUG TEST
+
+Strategy: primary=subject_hybrid_pool
+Profile data: NO favorite_subjects
+Check: tool NOT called, OR called with default behavior
+BUG: Currently calls with null args → returns popular books instead of subject search
+
+
+subject_id_search_args
+
+Query: "historical fiction and mystery"
+Check: tool called with phrases parameter
+Check: phrases is list of strings
+
+
+popular_books_args
+
+Strategy: primary=popular_books
+Check: tool called with top_k parameter
+
+
+multiple_tool_calls_sequential
+
+Strategy: primary=semantic_search, fallback=popular_books
+Check: semantic_search called first
+Check: popular_books called second (if fallback triggered)
+
+
+subject_search_then_hybrid_pool
+
+Genre query: "science fiction"
+Check: subject_id_search called first
+Check: subject_hybrid_pool called with resolved subject IDs
+
+
+top_k_varies_by_tool
+
+Check: Different tools use appropriate top_k values
+semantic_search: ~200
+als_recs: ~120
+popular_books: ~100
+
+
+fallback_triggers_on_low_candidates
+
+Mock primary tool to return <30 candidates
+Check: fallback tool is called
+
+
+
+Query Handling (3 tests)
+
+semantic_search_query_exact_match
+
+Query: "dark atmospheric thriller"
+Check: semantic_search called with exact query string
+Check: NO query modification
+
+
+semantic_search_long_query_handled
+
+Query: 100+ word descriptive query
+Check: tool doesn't fail
+Check: query passed through (maybe truncated)
+
+
+empty_query_semantic_search
+
+Query: ""
+Check: semantic_search handles gracefully OR not called
+
+
+
+Execution Flow (2 tests)
+
+stops_after_sufficient_candidates
+
+Mock tool to return 120+ candidates
+Check: doesn't call more tools
+Check: finalizes after 1-2 tool calls
+
+
+tries_fallback_after_primary_failure
+
+Mock primary tool to fail/error
+Check: fallback tool is called
+Check: doesn't crash
+
+
+
+What to check:
+
+Tool name correct
+Tool arguments correct (types and values)
+Tool execution order correct
+BUG: subject_hybrid_pool not called with null subjects
+
+Metrics:
+
+Argument correctness: % of calls with valid args
+Bug detection: subject_hybrid_pool null args rate
+
+
+CURATION EVALUATION
+evaluation/chatbot/recommendation_agent/curation_eval.py
+Purpose: Test JSON structure and inline reference correctness
+Test Cases: 10 total
+JSON Structure (5 tests)
+
+valid_json_returned
+
+Give 80 candidates
+Check: Response is valid JSON
+Check: No parsing errors
+
+
+required_fields_present
+
+Check: book_ids present and is list
+Check: response_text present and is string
+Check: reasoning present (optional)
+
+
+book_ids_are_integers
+
+Check: All book_ids are integers
+Check: No strings or nulls
+
+
+response_text_non_empty
+
+Check: response_text length > 50 chars
+Check: Not just whitespace
+
+
+book_ordering_preserved
+
+LLM returns book_ids=[123, 456, 789]
+Check: Final AgentResult.book_ids same order
+
+
+
+Inline Reference Validation (5 tests)
+
+inline_references_valid_format
+
+Check: All <book id="..."> tags well-formed
+Check: IDs are integers
+Check: Tags are closed
+
+
+inline_references_match_book_ids
+
+Response mentions <book id="123">
+Check: 123 exists in book_ids list
+
+
+no_invalid_inline_references
+
+Check: No references to books NOT in book_ids
+Check: No duplicate ID references
+
+
+inline_references_optional
+
+Some responses have no inline refs
+Check: Still valid (card-only display)
+
+
+inline_reference_counts_reasonable
+
+If 10 books returned
+Check: Inline refs ≤ 10 (shouldn't reference more than returned)
+
+
+
+What to check:
+
+JSON valid
+Required fields present and correct types
+Inline book references valid
+Book ordering preserved
+
+Metrics:
+
+JSON parse success: %
+Inline reference error rate: %
+
+
+INTEGRATION EVALUATION
+evaluation/chatbot/recommendation_agent/integration_eval.py
+Purpose: Test full pipeline end-to-end
+Test Cases: 8 total
+Happy Paths (5 tests)
+
+warm_user_vague_query_e2e
+
+User: 15 ratings, no profile
+Query: "recommend something"
+Check: Completes without errors
+Check: Returns books
+Check: Response text mentions personalization
+
+
+cold_user_descriptive_query_e2e
+
+User: 2 ratings
+Query: "dark atmospheric mystery"
+Check: Completes without errors
+Check: Returns books
+Check: Uses semantic search
+
+
+genre_query_e2e
+
+Query: "historical fiction"
+Check: Completes without errors
+Check: Uses subject tools
+
+
+warm_user_with_profile_vague_e2e
+
+User: 15 ratings, has profile
+Query: "what should I read"
+Check: Profile data in ExecutionContext
+Check: ALS still used (warm users prefer ALS)
+
+
+cold_user_with_profile_vague_e2e
+
+User: 3 ratings, has profile
+Query: "suggest a book"
+Check: Profile data used
+Check: subject_hybrid_pool used
+
+
+
+Edge Cases (3 tests)
+
+empty_query_e2e
+
+Query: ""
+Check: Doesn't crash
+Check: Returns some response
+
+
+very_long_query_e2e
+
+Query: 200+ words
+Check: Doesn't crash
+Check: Completes in <60s
+
+
+no_candidates_found
+
+Query: "books about xyz123 nonexistent topic"
+Check: System handles gracefully
+Check: Returns error or empty result
+
+
+
+What to check:
+
+Pipeline completes without errors
+Books returned (if expected)
+ExecutionContext populated correctly
+Response quality (manual review)
+
+Metrics:
+
+Completion rate: %
+Error rate: %
+
+
+Summary
+Total tests: 57
+
+Integration tests: 9 (infrastructure)
+Planner evaluation: 18 (tool selection)
+Retrieval evaluation: 15 (tool arguments + bug)
+Curation evaluation: 10 (JSON structure)
+Integration evaluation: 8 (end-to-end)
+
+Key focus areas:
+
+Retrieval bug: subject_hybrid_pool with no subjects
+Tool argument correctness
+Data flow through all stages
+JSON parsing correctness
+
+No LLM-as-judge - all deterministic checks
+Does this plan work?

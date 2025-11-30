@@ -1,123 +1,64 @@
-Chatbot Multiagent System - Testing Plan
-System Architecture
+Test Plan - Recommendation Agent
+INTEGRATION TESTS (Infrastructure, not LLM)
+tests/integration/chatbot/test_three_stage_flow.py (NEW)
+Purpose: Test data flow between Planner → Retrieval → Curation
+Tests (6 total):
 
-Router: LLM-based classifier that routes queries to appropriate agents
-Agents: Recsys (complex), Web Search, Documentation, Response (simple conversational)
-Flow: User query → Router → Selected Agent → Response
+test_planner_strategy_reaches_retrieval
 
-Testing Philosophy
+Run Planner → get PlannerStrategy
+Pass to Retrieval → check strategy is in state
+Assert: strategy.recommended_tools present in Retrieval state
 
-Use real LLM for intelligence/decision-making (routing, intent understanding, query comprehension)
-Mock tools/dependencies for testing logic/flow/error handling
-Balance coverage with cost and speed
-Test layers independently before testing integration
 
-Test Layers
-1. Router Tests (Priority: CRITICAL)
-Type: Integration tests with real LLM
-Count: 15-20 representative queries
-What to test:
+test_profile_data_flows_through_all_stages
 
-Classification accuracy for each agent type
-Edge cases (ambiguous queries, multi-intent, out-of-scope)
-Routing consistency with temperature=0
+Warm user with profile + vague query
+Check: Planner pre-fetches profile
+Check: Profile in RetrievalInput
+Check: Profile in ExecutionContext for Curation
 
-Why real LLM: Router's core function IS the LLM classification - mocking tests nothing
-2. Agent Structure Tests (Priority: HIGH)
-Type: Unit tests with mocked tools/dependencies
-Count: 40-60 tests across all agents
-What to test:
 
-Tool calling patterns and sequences
-State transitions in LangGraph nodes
-Error handling and recovery
-Output structure and data validation
-Edge case handling (empty results, timeouts, etc.)
+test_retrieval_candidates_reach_curation
 
-Why mocked: Tests orchestration logic independent of LLM/tool variability
-3. Agent Intelligence Tests (Priority: MEDIUM)
-Type: Integration tests with real LLM, mocked/simplified tools
-Count: 20-30 tests across all agents
-What to test:
+Run Planner + Retrieval → get candidates
+Pass to Curation
+Assert: Curation receives non-empty candidate list
 
-Query understanding and intent extraction
-Appropriate tool selection for different query types
-Decision-making logic within agent workflows
-Response coherence and relevance
 
-Why real LLM: Agent decision-making requires actual intelligence
-4. Agent + Tools Integration Tests (Priority: MEDIUM)
-Type: Integration tests with real tools, limited data
-Count: 15-25 tests per complex agent
-What to test:
+test_execution_context_assembled_correctly
 
-Agent works correctly with actual tool implementations
-Data flows properly through tool interfaces
-Results are processed and formatted correctly
-Specific focus on Recsys agent (most complex tool chain)
+Run full pipeline
+Check ExecutionContext has:
 
-Why real tools: Catches interface mismatches and integration bugs
-5. End-to-End Pipeline Tests (Priority: LOW-MEDIUM)
-Type: Full system tests
-Count: 10-15 golden test cases
-What to test:
+planner_reasoning (from Planner)
+tools_used (from Retrieval)
+profile_data (from Planner)
 
-Complete user journeys for each agent type
-Multi-turn conversations
-Critical regression scenarios
-Performance benchmarks
 
-Minimal testing needed
-Focus on routing TO it correctly
-Basic integration test for tone/appropriateness
 
-Documentation Agent:
 
-Test retrieval accuracy heavily
-Verify citation/source attribution
-Test out-of-scope query handling
+test_orchestrator_handles_empty_candidates
 
-Web Search Agent:
+Mock Retrieval to return 0 candidates
+Check: Orchestrator doesn't crash
+Check: Returns graceful error or fallback
 
-Test date-based trigger logic (post-2004 queries)
-Verify search query formation
-Test result extraction and formatting
 
-Recsys Agent (most complex):
+test_book_ids_survive_full_pipeline
 
-Test last, most comprehensive suite
-Focus on tool chain orchestration
-Verify book ID extraction
-Test recommendation quality (may need LLM-as-judge)
+Run full pipeline
+Check: AgentResult.book_ids are integers
+Check: Book IDs match Curation output
 
-LLM-as-Judge Usage
-Use selectively for subjective quality only:
 
-Recommendation relevance (Recsys, Web agents)
-Factual accuracy from sources (Docs agent)
-Answer completeness and coherence
 
-Don't use for: Tool usage, output structure, routing, error handling (use assertions instead)
-Test Distribution Target
-Unit Tests (mocked):          40-60 tests   | Fast, cheap
-Integration (real LLM):       35-50 tests   | Medium speed/cost
-E2E (full pipeline):          10-15 tests   | Slow, expensive
+Updates to existing integration tests:
+test_adapter_integrity.py - Add 2 tests:
 
-Total: ~100-125 tests
-Estimated full run: 3-5 minutes, <$1 in API costs
-Implementation Order
+test_execution_context_in_adapter_conversion - Check ExecutionContext survives adapter
+test_profile_data_in_turn_input - Check profile_data in TurnInput works
 
-Router classification tests (highest ROI)
-Agent structure/logic tests (fast feedback loop)
-Agent intelligence tests (validates decisions)
-Tool integration tests (catches interface issues)
-E2E golden paths (regression safety net)
+test_parameter_handling.py - Add 1 test:
 
-Key Principles
-
-Don't mock intelligence: Use real LLM for classification and decision-making
-Do mock infrastructure: Tools, databases, external APIs for fast feedback
-Test boundaries: Focus on component interfaces and contracts
-Determinism where possible: Use temperature=0, assert on structure not exact content
-Fast feedback first: Unit tests should run in seconds
-Golden dataset: Maintain 10-15 representative queries for regression testing
+test_has_als_recs_available_propagates - Check warm threshold triggers ALS availability
