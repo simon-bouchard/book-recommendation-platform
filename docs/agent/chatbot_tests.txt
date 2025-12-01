@@ -1,64 +1,808 @@
-Test Plan - Recommendation Agent
-INTEGRATION TESTS (Infrastructure, not LLM)
-tests/integration/chatbot/test_three_stage_flow.py (NEW)
-Purpose: Test data flow between Planner → Retrieval → Curation
-Tests (6 total):
+Integration Test Plan - Chatbot Multi-Agent System
+Focus: Infrastructure validation with mocked agents. Quality/behavior validation goes in separate evaluation suite.
 
-test_planner_strategy_reaches_retrieval
+Directory Structure
+tests/integration/chatbot/
+├── README.md
+├── __init__.py
+├── conftest.py                          # All fixtures (mock agents, test users, builders)
+├── test_helpers.py                      # MockAgentBuilder, CandidateFactory utilities
+│
+├── conductor/                           # Conductor orchestration layer (35 tests)
+│   ├── __init__.py
+│   ├── test_adapter_integrity.py        # 6 tests - Schema conversions
+│   ├── test_context_builder.py          # 7 tests - Context preparation
+│   ├── test_error_boundaries.py         # 8 tests - Error handling
+│   ├── test_multi_turn_state.py         # 5 tests - Conversation state
+│   └── test_parameter_handling.py       # 9 tests - Parameter flow
+│
+└── agents/                              # Agent-level integration (20 tests)
+    ├── __init__.py
+    └── recommendation/
+        ├── __init__.py
+        └── test_pipeline_integration.py # 20 tests - Three-stage flow
 
-Run Planner → get PlannerStrategy
-Pass to Retrieval → check strategy is in state
-Assert: strategy.recommended_tools present in Retrieval state
+Required Code Refactoring
+What Needs to Change (One-Time Refactoring)
+1. RecommendationAgent - Add dependency injection
+python# app/agents/infrastructure/recsys/orchestrator.py
+
+class RecommendationAgent(BaseAgent):
+    def __init__(
+        self,
+        current_user: Any = None,
+        db: Any = None,
+        user_num_ratings: Optional[int] = None,
+        warm_threshold: int = 10,
+        allow_profile: bool = False,
+        # Add these three parameters
+        planner_agent: Optional[PlannerAgent] = None,
+        retrieval_agent: Optional[RetrievalAgent] = None,
+        curation_agent: Optional[CurationAgent] = None,
+    ):
+        # ... existing configuration setup ...
+
+        # Change from direct instantiation to: use injected OR create default
+        self.planner_agent = planner_agent or PlannerAgent(...)
+        self.retrieval_agent = retrieval_agent or RetrievalAgent(...)
+        self.curation_agent = curation_agent or CurationAgent()
+2. Conductor - Add dependency injection
+python# app/agents/orchestrator/conductor.py
+
+class Conductor:
+    def __init__(
+        self,
+        # Add these three parameters
+        router: Optional[RouterLLM] = None,
+        factory: Optional[AgentFactory] = None,
+        adapter: Optional[AgentAdapter] = None,
+    ) -> None:
+        # Change from direct instantiation to: use injected OR create default
+        self.router = router or RouterLLM()
+        self.factory = factory or AgentFactory()
+        self.adapter = adapter or AgentAdapter()
+3. AgentFactory - Add agent provider injection
+python# app/agents/infrastructure/agent_factory.py
+
+class AgentFactory:
+    def __init__(
+        self,
+        # Add provider callables for each agent type
+        recsys_provider: Optional[Callable[..., Agent]] = None,
+        web_provider: Optional[Callable[..., Agent]] = None,
+        docs_provider: Optional[Callable[..., Agent]] = None,
+        respond_provider: Optional[Callable[..., Agent]] = None,
+    ):
+        # Use injected providers or default to real agent creation
+        self._recsys_provider = recsys_provider or self._create_recsys
+        self._web_provider = web_provider or self._create_web
+        self._docs_provider = docs_provider or self._create_docs
+        self._respond_provider = respond_provider or self._create_respond
+
+    @staticmethod
+    def _create_recsys(**kwargs) -> Agent:
+        return RecommendationAgent(**kwargs)
+
+    # ... similar for other agent types
+
+    def create_agent(self, target: Target, **kwargs) -> Agent:
+        if target == "recsys":
+            return self._recsys_provider(**kwargs)
+        elif target == "web":
+            return self._web_provider(**kwargs)
+        # ... etc
+That's it. Production code unchanged, tests can inject mocks. No backward compatibility issues since defaults create real agents.
+
+Test Fixtures Architecture
+Core Fixtures (conftest.py)
+Mock Agents:
+
+mock_planner_agent - Returns configurable PlannerStrategy
+mock_retrieval_agent - Returns configurable RetrievalOutput with candidates
+mock_curation_agent - Returns configurable AgentResponse with books
+mock_router - Returns configurable RoutePlan
+mock_agent_factory - Returns mock agents for any target
+
+Test Data:
+
+sample_planner_strategy_warm_user - PlannerStrategy with als_recs
+sample_planner_strategy_cold_user - PlannerStrategy with subject_hybrid_pool
+sample_planner_strategy_descriptive - PlannerStrategy with book_semantic_search
+sample_retrieval_output - RetrievalOutput with 80 candidates
+sample_candidates_pool - List of 80 book dictionaries
+sample_book_recommendations - List of BookRecommendation objects
+
+User Fixtures (existing, keep as-is):
+
+test_user_warm - User with ≥10 ratings
+test_user_cold - User with <10 ratings
+test_user_new - User with 0 ratings
+test_user_with_profile - User with favorite subjects
+db_session - Database connection
+
+Helper Classes (test_helpers.py)
+MockAgentBuilder - Utility for creating pre-configured mocks
+
+planner_with_strategy(strategy: PlannerStrategy) -> Mock
+retrieval_with_candidates(candidates: List[dict], tools: List[str]) -> Mock
+curation_with_books(book_ids: List[int], text: str) -> Mock
+router_with_target(target: Target, reason: str) -> Mock
+
+CandidateFactory - Generate realistic test data
+
+create_candidates(count: int, with_metadata: bool) -> List[dict]
+create_book_recommendations(count: int) -> List[BookRecommendation]
+
+AgentResponseBuilder - Fluent interface for building AgentResponse
+
+Methods: with_text(), with_books(), with_success(), build()
 
 
-test_profile_data_flows_through_all_stages
+Test Suite Details
+CONDUCTOR LAYER TESTS (35 tests)
+Tests use mocked agents to validate orchestration logic without LLM calls.
 
-Warm user with profile + vague query
-Check: Planner pre-fetches profile
-Check: Profile in RetrievalInput
-Check: Profile in ExecutionContext for Curation
+1. Adapter Integrity (6 tests)
+File: conductor/test_adapter_integrity.py
+Validates schema conversions don't lose data during TurnInput ↔ AgentRequest ↔ AgentResponse ↔ AgentResult flow.
+1.1 test_turn_input_to_request_preserves_data
+What: TurnInput → AgentRequest conversion preserves all fields
+Validates:
+
+user_text copied correctly
+full_history → conversation_history
+profile_allowed → context.user_preferences['profile_allowed']
+user_num_ratings → context.user_preferences['num_ratings']
+ctx['db'] → context.session_data['db']
+ctx['current_user'] → context.session_data['current_user']
+ctx['uid'] → context.user_id
+ctx['conv_id'] → context.conversation_id
+
+Setup: Create TurnInput with all fields populated
+Action: Call adapter.turn_input_to_request(turn_input)
+Assert: All fields present in resulting AgentRequest.context
+1.2 test_response_to_result_preserves_metadata
+What: AgentResponse → AgentResult conversion preserves metadata
+Validates:
+
+book_recommendations → book_ids (extract item_idx)
+execution_state.tool_executions → tool_calls with correct structure
+target_category → target
+success flag preserved
+policy_version preserved
+
+Setup: Create AgentResponse with books and tool executions
+Action: Call adapter.response_to_agent_result(response)
+Assert: book_ids match, tool_calls present with name/args/ok/elapsed_ms
+1.3 test_profile_access_propagates_through_layers
+What: use_profile flag flows correctly through all conversions
+Validates:
+
+TurnInput.profile_allowed → AgentRequest.context.user_preferences
+Flag reaches agent (verify agent receives correct value)
+
+Setup: Two runs - one with use_profile=True, one False
+Action: Full conductor.run() flow with mock agent
+Assert: Mock agent received correct profile_allowed value in both cases
+1.4 test_empty_history_handled_correctly
+What: Empty conversation history (first turn) doesn't break conversions
+Validates:
+
+history=[] converts without errors
+Empty list in AgentRequest.conversation_history
+Agent executes successfully
+
+Setup: TurnInput with history=[]
+Action: Full conversion and execution
+Assert: No errors, agent executed
+1.5 test_execution_context_in_turn_input_conversion (NEW)
+What: ExecutionContext is properly assembled from TurnInput.ctx
+Validates:
+
+All ctx fields mapped to ExecutionContext
+session_data contains db and current_user
+user_preferences contains profile flags
+Optional fields (uid, conv_id) handled correctly
+
+Setup: TurnInput with fully populated ctx
+Action: Convert to AgentRequest
+Assert: ExecutionContext has all expected fields
+1.6 test_execution_state_in_response_conversion (NEW)
+What: AgentExecutionState tool calls extracted correctly
+Validates:
+
+ToolExecution objects → LegacyToolCall format
+Fields mapped: tool_name→name, arguments→args, succeeded→ok, execution_time_ms→elapsed_ms
+Empty execution_state handled
+
+Setup: AgentResponse with populated execution_state
+Action: Convert to AgentResult
+Assert: tool_calls list matches execution_state.tool_executions
+
+2. Context Builder (7 tests)
+File: conductor/test_context_builder.py
+Validates make_router_input and make_branch_input helper functions.
+2.1 test_router_input_truncates_to_k_user
+What: make_router_input only includes last k_user messages
+Validates:
+
+10-turn history with k_user=2 → only last 2 turns in result
+TurnInput.full_history has correct length
+user_text included as current query
+
+Setup: Create 10-turn history
+Action: make_router_input(history, user_text, k_user=2)
+Assert: Resulting TurnInput has 2 turns in full_history
+2.2 test_router_input_k_user_larger_than_history
+What: k_user > len(history) uses all available history
+Validates:
+
+2-turn history with k_user=5 → both turns included
+No errors or padding
+
+Setup: 2-turn history, k_user=5
+Action: make_router_input(...)
+Assert: full_history has 2 turns (all available)
+2.3 test_branch_input_truncates_to_hist_turns
+What: make_branch_input limits history to hist_turns
+Validates:
+
+6-turn history with hist_turns=3 → only last 3 in result
+All other parameters preserved
+
+Setup: 6-turn history
+Action: make_branch_input(history, user_text, hist_turns=3, ...)
+Assert: TurnInput.full_history has 3 turns
+2.4 test_branch_input_hist_turns_zero
+What: hist_turns=0 sends no history to agent
+Validates:
+
+full_history is empty list
+user_text still included
+Other parameters still work
+
+Setup: 5-turn history, hist_turns=0
+Action: make_branch_input(...)
+Assert: full_history = []
+2.5 test_force_target_bypasses_router
+What: force_target skips router classification
+Validates:
+
+Router not called when force_target set
+Specified agent executed directly
+
+Setup: force_target="docs"
+Action: conductor.run(..., force_target="docs")
+Assert: Router mock not called, docs agent executed
+2.6 test_force_target_all_agents
+What: force_target works for all agent types
+Validates:
+
+Each target ("recsys", "web", "docs", "respond") can be forced
+Correct agent created for each
+
+Setup: Loop through all Target values
+Action: conductor.run with each force_target
+Assert: Correct agent type created (check factory calls)
+2.7 test_context_with_empty_history
+What: Both context builders handle empty history
+Validates:
+
+make_router_input with history=[]
+make_branch_input with history=[]
+No errors
+
+Setup: Empty history
+Action: Call both functions
+Assert: No errors, returns valid TurnInput
+
+3. Error Boundaries (8 tests)
+File: conductor/test_error_boundaries.py
+Validates error handling and graceful degradation.
+3.1 test_agent_execution_failure_returns_error_result
+What: Agent execution exceptions return error AgentResult
+Validates:
+
+Exception caught by Conductor
+Returns AgentResult with success=False
+Error message in text field
+No exception bubbles up
+
+Setup: Mock agent that raises RuntimeError
+Action: conductor.run()
+Assert: Returns AgentResult, success=False, has error text
+3.2 test_router_classification_failure_returns_fallback
+What: Router failures fall back to "respond" target
+Validates:
+
+Router exception caught
+Returns valid AgentResult
+May route to fallback agent
+
+Setup: Mock router that raises exception
+Action: conductor.run()
+Assert: Returns AgentResult (not exception)
+3.3 test_empty_query_handled_gracefully
+What: Empty user_text doesn't crash system
+Validates:
+
+user_text="" handled
+Returns valid response
+Likely routes to respond agent
+
+Setup: user_text=""
+Action: conductor.run()
+Assert: Returns AgentResult, has text response
+3.4 test_whitespace_only_query_handled
+What: Whitespace-only queries handled
+Validates:
+
+user_text="   \n\t  " handled
+Returns valid response
+
+Setup: user_text with only whitespace
+Action: conductor.run()
+Assert: Returns AgentResult
+3.5 test_very_long_query_handled
+What: Extremely long queries don't break system
+Validates:
+
+1000+ word query handled
+No token overflow errors
+Returns response
+
+Setup: Generate 1000-word query
+Action: conductor.run()
+Assert: Returns AgentResult, execution completes
+3.6 test_malformed_history_handled
+What: History with missing/malformed fields handled
+Validates:
+
+Missing 'a' field in history dict
+Missing 'u' field
+Extra unexpected fields
+
+Setup: history = [{"u": "msg"}] (missing 'a')
+Action: conductor.run()
+Assert: Doesn't crash, returns result
+3.7 test_database_none_for_recsys_agent
+What: Recsys agent with db=None handled
+Validates:
+
+No AttributeError on db access
+Returns error or degraded response
+Doesn't crash
+
+Setup: force_target="recsys", db=None
+Action: conductor.run()
+Assert: Returns AgentResult (may be error, but no crash)
+3.8 test_adapter_conversion_errors_handled
+What: Invalid data in conversion doesn't crash
+Validates:
+
+Malformed AgentResponse handled
+Missing required fields handled
+Returns error AgentResult
+
+Setup: Mock agent returns malformed response
+Action: conductor.run()
+Assert: Returns AgentResult with error
+
+4. Multi-Turn State (5 tests)
+File: conductor/test_multi_turn_state.py
+Validates conversation state management across sequential calls.
+4.1 test_history_accumulates_across_turns
+What: Conversation history persists correctly over multiple turns
+Validates:
+
+Turn 1: Empty history → response
+Turn 2: History includes turn 1 → response
+Turn 3: History includes turns 1+2 → response
+Each turn sees prior context
+
+Setup: 3 sequential conductor.run() calls
+Action: Build history after each turn
+Assert: Each turn has access to prior turns
+4.2 test_history_truncation_with_hist_turns
+What: hist_turns parameter limits agent history view
+Validates:
+
+5-turn history with hist_turns=3
+Agent only sees last 3 turns
+Verify via mock agent received truncated history
+
+Setup: 5-turn history, hist_turns=3
+Action: conductor.run()
+Assert: Mock agent received 3-turn history
+4.3 test_history_truncation_edge_case_fewer_than_hist_turns
+What: hist_turns > len(history) uses all available
+Validates:
+
+2-turn history with hist_turns=5
+Agent sees both turns
+No padding or errors
+
+Setup: 2-turn history, hist_turns=5
+Action: conductor.run()
+Assert: Agent received 2 turns
+4.4 test_conversations_are_isolated
+What: Different conv_id maintains separate contexts
+Validates:
+
+Conversation A with conv_id="a"
+Conversation B with conv_id="b"
+Histories don't mix
+
+Setup: Interleaved calls with different conv_ids
+Action: conv_a turn 1, conv_b turn 1, conv_a turn 2
+Assert: Each conversation maintains own history
+4.5 test_empty_history_first_turn
+What: First turn (empty history) works
+Validates:
+
+history=[] handled
+Agent can respond without context
+Subsequent turns work
+
+Setup: history=[]
+Action: conductor.run()
+Assert: Returns valid response
+
+5. Parameter Handling (9 tests)
+File: conductor/test_parameter_handling.py
+Validates parameter propagation through orchestration layers.
+5.1 test_cold_user_routing_and_tool_selection
+What: user_num_ratings=0 prevents ALS usage
+Validates:
+
+Cold user routed to recsys
+Agent created with correct num_ratings
+ALS tools not available
+
+Setup: user_num_ratings=0, force_target="recsys"
+Action: conductor.run()
+Assert: RecommendationAgent created with user_num_ratings=0
+5.2 test_warm_user_can_access_personalized_recs
+What: user_num_ratings≥10 enables ALS
+Validates:
+
+Warm user can access ALS tools
+Agent created with correct num_ratings
+
+Setup: user_num_ratings=15, force_target="recsys"
+Action: conductor.run()
+Assert: RecommendationAgent created with user_num_ratings=15
+5.3 test_user_num_ratings_none_defaults_to_zero
+What: user_num_ratings=None treated as 0
+Validates:
+
+None value handled
+Defaults to cold user behavior
+
+Setup: user_num_ratings=None
+Action: conductor.run()
+Assert: Agent created with num_ratings=0 or defaults
+5.4 test_optional_parameters_none_values
+What: None values for optional parameters work
+Validates:
+
+db=None for non-recsys agents
+current_user=None
+conv_id=None, uid=None
+
+Setup: All optional params = None
+Action: conductor.run()
+Assert: Executes successfully
+5.5 test_docs_agent_works_without_user_context
+What: Docs agent doesn't need user context
+Validates:
+
+db=None, current_user=None
+user_num_ratings=0
+Still executes
+
+Setup: Force docs agent, minimal params
+Action: conductor.run()
+Assert: Returns valid response
+5.6 test_use_profile_false_prevents_profile_access
+What: use_profile=False respected
+Validates:
+
+Profile flag passed to agent
+Agent created with allow_profile=False
+
+Setup: use_profile=False
+Action: conductor.run()
+Assert: Mock factory received allow_profile=False
+5.7 test_conv_id_and_uid_passed_through
+What: Metadata fields survive conversions
+Validates:
+
+conv_id → ExecutionContext.conversation_id
+uid → ExecutionContext.user_id
+
+Setup: conv_id="test123", uid=456
+Action: conductor.run()
+Assert: AgentRequest.context has correct values
+5.8 test_has_als_recs_available_flows_to_recsys (NEW)
+What: Warm threshold (≥10 ratings) determines ALS availability
+Validates:
+
+user_num_ratings=15 → has_als_recs_available=True
+user_num_ratings=5 → has_als_recs_available=False
+Verify by checking agent creation params
+
+Setup: Two runs with different num_ratings
+Action: conductor.run() with mock factory
+Assert: Factory called with correct warm_threshold calculation
+5.9 test_allow_profile_flows_to_recsys (NEW)
+What: use_profile flag reaches RecommendationAgent
+Validates:
+
+use_profile=True → allow_profile=True in agent init
+use_profile=False → allow_profile=False
+
+Setup: Two runs with different use_profile
+Action: conductor.run()
+Assert: AgentFactory.create_agent called with correct allow_profile
+
+RECOMMENDATION PIPELINE TESTS (20 tests)
+Tests use mocked sub-agents to validate RecommendationAgent orchestration without LLM calls.
+File: agents/recommendation/test_pipeline_integration.py
+
+6. Stage Transitions (6 tests)
+Validates data flows correctly between Planner → Retrieval → Curation stages.
+6.1 test_planner_strategy_reaches_retrieval
+What: PlannerStrategy output becomes RetrievalInput
+Validates:
+
+Planner.execute() called with PlannerInput
+RetrievalInput.strategy = PlannerStrategy from planner
+recommended_tools and fallback_tools preserved
+
+Setup: Mock planner returns known PlannerStrategy
+Action: orchestrator.execute(request)
+Assert: Mock retrieval received matching RetrievalInput
+6.2 test_retrieval_candidates_reach_curation
+What: Retrieval candidates become curation input
+Validates:
+
+Retrieval returns 60-120 candidates
+CurationAgent receives these candidates
+ExecutionContext included
+
+Setup: Mock retrieval returns candidate pool
+Action: orchestrator.execute(request)
+Assert: Mock curation received candidate list
+6.3 test_execution_context_assembled_correctly
+What: ExecutionContext has all required fields
+Validates:
+
+planner_reasoning from PlannerStrategy
+tools_used from RetrievalOutput
+profile_data from planner (if applicable)
+
+Setup: Full pipeline with mocks
+Action: orchestrator.execute(request)
+Assert: Curation received ExecutionContext with all fields
+6.4 test_profile_data_flows_through_all_stages
+What: Profile data preserved through pipeline
+Validates:
+
+Planner pre-fetches profile (if allowed)
+profile_data in PlannerStrategy
+profile_data in RetrievalInput
+profile_data in ExecutionContext for Curation
+
+Setup: allow_profile=True, mock profile fetch
+Action: orchestrator.execute(request)
+Assert: Profile data present at each stage
+6.5 test_candidate_metadata_preserved
+What: Book metadata survives Retrieval → Curation
+Validates:
+
+Candidates have item_idx, title, author
+Enrichment fields preserved (subjects, tones, vibe)
+No data loss during conversion
+
+Setup: Mock retrieval returns candidates with metadata
+Action: orchestrator.execute(request)
+Assert: Curation received full metadata
+6.6 test_book_ids_survive_full_pipeline
+What: Final book IDs match curation output
+Validates:
+
+Curation returns BookRecommendation list
+AgentResponse.book_recommendations preserved
+Final output has matching item_idx values
+
+Setup: Full pipeline with mocks
+Action: orchestrator.execute(request)
+Assert: response.book_recommendations has correct IDs
+
+7. Parameter Propagation (4 tests)
+Validates parameters correctly configure each stage.
+7.1 test_warm_user_enables_als_in_planner
+What: user_num_ratings≥10 enables ALS
+Validates:
+
+has_als_recs_available=True in PlannerInput
+"als_recs" in available_retrieval_tools
+
+Setup: user_num_ratings=15
+Action: orchestrator.execute(request)
+Assert: Mock planner received has_als_recs_available=True
+7.2 test_cold_user_excludes_als_in_planner
+What: user_num_ratings<10 excludes ALS
+Validates:
+
+has_als_recs_available=False
+"als_recs" NOT in available_retrieval_tools
+
+Setup: user_num_ratings=3
+Action: orchestrator.execute(request)
+Assert: Mock planner received has_als_recs_available=False
+7.3 test_allow_profile_false_prevents_profile_tools
+What: allow_profile=False prevents profile access
+Validates:
+
+PlannerInput.allow_profile=False
+profile_data remains None throughout
+
+Setup: allow_profile=False
+Action: orchestrator.execute(request)
+Assert: No profile data in any stage
+7.4 test_allow_profile_true_enables_profile_tools
+What: allow_profile=True enables profile access
+Validates:
+
+PlannerInput.allow_profile=True
+Planner can fetch profile data
+profile_data populated if relevant
+
+Setup: allow_profile=True with user profile
+Action: orchestrator.execute(request)
+Assert: Profile data available in strategy
+
+8. Error Handling & Fallbacks (6 tests)
+Validates graceful error handling at each stage.
+8.1 test_planning_stage_failure_returns_fallback
+What: Planner exception triggers fallback response
+Validates:
+
+Exception caught (not bubbled)
+Returns AgentResponse with success=False
+policy_version="recsys.orchestrator.planning_error"
+
+Setup: Mock planner raises RuntimeError
+Action: orchestrator.execute(request)
+Assert: Returns error response, success=False
+8.2 test_retrieval_stage_failure_returns_fallback
+What: Retrieval exception triggers fallback
+Validates:
+
+Exception caught
+Returns error AgentResponse
+policy_version="recsys.orchestrator.retrieval_error"
+
+Setup: Mock retrieval raises exception
+Action: orchestrator.execute(request)
+Assert: Returns error response
+8.3 test_curation_stage_failure_returns_top_candidates
+What: Curation exception returns raw candidates
+Validates:
+
+Exception caught
+Returns top 10 candidates without prose
+policy_version="recsys.orchestrator.curation_error"
+
+Setup: Mock curation raises exception
+Action: orchestrator.execute(request)
+Assert: Returns candidates, success=True
+8.4 test_zero_candidates_from_retrieval_handled
+What: Empty candidate list triggers no_candidates fallback
+Validates:
+
+candidates=[] detected
+Returns informative error message
+policy_version="recsys.orchestrator.no_candidates"
+
+Setup: Mock retrieval returns empty list
+Action: orchestrator.execute(request)
+Assert: Returns error explaining no results
+8.5 test_curation_returns_empty_books_handled
+What: Curation returning empty book list handled
+Validates:
+
+Empty book_recommendations detected
+Returns top candidates from pool
+policy_version="recsys.orchestrator.curation_empty"
+
+Setup: Mock curation returns empty books
+Action: orchestrator.execute(request)
+Assert: Returns fallback candidates
+8.6 test_orchestrator_timeout_boundary
+What: Combined 120s timeout enforced
+Validates:
+
+Timeout configuration exists
+Doesn't crash on slow stages
+(Don't actually wait 120s - just verify config)
+
+Setup: Check configuration
+Action: Verify timeout settings
+Assert: configuration.timeout_seconds = 120
+
+9. Edge Cases (4 tests)
+Validates robustness with unusual inputs.
+9.1 test_empty_query_through_pipeline
+What: Empty query doesn't crash pipeline
+Validates:
+
+user_text="" handled by all stages
+Returns some response (may be error)
+
+Setup: Empty query
+Action: orchestrator.execute(request)
+Assert: Returns AgentResponse (no crash)
+9.2 test_very_long_query_through_pipeline
+What: 200+ word queries handled
+Validates:
+
+Long queries don't cause token overflow
+All stages complete
+Returns response
+
+Setup: Generate 200-word query
+Action: orchestrator.execute(request)
+Assert: Returns AgentResponse
+9.3 test_first_turn_no_history_through_pipeline
+What: Empty conversation history works
+Validates:
+
+conversation_history=[] handled
+All stages work without context
+
+Setup: Empty history
+Action: orchestrator.execute(request)
+Assert: Successful execution
+9.4 test_database_none_for_recsys_agent
+What: Missing database handled gracefully
+Validates:
+
+db=None doesn't crash
+Tools requiring db either skip or error gracefully
+
+Setup: db=None
+Action: orchestrator.execute(request)
+Assert: Returns response (may be error, but no crash)
+
+Test Execution Strategy
+Local Development:
+bash# Fast feedback - mocked tests only (~2s)
+pytest tests/integration/chatbot/
+
+# Conductor layer only
+pytest tests/integration/chatbot/conductor/
+
+# Recommendation pipeline only
+pytest tests/integration/chatbot/agents/recommendation/
+CI Pipeline:
+bash# Run on every PR
+pytest tests/integration/chatbot/ --maxfail=5 --tb=short
+
+# Generate coverage
+pytest tests/integration/chatbot/ --cov=app.agents --cov-report=html
+Coverage Targets:
+
+Conductor: >90% coverage
+RecommendationAgent orchestration: >90% coverage
+Individual agents: Not tested here (separate evaluation suite)
 
 
-test_retrieval_candidates_reach_curation
-
-Run Planner + Retrieval → get candidates
-Pass to Curation
-Assert: Curation receives non-empty candidate list
-
-
-test_execution_context_assembled_correctly
-
-Run full pipeline
-Check ExecutionContext has:
-
-planner_reasoning (from Planner)
-tools_used (from Retrieval)
-profile_data (from Planner)
-
-
-
-
-test_orchestrator_handles_empty_candidates
-
-Mock Retrieval to return 0 candidates
-Check: Orchestrator doesn't crash
-Check: Returns graceful error or fallback
-
-
-test_book_ids_survive_full_pipeline
-
-Run full pipeline
-Check: AgentResult.book_ids are integers
-Check: Book IDs match Curation output
-
-
-
-Updates to existing integration tests:
-test_adapter_integrity.py - Add 2 tests:
-
-test_execution_context_in_adapter_conversion - Check ExecutionContext survives adapter
-test_profile_data_in_turn_input - Check profile_data in TurnInput works
-
-test_parameter_handling.py - Add 1 test:
-
-test_has_als_recs_available_propagates - Check warm threshold triggers ALS availability
+Success Criteria
+Speed: All 54 tests complete in <2 seconds
+Determinism: 100% pass rate over 10 consecutive runs
+Coverage: >90% of orchestration logic
+Cost: $0 (no LLM calls)
+Maintainability: Clear test names, good documentation, easy to add new testsRéessayerClaude peut faire des erreurs. Assurez-vous de vérifier ses réponses.
