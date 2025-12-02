@@ -1,8 +1,9 @@
-# tests/integration/chatbot/test_adapter_integrity.py
+# tests/integration/chatbot/conductor/test_adapter_integrity.py
 """
 Tests for adapter layer data integrity in Conductor.
 Validates that data survives TurnInput→AgentRequest and AgentResponse→AgentResult conversions.
 """
+
 import pytest
 from app.agents.orchestrator.conductor import Conductor
 from app.agents.schemas import AgentResult
@@ -11,25 +12,31 @@ from app.agents.schemas import AgentResult
 class TestAdapterDataIntegrity:
     """
     Verify adapter conversions preserve all data fields.
-    
+
     Component tests construct AgentRequest directly, so they don't
     validate that the adapter layer correctly converts TurnInput.
+
+    These tests use mocked agents to verify orchestration logic,
+    not LLM quality.
     """
-    
-    def test_turn_input_to_request_preserves_data(self, db_session, test_user_warm):
+
+    def test_turn_input_to_request_preserves_data(
+        self, db_session, test_user_warm, mock_agent_factory, mock_recsys_agent
+    ):
         """
         Verify adapter.turn_input_to_request() doesn't lose data.
-        
+
         Tests that all Conductor.run() parameters correctly flow through
         the adapter layer to reach the agent.
         """
         conductor = Conductor()
-        
+        conductor.factory = mock_agent_factory  # Inject mocks
+
         # Rich input with all fields populated
         result = conductor.run(
             history=[
                 {"u": "recommend sci-fi", "a": "Here are some sci-fi books..."},
-                {"u": "more recent ones", "a": "Try these newer releases..."}
+                {"u": "more recent ones", "a": "Try these newer releases..."},
             ],
             user_text="what about fantasy",
             use_profile=True,
@@ -39,27 +46,43 @@ class TestAdapterDataIntegrity:
             hist_turns=2,
             conv_id="test_conv_123",
             uid=test_user_warm.user_id,
-            router_k_user=2
+            router_k_user=2,
         )
-        
-        # Verify execution completed (success may be True or False depending on results)
+
+        # Verify execution completed
         assert isinstance(result, AgentResult)
         assert result.text, "Response text is missing"
         assert result.policy_version, "Policy version should be set"
-        
-        # If data was lost in conversion, agent would likely fail
-        # Successful execution implies all required data reached the agent
-    
-    def test_response_to_result_preserves_metadata(self, db_session, test_user_warm):
+
+        # Verify agent was called (data reached the agent)
+        assert mock_recsys_agent.execute.called, "Agent execute() was not called"
+
+        # Verify data was passed to agent correctly
+        agent_request = mock_recsys_agent.execute.call_args[0][0]
+        assert agent_request.user_text == "what about fantasy", "User query didn't reach agent"
+        assert len(agent_request.conversation_history) == 2, (
+            f"Expected 2 history turns (hist_turns=2), got {len(agent_request.conversation_history)}"
+        )
+        assert agent_request.context.user_preferences["profile_allowed"] is True, (
+            "Profile access flag not preserved"
+        )
+        assert agent_request.context.user_preferences["num_ratings"] == 15, (
+            "User rating count not preserved"
+        )
+
+    def test_response_to_result_preserves_metadata(
+        self, db_session, test_user_warm, mock_agent_factory, mock_recsys_agent
+    ):
         """
         Verify adapter.response_to_agent_result() preserves all fields.
-        
+
         Critical for recsys agent which returns rich metadata:
         - book_ids with book IDs
         - tool_calls, citations, etc.
         """
         conductor = Conductor()
-        
+        conductor.factory = mock_agent_factory  # Inject mocks
+
         result = conductor.run(
             history=[],
             user_text="recommend mystery novels with strong female leads",
@@ -68,37 +91,41 @@ class TestAdapterDataIntegrity:
             db=db_session,
             user_num_ratings=12,
             hist_turns=3,
-            router_k_user=2
+            router_k_user=2,
         )
-        
+
         # Verify result structure
         assert isinstance(result, AgentResult), "Result is not AgentResult"
-        
-        # Verify book_ids survived conversion (if agent found books)
-        if result.book_ids:
-            assert len(result.book_ids) >= 3, \
-                f"Expected ≥3 books, got {len(result.book_ids)}"
-            
-            # Verify book IDs are integers
-            for book_id in result.book_ids[:3]:
-                assert isinstance(book_id, int), f"book_id {book_id} is not an integer"
-        
+        assert result.success, "Result should be successful"
+
+        # Verify book_ids survived conversion (mock returns 5 books)
+        assert result.book_ids is not None, "book_ids should not be None"
+        assert len(result.book_ids) == 5, f"Expected 5 books from mock, got {len(result.book_ids)}"
+
+        # Verify book IDs are integers
+        for book_id in result.book_ids:
+            assert isinstance(book_id, int), f"book_id {book_id} is not an integer"
+
         # Verify text response exists
-        assert result.text and len(result.text) > 20, \
-            "Response text missing or too short"
-    
+        assert result.text and len(result.text) > 20, "Response text missing or too short"
+
+        # Verify tool calls survived conversion
+        assert len(result.tool_calls) > 0, "Tool calls not preserved"
+        assert result.tool_calls[0].name == "als_recommendations", "Tool call name not preserved"
+
     def test_profile_access_propagates_through_layers(
-        self, db_session, test_user_with_profile
+        self, db_session, test_user_with_profile, mock_agent_factory, mock_recsys_agent
     ):
         """
         Verify use_profile flag reaches agent through all conversions.
-        
+
         Flow: Conductor → TurnInput.profile_allowed → AgentRequest.context → Tools
-        
+
         Privacy-critical: must not leak profile when use_profile=False.
         """
         conductor = Conductor()
-        
+        conductor.factory = mock_agent_factory  # Inject mocks
+
         # Test with profile ENABLED
         result_with = conductor.run(
             history=[],
@@ -108,12 +135,22 @@ class TestAdapterDataIntegrity:
             db=db_session,
             user_num_ratings=15,
         )
-        
+
         # Should complete execution with profile access
-        assert isinstance(result_with, AgentResult), \
+        assert isinstance(result_with, AgentResult), (
             "Profile-enabled request didn't return AgentResult"
+        )
         assert result_with.text, "No response text with profile enabled"
-        
+
+        # Verify profile flag reached agent
+        agent_request_with = mock_recsys_agent.execute.call_args[0][0]
+        assert agent_request_with.context.user_preferences["profile_allowed"] is True, (
+            "Profile access flag should be True"
+        )
+
+        # Reset mock call count
+        mock_recsys_agent.execute.reset_mock()
+
         # Test with profile DISABLED
         result_without = conductor.run(
             history=[],
@@ -123,24 +160,30 @@ class TestAdapterDataIntegrity:
             db=db_session,
             user_num_ratings=15,
         )
-        
+
         # Should also complete without profile
-        assert isinstance(result_without, AgentResult), \
+        assert isinstance(result_without, AgentResult), (
             "Profile-disabled request didn't return AgentResult"
+        )
         assert result_without.text, "No response text with profile disabled"
-        
-        # Both should complete execution (adapter didn't break the flag)
-        # We can't directly verify profile wasn't used, but both working
-        # means the flag was correctly passed through all layers
-    
-    def test_empty_history_handled_correctly(self, db_session, test_user_warm):
+
+        # Verify profile flag reached agent as False
+        agent_request_without = mock_recsys_agent.execute.call_args[0][0]
+        assert agent_request_without.context.user_preferences["profile_allowed"] is False, (
+            "Profile access flag should be False"
+        )
+
+    def test_empty_history_handled_correctly(
+        self, db_session, test_user_warm, mock_agent_factory, mock_recsys_agent
+    ):
         """
         Verify empty history doesn't break adapter conversions.
-        
+
         Edge case: first turn in conversation (history=[]).
         """
         conductor = Conductor()
-        
+        conductor.factory = mock_agent_factory  # Inject mocks
+
         result = conductor.run(
             history=[],  # Empty - first turn
             user_text="recommend fantasy books",
@@ -149,11 +192,18 @@ class TestAdapterDataIntegrity:
             db=db_session,
             user_num_ratings=10,
         )
-        
+
         assert isinstance(result, AgentResult), "Didn't return AgentResult"
         assert result.text, "No response with empty history"
-        
-        # Recsys should return books (if it found any)
-        if result.book_ids:
-            assert len(result.book_ids) >= 3, \
-                "Expected at least 3 books with empty history"
+
+        # Verify agent received empty history
+        agent_request = mock_recsys_agent.execute.call_args[0][0]
+        assert len(agent_request.conversation_history) == 0, (
+            "History should be empty for first turn"
+        )
+
+        # Recsys should return books (mock returns 5)
+        assert result.book_ids is not None, "Should have book_ids"
+        assert len(result.book_ids) == 5, (
+            f"Expected 5 books with empty history, got {len(result.book_ids)}"
+        )
