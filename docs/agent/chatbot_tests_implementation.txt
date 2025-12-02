@@ -1,0 +1,580 @@
+# Phase 2 Implementation Plan: RecommendationAgent Pipeline Tests
+
+## Executive Summary
+
+**Goal:** Add 20 integration tests that validate RecommendationAgent's 3-stage pipeline (Planner → Retrieval → Curation) orchestration logic using mocked sub-agents.
+
+**Why Phase 2 exists:** Phase 1 tests Conductor (high-level routing). Phase 2 tests RecommendationAgent internals (how it coordinates sub-agents).
+
+**Core strategy:** Mock the 3 sub-agents, inject them via dependency injection, verify data flows correctly between stages.
+
+**Time estimate:** 2.5-3 hours
+
+---
+
+## Pre-Implementation Status
+
+### ✅ Already Complete
+1. **Dependency injection refactoring** (verified in orchestrator.py lines 47-49, 86-109)
+   - RecommendationAgent accepts optional planner_agent, retrieval_agent, curation_agent
+   - Uses injected OR creates defaults (backward compatible)
+2. **Phase 1 tests** (33 Conductor integration tests)
+3. **Test infrastructure** (conftest.py with fixtures, test users in DB)
+
+### 🎯 What We're Adding
+- New directory: `tests/integration/chatbot/agents/recommendation/`
+- 1 helper file with mock builders and test data factories
+- Updates to conftest.py (6 new fixtures)
+- 1 test file with 20 tests across 4 categories
+
+---
+
+## Architecture Decisions
+
+### Decision 1: Mock Strategy
+**Approach:** Mock the 3 sub-agents (PlannerAgent, RetrievalAgent, CurationAgent), not their internals.
+
+**Why:**
+- Tests orchestration logic (RecommendationAgent's responsibility)
+- Avoids testing sub-agent implementations (those have separate tests)
+- Fast execution (no LLM calls)
+- Deterministic (no flaky tests)
+
+**Alternative rejected:** Mock individual tools/LLM calls
+- Too granular for integration tests
+- Couples tests to implementation details
+- Would break when sub-agents change internally
+
+### Decision 2: Test Helpers Architecture
+**Approach:** Create builder classes for mocks + factory classes for test data.
+
+**Why:**
+- **Builders:** Fluent API makes tests readable (`builder.returns_strategy(...).build()`)
+- **Factories:** Consistent test data without magic numbers
+- **Separation:** Builders for mocks, factories for data (different concerns)
+- **Reusability:** All 20 tests use same helpers
+
+**Structure:**
+```
+MockPlannerBuilder    → builds configured mock PlannerAgent
+MockRetrievalBuilder  → builds configured mock RetrievalAgent
+MockCurationBuilder   → builds configured mock CurationAgent
+CandidateFactory      → creates Candidate test data
+BookFactory           → creates BookRecommendation test data
+```
+
+**Alternative rejected:** Mock directly in each test
+- 20 tests × 3 mocks = 60 mock setups (massive duplication)
+- Hard to maintain consistent test data
+- Tests become 80% setup, 20% assertions
+
+### Decision 3: Fixture Strategy
+**Approach:** Add `mock_orchestrator` fixture that returns a function to create agents with mocks.
+
+**Why:**
+- One-line agent creation in tests: `agent = mock_orchestrator()`
+- Easy customization: `agent = mock_orchestrator(planner=custom_mock)`
+- Consistent user/db setup across all tests
+- Compatible with Phase 1 fixtures
+
+**Usage pattern:**
+```python
+def test_something(mock_orchestrator, mock_planner_builder):
+    # Customize one mock
+    custom_planner = mock_planner_builder.returns_strategy(...).build()
+
+    # Create agent with custom planner, default retrieval/curation
+    agent = mock_orchestrator(planner=custom_planner)
+
+    # Test
+    response = agent.execute(request)
+    assert ...
+```
+
+**Alternative rejected:** Create agent manually in each test
+- Repetitive setup code in every test
+- Easy to forget parameters (user, db, num_ratings, etc.)
+- Harder to maintain when agent constructor changes
+
+### Decision 4: Test Categories
+**Approach:** Organize 20 tests into 4 logical categories as separate test classes.
+
+**Categories:**
+1. **Stage Transitions (6 tests):** Data flows correctly between stages
+2. **Parameter Propagation (4 tests):** Warm/cold user, profile access, etc.
+3. **Error Handling (6 tests):** Graceful failure at each stage
+4. **Full Pipeline Flow (4 tests):** End-to-end realistic scenarios
+
+**Why this organization:**
+- Each category tests a different aspect of orchestration
+- Easy to run subsets during development
+- Clear responsibility boundaries
+- Matches mental model of pipeline operation
+
+**Alternative rejected:** All tests in one class
+- Harder to navigate 20 tests
+- Unclear what each test category covers
+- Can't easily run "just parameter tests"
+
+---
+
+## Implementation Roadmap
+
+### Phase 2.1: Foundation (45 minutes)
+
+**Goal:** Create reusable infrastructure for all tests.
+
+#### Task 1: Directory Structure (5 min)
+**What to create:**
+```
+tests/integration/chatbot/
+├── agents/
+│   ├── __init__.py
+│   └── recommendation/
+│       └── __init__.py
+└── test_helpers.py  (new)
+```
+
+**Verification:**
+- Can import from new directories
+- `pytest --collect-only` shows new structure
+
+#### Task 2: Test Helpers (30 min)
+**File:** `tests/integration/chatbot/test_helpers.py`
+
+**What to implement:**
+
+1. **MockPlannerBuilder class:**
+   - `returns_strategy(tools, reasoning, profile_data)` → self
+   - `raises_error(exception)` → self
+   - `build()` → Mock
+   - Default: returns basic strategy if nothing configured
+
+2. **MockRetrievalBuilder class:**
+   - `returns_candidates(candidates, tools_used)` → self
+   - `returns_empty()` → self
+   - `raises_error(exception)` → self
+   - `build()` → Mock
+   - Default: returns 60 candidates
+
+3. **MockCurationBuilder class:**
+   - `returns_recommendations(books, prose)` → self
+   - `returns_failure(error_message)` → self
+   - `raises_error(exception)` → self
+   - `build()` → Mock
+   - Default: returns 5 books
+
+4. **CandidateFactory class:**
+   - `create(item_idx, title, author, subjects, tones, vibe)` → Candidate
+   - `create_batch(count, base_idx)` → List[Candidate]
+
+5. **BookFactory class:**
+   - `create(item_idx, title, author, explanation)` → BookRecommendation
+   - `create_batch(count, base_idx)` → List[BookRecommendation]
+
+**Key design point:** Builders use method chaining for readability.
+
+**Verification:**
+```python
+# Can create and use builders
+builder = MockPlannerBuilder()
+mock = builder.returns_strategy(["als_recs"]).build()
+assert mock.execute.called == False  # Not called yet
+
+# Can create test data
+candidates = CandidateFactory.create_batch(5)
+assert len(candidates) == 5
+assert candidates[0].item_idx == 10000
+```
+
+#### Task 3: Fixtures (15 min)
+**File:** `tests/integration/chatbot/conftest.py` (append to existing)
+
+**What to add:**
+
+1. **Builder fixtures:**
+   - `mock_planner_builder` → returns MockPlannerBuilder()
+   - `mock_retrieval_builder` → returns MockRetrievalBuilder()
+   - `mock_curation_builder` → returns MockCurationBuilder()
+
+2. **Factory fixtures:**
+   - `candidate_factory` → returns CandidateFactory
+   - `book_factory` → returns BookFactory
+
+3. **Orchestrator fixture:**
+   - `mock_orchestrator` → returns function to create RecommendationAgent with mocks
+   - Takes optional planner, retrieval, curation, user_num_ratings, allow_profile
+   - Uses test_user_warm and db_session from existing fixtures
+   - Defaults to using builders for any non-injected agents
+
+**Key design point:** `mock_orchestrator` returns a FUNCTION, not an agent instance.
+
+**Verification:**
+```python
+def test_fixture_works(mock_orchestrator):
+    agent = mock_orchestrator()  # Call the function
+    assert agent is not None
+    assert hasattr(agent, 'execute')
+```
+
+---
+
+### Phase 2.2: Test Implementation (90 minutes)
+
+**File:** `tests/integration/chatbot/agents/recommendation/test_pipeline_integration.py`
+
+#### Task 4: File Structure and Skeleton (5 min)
+
+**What to create:**
+1. File docstring explaining purpose
+2. Import statements (AgentRequest, schemas, test_helpers)
+3. Four test classes (empty):
+   - `TestStageTransitions`
+   - `TestParameterPropagation`
+   - `TestErrorHandling`
+   - `TestFullPipelineFlow`
+
+**Verification:**
+```bash
+pytest tests/integration/chatbot/agents/recommendation/ --collect-only
+# Should show 4 test classes, 0 tests
+```
+
+#### Task 5: Category 1 - Stage Transitions (30 min)
+
+**What to test:**
+
+1. **test_planner_strategy_reaches_retrieval**
+   - Mock planner returns specific strategy
+   - Verify retrieval receives that strategy in RetrievalInput
+   - Key check: strategy.recommended_tools preserved
+
+2. **test_retrieval_candidates_reach_curation**
+   - Mock retrieval returns 80 candidates
+   - Verify curation receives those 80 candidates
+   - Key check: ExecutionContext included
+
+3. **test_execution_context_assembled_correctly**
+   - Mock all three agents with specific data
+   - Verify ExecutionContext has: planner_reasoning, tools_used, profile_data
+   - Key check: all fields populated from correct sources
+
+4. **test_profile_data_flows_through_all_stages**
+   - Planner returns strategy with profile_data
+   - Verify profile in RetrievalInput
+   - Verify profile in CurationInput.execution_context
+   - Key check: privacy-critical data not lost
+
+5. **test_candidate_metadata_preserved**
+   - Retrieval returns candidates with rich metadata (subjects, tones, vibe)
+   - Verify all metadata reaches curation
+   - Key check: no data loss in conversions
+
+6. **test_book_ids_survive_full_pipeline**
+   - Curation returns books with specific item_idx values
+   - Verify final AgentResponse has same item_idx values
+   - Key check: book IDs not corrupted
+
+**Strategy for all tests:**
+1. Configure mocks with specific data
+2. Create agent with mocked sub-agents
+3. Execute request
+4. Capture mock call arguments
+5. Assert on data flow
+
+**Verification after Task 5:**
+```bash
+pytest tests/integration/chatbot/agents/recommendation/test_pipeline_integration.py::TestStageTransitions -v
+# Should show: 6 passed
+```
+
+#### Task 6: Category 2 - Parameter Propagation (20 min)
+
+**What to test:**
+
+1. **test_warm_user_enables_als_in_planner**
+   - Create agent with user_num_ratings=15
+   - Verify PlannerInput.has_als_recs_available=True
+   - Verify "als_recs" in available_retrieval_tools
+
+2. **test_cold_user_excludes_als_in_planner**
+   - Create agent with user_num_ratings=3
+   - Verify PlannerInput.has_als_recs_available=False
+   - Verify "als_recs" NOT in available_retrieval_tools
+
+3. **test_allow_profile_false_prevents_profile_tools**
+   - Create agent with allow_profile=False
+   - Verify PlannerInput.allow_profile=False
+   - Verify profile_data=None throughout pipeline
+
+4. **test_allow_profile_true_enables_profile_tools**
+   - Create agent with allow_profile=True
+   - Planner returns strategy with profile_data
+   - Verify profile_data reaches all stages
+
+**Strategy:**
+- Focus on parameter transformation at boundaries
+- Use mock.call_args to inspect what each stage received
+- Test both positive and negative cases
+
+**Verification after Task 6:**
+```bash
+pytest tests/integration/chatbot/agents/recommendation/test_pipeline_integration.py::TestParameterPropagation -v
+# Should show: 4 passed
+```
+
+#### Task 7: Category 3 - Error Handling (25 min)
+
+**What to test:**
+
+1. **test_planner_failure_raises_exception**
+   - Mock planner raises RuntimeError
+   - Verify exception bubbles up (not caught)
+
+2. **test_retrieval_failure_raises_exception**
+   - Mock retrieval raises RuntimeError
+   - Verify exception bubbles up
+
+3. **test_curation_failure_raises_exception**
+   - Mock curation raises RuntimeError
+   - Verify exception bubbles up
+
+4. **test_retrieval_empty_candidates_reaches_curation**
+   - Mock retrieval returns empty list
+   - Verify curation still called
+   - Verify curation handles gracefully
+
+5. **test_curation_returns_failure_response**
+   - Mock curation returns success=False
+   - Verify final response also has success=False
+   - Verify failure message propagated
+
+6. **test_missing_execution_context_handled**
+   - Edge case: tools_used=[] (empty)
+   - Verify curation doesn't crash
+   - Verify minimal context still created
+
+**Strategy:**
+- Use `raises_error()` builder method for exceptions
+- Use `returns_failure()` builder method for failure responses
+- Test both exceptions (crashes) and failures (graceful)
+
+**Verification after Task 7:**
+```bash
+pytest tests/integration/chatbot/agents/recommendation/test_pipeline_integration.py::TestErrorHandling -v
+# Should show: 6 passed
+```
+
+#### Task 8: Category 4 - Full Pipeline Flow (15 min)
+
+**What to test:**
+
+1. **test_warm_user_vague_query_full_pipeline**
+   - Warm user (15 ratings), vague query
+   - Expected: ALS + subject_hybrid_pool → 80 candidates → 5 books
+   - Verify all stages called, success=True
+
+2. **test_cold_user_descriptive_query_full_pipeline**
+   - Cold user (3 ratings), descriptive query
+   - Expected: semantic_search + subject_hybrid_pool → 60 candidates → 5 books
+   - Verify semantic tools used, success=True
+
+3. **test_profile_enabled_user_full_pipeline**
+   - allow_profile=True
+   - Expected: profile fetched → flows through all stages
+   - Verify profile_data present in final context
+
+4. **test_minimal_configuration_full_pipeline**
+   - Use all default mocks (no customization)
+   - Verify pipeline completes without errors
+   - Tests that defaults work
+
+**Strategy:**
+- These are "happy path" integration tests
+- Configure all three mocks to simulate realistic scenarios
+- Focus on end-to-end flow, not individual stages
+
+**Verification after Task 8:**
+```bash
+pytest tests/integration/chatbot/agents/recommendation/test_pipeline_integration.py::TestFullPipelineFlow -v
+# Should show: 4 passed
+```
+
+---
+
+### Phase 2.3: Validation (10 minutes)
+
+#### Task 9: Run Full Suite
+```bash
+# Run all Phase 2 tests
+pytest tests/integration/chatbot/agents/recommendation/ -v
+
+# Expected: 20 passed (6 + 4 + 6 + 4)
+```
+
+#### Task 10: Verify Phase 1 Still Works
+```bash
+# Run all integration tests
+pytest tests/integration/chatbot/ -v
+
+# Expected: 53 passed (33 Phase 1 + 20 Phase 2)
+```
+
+#### Task 11: Check Test Coverage (optional)
+```bash
+pytest tests/integration/chatbot/agents/recommendation/ \
+  --cov=app.agents.infrastructure.recsys.orchestrator \
+  --cov-report=term-missing
+
+# Expected: >80% coverage on orchestrator.py
+```
+
+---
+
+## Critical Design Patterns
+
+### Pattern 1: Builder Fluent API
+```python
+# Good - readable, chainable
+mock = builder.returns_strategy(["als_recs"]).build()
+
+# Bad - verbose, error-prone
+mock = Mock()
+mock.execute.return_value = PlannerStrategy(...)
+```
+
+### Pattern 2: Factory Batch Creation
+```python
+# Good - consistent, no magic numbers
+candidates = CandidateFactory.create_batch(60)
+
+# Bad - repetitive, error-prone
+candidates = [
+    Candidate(item_idx=10000, title="Book 1", ...),
+    Candidate(item_idx=10001, title="Book 2", ...),
+    # ... 58 more ...
+]
+```
+
+### Pattern 3: Fixture-Based Agent Creation
+```python
+# Good - one line, clear intent
+agent = mock_orchestrator(planner=custom_planner)
+
+# Bad - repetitive setup in every test
+agent = RecommendationAgent(
+    current_user=test_user,
+    db=db_session,
+    user_num_ratings=10,
+    allow_profile=False,
+    planner_agent=custom_planner,
+    retrieval_agent=mock_retrieval,
+    curation_agent=mock_curation,
+)
+```
+
+### Pattern 4: Mock Call Verification
+```python
+# Good - verify what was passed
+planner_input = mock_planner.execute.call_args[0][0]
+assert planner_input.query == "recommend books"
+
+# Bad - verify it was called (doesn't test data flow)
+assert mock_planner.execute.called
+```
+
+---
+
+## Success Criteria
+
+### Must Have
+- [ ] All 20 tests pass independently
+- [ ] All 20 tests pass together
+- [ ] Phase 1 tests still pass (no regression)
+- [ ] Total test count: 53 (33 + 20)
+- [ ] All tests use fixtures (no manual setup)
+- [ ] All tests use builders (no raw mocks)
+
+### Nice to Have
+- [ ] Test execution < 30 seconds
+- [ ] >80% coverage on orchestrator.py
+- [ ] All tests have docstrings
+- [ ] Builders cover all common scenarios
+
+### Failure Indicators
+- Tests fail when run individually but pass together (test pollution)
+- Tests pass but don't verify data flow (weak assertions)
+- Tests break when sub-agent internals change (too coupled)
+- Hard to understand what test is checking (poor naming/docs)
+
+---
+
+## Common Pitfalls and Solutions
+
+### Pitfall 1: Mock Not Being Used
+**Symptom:** Test passes but mock.execute.called is False
+
+**Solution:** Verify agent was created with `mock_orchestrator(planner=your_mock)`
+
+### Pitfall 2: Fixtures Not Found
+**Symptom:** "fixture 'mock_orchestrator' not found"
+
+**Solution:** Check fixture is in conftest.py, not in test file
+
+### Pitfall 3: Wrong Call Args Index
+**Symptom:** KeyError or IndexError when checking call_args
+
+**Solution:**
+- Positional args: `call_args[0][index]`
+- Keyword args: `call_args[1]['name']`
+- Alternative: `call_args.args[0]` or `call_args.kwargs['name']`
+
+### Pitfall 4: Test Passes but Tests Nothing
+**Symptom:** Test never fails even when breaking code
+
+**Solution:**
+- Add assertion that mock was called: `assert mock.execute.called`
+- Verify specific data: `assert input.query == expected`
+- Don't just check types: `assert isinstance(x, Y)` is weak
+
+### Pitfall 5: Builders Don't Chain
+**Symptom:** `returns_strategy().returns_strategy()` doesn't work
+
+**Solution:** All builder methods must `return self`
+
+---
+
+## Maintenance Guide
+
+### Adding New Tests
+1. Choose appropriate test class (Stage/Parameter/Error/Flow)
+2. Use existing fixtures and builders
+3. Follow naming: `test_<what>_<condition>`
+4. Add docstring explaining what's tested
+5. Run just your test: `pytest path/to/test.py::TestClass::test_name -v`
+
+### Updating for Code Changes
+- **Orchestrator changes:** May need new assertions in Stage Transitions tests
+- **New parameters:** Add tests to Parameter Propagation category
+- **New failure modes:** Add tests to Error Handling category
+- **Schema changes:** Update factories/builders
+
+### When Tests Fail
+1. Run single failing test with `-vv` for details
+2. Check if mock was called: `print(mock.execute.called)`
+3. Inspect call args: `print(mock.execute.call_args)`
+4. Verify fixture setup: Add `print(agent)` before execute
+5. Check Phase 1 still passes (may be orchestrator bug, not test bug)
+
+---
+
+## Next Steps After Phase 2
+
+Once all 20 tests pass:
+
+1. **Document:** Update main README with Phase 2 info
+2. **Review:** Code review focusing on test readability
+3. **Optimize:** If tests are slow, profile and optimize
+4. **Consider Phase 3:** Separate evaluation tests with real data (optional)
+
+**Phase 2 Success = Clean, fast, maintainable tests that validate orchestration logic**
