@@ -21,13 +21,24 @@ These tests validate integration points **not covered by component tests**:
 
 ```
 tests/integration/chatbot/
+├── README.md
+├── __init__.py
 ├── conftest.py                      # Shared fixtures (test users, db)
-├── test_adapter_integrity.py        # Category 1: Data conversions (4 tests)
-├── test_multi_turn_state.py         # Category 2: State management (5 tests)
-├── test_parameter_handling.py       # Category 3: Parameter passing (8 tests)
-├── test_error_boundaries.py         # Category 4: Error handling (8 tests)
-├── test_context_builders.py         # Category 5: Context building (8 tests)
-└── README.md                        # This file
+├── test_helpers.py                  # Mock builders and factories
+│
+├── conductor/                       # Conductor orchestration layer (33 tests)
+│   ├── __init__.py
+│   ├── test_adapter_integrity.py    # 4 tests - Schema conversions
+│   ├── test_context_builder.py      # 8 tests - Context preparation
+│   ├── test_error_boundaries.py     # 8 tests - Error handling
+│   ├── test_multi_turn_state.py     # 5 tests - Conversation state
+│   └── test_parameter_handling.py   # 8 tests - Parameter flow
+│
+└── agents/                          # Agent-level integration (20 tests)
+    ├── __init__.py
+    └── recommendation/
+        ├── __init__.py
+        └── test_pipeline_integration.py # 20 tests - Three-stage flow
 ```
 
 **Total: 33 integration tests**
@@ -92,7 +103,7 @@ Tests make_router_input and make_branch_input logic:
    - User 278859: warm user (≥10 ratings)
    - User 278857: cold user (<10 ratings)
    - User 278867: new user (0 ratings)
-   
+
    Tests will attempt to use these specific users, or fall back to any users matching the criteria.
 
 ### Run All Tests
