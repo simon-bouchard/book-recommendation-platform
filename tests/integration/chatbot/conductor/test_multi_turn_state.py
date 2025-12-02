@@ -123,6 +123,7 @@ class TestMultiTurnState:
             user_num_ratings=10,
             hist_turns=3,  # Only last 3 turns to agent
             router_k_user=2,  # Router sees last 2 user messages
+            force_target="recsys",  # Force recsys to ensure mock_recsys_agent is called
         )
 
         assert result.success, f"Truncation test failed: {result.text}"
@@ -165,6 +166,7 @@ class TestMultiTurnState:
             db=db_session,
             user_num_ratings=10,
             hist_turns=5,  # More than available
+            force_target="recsys",  # Force recsys to ensure mock_recsys_agent is called
         )
 
         # Should complete without crashing

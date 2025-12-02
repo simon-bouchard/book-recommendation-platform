@@ -105,6 +105,7 @@ class TestContextBuilders:
             user_num_ratings=10,
             hist_turns=3,  # Only last 3 turns to agent
             router_k_user=2,
+            force_target="recsys",  # Force recsys to ensure mock_recsys_agent is called
         )
 
         assert result.success, f"Request with hist_turns=3 failed: {result.text}"
@@ -139,6 +140,7 @@ class TestContextBuilders:
             db=db_session,
             user_num_ratings=10,
             hist_turns=0,  # No history to agent
+            force_target="recsys",  # Force recsys to ensure mock_recsys_agent is called
         )
 
         assert result.success, "Failed with hist_turns=0"
