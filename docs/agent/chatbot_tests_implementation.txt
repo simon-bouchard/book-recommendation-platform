@@ -1,426 +1,958 @@
-# Phase 2 Implementation Plan: RecommendationAgent Pipeline Tests
+# Chatbot Testing Implementation Plan: Mock-Based Architecture
 
 ## Executive Summary
 
-**Goal:** Add 20 integration tests that validate RecommendationAgent's 3-stage pipeline (Planner → Retrieval → Curation) orchestration logic using mocked sub-agents.
+### Problem Statement
 
-**Why Phase 2 exists:** Phase 1 tests Conductor (high-level routing). Phase 2 tests RecommendationAgent internals (how it coordinates sub-agents).
+Current Phase 1 tests (33 Conductor integration tests) use real LLM agents to validate infrastructure concerns:
+- **Expensive**: ~$0.50-2.00 per test run (33 LLM calls)
+- **Slow**: 2-5 minutes execution time
+- **Non-deterministic**: LLM variance causes flaky tests
+- **Unclear scope**: Tests mix infrastructure validation with LLM quality evaluation
+- **CI unfriendly**: Cannot run on every commit due to cost/time
 
-**Core strategy:** Mock the 3 sub-agents, inject them via dependency injection, verify data flows correctly between stages.
+This violates the principle of **separation of concerns** - infrastructure tests should not depend on LLM behavior.
 
-**Time estimate:** 2.5-3 hours
+### Solution Architecture
 
----
+Implement a two-tier testing strategy:
 
-## Pre-Implementation Status
+1. **Infrastructure Tests** (Phase 1.5 + Phase 2): Use mocked agents/LLMs
+   - Fast (<30 seconds total)
+   - Free (no API calls)
+   - Deterministic (same results every time)
+   - Test orchestration, data flow, error handling
+   - Run on every commit
 
-### ✅ Already Complete
-1. **Dependency injection refactoring** (verified in orchestrator.py lines 47-49, 86-109)
-   - RecommendationAgent accepts optional planner_agent, retrieval_agent, curation_agent
-   - Uses injected OR creates defaults (backward compatible)
-2. **Phase 1 tests** (33 Conductor integration tests)
-3. **Test infrastructure** (conftest.py with fixtures, test users in DB)
+2. **Evaluation Tests** (Phase 3 - documentation only): Use real LLMs
+   - Slow (minutes)
+   - Expensive (API costs)
+   - May have variance
+   - Test LLM output quality, agent behavior
+   - Run pre-deploy or on-demand
 
-### 🎯 What We're Adding
-- New directory: `tests/integration/chatbot/agents/recommendation/`
-- 1 helper file with mock builders and test data factories
-- Updates to conftest.py (6 new fixtures)
-- 1 test file with 20 tests across 4 categories
+### Phases Overview
+
+| Phase | Scope | Tests | Time | Status |
+|-------|-------|-------|------|--------|
+| Phase 1.5 | Refactor Conductor tests to use mocks | 33 tests (modified) | 2-2.5h | **New** |
+| Phase 2 | Add RecommendationAgent pipeline tests | 20 tests (new) | 3-3.5h | Planned |
+| Phase 3 | Document evaluation test strategy | 0 tests (docs) | 30m | **New** |
+| **Total** | **Infrastructure test suite** | **53 tests** | **6-6.5h** | - |
+
+### Success Metrics
+
+**Before:**
+- ❌ 33 tests, 2-5 minutes, $0.50-2.00 per run
+- ❌ Flaky (LLM variance)
+- ❌ Can't run on every commit
+
+**After:**
+- ✅ 53 tests, <30 seconds, $0.00 per run
+- ✅ Deterministic (100% consistent)
+- ✅ Run on every commit in CI
 
 ---
 
 ## Architecture Decisions
 
-### Decision 1: Mock Strategy
-**Approach:** Mock the 3 sub-agents (PlannerAgent, RetrievalAgent, CurationAgent), not their internals.
+### Decision 1: Two-Tier Testing Strategy
 
-**Why:**
-- Tests orchestration logic (RecommendationAgent's responsibility)
-- Avoids testing sub-agent implementations (those have separate tests)
-- Fast execution (no LLM calls)
-- Deterministic (no flaky tests)
+**Approach:** Separate infrastructure tests (mocked) from evaluation tests (real LLMs).
 
-**Alternative rejected:** Mock individual tools/LLM calls
-- Too granular for integration tests
-- Couples tests to implementation details
-- Would break when sub-agents change internally
+**Rationale:**
+- **Infrastructure concerns**: Routing logic, data flow, error handling, parameter propagation
+  - Don't need real LLMs - just verify "does the right thing get called with right params?"
+  - Should be fast, free, deterministic
+  - Run frequently (every commit)
 
-### Decision 2: Test Helpers Architecture
-**Approach:** Create builder classes for mocks + factory classes for test data.
+- **Quality concerns**: LLM output accuracy, relevance, helpfulness
+  - Need real LLMs - evaluating actual behavior
+  - Can be slow, expensive, variable
+  - Run infrequently (pre-deploy, on-demand)
 
-**Why:**
-- **Builders:** Fluent API makes tests readable (`builder.returns_strategy(...).build()`)
-- **Factories:** Consistent test data without magic numbers
-- **Separation:** Builders for mocks, factories for data (different concerns)
-- **Reusability:** All 20 tests use same helpers
+**Alternative rejected:** Keep all tests using real LLMs
+- Makes infrastructure tests slow and expensive
+- Couples infrastructure testing to LLM API availability
+- Mixes concerns (what is the test actually validating?)
 
-**Structure:**
+### Decision 2: Mock at Agent Boundary, Not Tool Boundary
+
+**Approach:** Mock entire agents (RecommendationAgent, WebAgent, etc.), not individual tools or LLM calls.
+
+**Rationale:**
+- Tests Conductor's responsibility: orchestrating agents
+- Doesn't test agent internals (those have separate tests)
+- Clean boundary - agents are clear integration points
+- Easier to maintain - agent interface more stable than tool internals
+
+**Contract:**
+```python
+# All agents implement this interface
+class BaseAgent:
+    def execute(self, request: AgentRequest) -> AgentResponse:
+        """Execute agent logic and return response."""
+        pass
 ```
-MockPlannerBuilder    → builds configured mock PlannerAgent
-MockRetrievalBuilder  → builds configured mock RetrievalAgent
-MockCurationBuilder   → builds configured mock CurationAgent
-CandidateFactory      → creates Candidate test data
-BookFactory           → creates BookRecommendation test data
+
+**Alternative rejected:** Mock tools/LLM calls within agents
+- Too granular - couples tests to agent implementation details
+- Would break when agent refactors tools internally
+- Harder to maintain - many more mock points
+
+### Decision 3: Fixture-Based Mock Injection
+
+**Approach:** Create pytest fixtures that return pre-configured mocked agents.
+
+**Rationale:**
+- Consistent mock behavior across all tests
+- Easy to customize per test if needed
+- Follows pytest best practices
+- Reduces test setup code duplication
+
+**Pattern:**
+```python
+@pytest.fixture
+def mock_agent_factory(mock_recsys_agent, mock_web_agent, ...):
+    """Returns factory that creates mocked agents."""
+    factory = Mock()
+    factory.create_agent = lambda agent_type, **kwargs: {
+        "recsys": mock_recsys_agent,
+        "web": mock_web_agent,
+        # ...
+    }[agent_type]
+    return factory
+
+def test_something(mock_agent_factory):
+    conductor = Conductor()
+    conductor.factory = mock_agent_factory  # Inject mocks
+    result = conductor.run(...)  # Uses mocks
 ```
 
 **Alternative rejected:** Mock directly in each test
-- 20 tests × 3 mocks = 60 mock setups (massive duplication)
-- Hard to maintain consistent test data
-- Tests become 80% setup, 20% assertions
+- 33 tests × multiple agents = massive duplication
+- Inconsistent mock behavior across tests
+- Hard to maintain when agent interface changes
 
-### Decision 3: Fixture Strategy
-**Approach:** Add `mock_orchestrator` fixture that returns a function to create agents with mocks.
+### Decision 4: Fixture Organization Strategy
 
-**Why:**
-- One-line agent creation in tests: `agent = mock_orchestrator()`
-- Easy customization: `agent = mock_orchestrator(planner=custom_mock)`
-- Consistent user/db setup across all tests
-- Compatible with Phase 1 fixtures
+**Approach:** Three-level fixture hierarchy.
 
-**Usage pattern:**
-```python
-def test_something(mock_orchestrator, mock_planner_builder):
-    # Customize one mock
-    custom_planner = mock_planner_builder.returns_strategy(...).build()
-
-    # Create agent with custom planner, default retrieval/curation
-    agent = mock_orchestrator(planner=custom_planner)
-
-    # Test
-    response = agent.execute(request)
-    assert ...
+**Structure:**
+```
+tests/integration/chatbot/
+├── conftest.py                    # Level 1: Generic (db_session)
+├── recsys_fixtures.py             # Level 2: Domain-specific (user fixtures)
+│
+├── conductor/
+│   └── conftest.py                # Level 3: Test-specific (mock agents)
+│
+└── agents/recommendation/
+    └── conftest.py                # Level 3: Test-specific (mock sub-agents)
 ```
 
-**Alternative rejected:** Create agent manually in each test
+**Rationale:**
+- **Level 1 (Generic)**: Fixtures any test might need (database, environment)
+- **Level 2 (Domain)**: Reusable domain fixtures (recsys users) - shared across multiple test suites
+- **Level 3 (Test-specific)**: Mocks and fixtures specific to one test suite
+
+**Why this matters:**
+- Avoids fixture pollution (web agent tests don't inherit recsys fixtures)
+- Clear ownership (where should new fixture go?)
+- Reusability (recsys_fixtures used by both conductor and recommendation tests)
+
+### Decision 5: Test Data Factories for Mocks
+
+**Approach:** Create builder/factory classes to generate test data and configure mocks.
+
+**Why:**
+- **Builders**: Fluent API for configuring mocks (`builder.returns_strategy(...).build()`)
+- **Factories**: Consistent test data generation (`CandidateFactory.create_batch(60)`)
+- **Separation**: Builders for behavior, factories for data
+
+**Pattern:**
+```python
+class MockAgentBuilder:
+    def __init__(self):
+        self.mock = Mock()
+        # Default behavior
+        self.mock.execute.return_value = AgentResponse(...)
+
+    def returns_failure(self, error_msg: str):
+        self.mock.execute.side_effect = RuntimeError(error_msg)
+        return self  # Chain
+
+    def returns_success(self, **response_kwargs):
+        self.mock.execute.return_value = AgentResponse(**response_kwargs)
+        return self  # Chain
+
+    def build(self):
+        return self.mock
+```
+
+**Alternative rejected:** Configure mocks directly in tests
 - Repetitive setup code in every test
-- Easy to forget parameters (user, db, num_ratings, etc.)
-- Harder to maintain when agent constructor changes
-
-### Decision 4: Test Categories
-**Approach:** Organize 20 tests into 4 logical categories as separate test classes.
-
-**Categories:**
-1. **Stage Transitions (6 tests):** Data flows correctly between stages
-2. **Parameter Propagation (4 tests):** Warm/cold user, profile access, etc.
-3. **Error Handling (6 tests):** Graceful failure at each stage
-4. **Full Pipeline Flow (4 tests):** End-to-end realistic scenarios
-
-**Why this organization:**
-- Each category tests a different aspect of orchestration
-- Easy to run subsets during development
-- Clear responsibility boundaries
-- Matches mental model of pipeline operation
-
-**Alternative rejected:** All tests in one class
-- Harder to navigate 20 tests
-- Unclear what each test category covers
-- Can't easily run "just parameter tests"
+- Hard to maintain consistent behavior
+- Tests become 80% setup, 20% assertions
 
 ---
 
-## Implementation Roadmap
+## Phase 1.5: Refactor Conductor Tests (2-2.5 hours)
 
-### Phase 2.1: Foundation (45 minutes)
+### Overview
 
-**Goal:** Create reusable infrastructure for all tests.
+Refactor existing 33 Conductor integration tests to use mocked agents instead of real LLMs.
 
-#### Task 1: Directory Structure (5 min)
-**What to create:**
-```
-tests/integration/chatbot/
-├── agents/
-│   ├── __init__.py
-│   └── recommendation/
-│       └── __init__.py
-└── test_helpers.py  (new)
-```
+**Principle:** Change test implementation, NOT test intent. Each test should still validate the same orchestration concern, just with mocks instead of real agents.
 
-**Verification:**
-- Can import from new directories
-- `pytest --collect-only` shows new structure
+### Pre-Implementation Audit
 
-#### Task 2: Test Helpers (30 min)
-**File:** `tests/integration/chatbot/test_helpers.py`
+Before starting, understand current test scope:
 
-**What to implement:**
+| Test File | Tests | What They Validate | Needs Refactor? |
+|-----------|-------|-------------------|-----------------|
+| `test_adapter_integrity.py` | 4 | Schema conversions preserve data | ✅ Yes |
+| `test_context_builder.py` | 8 | History truncation, parameter handling | ✅ Yes |
+| `test_error_boundaries.py` | 8 | Error handling, edge cases | ✅ Yes (already partially mocked) |
+| `test_multi_turn_state.py` | 5 | Conversation state management | ✅ Yes |
+| `test_parameter_handling.py` | 8 | Parameter propagation | ✅ Yes |
+| **Total** | **33** | **Infrastructure concerns** | **All need mocks** |
 
-1. **MockPlannerBuilder class:**
-   - `returns_strategy(tools, reasoning, profile_data)` → self
-   - `raises_error(exception)` → self
-   - `build()` → Mock
-   - Default: returns basic strategy if nothing configured
+### Phase 1.5.1: Create Mock Infrastructure (45 minutes)
 
-2. **MockRetrievalBuilder class:**
-   - `returns_candidates(candidates, tools_used)` → self
-   - `returns_empty()` → self
-   - `raises_error(exception)` → self
-   - `build()` → Mock
-   - Default: returns 60 candidates
+#### Task 1: Create recsys_fixtures.py (15 min)
 
-3. **MockCurationBuilder class:**
-   - `returns_recommendations(books, prose)` → self
-   - `returns_failure(error_message)` → self
-   - `raises_error(exception)` → self
-   - `build()` → Mock
-   - Default: returns 5 books
+**File:** `tests/integration/chatbot/recsys_fixtures.py`
 
-4. **CandidateFactory class:**
-   - `create(item_idx, title, author, subjects, tones, vibe)` → Candidate
-   - `create_batch(count, base_idx)` → List[Candidate]
+**Purpose:** Extract recsys-specific user fixtures from conftest.py for reusability.
 
-5. **BookFactory class:**
-   - `create(item_idx, title, author, explanation)` → BookRecommendation
-   - `create_batch(count, base_idx)` → List[BookRecommendation]
+**What to extract:**
+- `test_user_warm` fixture
+- `test_user_cold` fixture
+- `test_user_new` fixture
+- `test_user_with_profile` fixture
+- `get_user_rating_count()` helper function
 
-**Key design point:** Builders use method chaining for readability.
+**Why separate file:**
+- Shared by conductor tests AND recommendation agent tests
+- Keeps top-level conftest.py generic
+- Prevents fixture pollution in future web/docs agent tests
 
-**Verification:**
-```python
-# Can create and use builders
-builder = MockPlannerBuilder()
-mock = builder.returns_strategy(["als_recs"]).build()
-assert mock.execute.called == False  # Not called yet
+**Validation:** Import in Python REPL to verify no syntax errors.
 
-# Can create test data
-candidates = CandidateFactory.create_batch(5)
-assert len(candidates) == 5
-assert candidates[0].item_idx == 10000
-```
+#### Task 2: Simplify top-level conftest.py (10 min)
 
-#### Task 3: Fixtures (15 min)
-**File:** `tests/integration/chatbot/conftest.py` (append to existing)
+**File:** `tests/integration/chatbot/conftest.py`
+
+**What remains:** Only `db_session` fixture (generic).
+
+**What's removed:** All recsys user fixtures (moved to recsys_fixtures.py).
+
+**Result:** Clean, minimal conftest with single responsibility.
+
+**Validation:** Run `pytest --collect-only tests/integration/chatbot/` - should not error.
+
+#### Task 3: Create conductor/conftest.py with mock fixtures (20 min)
+
+**File:** `tests/integration/chatbot/conductor/conftest.py`
 
 **What to add:**
 
-1. **Builder fixtures:**
-   - `mock_planner_builder` → returns MockPlannerBuilder()
-   - `mock_retrieval_builder` → returns MockRetrievalBuilder()
-   - `mock_curation_builder` → returns MockCurationBuilder()
+1. **Import recsys fixtures:**
+   ```python
+   from tests.integration.chatbot.recsys_fixtures import (
+       test_user_warm, test_user_cold, test_user_new, test_user_with_profile
+   )
+   ```
 
-2. **Factory fixtures:**
-   - `candidate_factory` → returns CandidateFactory
-   - `book_factory` → returns BookFactory
+2. **Mock agent fixtures:**
+   - `mock_recsys_agent`: Returns AgentResponse with book recommendations
+   - `mock_web_agent`: Returns AgentResponse with web search results
+   - `mock_docs_agent`: Returns AgentResponse with documentation
+   - `mock_response_agent`: Returns AgentResponse with generic response
 
-3. **Orchestrator fixture:**
-   - `mock_orchestrator` → returns function to create RecommendationAgent with mocks
-   - Takes optional planner, retrieval, curation, user_num_ratings, allow_profile
-   - Uses test_user_warm and db_session from existing fixtures
-   - Defaults to using builders for any non-injected agents
+3. **Mock agent factory fixture:**
+   - `mock_agent_factory`: Returns factory that creates mocked agents
+   - Maps agent_type to corresponding mock
 
-**Key design point:** `mock_orchestrator` returns a FUNCTION, not an agent instance.
+4. **Mock router fixture (optional):**
+   - `mock_router`: For tests that need to control routing decisions
 
-**Verification:**
+**Key contracts:**
+
+**AgentResponse schema (what mocks return):**
 ```python
-def test_fixture_works(mock_orchestrator):
-    agent = mock_orchestrator()  # Call the function
-    assert agent is not None
-    assert hasattr(agent, 'execute')
+@dataclass
+class AgentResponse:
+    text: str                           # Required
+    success: bool                       # Required
+    book_ids: Optional[List[int]]       # For recsys
+    policy_version: str                 # Required
+    execution_state: Optional[dict]     # Optional metadata
 ```
+
+**AgentRequest schema (what agents receive):**
+```python
+@dataclass
+class AgentRequest:
+    query: str                          # Current user query
+    history: List[dict]                 # Conversation history
+    context: dict                       # Additional context (profile_allowed, etc.)
+    user: Optional[User]                # Current user
+    db: Optional[Session]               # Database session
+```
+
+**Validation:**
+- Each mock agent should have `.execute()` method
+- `.execute()` should return valid AgentResponse
+- Factory should handle all agent types (recsys, web, docs, respond)
+
+### Phase 1.5.2: Refactor Test Files (60-75 minutes)
+
+**Strategy:** Refactor one file at a time, validate after each.
+
+#### Task 4: Refactor test_adapter_integrity.py (15 min)
+
+**Changes needed:**
+
+1. Add `mock_agent_factory` parameter to each test
+2. Inject factory into Conductor: `conductor.factory = mock_agent_factory`
+3. Replace assertions about response content with assertions about mock calls
+4. Keep assertions about data structure/flow
+
+**Example transformation:**
+
+**Before:**
+```python
+def test_turn_input_to_request_preserves_data(self, db_session, test_user_warm):
+    conductor = Conductor()
+    result = conductor.run(...)
+    assert isinstance(result, AgentResult)
+    assert result.text  # Asserting on real LLM output
+```
+
+**After:**
+```python
+def test_turn_input_to_request_preserves_data(
+    self, db_session, test_user_warm, mock_agent_factory
+):
+    conductor = Conductor()
+    conductor.factory = mock_agent_factory  # Inject mocks
+
+    result = conductor.run(...)
+
+    # Verify data flow (not LLM output)
+    assert isinstance(result, AgentResult)
+    assert result.text  # Mock returns text
+
+    # NEW: Verify correct agent was called with correct data
+    # (This is what we're actually testing - orchestration)
+    called_agent = mock_agent_factory.create_agent.call_args[0][0]
+    assert called_agent == "recsys"  # Routed correctly
+```
+
+**Tests to refactor (4 tests):**
+- `test_turn_input_to_request_preserves_data`
+- `test_response_to_result_preserves_metadata`
+- `test_profile_access_propagates_through_layers`
+- `test_empty_history_handled_correctly`
+
+**Validation:** `pytest tests/integration/chatbot/conductor/test_adapter_integrity.py -v`
+
+#### Task 5: Refactor test_context_builder.py (15 min)
+
+**Changes needed:**
+
+1. Add `mock_agent_factory` to tests
+2. Inject factory into Conductor
+3. Update assertions to verify context was built correctly:
+   - Check mock was called with truncated history
+   - Check parameters were passed correctly
+
+**Focus:** These tests validate `make_router_input` and `make_branch_input` logic.
+
+**Key assertion pattern:**
+```python
+# Verify agent received truncated history (not full history)
+agent_request = mock_agent.execute.call_args[0][0]
+assert len(agent_request.history) == expected_truncated_length
+```
+
+**Tests to refactor (8 tests):**
+- `test_router_input_truncates_to_k_user`
+- `test_router_input_k_user_larger_than_history`
+- `test_branch_input_truncates_to_hist_turns`
+- `test_branch_input_hist_turns_zero`
+- `test_force_target_bypasses_router`
+- `test_force_target_all_agents`
+- `test_context_with_empty_history`
+
+**Validation:** `pytest tests/integration/chatbot/conductor/test_context_builder.py -v`
+
+#### Task 6: Refactor test_error_boundaries.py (15 min)
+
+**Note:** Some tests already use mocks (for injecting failures). Update to use consistent fixture-based mocks.
+
+**Changes needed:**
+
+1. Replace inline mocks with `mock_agent_factory` fixture
+2. Add mock builder pattern for failure injection:
+   ```python
+   # Configure mock to fail
+   failing_agent = Mock()
+   failing_agent.execute.side_effect = RuntimeError("Simulated failure")
+   mock_agent_factory.create_agent = lambda *args: failing_agent
+   ```
+
+3. Keep error handling validation
+
+**Tests to refactor (8 tests):**
+- `test_agent_execution_failure_bubbles_up`
+- `test_router_classification_failure_bubbles_up`
+- `test_empty_query_handled_gracefully`
+- `test_whitespace_only_query_handled`
+- `test_very_long_query_handled`
+- `test_malformed_history_handled`
+- `test_database_none_for_agent_requiring_db`
+
+**Validation:** `pytest tests/integration/chatbot/conductor/test_error_boundaries.py -v`
+
+#### Task 7: Refactor test_multi_turn_state.py (15 min)
+
+**Changes needed:**
+
+1. Add `mock_agent_factory` to tests
+2. Update multi-turn tests to build history from mock responses:
+   ```python
+   result1 = conductor.run(...)
+   history.append({"u": "query", "a": result1.text})  # Mock response text
+   result2 = conductor.run(history=history, ...)
+   ```
+
+3. Verify conversation state (not response quality):
+   - History accumulates correctly
+   - Different conv_ids are isolated
+   - History truncation works
+
+**Tests to refactor (5 tests):**
+- `test_history_accumulates_across_turns`
+- `test_history_truncation_with_hist_turns`
+- `test_history_truncation_edge_case_fewer_than_hist_turns`
+- `test_conversations_are_isolated`
+- `test_empty_history_first_turn`
+
+**Validation:** `pytest tests/integration/chatbot/conductor/test_multi_turn_state.py -v`
+
+#### Task 8: Refactor test_parameter_handling.py (15 min)
+
+**Changes needed:**
+
+1. Add `mock_agent_factory` to tests
+2. Focus on parameter propagation verification:
+   - Was correct agent called?
+   - Were parameters passed through?
+   - Did cold/warm user logic work?
+
+**Key assertion pattern:**
+```python
+# Verify user_num_ratings was passed correctly
+agent_request = mock_agent.execute.call_args[0][0]
+assert agent_request.context.get("user_num_ratings") == expected_value
+```
+
+**Tests to refactor (8 tests):**
+- `test_cold_user_routing_and_tool_selection`
+- `test_warm_user_can_access_personalized_recs`
+- `test_user_num_ratings_none_defaults_to_zero`
+- `test_optional_parameters_none_values`
+- `test_docs_agent_works_without_user_context`
+- `test_use_profile_false_prevents_profile_access`
+- `test_conv_id_and_uid_passed_through`
+
+**Validation:** `pytest tests/integration/chatbot/conductor/test_parameter_handling.py -v`
+
+### Phase 1.5.3: Validation (15 minutes)
+
+#### Task 9: Run full Phase 1.5 test suite
+
+```bash
+# Run all conductor tests
+pytest tests/integration/chatbot/conductor/ -v
+
+# Expected: 33 passed
+# Expected time: <10 seconds
+```
+
+#### Task 10: Verify test isolation
+
+```bash
+# Run tests in random order (detect test pollution)
+pytest tests/integration/chatbot/conductor/ -v --random-order
+
+# Expected: 33 passed (same results)
+```
+
+#### Task 11: Performance validation
+
+```bash
+# Time execution
+time pytest tests/integration/chatbot/conductor/ -v
+
+# Expected: <10 seconds (vs 2-5 minutes before)
+```
+
+#### Task 12: Update conductor/README.md
+
+**Changes:**
+- Document that tests use mocked agents
+- Update "Why Real Agents?" section → "Why Mocked Agents?"
+- Add note about evaluation tests being separate
+- Update expected execution time (<10 seconds)
 
 ---
 
-### Phase 2.2: Test Implementation (90 minutes)
+## Phase 2: RecommendationAgent Pipeline Tests (3-3.5 hours)
+
+### Overview
+
+Add 20 integration tests that validate RecommendationAgent's 3-stage pipeline orchestration using mocked sub-agents.
+
+**Focus:** How RecommendationAgent coordinates PlannerAgent → RetrievalAgent → CurationAgent.
+
+**Dependency:** Phase 1.5 must be complete (provides patterns and fixtures to build on).
+
+### Architecture
+
+**What we're testing:**
+```
+RecommendationAgent (real)
+├── PlannerAgent (mocked) → returns strategy
+├── RetrievalAgent (mocked) → returns candidates based on strategy
+└── CurationAgent (mocked) → returns final recommendations from candidates
+```
+
+**Why this design:**
+- Tests RecommendationAgent's orchestration logic (its responsibility)
+- Doesn't test sub-agent internals (those have separate tests)
+- Fast, deterministic, maintainable
+
+**Dependency Injection Contract:**
+```python
+class RecommendationAgent:
+    def __init__(
+        self,
+        current_user: User,
+        db: Session,
+        user_num_ratings: int,
+        allow_profile: bool = False,
+        planner_agent: Optional[PlannerAgent] = None,      # Injectable
+        retrieval_agent: Optional[RetrievalAgent] = None,  # Injectable
+        curation_agent: Optional[CurationAgent] = None,    # Injectable
+    ):
+        self.planner = planner_agent or PlannerAgent(...)   # Use injected or default
+        self.retrieval = retrieval_agent or RetrievalAgent(...)
+        self.curation = curation_agent or CurationAgent(...)
+```
+
+**Note:** This already exists (verified in orchestrator.py lines 47-49, 86-109).
+
+### Phase 2.1: Create Test Infrastructure (60 minutes)
+
+#### Task 13: Create agents/recommendation/ directory structure (5 min)
+
+```bash
+mkdir -p tests/integration/chatbot/agents/recommendation
+touch tests/integration/chatbot/agents/recommendation/__init__.py
+touch tests/integration/chatbot/agents/recommendation/conftest.py
+touch tests/integration/chatbot/agents/recommendation/test_helpers.py
+touch tests/integration/chatbot/agents/recommendation/test_pipeline_integration.py
+```
+
+#### Task 14: Create test_helpers.py with mock builders (30 min)
+
+**File:** `tests/integration/chatbot/agents/recommendation/test_helpers.py`
+
+**Purpose:** Reusable builders and factories for mocking sub-agents and test data.
+
+**What to create:**
+
+1. **MockPlannerBuilder**
+   - Fluent API for configuring PlannerAgent mocks
+   - Methods: `.returns_strategy()`, `.returns_failure()`, `.build()`
+   - Default: Returns strategy with ["als_recs"] tool
+
+2. **MockRetrievalBuilder**
+   - Fluent API for configuring RetrievalAgent mocks
+   - Methods: `.returns_candidates()`, `.returns_failure()`, `.build()`
+   - Default: Returns 60 candidates
+
+3. **MockCurationBuilder**
+   - Fluent API for configuring CurationAgent mocks
+   - Methods: `.returns_recommendations()`, `.returns_failure()`, `.build()`
+   - Default: Returns 5 books
+
+4. **CandidateFactory**
+   - Creates Candidate test data
+   - Methods: `.create()`, `.create_batch(n)`
+   - Generates realistic candidate data (item_idx, title, relevance scores)
+
+5. **BookFactory**
+   - Creates BookRecommendation test data
+   - Methods: `.create()`, `.create_batch(n)`
+   - Generates realistic book recommendations
+
+**Key schemas:**
+
+**PlannerStrategy (what PlannerAgent returns):**
+```python
+@dataclass
+class PlannerStrategy:
+    tools: List[str]                    # e.g. ["als_recs", "subject_hybrid_pool"]
+    subjects: Optional[List[str]]       # If subject-based search
+    reasoning: str                      # Why this strategy
+```
+
+**Candidate (what RetrievalAgent returns):**
+```python
+@dataclass
+class Candidate:
+    item_idx: int                       # Book ID
+    title: str                          # Book title
+    relevance_score: float              # 0-1
+    source_tool: str                    # Which tool found it
+    metadata: dict                      # Additional info
+```
+
+**BookRecommendation (what CurationAgent returns):**
+```python
+@dataclass
+class BookRecommendation:
+    item_idx: int                       # Book ID
+    title: str                          # Book title
+    explanation: str                    # Why recommended
+    score: float                        # 0-1
+```
+
+**Builder pattern example:**
+```python
+class MockPlannerBuilder:
+    def __init__(self):
+        self.mock = Mock()
+        # Default behavior
+        self._strategy = PlannerStrategy(
+            tools=["als_recs"],
+            subjects=None,
+            reasoning="Default strategy"
+        )
+
+    def returns_strategy(self, tools: List[str], subjects: Optional[List[str]] = None):
+        self._strategy = PlannerStrategy(
+            tools=tools,
+            subjects=subjects,
+            reasoning=f"Using {', '.join(tools)}"
+        )
+        return self  # Chain
+
+    def returns_failure(self, error_msg: str = "Planner failed"):
+        self.mock.execute.side_effect = RuntimeError(error_msg)
+        return self
+
+    def build(self):
+        if not self.mock.execute.side_effect:
+            self.mock.execute.return_value = self._strategy
+        return self.mock
+```
+
+**Validation:**
+- Import in Python REPL
+- Create builder, verify `.build()` returns mock with correct behavior
+- Test chaining: `builder.returns_strategy([...]).build()`
+
+#### Task 15: Create agents/recommendation/conftest.py (25 min)
+
+**File:** `tests/integration/chatbot/agents/recommendation/conftest.py`
+
+**Purpose:** Fixtures specific to RecommendationAgent pipeline tests.
+
+**What to add:**
+
+1. **Import recsys fixtures:**
+   ```python
+   from tests.integration.chatbot.recsys_fixtures import (
+       test_user_warm, test_user_cold, test_user_new, test_user_with_profile
+   )
+   ```
+
+2. **Import test helpers:**
+   ```python
+   from .test_helpers import (
+       MockPlannerBuilder, MockRetrievalBuilder, MockCurationBuilder,
+       CandidateFactory, BookFactory
+   )
+   ```
+
+3. **Mock builder fixtures:**
+   - `mock_planner_builder`: Returns fresh MockPlannerBuilder
+   - `mock_retrieval_builder`: Returns fresh MockRetrievalBuilder
+   - `mock_curation_builder`: Returns fresh MockCurationBuilder
+
+4. **Data factory fixtures:**
+   - `candidate_factory`: Returns CandidateFactory instance
+   - `book_factory`: Returns BookFactory instance
+
+5. **Mock orchestrator fixture:**
+   - `mock_orchestrator`: Returns function to create RecommendationAgent with mocks
+   - Simplifies test setup to one line
+
+**Mock orchestrator pattern:**
+```python
+@pytest.fixture
+def mock_orchestrator(db_session, test_user_warm, mock_planner_builder, mock_retrieval_builder, mock_curation_builder):
+    """
+    Returns function to create RecommendationAgent with mocked sub-agents.
+
+    Usage:
+        agent = mock_orchestrator()  # Uses defaults
+        agent = mock_orchestrator(planner=custom_mock)  # Custom planner
+    """
+    def create_agent(
+        user=None,
+        user_num_ratings=10,
+        allow_profile=False,
+        planner=None,
+        retrieval=None,
+        curation=None
+    ):
+        # Use provided mocks or build defaults
+        planner_agent = planner or mock_planner_builder.build()
+        retrieval_agent = retrieval or mock_retrieval_builder.build()
+        curation_agent = curation or mock_curation_builder.build()
+
+        return RecommendationAgent(
+            current_user=user or test_user_warm,
+            db=db_session,
+            user_num_ratings=user_num_ratings,
+            allow_profile=allow_profile,
+            planner_agent=planner_agent,
+            retrieval_agent=retrieval_agent,
+            curation_agent=curation_agent,
+        )
+
+    return create_agent
+```
+
+**Validation:**
+- Import in Python REPL
+- Call `mock_orchestrator()` to verify agent creation
+- Verify default mocks are injected correctly
+
+### Phase 2.2: Implement Pipeline Tests (90-120 minutes)
+
+#### Task 16: Create test class structure (10 min)
 
 **File:** `tests/integration/chatbot/agents/recommendation/test_pipeline_integration.py`
 
-#### Task 4: File Structure and Skeleton (5 min)
+**Structure:**
+```python
+# tests/integration/chatbot/agents/recommendation/test_pipeline_integration.py
+"""
+Integration tests for RecommendationAgent 3-stage pipeline orchestration.
+Tests how RecommendationAgent coordinates Planner → Retrieval → Curation.
+"""
 
-**What to create:**
-1. File docstring explaining purpose
-2. Import statements (AgentRequest, schemas, test_helpers)
-3. Four test classes (empty):
-   - `TestStageTransitions`
-   - `TestParameterPropagation`
-   - `TestErrorHandling`
-   - `TestFullPipelineFlow`
+class TestStageTransitions:
+    """Tests that data flows correctly between pipeline stages (6 tests)."""
+    pass
 
-**Verification:**
-```bash
-pytest tests/integration/chatbot/agents/recommendation/ --collect-only
-# Should show 4 test classes, 0 tests
+class TestParameterPropagation:
+    """Tests that parameters propagate through stages (4 tests)."""
+    pass
+
+class TestErrorHandling:
+    """Tests graceful failure at each stage (6 tests)."""
+    pass
+
+class TestFullPipelineFlow:
+    """Tests end-to-end realistic scenarios (4 tests)."""
+    pass
 ```
 
-#### Task 5: Category 1 - Stage Transitions (30 min)
+**Add module docstring explaining:**
+- What we're testing (orchestration, not sub-agent internals)
+- Why mocked (fast, deterministic, maintainable)
+- Test organization (4 categories, 20 tests total)
 
-**What to test:**
+#### Task 17: Implement TestStageTransitions (20 min)
 
-1. **test_planner_strategy_reaches_retrieval**
-   - Mock planner returns specific strategy
-   - Verify retrieval receives that strategy in RetrievalInput
-   - Key check: strategy.recommended_tools preserved
+**Tests to implement (6 tests):**
 
-2. **test_retrieval_candidates_reach_curation**
-   - Mock retrieval returns 80 candidates
-   - Verify curation receives those 80 candidates
-   - Key check: ExecutionContext included
+1. **test_planner_output_flows_to_retrieval**
+   - Mock planner returns strategy with specific tools
+   - Verify retrieval receives correct strategy
+   - Pattern: `retrieval_input = mock_retrieval.execute.call_args[0][0]`
 
-3. **test_execution_context_assembled_correctly**
-   - Mock all three agents with specific data
-   - Verify ExecutionContext has: planner_reasoning, tools_used, profile_data
-   - Key check: all fields populated from correct sources
+2. **test_retrieval_output_flows_to_curation**
+   - Mock retrieval returns 60 candidates
+   - Verify curation receives those 60 candidates
+   - Verify candidate data is preserved (titles, scores, etc.)
 
-4. **test_profile_data_flows_through_all_stages**
-   - Planner returns strategy with profile_data
-   - Verify profile in RetrievalInput
-   - Verify profile in CurationInput.execution_context
-   - Key check: privacy-critical data not lost
+3. **test_curation_output_becomes_final_response**
+   - Mock curation returns 5 books
+   - Verify final response contains those 5 book IDs
+   - Verify response text includes recommendations
 
-5. **test_candidate_metadata_preserved**
-   - Retrieval returns candidates with rich metadata (subjects, tones, vibe)
-   - Verify all metadata reaches curation
-   - Key check: no data loss in conversions
+4. **test_full_pipeline_data_chain**
+   - Configure all 3 mocks with specific data
+   - Trace data through entire pipeline
+   - Verify: planner → retrieval → curation → response
 
-6. **test_book_ids_survive_full_pipeline**
-   - Curation returns books with specific item_idx values
-   - Verify final AgentResponse has same item_idx values
-   - Key check: book IDs not corrupted
+5. **test_query_propagates_through_all_stages**
+   - Original user query: "recommend sci-fi books"
+   - Verify all 3 sub-agents receive the query
+   - Pattern: Check `call_args` for each mock
 
-**Strategy for all tests:**
-1. Configure mocks with specific data
-2. Create agent with mocked sub-agents
-3. Execute request
-4. Capture mock call arguments
-5. Assert on data flow
+6. **test_stage_order_enforced**
+   - Verify planner called before retrieval
+   - Verify retrieval called before curation
+   - Pattern: Use `call_count` and call order verification
 
-**Verification after Task 5:**
-```bash
-pytest tests/integration/chatbot/agents/recommendation/test_pipeline_integration.py::TestStageTransitions -v
-# Should show: 6 passed
-```
+**Validation:** `pytest tests/integration/chatbot/agents/recommendation/test_pipeline_integration.py::TestStageTransitions -v`
 
-#### Task 6: Category 2 - Parameter Propagation (20 min)
+#### Task 18: Implement TestParameterPropagation (20 min)
 
-**What to test:**
+**Tests to implement (4 tests):**
 
-1. **test_warm_user_enables_als_in_planner**
+1. **test_warm_user_parameters_reach_planner**
    - Create agent with user_num_ratings=15
-   - Verify PlannerInput.has_als_recs_available=True
-   - Verify "als_recs" in available_retrieval_tools
+   - Verify planner receives warm user context
+   - Planner should know user has personalization available
 
-2. **test_cold_user_excludes_als_in_planner**
-   - Create agent with user_num_ratings=3
-   - Verify PlannerInput.has_als_recs_available=False
-   - Verify "als_recs" NOT in available_retrieval_tools
+2. **test_cold_user_parameters_reach_planner**
+   - Create agent with user_num_ratings=0
+   - Verify planner receives cold user context
+   - Planner should know only subject-based tools available
 
-3. **test_allow_profile_false_prevents_profile_tools**
-   - Create agent with allow_profile=False
-   - Verify PlannerInput.allow_profile=False
-   - Verify profile_data=None throughout pipeline
-
-4. **test_allow_profile_true_enables_profile_tools**
+3. **test_profile_access_flag_propagates**
    - Create agent with allow_profile=True
-   - Planner returns strategy with profile_data
-   - Verify profile_data reaches all stages
+   - Verify flag reaches planner and retrieval
+   - Privacy-critical - must propagate correctly
 
-**Strategy:**
-- Focus on parameter transformation at boundaries
-- Use mock.call_args to inspect what each stage received
-- Test both positive and negative cases
+4. **test_database_session_available_to_all_stages**
+   - Verify all 3 sub-agents have access to db session
+   - Important for tools that query database
 
-**Verification after Task 6:**
+**Validation:** `pytest tests/integration/chatbot/agents/recommendation/test_pipeline_integration.py::TestParameterPropagation -v`
+
+#### Task 19: Implement TestErrorHandling (25 min)
+
+**Tests to implement (6 tests):**
+
+1. **test_planner_failure_halts_pipeline**
+   - Configure planner to raise exception
+   - Verify pipeline stops (retrieval not called)
+   - Verify error bubbles up (no silent failure)
+
+2. **test_retrieval_failure_halts_pipeline**
+   - Planner succeeds, retrieval fails
+   - Verify curation not called
+   - Verify error bubbles up
+
+3. **test_curation_failure_propagates**
+   - Planner and retrieval succeed, curation fails
+   - Verify error bubbles up
+   - Verify response indicates failure
+
+4. **test_planner_returns_empty_tools**
+   - Mock planner returns strategy with empty tools list
+   - System should handle gracefully (not crash)
+   - May use fallback or return error
+
+5. **test_retrieval_returns_zero_candidates**
+   - Retrieval returns empty candidate list
+   - Curation should handle gracefully
+   - Response should indicate no results found
+
+6. **test_curation_returns_zero_books**
+   - Curation filters out all candidates
+   - Response should indicate no recommendations available
+   - Should not crash
+
+**Validation:** `pytest tests/integration/chatbot/agents/recommendation/test_pipeline_integration.py::TestErrorHandling -v`
+
+#### Task 20: Implement TestFullPipelineFlow (35 min)
+
+**Tests to implement (4 tests):**
+
+1. **test_warm_user_personalized_flow**
+   - Realistic scenario: warm user (15 ratings), generic query
+   - Mock planner chooses ALS-based strategy
+   - Mock retrieval returns personalized candidates
+   - Mock curation returns top 5 books
+   - Verify complete flow with realistic data
+
+2. **test_cold_user_subject_based_flow**
+   - Realistic scenario: cold user (0 ratings), specific query "sci-fi books"
+   - Mock planner chooses subject-based strategy
+   - Mock retrieval returns subject-filtered candidates
+   - Mock curation returns top 5 books
+   - Verify complete flow respects cold user constraints
+
+3. **test_profile_enabled_flow**
+   - Realistic scenario: user with profile, vague query
+   - Mock planner uses profile + ALS strategy
+   - Verify profile data used in planning
+   - Verify personalized recommendations returned
+
+4. **test_multi_tool_strategy_flow**
+   - Realistic scenario: planner chooses multiple tools
+   - Mock planner returns ["als_recs", "subject_hybrid_pool"]
+   - Mock retrieval combines results from both tools
+   - Mock curation deduplicates and ranks
+   - Verify multi-tool orchestration works
+
+**Validation:** `pytest tests/integration/chatbot/agents/recommendation/test_pipeline_integration.py::TestFullPipelineFlow -v`
+
+### Phase 2.3: Validation (15 minutes)
+
+#### Task 21: Run full Phase 2 test suite
+
 ```bash
-pytest tests/integration/chatbot/agents/recommendation/test_pipeline_integration.py::TestParameterPropagation -v
-# Should show: 4 passed
-```
-
-#### Task 7: Category 3 - Error Handling (25 min)
-
-**What to test:**
-
-1. **test_planner_failure_raises_exception**
-   - Mock planner raises RuntimeError
-   - Verify exception bubbles up (not caught)
-
-2. **test_retrieval_failure_raises_exception**
-   - Mock retrieval raises RuntimeError
-   - Verify exception bubbles up
-
-3. **test_curation_failure_raises_exception**
-   - Mock curation raises RuntimeError
-   - Verify exception bubbles up
-
-4. **test_retrieval_empty_candidates_reaches_curation**
-   - Mock retrieval returns empty list
-   - Verify curation still called
-   - Verify curation handles gracefully
-
-5. **test_curation_returns_failure_response**
-   - Mock curation returns success=False
-   - Verify final response also has success=False
-   - Verify failure message propagated
-
-6. **test_missing_execution_context_handled**
-   - Edge case: tools_used=[] (empty)
-   - Verify curation doesn't crash
-   - Verify minimal context still created
-
-**Strategy:**
-- Use `raises_error()` builder method for exceptions
-- Use `returns_failure()` builder method for failure responses
-- Test both exceptions (crashes) and failures (graceful)
-
-**Verification after Task 7:**
-```bash
-pytest tests/integration/chatbot/agents/recommendation/test_pipeline_integration.py::TestErrorHandling -v
-# Should show: 6 passed
-```
-
-#### Task 8: Category 4 - Full Pipeline Flow (15 min)
-
-**What to test:**
-
-1. **test_warm_user_vague_query_full_pipeline**
-   - Warm user (15 ratings), vague query
-   - Expected: ALS + subject_hybrid_pool → 80 candidates → 5 books
-   - Verify all stages called, success=True
-
-2. **test_cold_user_descriptive_query_full_pipeline**
-   - Cold user (3 ratings), descriptive query
-   - Expected: semantic_search + subject_hybrid_pool → 60 candidates → 5 books
-   - Verify semantic tools used, success=True
-
-3. **test_profile_enabled_user_full_pipeline**
-   - allow_profile=True
-   - Expected: profile fetched → flows through all stages
-   - Verify profile_data present in final context
-
-4. **test_minimal_configuration_full_pipeline**
-   - Use all default mocks (no customization)
-   - Verify pipeline completes without errors
-   - Tests that defaults work
-
-**Strategy:**
-- These are "happy path" integration tests
-- Configure all three mocks to simulate realistic scenarios
-- Focus on end-to-end flow, not individual stages
-
-**Verification after Task 8:**
-```bash
-pytest tests/integration/chatbot/agents/recommendation/test_pipeline_integration.py::TestFullPipelineFlow -v
-# Should show: 4 passed
-```
-
----
-
-### Phase 2.3: Validation (10 minutes)
-
-#### Task 9: Run Full Suite
-```bash
-# Run all Phase 2 tests
+# Run all recommendation agent tests
 pytest tests/integration/chatbot/agents/recommendation/ -v
 
-# Expected: 20 passed (6 + 4 + 6 + 4)
+# Expected: 20 passed
 ```
 
-#### Task 10: Verify Phase 1 Still Works
+#### Task 22: Verify Phase 1.5 still works
+
+```bash
+# Run conductor tests (should be unchanged)
+pytest tests/integration/chatbot/conductor/ -v
+
+# Expected: 33 passed
+```
+
+#### Task 23: Run complete integration test suite
+
 ```bash
 # Run all integration tests
 pytest tests/integration/chatbot/ -v
 
-# Expected: 53 passed (33 Phase 1 + 20 Phase 2)
+# Expected: 53 passed (33 conductor + 20 recommendation)
+# Expected time: <30 seconds total
 ```
 
-#### Task 11: Check Test Coverage (optional)
+#### Task 24: Verify test isolation
+
+```bash
+# Run tests in random order
+pytest tests/integration/chatbot/ -v --random-order
+
+# Expected: 53 passed (same results)
+```
+
+#### Task 25: Optional coverage check
+
 ```bash
 pytest tests/integration/chatbot/agents/recommendation/ \
   --cov=app.agents.infrastructure.recsys.orchestrator \
@@ -431,150 +963,667 @@ pytest tests/integration/chatbot/agents/recommendation/ \
 
 ---
 
-## Critical Design Patterns
+## Phase 3: Documentation & Evaluation Test Strategy (30 minutes)
 
-### Pattern 1: Builder Fluent API
-```python
-# Good - readable, chainable
-mock = builder.returns_strategy(["als_recs"]).build()
+### Overview
 
-# Bad - verbose, error-prone
-mock = Mock()
-mock.execute.return_value = PlannerStrategy(...)
-```
+Document the separation between infrastructure tests (Phases 1.5 & 2) and evaluation tests.
 
-### Pattern 2: Factory Batch Creation
-```python
-# Good - consistent, no magic numbers
-candidates = CandidateFactory.create_batch(60)
+**Goal:** Clear guidance on what goes where, so future tests are added to the right place.
 
-# Bad - repetitive, error-prone
-candidates = [
-    Candidate(item_idx=10000, title="Book 1", ...),
-    Candidate(item_idx=10001, title="Book 2", ...),
-    # ... 58 more ...
-]
-```
+### Task 26: Create evaluation test strategy document (20 min)
 
-### Pattern 3: Fixture-Based Agent Creation
-```python
-# Good - one line, clear intent
-agent = mock_orchestrator(planner=custom_planner)
+**File:** `tests/evaluation/chatbot/README.md`
 
-# Bad - repetitive setup in every test
-agent = RecommendationAgent(
-    current_user=test_user,
-    db=db_session,
-    user_num_ratings=10,
-    allow_profile=False,
-    planner_agent=custom_planner,
-    retrieval_agent=mock_retrieval,
-    curation_agent=mock_curation,
-)
-```
+**Content to document:**
 
-### Pattern 4: Mock Call Verification
-```python
-# Good - verify what was passed
-planner_input = mock_planner.execute.call_args[0][0]
-assert planner_input.query == "recommend books"
+1. **Purpose of evaluation tests:**
+   - Test LLM output quality, not infrastructure
+   - Validate agent behavior, not orchestration
+   - May use LLM-as-judge or human eval
 
-# Bad - verify it was called (doesn't test data flow)
-assert mock_planner.execute.called
-```
+2. **When to use evaluation tests:**
+   - Testing routing accuracy (is query routed to right agent?)
+   - Testing response quality (is recommendation relevant?)
+   - Testing prompt effectiveness (does system prompt work?)
+
+3. **Structure:**
+   ```
+   tests/evaluation/chatbot/
+   ├── README.md
+   ├── router/                  # Router classification accuracy
+   ├── agents/
+   │   ├── recommendation/     # Recsys response quality
+   │   ├── web/               # Web search quality
+   │   └── docs/              # Docs retrieval quality
+   ```
+
+4. **Example evaluation test:**
+   - Test routing accuracy with real queries
+   - Test recommendation relevance with real user data
+   - Compare strategies (ALS vs subject-based)
+
+5. **Running evaluation tests:**
+   - Not in CI (expensive, slow)
+   - Run manually pre-deploy
+   - Run on-demand for experiments
+
+### Task 27: Update top-level integration README (10 min)
+
+**File:** `tests/integration/chatbot/README.md`
+
+**Updates:**
+
+1. **Add section: "Infrastructure vs Evaluation Tests"**
+   - Clear distinction between the two
+   - Link to evaluation README
+
+2. **Update "Purpose" section:**
+   - Emphasize infrastructure testing
+   - Note that LLM quality is tested separately
+
+3. **Update statistics:**
+   - 53 tests total (33 conductor + 20 recommendation)
+   - <30 seconds execution time
+   - $0.00 per run (no API calls)
+
+4. **Update "Related Testing" section:**
+   - Link to evaluation tests
+   - Explain when to use which
 
 ---
 
-## Success Criteria
+## Validation & Success Criteria
 
-### Must Have
-- [ ] All 20 tests pass independently
-- [ ] All 20 tests pass together
-- [ ] Phase 1 tests still pass (no regression)
-- [ ] Total test count: 53 (33 + 20)
-- [ ] All tests use fixtures (no manual setup)
-- [ ] All tests use builders (no raw mocks)
+### Must Have (Blocking)
 
-### Nice to Have
-- [ ] Test execution < 30 seconds
-- [ ] >80% coverage on orchestrator.py
-- [ ] All tests have docstrings
-- [ ] Builders cover all common scenarios
+**Phase 1.5:**
+- [ ] All 33 conductor tests pass
+- [ ] Execution time <10 seconds (was 2-5 minutes)
+- [ ] No API calls (mocks only)
+- [ ] Tests are deterministic (same results every run)
+- [ ] conftest.py reorganization complete
 
-### Failure Indicators
-- Tests fail when run individually but pass together (test pollution)
+**Phase 2:**
+- [ ] All 20 recommendation tests pass
+- [ ] Execution time <20 seconds
+- [ ] No API calls (mocks only)
+- [ ] Tests use fixtures and builders (no raw mocks)
+
+**Combined:**
+- [ ] All 53 tests pass together
+- [ ] Total execution time <30 seconds
+- [ ] Tests pass in random order (no pollution)
+- [ ] Can run on every commit in CI
+
+**Phase 3:**
+- [ ] Documentation complete and clear
+- [ ] Evaluation test strategy documented
+
+### Nice to Have (Non-blocking)
+
+- [ ] >80% coverage on Conductor
+- [ ] >80% coverage on RecommendationAgent orchestrator
+- [ ] All tests have comprehensive docstrings
+- [ ] Test failure messages are clear and actionable
+
+### Failure Indicators (Problems)
+
+- Tests pass individually but fail together (test pollution)
 - Tests pass but don't verify data flow (weak assertions)
 - Tests break when sub-agent internals change (too coupled)
 - Hard to understand what test is checking (poor naming/docs)
+- Fixtures leak between test suites
+- Tests are slow (>1 minute total)
 
 ---
 
-## Common Pitfalls and Solutions
+## Risk Management
 
-### Pitfall 1: Mock Not Being Used
-**Symptom:** Test passes but mock.execute.called is False
+### Risk 1: Refactoring breaks existing tests
 
-**Solution:** Verify agent was created with `mock_orchestrator(planner=your_mock)`
+**Mitigation:**
+- Refactor one file at a time
+- Run tests after each file
+- Keep git commits small (easy to revert)
 
-### Pitfall 2: Fixtures Not Found
-**Symptom:** "fixture 'mock_orchestrator' not found"
+**Fallback:**
+- If refactor too complex, pause and reassess
+- Can keep some tests with real agents temporarily
 
-**Solution:** Check fixture is in conftest.py, not in test file
+### Risk 2: Mocks don't match real agent behavior
 
-### Pitfall 3: Wrong Call Args Index
-**Symptom:** KeyError or IndexError when checking call_args
+**Mitigation:**
+- Use actual agent interfaces (AgentRequest/AgentResponse schemas)
+- Keep mocks simple (return valid data, don't emulate complex logic)
+- Rely on evaluation tests to catch behavior mismatches
 
-**Solution:**
-- Positional args: `call_args[0][index]`
-- Keyword args: `call_args[1]['name']`
-- Alternative: `call_args.args[0]` or `call_args.kwargs['name']`
+**Note:** This is acceptable - infrastructure tests validate orchestration, evaluation tests validate behavior.
 
-### Pitfall 4: Test Passes but Tests Nothing
-**Symptom:** Test never fails even when breaking code
+### Risk 3: Test fixtures become too complex
 
-**Solution:**
-- Add assertion that mock was called: `assert mock.execute.called`
-- Verify specific data: `assert input.query == expected`
-- Don't just check types: `assert isinstance(x, Y)` is weak
+**Mitigation:**
+- Use builder pattern (fluent, self-documenting)
+- Keep fixtures focused (single responsibility)
+- Document fixture usage in test docstrings
 
-### Pitfall 5: Builders Don't Chain
-**Symptom:** `returns_strategy().returns_strategy()` doesn't work
+**Warning signs:**
+- Fixtures with 10+ parameters
+- Tests spend more time setting up than asserting
+- Hard to understand what test is checking
 
-**Solution:** All builder methods must `return self`
+### Risk 4: Mock setup is inconsistent across tests
+
+**Mitigation:**
+- Centralize mock creation in fixtures
+- Use builders to enforce consistency
+- Review tests for duplicate setup code
+
+**Pattern to avoid:**
+```python
+# Bad - inconsistent mock setup in every test
+mock = Mock()
+mock.execute.return_value = ...
+```
+
+**Pattern to use:**
+```python
+# Good - consistent fixture-based setup
+agent = mock_orchestrator()  # Uses fixture
+```
+
+---
+
+## Development Workflow
+
+### Daily Development Loop
+
+1. **Before starting:**
+   ```bash
+   git checkout -b refactor-tests-phase-1.5
+   ```
+
+2. **For each task:**
+   ```bash
+   # Make changes
+   # Run affected tests
+   pytest tests/integration/chatbot/conductor/test_adapter_integrity.py -v
+
+   # If pass, commit
+   git add ...
+   git commit -m "Refactor test_adapter_integrity to use mocks"
+   ```
+
+3. **After each phase:**
+   ```bash
+   # Run full suite
+   pytest tests/integration/chatbot/ -v
+
+   # Check timing
+   time pytest tests/integration/chatbot/ -v
+
+   # If all pass, push
+   git push origin refactor-tests-phase-1.5
+   ```
+
+### Debugging Test Failures
+
+1. **Run single test with verbose output:**
+   ```bash
+   pytest path/to/test.py::TestClass::test_method -vv
+   ```
+
+2. **Check mock was called:**
+   ```python
+   print(f"Mock called: {mock.execute.called}")
+   print(f"Call count: {mock.execute.call_count}")
+   print(f"Call args: {mock.execute.call_args}")
+   ```
+
+3. **Inspect fixture values:**
+   ```python
+   def test_something(mock_orchestrator):
+       agent = mock_orchestrator()
+       print(f"Agent: {agent}")
+       print(f"Planner: {agent.planner}")
+       # ... proceed with test
+   ```
+
+4. **Verify agent was created with mocks:**
+   ```python
+   assert isinstance(agent.planner, Mock), "Planner should be mocked"
+   assert isinstance(agent.retrieval, Mock), "Retrieval should be mocked"
+   ```
+
+### Code Review Checklist
+
+**For refactored tests:**
+- [ ] Test intent unchanged (still validates same thing)
+- [ ] Uses fixtures (not inline mocks)
+- [ ] Asserts on data flow (not mock.called only)
+- [ ] Clear docstring explaining what's tested
+- [ ] No hardcoded magic values
+
+**For new tests:**
+- [ ] Appropriate test class (Stage/Parameter/Error/Flow)
+- [ ] Uses builders and factories
+- [ ] Comprehensive assertions (not just "didn't crash")
+- [ ] Clear naming: `test_<what>_<condition>`
+- [ ] Docstring explains test rationale
+
+**For fixtures:**
+- [ ] Single responsibility
+- [ ] Reusable across multiple tests
+- [ ] Documented (what it returns, how to use)
+- [ ] In appropriate conftest.py level
+
+---
+
+## Common Patterns & Anti-Patterns
+
+### Pattern 1: Fluent Builder API
+
+**Good:**
+```python
+mock = builder.returns_strategy(["als_recs"]).returns_candidates(60).build()
+```
+
+**Bad:**
+```python
+mock = Mock()
+mock.execute.return_value = ...
+# (repeated in every test)
+```
+
+### Pattern 2: Fixture-Based Agent Creation
+
+**Good:**
+```python
+def test_something(mock_orchestrator):
+    agent = mock_orchestrator()  # One line
+    result = agent.execute(request)
+```
+
+**Bad:**
+```python
+def test_something(db_session, test_user):
+    planner = Mock()
+    retrieval = Mock()
+    curation = Mock()
+    agent = RecommendationAgent(..., planner, retrieval, curation)
+    # (repeated setup in every test)
+```
+
+### Pattern 3: Verify Data Flow, Not Just Calls
+
+**Good:**
+```python
+retrieval_input = mock_retrieval.execute.call_args[0][0]
+assert retrieval_input.strategy.tools == ["als_recs"]
+assert retrieval_input.query == "recommend books"
+```
+
+**Bad:**
+```python
+assert mock_retrieval.execute.called  # Weak - doesn't test data
+```
+
+### Pattern 4: Realistic Test Data via Factories
+
+**Good:**
+```python
+candidates = CandidateFactory.create_batch(60)
+mock.execute.return_value = candidates
+```
+
+**Bad:**
+```python
+candidates = [
+    Candidate(item_idx=1, title="Book 1", ...),
+    Candidate(item_idx=2, title="Book 2", ...),
+    # ... 58 more lines ...
+]
+```
 
 ---
 
 ## Maintenance Guide
 
-### Adding New Tests
-1. Choose appropriate test class (Stage/Parameter/Error/Flow)
-2. Use existing fixtures and builders
-3. Follow naming: `test_<what>_<condition>`
-4. Add docstring explaining what's tested
-5. Run just your test: `pytest path/to/test.py::TestClass::test_name -v`
+### Adding New Infrastructure Tests
+
+**Decision tree:**
+
+1. **Testing Conductor orchestration?**
+   → Add to `tests/integration/chatbot/conductor/`
+
+2. **Testing RecommendationAgent pipeline?**
+   → Add to `tests/integration/chatbot/agents/recommendation/`
+
+3. **Testing LLM quality?**
+   → Add to `tests/evaluation/chatbot/`
+
+**Steps:**
+1. Determine test category (which class?)
+2. Write test using existing fixtures
+3. Run test: `pytest path/to/test.py::test_name -v`
+4. Update README if adding new category
+
+### Adding New Fixtures
+
+**Decision tree:**
+
+1. **Any test could use it?**
+   → Add to `tests/integration/chatbot/conftest.py`
+
+2. **Only recsys tests need it?**
+   → Add to `tests/integration/chatbot/recsys_fixtures.py`
+
+3. **Only conductor tests need it?**
+   → Add to `tests/integration/chatbot/conductor/conftest.py`
+
+4. **Only recommendation tests need it?**
+   → Add to `tests/integration/chatbot/agents/recommendation/conftest.py`
 
 ### Updating for Code Changes
-- **Orchestrator changes:** May need new assertions in Stage Transitions tests
-- **New parameters:** Add tests to Parameter Propagation category
-- **New failure modes:** Add tests to Error Handling category
-- **Schema changes:** Update factories/builders
+
+| Code Change | Tests to Update |
+|-------------|-----------------|
+| Conductor logic changes | Phase 1.5 tests (conductor/) |
+| RecommendationAgent orchestration changes | Phase 2 tests (agents/recommendation/) |
+| Sub-agent interface changes | Mock builders in test_helpers.py |
+| New agent types added | Add new mock fixtures |
+| Schema changes | Update mock return values |
 
 ### When Tests Fail
-1. Run single failing test with `-vv` for details
-2. Check if mock was called: `print(mock.execute.called)`
-3. Inspect call args: `print(mock.execute.call_args)`
-4. Verify fixture setup: Add `print(agent)` before execute
-5. Check Phase 1 still passes (may be orchestrator bug, not test bug)
+
+1. **Read failure message carefully**
+2. **Run with `-vv` for details**
+3. **Check if mock was called:** `print(mock.execute.call_count)`
+4. **Inspect call args:** `print(mock.execute.call_args)`
+5. **Verify fixture setup:** Add debug prints
+6. **Check other tests pass:** Isolate the failure
+7. **Review recent code changes:** Did agent interface change?
 
 ---
 
-## Next Steps After Phase 2
+## Timeline & Effort Estimation
 
-Once all 20 tests pass:
+| Phase | Tasks | Time | Dependencies |
+|-------|-------|------|--------------|
+| Phase 1.5 - Mock Infrastructure | Tasks 1-3 | 45 min | None |
+| Phase 1.5 - Refactor Tests | Tasks 4-8 | 75 min | Tasks 1-3 complete |
+| Phase 1.5 - Validation | Tasks 9-12 | 15 min | Tasks 4-8 complete |
+| **Phase 1.5 Total** | **12 tasks** | **2-2.5h** | - |
+| Phase 2 - Test Infrastructure | Tasks 13-15 | 60 min | Phase 1.5 complete |
+| Phase 2 - Pipeline Tests | Tasks 16-20 | 100 min | Tasks 13-15 complete |
+| Phase 2 - Validation | Tasks 21-25 | 15 min | Tasks 16-20 complete |
+| **Phase 2 Total** | **13 tasks** | **3-3.5h** | Phase 1.5 complete |
+| Phase 3 - Documentation | Tasks 26-27 | 30 min | Phases 1.5 & 2 complete |
+| **Phase 3 Total** | **2 tasks** | **30m** | Phases 1.5 & 2 complete |
+| **Grand Total** | **27 tasks** | **6-6.5h** | - |
 
-1. **Document:** Update main README with Phase 2 info
-2. **Review:** Code review focusing on test readability
-3. **Optimize:** If tests are slow, profile and optimize
-4. **Consider Phase 3:** Separate evaluation tests with real data (optional)
+### Recommended Schedule
 
-**Phase 2 Success = Clean, fast, maintainable tests that validate orchestration logic**
+**Option 1: Single session (6-7 hours)**
+- Complete all phases in one go
+- Good for: maintaining context, no context switching
+- Downside: long session, fatigue risk
+
+**Option 2: Three sessions (2-3 hours each)**
+- Session 1: Phase 1.5 (Conductor refactor)
+- Session 2: Phase 2 (Recommendation tests)
+- Session 3: Phase 3 (Documentation)
+- Good for: manageable chunks, clear stopping points
+
+**Option 3: Six sessions (1 hour each)**
+- More granular, easier to fit into schedule
+- Risk: more context switching overhead
+
+**Recommended: Option 2** (three 2-3 hour sessions)
+
+---
+
+## Post-Implementation
+
+### Immediate Next Steps
+
+1. **Run in CI:**
+   ```yaml
+   # .github/workflows/tests.yml
+   integration-tests:
+     runs-on: ubuntu-latest
+     steps:
+       - name: Run integration tests
+         env:
+           DATABASE_URL: ${{ secrets.DATABASE_URL }}
+         run: pytest tests/integration/chatbot/ -v
+   ```
+
+2. **Update team documentation:**
+   - Where to add infrastructure tests
+   - Where to add evaluation tests
+   - How to run tests locally
+
+3. **Create evaluation test examples:**
+   - One router evaluation test
+   - One agent quality evaluation test
+   - Document patterns for LLM-as-judge
+
+### Future Enhancements (Not in scope)
+
+- **Phase 4**: Web agent pipeline tests (similar to Phase 2)
+- **Phase 5**: Docs agent pipeline tests (similar to Phase 2)
+- **Phase 6**: End-to-end evaluation tests with real data
+- **Phase 7**: Performance benchmarking tests
+- **Phase 8**: Integration with monitoring/observability
+
+### Metrics to Track
+
+**Before implementation:**
+- 33 tests, 2-5 minutes, $0.50-2.00 per run
+- Cannot run on every commit
+- Flaky (LLM variance)
+
+**After implementation:**
+- 53 tests, <30 seconds, $0.00 per run
+- Runs on every commit in CI
+- Deterministic (100% consistent)
+
+**Success = 10x faster, 100% cheaper, 100% more reliable**
+
+---
+
+## Appendix A: Key Schemas & Contracts
+
+### AgentRequest (Input to agents)
+```python
+@dataclass
+class AgentRequest:
+    query: str                          # Current user query
+    history: List[dict]                 # Conversation history [{"u": ..., "a": ...}]
+    context: dict                       # Additional context
+        # context keys:
+        # - profile_allowed: bool
+        # - user_num_ratings: int
+        # - conv_id: str
+        # - uid: int
+    user: Optional[User]                # Current user object
+    db: Optional[Session]               # Database session
+```
+
+### AgentResponse (Output from agents)
+```python
+@dataclass
+class AgentResponse:
+    text: str                           # Response text (required)
+    success: bool                       # Whether execution succeeded
+    book_ids: Optional[List[int]]       # For recsys agent
+    policy_version: str                 # Policy version (required)
+    execution_state: Optional[dict]     # Metadata, tool calls, etc.
+```
+
+### AgentResult (Final output from Conductor)
+```python
+@dataclass
+class AgentResult:
+    text: str                           # Response text
+    success: bool                       # Overall success
+    book_ids: Optional[List[int]]       # Book recommendations
+    policy_version: str                 # Policy version
+    # ... other fields from AgentResponse
+```
+
+### PlannerStrategy (Output from PlannerAgent)
+```python
+@dataclass
+class PlannerStrategy:
+    tools: List[str]                    # Tools to use (e.g. ["als_recs"])
+    subjects: Optional[List[str]]       # Subject filters (if applicable)
+    reasoning: str                      # Why this strategy chosen
+```
+
+### Candidate (Output from RetrievalAgent)
+```python
+@dataclass
+class Candidate:
+    item_idx: int                       # Book ID
+    title: str                          # Book title
+    relevance_score: float              # 0-1 relevance
+    source_tool: str                    # Which tool found it
+    metadata: dict                      # Additional info
+```
+
+### BookRecommendation (Output from CurationAgent)
+```python
+@dataclass
+class BookRecommendation:
+    item_idx: int                       # Book ID
+    title: str                          # Book title
+    explanation: str                    # Why recommended
+    score: float                        # 0-1 confidence
+```
+
+---
+
+## Appendix B: Fixture Hierarchy
+
+```
+tests/integration/chatbot/
+│
+├── conftest.py                         # Level 1: Generic
+│   └── db_session                      # Any test can use
+│
+├── recsys_fixtures.py                  # Level 2: Domain-specific
+│   ├── test_user_warm                  # Recsys tests can use
+│   ├── test_user_cold
+│   ├── test_user_new
+│   └── test_user_with_profile
+│
+├── conductor/
+│   └── conftest.py                     # Level 3: Test-specific
+│       ├── (imports recsys_fixtures)
+│       ├── mock_recsys_agent           # Conductor tests only
+│       ├── mock_web_agent
+│       ├── mock_docs_agent
+│       ├── mock_response_agent
+│       └── mock_agent_factory
+│
+└── agents/recommendation/
+    └── conftest.py                     # Level 3: Test-specific
+        ├── (imports recsys_fixtures)
+        ├── mock_planner_builder        # Recommendation tests only
+        ├── mock_retrieval_builder
+        ├── mock_curation_builder
+        └── mock_orchestrator
+```
+
+**Principle:** Fixtures flow down (child can use parent), but not sideways (conductor cannot use recommendation fixtures).
+
+---
+
+## Appendix C: Test Naming Conventions
+
+### Test Files
+- `test_<component>_<aspect>.py`
+- Examples: `test_adapter_integrity.py`, `test_error_boundaries.py`
+
+### Test Classes
+- `Test<Category>` (PascalCase)
+- Examples: `TestStageTransitions`, `TestParameterPropagation`
+
+### Test Methods
+- `test_<what>_<condition>`
+- Examples:
+  - `test_planner_output_flows_to_retrieval`
+  - `test_cold_user_parameters_reach_planner`
+  - `test_retrieval_failure_halts_pipeline`
+
+### Fixtures
+- Descriptive, lowercase with underscores
+- Examples: `mock_agent_factory`, `test_user_warm`, `candidate_factory`
+
+### Builders
+- `Mock<Component>Builder` (PascalCase)
+- Examples: `MockPlannerBuilder`, `MockRetrievalBuilder`
+
+### Factories
+- `<DataType>Factory` (PascalCase)
+- Examples: `CandidateFactory`, `BookFactory`
+
+---
+
+## Appendix D: Git Commit Strategy
+
+### Recommended commit points:
+
+1. After Task 1-3: "Create mock infrastructure for conductor tests"
+2. After Task 4: "Refactor test_adapter_integrity to use mocks"
+3. After Task 5: "Refactor test_context_builder to use mocks"
+4. After Task 6: "Refactor test_error_boundaries to use mocks"
+5. After Task 7: "Refactor test_multi_turn_state to use mocks"
+6. After Task 8: "Refactor test_parameter_handling to use mocks"
+7. After Task 9-12: "Phase 1.5 complete: all conductor tests use mocks"
+8. After Task 13-15: "Create test infrastructure for recommendation agent"
+9. After Task 16-17: "Add stage transition tests"
+10. After Task 18: "Add parameter propagation tests"
+11. After Task 19: "Add error handling tests"
+12. After Task 20: "Add full pipeline flow tests"
+13. After Task 21-25: "Phase 2 complete: recommendation agent pipeline tests"
+14. After Task 26-27: "Add evaluation test documentation"
+
+**Principle:** Commit after each logical unit of work (not after each line change).
+
+---
+
+## Questions & Clarifications
+
+**Q: Why not mock the router in Phase 1.5?**
+A: Router is already tested separately in evaluation tests. Conductor tests verify "does the router's decision get executed correctly?", not "does the router make the right decision?". We can mock router when testing error handling.
+
+**Q: Can we skip Phase 3 (documentation)?**
+A: Not recommended. Without clear documentation, future tests may end up in the wrong place, mixing infrastructure and evaluation concerns again.
+
+**Q: What if refactoring Phase 1.5 takes longer than estimated?**
+A: Can pause after each test file and reassess. Each file is independent. If one file is particularly complex, can defer to Phase 2 completion.
+
+**Q: Should we add type hints to all test code?**
+A: Yes for fixtures and helpers (improves IDE support). Optional for test methods (docstrings are more important).
+
+**Q: How do we handle flaky tests if they appear?**
+A: Mocked tests should not be flaky. If a test is flaky, it likely indicates:
+1. Test pollution (state leaking between tests)
+2. Mock not properly configured
+3. Test has timing dependency (use pytest-timeout)
+
+**Q: Can we parallelize test execution?**
+A: Yes, use `pytest -n auto` (requires pytest-xdist). Should work since tests are independent. Might need to ensure db session fixtures are thread-safe.
+
+---
+
+**End of Implementation Plan**
+
+For questions or issues during implementation, refer to:
+- Architecture Decisions (section explaining "why")
+- Common Patterns (section showing "how")
+- Risk Management (section addressing "what if")
+- Maintenance Guide (section for "later")
