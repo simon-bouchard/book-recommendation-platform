@@ -3,6 +3,7 @@
 Multi-agent conductor using clean LangGraph infrastructure.
 Routes requests to appropriate agents and returns standardized results.
 """
+
 from __future__ import annotations
 from typing import Any, Optional, List
 import time
@@ -23,10 +24,23 @@ class Conductor:
       3) Execute agent and convert result back to AgentResult
     """
 
-    def __init__(self) -> None:
-        self.router = RouterLLM()
-        self.factory = AgentFactory()
-        self.adapter = AgentAdapter()
+    def __init__(
+        self,
+        router: Optional[RouterLLM] = None,
+        factory: Optional[AgentFactory] = None,
+        adapter: Optional[AgentAdapter] = None,
+    ) -> None:
+        """
+        Initialize conductor with optional dependency injection.
+
+        Args:
+            router: Optional router instance (defaults to RouterLLM)
+            factory: Optional factory instance (defaults to AgentFactory)
+            adapter: Optional adapter instance (defaults to AgentAdapter)
+        """
+        self.router = router if router is not None else RouterLLM()
+        self.factory = factory if factory is not None else AgentFactory()
+        self.adapter = adapter if adapter is not None else AgentAdapter()
         self.policy_version = "conductor.mas.v1"
 
     def run(
@@ -46,7 +60,7 @@ class Conductor:
     ) -> AgentResult:
         """
         Execute one chat turn through the multi-agent system.
-        
+
         Args:
             history: Rolling conversation history [{u,a}, ...]
             user_text: Current user input
@@ -59,19 +73,19 @@ class Conductor:
             uid: User ID (optional)
             force_target: Override routing decision (optional)
             router_k_user: Number of last user messages for router
-            
+
         Returns:
             AgentResult with response and metadata
         """
         start_time = time.time()
-        
+
         # Start logging
-        append_chatbot_log(f"\n{'='*60}")
+        append_chatbot_log(f"\n{'=' * 60}")
         append_chatbot_log(f"CONDUCTOR START")
         append_chatbot_log(f"Query: {user_text}")
         append_chatbot_log(f"Profile: {use_profile}, Ratings: {user_num_ratings or 0}")
-        append_chatbot_log(f"{'='*60}")
-        
+        append_chatbot_log(f"{'=' * 60}")
+
         try:
             # 1) Route to determine target
             if force_target:
@@ -123,7 +137,7 @@ class Conductor:
 
             # Attach conductor metadata
             result.policy_version = result.policy_version or self.policy_version
-            
+
             # Log completion
             total_time = int((time.time() - start_time) * 1000)
             book_count = len(result.book_ids or [])
@@ -131,16 +145,16 @@ class Conductor:
                 f"COMPLETE: {total_time}ms, books={book_count}, "
                 f"tools={len(result.tool_calls or [])}"
             )
-            append_chatbot_log(f"{'='*60}\n")
-            
+            append_chatbot_log(f"{'=' * 60}\n")
+
             return result
-            
+
         except Exception as e:
             # Log error
             total_time = int((time.time() - start_time) * 1000)
             append_chatbot_log(f"ERROR after {total_time}ms: {type(e).__name__}: {str(e)}")
-            append_chatbot_log(f"{'='*60}\n")
-            
+            append_chatbot_log(f"{'=' * 60}\n")
+
             # Return error result
             return AgentResult(
                 target=force_target or "error",
