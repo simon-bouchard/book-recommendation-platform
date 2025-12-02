@@ -75,7 +75,6 @@ Return your strategy as a JSON object with this structure:
   "recommended_tools": ["tool1", "tool2"],
   "fallback_tools": ["tool3"],
   "reasoning": "Brief explanation of your strategy choice",
-  "negative_constraints": null
 }
 ```
 
@@ -83,7 +82,6 @@ Return your strategy as a JSON object with this structure:
 - `recommended_tools`: 1-2 primary tools, ordered by preference
 - `fallback_tools`: 1-2 backup tools if primary underperforms
 - `reasoning`: One sentence explaining your strategy choice
-- `negative_constraints`: List of detected negative terms (e.g., ["vampires", "romance"]) or null
 
 **CRITICAL:** Return ONLY the JSON object. No markdown. No explanations. Just pure JSON.
 
@@ -104,7 +102,6 @@ Return your strategy as a JSON object with this structure:
   "recommended_tools": ["als_recs"],
   "fallback_tools": ["popular_books"],
   "reasoning": "Vague query with ALS available - use personalized collaborative filtering",
-  "negative_constraints": null
 }
 ```
 
@@ -123,7 +120,6 @@ Return your strategy as a JSON object with this structure:
   "recommended_tools": ["book_semantic_search"],
   "fallback_tools": ["subject_hybrid_pool"],
   "reasoning": "Descriptive query with specific vibe/atmosphere - semantic search ideal",
-  "negative_constraints": null
 }
 ```
 
@@ -143,7 +139,6 @@ Return your strategy as a JSON object with this structure:
   "recommended_tools": ["subject_hybrid_pool"],
   "fallback_tools": ["popular_books"],
   "reasoning": "Vague query, cold user but profile shows clear genre preferences (mystery/historical) - use subject-based search",
-  "negative_constraints": null
 }
 ```
 
@@ -162,7 +157,6 @@ Return your strategy as a JSON object with this structure:
   "recommended_tools": ["subject_id_search", "subject_hybrid_pool"],
   "fallback_tools": ["book_semantic_search"],
   "reasoning": "Genre-specific query (cozy mystery) - resolve genre to subject IDs then filter",
-  "negative_constraints": null
 }
 ```
 
@@ -181,7 +175,6 @@ Return your strategy as a JSON object with this structure:
   "recommended_tools": ["book_semantic_search"],
   "fallback_tools": ["subject_hybrid_pool"],
   "reasoning": "Descriptive query with atmosphere terms - semantic search handles 'dark fantasy' well, curator will filter vampires/romance",
-  "negative_constraints": ["vampires", "romance"]
 }
 ```
 
@@ -200,7 +193,6 @@ Return your strategy as a JSON object with this structure:
   "recommended_tools": ["subject_id_search", "subject_hybrid_pool", "book_semantic_search"],
   "fallback_tools": ["popular_books"],
   "reasoning": "Complex query combining genre (sci-fi) with specific themes (AI ethics) - use both subject filtering and semantic search for best coverage",
-  "negative_constraints": null
 }
 ```
 
@@ -219,7 +211,6 @@ Return your strategy as a JSON object with this structure:
   "recommended_tools": ["popular_books"],
   "fallback_tools": ["book_semantic_search"],
   "reasoning": "Vague query, cold user with no context - start with popular books as safe default",
-  "negative_constraints": null
 }
 ```
 
@@ -233,6 +224,5 @@ Return your strategy as a JSON object with this structure:
 4. **Semantic search is best for vibes** - atmosphere, mood, tone descriptions
 5. **Subject tools are best for genres** - when user names specific genres/subjects
 6. **Popular books are a safe fallback** - especially for cold users with no context
-7. **Negative constraints are logged but not acted on** - CandidateGenerator ignores them, Curator filters them
 
 Remember: Return ONLY the JSON object. No additional text.
