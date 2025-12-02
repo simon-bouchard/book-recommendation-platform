@@ -1,6 +1,6 @@
 # app/agents/infrastructure/recsys/orchestrator.py
 """
-Three-stage recommendation agent: Planning â†’ Retrieval â†’ Curation
+Three-stage recommendation agent: Planning -> Retrieval -> Curation
 Orchestrates the complete pipeline without implementing agent logic itself.
 """
 
