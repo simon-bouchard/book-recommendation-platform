@@ -231,7 +231,7 @@ class MockRetrievalBuilder:
 
     def returns_candidates(
         self,
-        candidates: List[BookRecommendation],
+        candidates: List[Dict[str, Any]],
         tool_name: str = "als_recommendations",
     ):
         """Configure retrieval to return specific candidates."""
@@ -274,22 +274,43 @@ class MockRetrievalBuilder:
         return self
 
     def _configure_default(self):
-        """Set default return value as RetrievalOutput object."""
-        # Create ExecutionContext
-        execution_context = ExecutionContext(
-            planner_reasoning="Test planner reasoning",
-            tools_used=[te.tool_name for te in self._tool_executions],
-            profile_data=None,
-        )
+        """
+        Set default return value as RetrievalOutput object.
 
-        # Create RetrievalOutput object (not tuple!)
-        output = RetrievalOutput(
-            candidates=self._candidates,
-            execution_context=execution_context,
-            reasoning=f"Retrieved {len(self._candidates)} candidates using {len(self._tool_executions)} tools",
-        )
+        Uses side_effect to dynamically capture strategy reasoning and profile_data
+        from the actual RetrievalInput when execute() is called.
+        """
+        # Store references to candidates and tool_executions in closure
+        candidates = self._candidates
+        tool_executions = self._tool_executions
 
-        self.mock.execute.return_value = output
+        def mock_execute(retrieval_input):
+            """
+            Dynamic mock that extracts values from the actual input.
+
+            This ensures the ExecutionContext has the correct planner_reasoning
+            and profile_data from the actual strategy passed in.
+            """
+            # Extract reasoning and profile_data from the actual input
+            strategy_reasoning = retrieval_input.strategy.reasoning
+            profile_data = retrieval_input.profile_data
+
+            # Create ExecutionContext with actual values
+            execution_context = ExecutionContext(
+                planner_reasoning=strategy_reasoning,
+                tools_used=[te.tool_name for te in tool_executions],
+                profile_data=profile_data,
+            )
+
+            # Return RetrievalOutput
+            return RetrievalOutput(
+                candidates=candidates,
+                execution_context=execution_context,
+                reasoning=f"Retrieved {len(candidates)} candidates using {len(tool_executions)} tools",
+            )
+
+        # Use side_effect instead of return_value for dynamic behavior
+        self.mock.execute = Mock(side_effect=mock_execute)
 
     def build(self):
         """Return configured mock."""
