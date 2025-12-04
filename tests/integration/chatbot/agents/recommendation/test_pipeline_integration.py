@@ -125,13 +125,14 @@ class TestStageTransitions:
 
         # Verify curation received the candidates from retrieval
         assert mock_curation.execute.called, "Curation should be called"
-        curation_candidates = mock_curation.execute.call_args[0][1]  # Second positional arg
+        curation_candidates = mock_curation.execute.call_args.kwargs["candidates"]
 
         assert len(curation_candidates) == 60, (
             f"Curation should receive all 60 candidates, got {len(curation_candidates)}"
         )
         # Verify same candidates (by comparing first item)
-        assert curation_candidates[0].item_idx == test_candidates[0].item_idx, (
+        # Note: test_candidates are dicts, curation_candidates are BookRecommendation objects
+        assert curation_candidates[0].item_idx == test_candidates[0]["item_idx"], (
             "Candidates should be preserved from retrieval to curation"
         )
 
@@ -182,7 +183,7 @@ class TestStageTransitions:
 
         # Verify curation received ExecutionContext
         assert mock_curation.execute.called, "Curation should be called"
-        execution_context = mock_curation.execute.call_args[0][2]  # Third positional arg
+        execution_context = mock_curation.execute.call_args.kwargs["execution_context"]
 
         assert isinstance(execution_context, ExecutionContext), (
             "Curation should receive ExecutionContext"
@@ -242,7 +243,7 @@ class TestStageTransitions:
         assert retrieval_input.profile_data == profile_data, "Profile data should reach retrieval"
 
         # Verify profile data reached curation
-        execution_context = mock_curation.execute.call_args[0][2]
+        execution_context = mock_curation.execute.call_args.kwargs["execution_context"]
         assert execution_context.profile_data == profile_data, (
             "Profile data should reach curation in ExecutionContext"
         )
@@ -298,7 +299,7 @@ class TestStageTransitions:
         result = agent.execute(request)
 
         # Verify curation received full metadata
-        curation_candidates = mock_curation.execute.call_args[0][1]
+        curation_candidates = mock_curation.execute.call_args.kwargs["candidates"]
 
         assert len(curation_candidates) == 2, "Should have 2 candidates"
 
