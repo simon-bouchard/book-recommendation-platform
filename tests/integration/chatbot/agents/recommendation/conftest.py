@@ -18,6 +18,7 @@ from app.agents.domain.entities import (
 from app.agents.domain.recsys_schemas import (
     PlannerStrategy,
     ExecutionContext,
+    RetrievalOutput,
 )
 
 # Import shared recsys user fixtures from parent
@@ -43,9 +44,9 @@ class CandidateFactory:
         n: int,
         start_idx: int = 10000,
         source_tool: str = "als_recommendations",
-    ) -> List[BookRecommendation]:
+    ) -> List[Dict[str, Any]]:
         """
-        Generate a batch of book candidates.
+        Generate a batch of book candidates as dictionaries.
 
         Args:
             n: Number of candidates to generate
@@ -53,17 +54,19 @@ class CandidateFactory:
             source_tool: Tool that generated these candidates
 
         Returns:
-            List of BookRecommendation objects
+            List of candidate dictionaries (NOT BookRecommendation objects)
+            These will be converted to BookRecommendation by the orchestrator
         """
         candidates = []
         for i in range(n):
             candidates.append(
-                BookRecommendation(
-                    item_idx=start_idx + i,
-                    title=f"Test Book {start_idx + i}",
-                    author=f"Author {i % 10}",
-                    year=1990 + (i % 30),
-                )
+                {
+                    "item_idx": start_idx + i,
+                    "title": f"Test Book {start_idx + i}",
+                    "author": f"Author {i % 10}",
+                    "year": 1990 + (i % 30),
+                    "tool_source": source_tool,
+                }
             )
         return candidates
 
@@ -75,18 +78,25 @@ class CandidateFactory:
         year: int,
         subjects: Optional[List[str]] = None,
         tones: Optional[List[str]] = None,
-    ) -> BookRecommendation:
+    ) -> Dict[str, Any]:
         """
-        Create a candidate with full metadata.
+        Create a candidate with full metadata as a dictionary.
 
         Used for testing metadata preservation through pipeline.
         """
-        return BookRecommendation(
-            item_idx=item_idx,
-            title=title,
-            author=author,
-            year=year,
-        )
+        candidate = {
+            "item_idx": item_idx,
+            "title": title,
+            "author": author,
+            "year": year,
+        }
+
+        if subjects is not None:
+            candidate["subjects"] = subjects
+        if tones is not None:
+            candidate["tones"] = tones
+
+        return candidate
 
 
 class StrategyFactory:
@@ -102,7 +112,6 @@ class StrategyFactory:
             fallback_tools=["popular_books"],
             reasoning="User has sufficient rating history for collaborative filtering",
             profile_data=profile_data,
-            negative_constraints=None,
         )
 
     @staticmethod
@@ -113,7 +122,6 @@ class StrategyFactory:
             fallback_tools=["popular_books"],
             reasoning="Descriptive query best served by semantic search",
             profile_data=None,
-            negative_constraints=None,
         )
 
     @staticmethod
@@ -126,7 +134,6 @@ class StrategyFactory:
             fallback_tools=["popular_books"],
             reasoning="User has profile data, use subject-based recommendations",
             profile_data=profile_data,
-            negative_constraints=None,
         )
 
     @staticmethod
@@ -142,7 +149,6 @@ class StrategyFactory:
             fallback_tools=fallback_tools,
             reasoning=reasoning,
             profile_data=profile_data,
-            negative_constraints=None,
         )
 
 
@@ -268,8 +274,22 @@ class MockRetrievalBuilder:
         return self
 
     def _configure_default(self):
-        """Set default return value as tuple (candidates, tool_executions)."""
-        self.mock.execute.return_value = (self._candidates, self._tool_executions)
+        """Set default return value as RetrievalOutput object."""
+        # Create ExecutionContext
+        execution_context = ExecutionContext(
+            planner_reasoning="Test planner reasoning",
+            tools_used=[te.tool_name for te in self._tool_executions],
+            profile_data=None,
+        )
+
+        # Create RetrievalOutput object (not tuple!)
+        output = RetrievalOutput(
+            candidates=self._candidates,
+            execution_context=execution_context,
+            reasoning=f"Retrieved {len(self._candidates)} candidates using {len(self._tool_executions)} tools",
+        )
+
+        self.mock.execute.return_value = output
 
     def build(self):
         """Return configured mock."""
@@ -297,7 +317,20 @@ class MockCurationBuilder:
 
     def returns_success_with_books(self, n: int = 5):
         """Configure curation to return successful response with n books."""
-        books = CandidateFactory.create_batch(n)
+        # Create candidate dictionaries
+        candidate_dicts = CandidateFactory.create_batch(n)
+
+        # Convert to BookRecommendation objects (what curation actually returns)
+        books = [
+            BookRecommendation(
+                item_idx=c["item_idx"],
+                title=c["title"],
+                author=c["author"],
+                year=c["year"],
+            )
+            for c in candidate_dicts
+        ]
+
         execution_state = AgentExecutionState(
             status=ExecutionStatus.COMPLETED,
             input_text="",
@@ -322,7 +355,20 @@ class MockCurationBuilder:
 
     def _default_response(self) -> AgentResponse:
         """Create default successful response."""
-        books = CandidateFactory.create_batch(5)
+        # Create candidate dictionaries
+        candidate_dicts = CandidateFactory.create_batch(5)
+
+        # Convert to BookRecommendation objects (what curation actually returns)
+        books = [
+            BookRecommendation(
+                item_idx=c["item_idx"],
+                title=c["title"],
+                author=c["author"],
+                year=c["year"],
+            )
+            for c in candidate_dicts
+        ]
+
         execution_state = AgentExecutionState(
             status=ExecutionStatus.COMPLETED,
             input_text="",
