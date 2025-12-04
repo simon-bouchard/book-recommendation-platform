@@ -47,7 +47,7 @@ def test_something(mock_planner_builder, mock_retrieval_builder, mock_curation_b
 ```
 
 **Why mocked sub-agents?**
-- ⚡ **Fast**: <10 seconds for all 20 tests (vs 5-10 minutes with real LLMs)
+- ⚡ **Fast**: <10 seconds for all 24 tests (vs 5-10 minutes with real LLMs)
 - 💰 **Free**: No API costs
 - ✅ **Deterministic**: Same results every time (no LLM variance)
 - 🎯 **Focused**: Tests orchestration, not LLM behavior
@@ -58,14 +58,14 @@ def test_something(mock_planner_builder, mock_retrieval_builder, mock_curation_b
 ```
 tests/integration/chatbot/agents/recommendation/
 ├── conftest.py                      # Mock fixtures and builders
-└── test_pipeline_integration.py    # 20 tests organized by category
+└── test_pipeline_integration.py    # 24 tests organized by category
     ├── TestStageTransitions         # 6 tests - Data flow between stages
     ├── TestParameterPropagation     # 4 tests - Parameter passing
-    ├── TestErrorHandling            # 5 tests - Failure scenarios
-    └── TestFullPipelineFlow         # 5 tests - End-to-end scenarios
+    ├── TestErrorHandling            # 8 tests - Failure scenarios
+    └── TestFullPipelineFlow         # 6 tests - End-to-end scenarios
 ```
 
-**Total: 20 tests**
+**Total: 24 tests**
 
 ## Test Categories
 
@@ -91,18 +91,21 @@ Tests that user context reaches all sub-agents:
 
 **Why critical:** Parameters control agent behavior. Incorrect propagation breaks personalization.
 
-### 3. Error Handling (5 tests)
+### 3. Error Handling (8 tests)
 Tests failure scenarios at each stage:
 
 - **test_planner_failure_uses_fallback_strategy**: Planner error → hardcoded fallback
 - **test_retrieval_failure_returns_error_response**: No candidates → helpful error
 - **test_curation_failure_returns_fallback_response**: Curation error → simple list
+- **test_zero_candidates_from_retrieval_handled**: Retrieval returns empty list gracefully
+- **test_curation_returns_empty_books_handled**: Curation filters out all books gracefully
+- **test_orchestrator_timeout_boundary**: Pipeline respects timeout constraints
 - **test_database_none_handled_gracefully**: Missing db doesn't crash
 - **test_invalid_input_doesnt_crash**: Empty query, malformed input handled
 
 **Why critical:** Production agents fail. System must degrade gracefully.
 
-### 4. Full Pipeline Flow (5 tests)
+### 4. Full Pipeline Flow (6 tests)
 Tests complete end-to-end execution:
 
 - **test_warm_user_vague_query_complete_flow**: Warm user + ALS recommendations
@@ -110,6 +113,7 @@ Tests complete end-to-end execution:
 - **test_cold_user_with_profile_complete_flow**: Cold user + profile + subjects
 - **test_empty_query_handled**: Empty query doesn't crash
 - **test_very_long_query_handled**: Very long query doesn't crash
+- **test_first_turn_no_history_through_pipeline**: First turn with no history handled correctly
 
 **Why critical:** Validates that all stages work together correctly.
 
@@ -135,7 +139,7 @@ Tests complete end-to-end execution:
 # From project root
 pytest tests/integration/chatbot/agents/recommendation/ -v
 
-# Expected: 20 passed
+# Expected: 24 passed
 # Expected time: <10 seconds
 ```
 
@@ -178,7 +182,7 @@ pytest tests/integration/chatbot/agents/recommendation/test_pipeline_integration
 ## Expected Behavior
 
 ### Success Criteria
-- **All 20 tests pass** on fresh database with test users
+- **All 24 tests pass** on fresh database with test users
 - **Execution time**: <10 seconds total
 - **No flaky tests**: deterministic results (mocked responses)
 - **No API calls**: $0.00 cost per run

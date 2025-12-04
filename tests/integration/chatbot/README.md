@@ -7,7 +7,7 @@ Mock-based integration tests for chatbot infrastructure validation.
 This test suite validates chatbot infrastructure concerns using **mocked agents** instead of real LLMs. Tests are fast (<30 seconds), free ($0.00), and deterministic (100% consistent).
 
 **Test Suite Characteristics:**
-- ⚡ **Fast**: <30 seconds for all 53 tests
+- ⚡ **Fast**: <30 seconds for all 57 tests
 - 💰 **Free**: No API costs (all mocked)
 - ✅ **Deterministic**: 100% consistent results
 - 🔄 **CI-friendly**: Run on every commit
@@ -29,14 +29,14 @@ tests/integration/chatbot/
 │   ├── test_multi_turn_state.py        # 5 tests - Conversation state
 │   └── test_parameter_handling.py      # 8 tests - Parameter flow
 │
-└── agents/                             # Agent-level pipelines (20 tests)
+└── agents/                             # Agent-level pipelines (24 tests)
     └── recommendation/
         ├── README.md                   # Pipeline test documentation
         ├── conftest.py                 # Mock sub-agent fixtures and builders
-        └── test_pipeline_integration.py # 20 tests - Pipeline data flow
+        └── test_pipeline_integration.py # 24 tests - Pipeline data flow
 ```
 
-**Total: 53 tests**
+**Total: 57 tests**
 
 ## Test Categories
 
@@ -65,7 +65,7 @@ Tests the Conductor's responsibility of routing user queries to appropriate agen
 - Multi-turn state (5 tests): Conversation persistence
 - Parameter handling (8 tests): Parameter propagation
 
-### RecommendationAgent Pipeline Tests (20 tests)
+### RecommendationAgent Pipeline Tests (24 tests)
 
 Tests the RecommendationAgent's three-stage pipeline orchestration: Planner → Retrieval → Curation.
 
@@ -85,8 +85,8 @@ Tests the RecommendationAgent's three-stage pipeline orchestration: Planner → 
 **Test breakdown:**
 - Stage transitions (6 tests): Data flow between stages
 - Parameter propagation (4 tests): Parameter passing to sub-agents
-- Error handling (5 tests): Failure scenarios at each stage
-- Full pipeline flow (5 tests): End-to-end execution scenarios
+- Error handling (8 tests): Failure scenarios at each stage
+- Full pipeline flow (6 tests): End-to-end execution scenarios
 
 ## Testing Architecture
 
@@ -164,7 +164,7 @@ mock_curation = mock_curation_builder.returns_success_with_books(5).build()
 # From project root
 pytest tests/integration/chatbot/ -v
 
-# Expected: 53 passed
+# Expected: 57 passed
 # Expected time: <30 seconds
 ```
 
@@ -174,7 +174,7 @@ pytest tests/integration/chatbot/ -v
 # Conductor tests (33 tests)
 pytest tests/integration/chatbot/conductor/ -v
 
-# Pipeline tests (20 tests)
+# Pipeline tests (24 tests)
 pytest tests/integration/chatbot/agents/recommendation/ -v
 ```
 
