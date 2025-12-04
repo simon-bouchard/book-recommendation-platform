@@ -8,7 +8,12 @@ import pytest
 from unittest.mock import Mock
 
 from app.agents.infrastructure.recsys.orchestrator import RecommendationAgent
-from app.agents.domain.entities import AgentRequest, AgentResponse
+from app.agents.domain.entities import (
+    AgentRequest,
+    AgentResponse,
+    AgentExecutionState,
+    ExecutionStatus,
+)
 from app.agents.domain.recsys_schemas import PlannerInput, RetrievalInput, ExecutionContext
 
 
@@ -695,6 +700,150 @@ class TestErrorHandling:
         # May or may not succeed depending on fallback logic
         assert result.text, "Should have response text even on failure"
 
+    def test_zero_candidates_from_retrieval_handled(
+        self,
+        db_session,
+        test_user_warm,
+        mock_planner_builder,
+        mock_retrieval_builder,
+        mock_curation_builder,
+    ):
+        """
+        Verify empty candidate list triggers no_candidates fallback.
+
+        If retrieval returns 0 candidates, orchestrator should return
+        informative error with policy_version="recsys.orchestrator.no_candidates".
+        """
+        mock_planner = mock_planner_builder.returns_warm_user_strategy().build()
+        # Configure retrieval to return empty list
+        mock_retrieval = mock_retrieval_builder.returns_empty().build()
+        mock_curation = mock_curation_builder.returns_success_with_books(5).build()
+
+        agent = RecommendationAgent(
+            current_user=test_user_warm,
+            db=db_session,
+            user_num_ratings=15,
+            allow_profile=False,
+            planner_agent=mock_planner,
+            retrieval_agent=mock_retrieval,
+            curation_agent=mock_curation,
+        )
+
+        request = AgentRequest(
+            user_text="extremely specific nonexistent topic xyz123",
+            conversation_history=[],
+            context={"profile_allowed": False, "num_ratings": 15},
+        )
+        result = agent.execute(request)
+
+        # Verify no_candidates fallback triggered
+        assert isinstance(result, AgentResponse), "Should return AgentResponse"
+        assert result.success is False, "Should indicate failure when no candidates"
+        assert result.policy_version == "recsys.orchestrator.no_candidates", (
+            "Should use no_candidates policy version"
+        )
+        assert len(result.text) > 0, "Should have informative error message"
+        # Curation should NOT be called (no candidates to curate)
+        assert not mock_curation.execute.called, "Curation should not be called with no candidates"
+
+    def test_curation_returns_empty_books_handled(
+        self,
+        db_session,
+        test_user_warm,
+        mock_planner_builder,
+        mock_retrieval_builder,
+        mock_curation_builder,
+    ):
+        """
+        Verify curation returning empty book list is handled gracefully.
+
+        If curation returns empty book_recommendations, orchestrator should
+        return top candidates from pool with policy_version="recsys.orchestrator.curation_empty".
+        """
+        mock_planner = mock_planner_builder.returns_warm_user_strategy().build()
+        mock_retrieval = mock_retrieval_builder.returns_batch(60).build()
+
+        # Configure curation to return response with empty books
+        empty_response = AgentResponse(
+            text="Here are some recommendations",
+            target_category="recsys",
+            success=True,
+            book_recommendations=[],  # Empty list!
+            execution_state=AgentExecutionState(
+                status=ExecutionStatus.COMPLETED,
+                input_text="",
+            ),
+            policy_version="recsys.curation.v1",
+        )
+        mock_curation = mock_curation_builder.returns_response(empty_response).build()
+
+        agent = RecommendationAgent(
+            current_user=test_user_warm,
+            db=db_session,
+            user_num_ratings=15,
+            allow_profile=False,
+            planner_agent=mock_planner,
+            retrieval_agent=mock_retrieval,
+            curation_agent=mock_curation,
+        )
+
+        request = AgentRequest(
+            user_text="recommend books",
+            conversation_history=[],
+            context={"profile_allowed": False, "num_ratings": 15},
+        )
+        result = agent.execute(request)
+
+        # Verify curation_empty fallback triggered
+        assert isinstance(result, AgentResponse), "Should return AgentResponse"
+        assert result.success is True, "Should still succeed with fallback"
+        assert result.policy_version == "recsys.orchestrator.curation_empty", (
+            "Should use curation_empty policy version"
+        )
+        assert len(result.book_recommendations) > 0, (
+            "Should return top candidates from pool as fallback"
+        )
+        assert len(result.book_recommendations) <= 10, (
+            "Should return at most 10 fallback candidates"
+        )
+
+    def test_orchestrator_timeout_boundary(
+        self,
+        db_session,
+        test_user_warm,
+        mock_planner_builder,
+        mock_retrieval_builder,
+        mock_curation_builder,
+    ):
+        """
+        Verify orchestrator has 120s timeout configuration.
+
+        Tests that timeout setting exists and is properly configured.
+        We don't actually wait 120s, just verify the configuration.
+        """
+        mock_planner = mock_planner_builder.returns_warm_user_strategy().build()
+        mock_retrieval = mock_retrieval_builder.returns_batch(60).build()
+        mock_curation = mock_curation_builder.returns_success_with_books(5).build()
+
+        agent = RecommendationAgent(
+            current_user=test_user_warm,
+            db=db_session,
+            user_num_ratings=15,
+            allow_profile=False,
+            planner_agent=mock_planner,
+            retrieval_agent=mock_retrieval,
+            curation_agent=mock_curation,
+        )
+
+        # Verify timeout configuration exists
+        assert hasattr(agent, "configuration"), "Agent should have configuration"
+        assert hasattr(agent.configuration, "timeout_seconds"), (
+            "Configuration should have timeout_seconds"
+        )
+        assert agent.configuration.timeout_seconds == 120, (
+            "Orchestrator should have 120s timeout for all three stages"
+        )
+
     def test_database_none_handled_gracefully(
         self,
         mock_planner_builder,
@@ -1006,3 +1155,50 @@ class TestFullPipelineFlow:
         # Should handle gracefully (may truncate)
         assert isinstance(result, AgentResponse), "Should return AgentResponse"
         assert result.text, "Should have response text"
+
+    def test_first_turn_no_history_through_pipeline(
+        self,
+        db_session,
+        test_user_warm,
+        mock_planner_builder,
+        mock_retrieval_builder,
+        mock_curation_builder,
+    ):
+        """
+        Verify empty conversation history (first turn) works correctly.
+
+        Tests that conversation_history=[] is handled properly by all stages.
+        This is the typical first interaction with the system.
+        """
+        mock_planner = mock_planner_builder.returns_warm_user_strategy().build()
+        mock_retrieval = mock_retrieval_builder.returns_batch(60).build()
+        mock_curation = mock_curation_builder.returns_success_with_books(5).build()
+
+        agent = RecommendationAgent(
+            current_user=test_user_warm,
+            db=db_session,
+            user_num_ratings=15,
+            allow_profile=False,
+            planner_agent=mock_planner,
+            retrieval_agent=mock_retrieval,
+            curation_agent=mock_curation,
+        )
+
+        # First turn - no history
+        request = AgentRequest(
+            user_text="recommend a science fiction book",
+            conversation_history=[],  # Empty - first turn
+            context={"profile_allowed": False, "num_ratings": 15},
+        )
+        result = agent.execute(request)
+
+        # Should complete successfully
+        assert isinstance(result, AgentResponse), "Should return AgentResponse"
+        assert result.success, "Pipeline should complete successfully on first turn"
+        assert len(result.book_recommendations) > 0, "Should return book recommendations"
+        assert result.text, "Should have response text"
+
+        # Verify all stages were called
+        assert mock_planner.execute.called, "Planner should be called on first turn"
+        assert mock_retrieval.execute.called, "Retrieval should be called on first turn"
+        assert mock_curation.execute.called, "Curation should be called on first turn"
