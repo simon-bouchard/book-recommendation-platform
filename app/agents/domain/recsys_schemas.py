@@ -5,7 +5,7 @@ Defines inputs and outputs for each stage: Planner, CandidateGenerator, and Cura
 """
 
 from dataclasses import dataclass
-from typing import Optional
+from typing import Optional, Dict, Any
 
 
 @dataclass
@@ -54,6 +54,12 @@ class PlannerStrategy:
     Example: {"user_profile": {"favorite_subjects": [12, 45, 78]}}
     """
 
+    negative_constraints: Optional[list[str]] = None
+    """
+    Detected negative constraints from query (e.g., ["vampires", "romance"]).
+    Logged for analysis; CandidateGenerator ignores them, Curator filters them.
+    """
+
 
 @dataclass
 class RetrievalInput:
@@ -72,6 +78,28 @@ class RetrievalInput:
 
     profile_data: Optional[dict] = None
     """Profile data gathered by Planner (if any)"""
+
+
+@dataclass
+class ToolExecutionSummary:
+    """
+    Lightweight tool execution record for testing and debugging.
+
+    Contains only tool name and arguments (no result data) to minimize memory overhead.
+    Used primarily for evaluation and validation of tool calling behavior.
+    """
+
+    tool_name: str
+    """Name of the tool that was executed"""
+
+    arguments: Dict[str, Any]
+    """Arguments passed to the tool (e.g., {'top_k': 100, 'fav_subjects_idxs': [12, 45]})"""
+
+    succeeded: bool
+    """Whether the tool execution completed without errors"""
+
+    execution_time_ms: Optional[int] = None
+    """Execution time in milliseconds (if available)"""
 
 
 @dataclass
@@ -99,7 +127,7 @@ class RetrievalOutput:
     Output from CandidateGeneratorAgent - pool of candidate books.
 
     Contains 60-120 books with full metadata, plus execution context
-    for CurationAgent.
+    for CurationAgent and optional tool execution details for testing.
     """
 
     candidates: list[dict]
@@ -113,6 +141,13 @@ class RetrievalOutput:
 
     reasoning: str
     """Explanation of execution decisions (why stopped, what was tried, etc.)"""
+
+    tool_executions: Optional[list[ToolExecutionSummary]] = None
+    """
+    Optional lightweight tool execution records for testing/debugging.
+    Contains only arguments (no result data) to minimize overhead.
+    Typically None in production, populated for evaluation/testing.
+    """
 
 
 @dataclass

@@ -258,11 +258,26 @@ class RetrievalAgent(BaseLangGraphAgent):
             profile_data=generator_input.profile_data,
         )
 
+        # Build lightweight tool execution summaries for testing/debugging
+        # Only includes arguments (no result data) to minimize overhead
+        from app.agents.domain.recsys_schemas import ToolExecutionSummary
+
+        tool_execution_summaries = [
+            ToolExecutionSummary(
+                tool_name=exec.tool_name,
+                arguments=exec.arguments,
+                succeeded=exec.succeeded,
+                execution_time_ms=exec.execution_time_ms,
+            )
+            for exec in response.execution_state.tool_executions
+        ]
+
         # Build output
         output = RetrievalOutput(
             candidates=candidates,
             execution_context=execution_context,
             reasoning=self._build_reasoning_summary(response.execution_state),
+            tool_executions=tool_execution_summaries,  # NEW: for testing
         )
 
         append_chatbot_log(
