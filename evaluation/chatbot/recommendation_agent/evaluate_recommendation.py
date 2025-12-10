@@ -275,7 +275,7 @@ def evaluate_retrieval_execution(
 
     Checks:
     - Followed planner's recommended tools
-    - Called tools with correct arguments
+    - Called tools with correct arguments (CRITICAL for subject_hybrid_pool)
     - Gathered sufficient candidates
     - Used fallback appropriately
     """
@@ -283,6 +283,12 @@ def evaluate_retrieval_execution(
 
     tools_used = retrieval_output.execution_context.tools_used
     candidates = retrieval_output.candidates
+
+    # Build tool execution lookup for argument validation
+    tool_exec_map = {}
+    if retrieval_output.tool_executions:
+        for exec in retrieval_output.tool_executions:
+            tool_exec_map[exec.tool_name] = exec
 
     # Check: Used recommended tools from strategy
     if expected_checks.get("should_follow_strategy"):
@@ -341,6 +347,97 @@ def evaluate_retrieval_execution(
         if not used_subject:
             results["all_passed"] = False
 
+    # ========================================================================
+    # CRITICAL BUG TEST: subject_hybrid_pool argument validation
+    # ========================================================================
+
+    # Get query type and user subjects from expected_checks
+    query_type = expected_checks.get("query_type", "unknown")
+    user_favorite_subjects = expected_checks.get("user_favorite_subjects", [])
+    has_favorite_subjects = len(user_favorite_subjects) > 0
+
+    # Check if subject_id_search was used (indicates genre query with explicit subject resolution)
+    used_subject_id_search = "subject_id_search" in tools_used
+
+    # BUG TEST: subject_hybrid_pool usage and argument validation
+    if "subject_hybrid_pool" in tools_used:
+        # Get the actual tool execution with arguments
+        subject_hybrid_exec = tool_exec_map.get("subject_hybrid_pool")
+
+        if subject_hybrid_exec:
+            args = subject_hybrid_exec.arguments
+            fav_subjects_arg = args.get("fav_subjects_idxs")
+
+            # Case 1: Genre query - MUST use subject_id_search first
+            if query_type == "genre":
+                if not used_subject_id_search:
+                    results["checks"]["genre_query_missing_subject_resolution"] = {
+                        "expected": "subject_id_search before subject_hybrid_pool",
+                        "actual": "subject_hybrid_pool without subject_id_search",
+                        "passed": False,
+                        "severity": "CRITICAL BUG",
+                        "details": {
+                            "query_type": "genre",
+                            "fav_subjects_arg": fav_subjects_arg,
+                            "issue": (
+                                f"BUG: Genre query called subject_hybrid_pool(fav_subjects_idxs={fav_subjects_arg}) "
+                                f"without subject_id_search. Likely relying on auto-fetch which won't match "
+                                f"the requested genre."
+                            ),
+                        },
+                    }
+                    results["all_passed"] = False
+
+                # Additional check: If no subject_id_search, fav_subjects_idxs should be None (bug)
+                # This catches the specific bug where LLM doesn't pass subjects for genre queries
+                if not used_subject_id_search and fav_subjects_arg is None:
+                    results["checks"]["genre_query_no_explicit_subjects"] = {
+                        "expected": "fav_subjects_idxs=[resolved_ids] from subject_id_search",
+                        "actual": "fav_subjects_idxs=None (auto-fetch)",
+                        "passed": False,
+                        "severity": "CRITICAL BUG",
+                        "details": {
+                            "issue": (
+                                "BUG: LLM called subject_hybrid_pool() with NO fav_subjects_idxs for genre query. "
+                                "Tool will auto-fetch user's profile subjects instead of using genre subjects."
+                            )
+                        },
+                    }
+                    results["all_passed"] = False
+
+            # Case 2: Vague query + NO user subjects - should use popular_books instead
+            elif query_type == "vague" and not has_favorite_subjects:
+                results["checks"]["vague_query_no_subjects_bug"] = {
+                    "expected": "popular_books (not subject_hybrid_pool)",
+                    "actual": f"subject_hybrid_pool(fav_subjects_idxs={fav_subjects_arg})",
+                    "passed": False,
+                    "severity": "CRITICAL BUG",
+                    "details": {
+                        "query_type": "vague",
+                        "user_has_subjects": False,
+                        "fav_subjects_arg": fav_subjects_arg,
+                        "issue": (
+                            "BUG: Used subject_hybrid_pool for vague query when user has no subjects. "
+                            "Tool will auto-fetch nothing and fall back to popular_books internally. "
+                            "Should call popular_books directly."
+                        ),
+                    },
+                }
+                results["all_passed"] = False
+
+            # Case 3: Vague query + user HAS subjects - OK (auto-fetch works)
+            # No validation needed - both with and without args are correct
+
+        else:
+            # Tool was used but we don't have execution details (shouldn't happen)
+            results["checks"]["tool_execution_missing"] = {
+                "expected": "tool execution details available",
+                "actual": "tool_executions not populated",
+                "passed": False,
+                "details": "Cannot validate arguments - tool_executions not available",
+            }
+            results["all_passed"] = False
+
     return results
 
 
@@ -354,6 +451,13 @@ def run_retrieval_test(test_case: Dict, db) -> Dict[str, Any]:
     query = test_case["query"]
     user_state = test_case["user_state"]
     expected_output = test_case.get("expected_output", {})
+
+    # Known test user subject indexes
+    USER_SUBJECTS = {
+        278859: [978, 1066, 2317, 3248],  # Crime, Detective, Mystery, Thriller
+        278857: [115, 1378],  # Adventure, Fantasy
+        278867: [],  # No subjects
+    }
 
     result = {
         "name": name,
@@ -416,10 +520,35 @@ def run_retrieval_test(test_case: Dict, db) -> Dict[str, Any]:
             "reasoning": retrieval_output.reasoning[:100] + "...",
         }
 
+        # Classify query type for argument validation
+        query_lower = query.lower()
+        genre_keywords = [
+            "fantasy",
+            "mystery",
+            "thriller",
+            "romance",
+            "fiction",
+            "crime",
+            "detective",
+            "adventure",
+            "science fiction",
+            "historical",
+        ]
+        is_genre_query = any(keyword in query_lower for keyword in genre_keywords)
+        is_vague_query = any(
+            word in query_lower for word in ["recommend", "suggest", "what should", "good book"]
+        )
+
+        # Get user's actual favorite subjects
+        user_id = test_case["user_id"]
+        user_favorite_subjects = USER_SUBJECTS.get(user_id, [])
+
         # Build expected checks
         expected_checks = {
             "should_follow_strategy": True,
             "min_candidates": expected_output.get("min_candidates", 20),
+            "query_type": "genre" if is_genre_query and not is_vague_query else "vague",
+            "user_favorite_subjects": user_favorite_subjects,
         }
 
         # Add specific checks based on test expectations
