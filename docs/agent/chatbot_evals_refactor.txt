@@ -1,0 +1,278 @@
+Evaluation Refactoring & Expansion Plan
+Current State
+
+35 tests running full pipeline for each stage (planner runs for retrieval tests, planner+retrieval run for curation tests)
+Expensive (~$0.64/run), slow, non-deterministic failures hard to debug
+Only 2 tests use LLM-as-judge (negative constraints)
+
+Goal State
+
+Isolated stage testing with hardcoded inputs
+~40-45 tests total with better coverage
+Each stage independently testable
+LLM-as-judge for semantic validation
+Fast, cheap, deterministic where possible
+
+
+Part 1: Refactor Existing Tests (35 tests)
+1.1 Planner Tests (11 tests) - No Change Needed ✅
+These already test planner in isolation (query → strategy).
+
+Keep as-is
+
+1.2 Retrieval Tests (8 tests) - Refactor to Use Mock Strategies
+Current: Run planner → feed output to retrieval
+New: Hardcode mock PlannerStrategy → feed to retrieval
+What to create:
+
+Mock strategy templates (~5-6 patterns):
+
+Semantic search strategy
+ALS strategy
+Subject search strategy
+Profile-based strategy
+Negative constraint strategy
+Fallback scenario strategy
+
+
+Test data factory function that returns appropriate mock strategy per test
+
+Tests stay the same, just get cleaner input data
+1.3 Curation Tests (5 tests) - Refactor to Use Tool Queries + Mock Context
+Current: Run planner → retrieval → curation
+New: Tool query for candidates + hardcoded ExecutionContext → curation
+What to create:
+
+Candidate query functions (semantic_search, subject_hybrid_search, als_recs calls)
+Mock ExecutionContext templates (~5-6 patterns):
+
+Semantic search context (descriptive queries)
+ALS context (personalization)
+Subject search context (genre queries)
+Profile context (cold user with favorites)
+Negative constraint context
+Fallback context
+
+
+Test data factory function that returns candidates + context per test
+
+Tests stay the same, just get cleaner input data
+1.4 Negative Constraint Tests (2 tests) - Add Shuffling
+Current: Run full pipeline, validate with LLM-as-judge
+New: Tool queries (base + constraint) → shuffle → curation with mock context → validate with LLM-as-judge
+What to fix:
+
+Add shuffling to candidate mixing (prevents curation from accidentally passing by taking first N books)
+Otherwise keep as-is (already using LLM-as-judge correctly)
+
+1.5 Integration Tests (9 tests) - Keep As-Is ✅
+These test full pipeline coordination - should stay as full pipeline runs.
+
+No changes needed
+
+
+Part 2: Add New Tests (~8-10 new tests)
+2.1 Genre Matching Tests (2 tests)
+Test that curation filters out wrong-genre books when query requests specific genre.
+Test 1: Fantasy Genre Filtering
+
+Query: "recommend fantasy books"
+Candidates: 40 fantasy + 20 mystery/thriller + shuffle
+Context: Subject search context
+Validation: LLM-as-judge checks final books are fantasy
+
+Test 2: Historical Fiction Genre Filtering
+
+Query: "recommend historical fiction"
+Candidates: 40 historical fiction + 20 sci-fi/fantasy + shuffle
+Context: Subject search context
+Validation: LLM-as-judge checks final books are historical fiction
+
+What to create:
+
+Genre matching query function (gets correct genre + wrong genres, shuffles)
+LLM-as-judge function for genre validation
+2 test cases in test_cases.json
+
+2.2 Personalization Prose Tests (3 tests)
+Test that curation prose correctly reflects HOW recommendations were personalized.
+Test 1: ALS Prose Validation
+
+Candidates: From als_recs
+Context: tools_used=["als_recs"], no profile_data
+Expected: Prose mentions "reading history" / "books you've enjoyed" / similar
+Validation: LLM-as-judge checks prose correctly indicates personalization
+
+Test 2: Favorite Subjects Prose Validation
+
+Candidates: From subject_hybrid_search with user's favorite subjects
+Context: tools_used=["subject_hybrid_pool"], profile_data with favorite_subjects
+Expected: Prose references user's interests/favorite genres
+Validation: LLM-as-judge checks prose mentions favorites
+
+Test 3: Recent Interactions Prose Validation
+
+Candidates: Any (semantic search is fine)
+Context: Any tool, profile_data with recent_interactions
+Expected: Prose acknowledges recent reads or patterns
+Validation: LLM-as-judge checks prose references recent reading
+
+What to create:
+
+Personalization prose query functions (ALS, subject-based, etc.)
+LLM-as-judge function for prose validation (checks if prose matches context)
+3 test cases in test_cases.json
+
+2.3 False Personalization Test (1 test - high value)
+Test that curation DOESN'T claim personalization when none was used.
+Test: No False Personalization Claims
+
+Candidates: From semantic_search
+Context: tools_used=["book_semantic_search"], no profile_data, no ALS
+Expected: Prose does NOT mention "your reading history" / "based on your preferences"
+Validation: LLM-as-judge checks prose doesn't falsely claim personalization
+
+What to create:
+
+1 test case in test_cases.json
+Same LLM-as-judge function as 2.2 (can handle both positive and negative cases)
+
+
+Part 3: Infrastructure Updates
+3.1 Test Data Factory Module
+Create centralized factory for generating test inputs.
+Functions needed:
+
+get_mock_strategy(scenario) → returns PlannerStrategy
+get_candidates(scenario, db) → returns candidate dict (with shuffle where needed)
+get_execution_context(scenario) → returns ExecutionContext
+
+Scenarios to support:
+
+Retrieval: semantic, als, subject, profile, negative, fallback
+Curation: basic, negative_cozy, negative_serial_killer, als, subject, profile
+Contexts: semantic, als, subject, profile, negative, fallback
+
+3.2 LLM-as-Judge Functions
+Create reusable judge functions.
+Functions needed:
+
+llm_judge_negative_constraints() - already exists ✅
+llm_judge_genre_match(books, expected_genre, db, judge_llm) - NEW
+llm_judge_personalization_prose(response_text, execution_context, judge_llm) - NEW
+
+Judge capabilities:
+
+Genre matching: Check if books match expected genre
+Personalization prose: Check if prose correctly reflects context (ALS vs profile vs none)
+Handles both positive cases (should mention X) and negative cases (should NOT mention X)
+
+3.3 Test Organization Updates
+New test categories in test_cases.json:
+
+curation_genre_matching (2 tests)
+curation_personalization_prose (3 tests)
+curation_false_personalization (1 test)
+
+Updated README sections:
+
+Explain isolated testing approach (hardcoded inputs)
+Document test data factory usage
+Update cost estimates (~$0.45-0.50/run instead of $0.64)
+Update expected pass rates for new tests
+
+
+Part 4: Query Validation
+Before running full evals, validate that queries return expected book types.
+What to create:
+
+Query validation script that:
+
+Tests negative constraint queries (do cozy queries return cozy books?)
+Tests genre queries (does fantasy query return fantasy books?)
+Prints sample titles for manual inspection
+Flags if constraint queries too generic
+
+
+
+Run once to validate queries, adjust if needed, then use validated queries in evals.
+
+Deliverables Summary
+Code Files
+
+test_data_factory.py - Mock strategies, candidate queries, execution contexts
+llm_judges.py - Genre matching judge, personalization prose judge
+query_validator.py - Validate queries return expected book types (run once)
+Updated evaluate_recommendation.py - Refactored to use factories, new tests
+
+Data Files
+
+test_cases.json - Add 6 new test cases (2 genre, 3 personalization, 1 false personalization)
+validated_queries.json (optional) - Document working queries for reference
+
+Documentation
+
+Updated README.md - Explain isolated testing, factory usage, new test categories
+Query selection guide (optional) - Document which queries work for which scenarios
+
+
+Expected Outcomes
+Cost Reduction
+
+Before: ~$0.64/run (full pipeline for each test)
+After: ~$0.45-0.50/run (isolated tests + LLM-as-judge)
+22-30% cost reduction
+
+Better Debugging
+
+Retrieval test fails → knows retrieval is broken (not planner)
+Curation test fails → knows curation is broken (not retrieval)
+Clear failure attribution
+
+Better Coverage
+
+Current: Tests coordination more than individual agent logic
+New: Tests each agent's actual decision-making
+New tests cover prose quality (not just structure)
+
+Execution Time
+
+Faster (fewer LLM calls per test)
+More deterministic (hardcoded inputs)
+Still keeps integration tests for coordination
+
+
+Phasing (if you want to break it up)
+Phase 1 (Highest value):
+
+Add shuffling to negative constraint tests
+Add 2 genre matching tests
+Create genre judge function
+
+Phase 2:
+
+Refactor retrieval tests (mock strategies)
+Refactor curation tests (tool queries + mock contexts)
+Create test data factory
+
+Phase 3:
+
+Add 3 personalization prose tests
+Create personalization prose judge
+Add false personalization test
+
+Phase 4 (Nice to have):
+
+Query validation script
+Documentation updates
+Query reference guide
+
+
+Key Principles
+
+Isolation: Each stage tests its own logic with controlled inputs
+Shuffling: Mix constraint/wrong-genre books throughout, not at end
+LLM-as-judge: Use for semantic validation (genre, prose), not keyword matching
+Factories: Centralize test data creation, don't duplicate logic
+Realism: Use real tool queries for candidates, not hardcoded book lists
+Integration: Keep full pipeline tests for coordination testing
