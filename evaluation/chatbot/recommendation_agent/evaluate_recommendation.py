@@ -20,12 +20,23 @@ from app.agents.infrastructure.recsys.orchestrator import RecommendationAgent
 from app.agents.infrastructure.recsys.planner_agent import PlannerAgent
 from app.agents.infrastructure.recsys.retrieval_agent import RetrievalAgent
 from app.agents.infrastructure.recsys.curation_agent import CurationAgent
-from app.agents.domain.recsys_schemas import PlannerInput, RetrievalInput, ExecutionContext
+from app.agents.domain.recsys_schemas import (
+    PlannerInput,
+    RetrievalInput,
+    ExecutionContext,
+    CurationInput,
+)
 from app.agents.domain.entities import AgentRequest, BookRecommendation
 from app.agents.domain.parsers import InlineReferenceParser
 from app.database import SessionLocal
 from app.table_models import User, Interaction, Book
 from sqlalchemy import func
+
+# Import test data factory and new judges
+eval_dir = Path(__file__).parent
+sys.path.insert(0, str(eval_dir))
+from test_data_factory import get_candidates, get_execution_context
+from llm_judges import llm_judge_genre_match, llm_judge_personalization_prose
 
 
 # ============================================================================
@@ -245,6 +256,7 @@ def run_negative_constraint_test(test_case: Dict, db) -> Dict[str, Any]:
     Run a single negative constraint test case.
 
     Tests both retrieval and curation handling of negative constraints.
+    Uses test_data_factory for shuffled mixed candidates.
     """
     name = test_case["name"]
     query = test_case["query"]
@@ -347,6 +359,239 @@ def run_negative_constraint_test(test_case: Dict, db) -> Dict[str, Any]:
         )
         result["evaluation"] = eval_result
         result["overall_pass"] = eval_result["all_passed"] and final_response.success
+
+    except Exception as e:
+        result["error"] = str(e)
+        result["overall_pass"] = False
+
+    return result
+
+
+# ============================================================================
+# GENRE MATCHING TESTS
+# ============================================================================
+
+
+def run_genre_matching_test(test_case: Dict, db) -> Dict[str, Any]:
+    """
+    Run a single genre matching test case using isolated curation testing.
+
+    Tests that curation filters out wrong-genre books from mixed candidate pool.
+    Uses test data factory for candidates and LLM-as-judge for validation.
+    """
+    name = test_case["name"]
+    query = test_case["query"]
+    user_state = test_case["user_state"]
+    test_scenario = test_case["test_scenario"]
+    expected_genre = test_case["expected_genre"]
+    expected_curation = test_case["expected_curation"]
+
+    result = {
+        "name": name,
+        "query": query,
+        "user_state": user_state,
+        "test_type": "curation_genre",
+        "agent_success": False,
+        "overall_pass": False,
+    }
+
+    try:
+        # Get user
+        user, rating_count = get_user_by_id(db, test_case["user_id"])
+
+        # Get mixed candidates (correct genre + wrong genre, shuffled)
+        candidates_data = get_candidates(test_scenario, db)
+
+        # Get execution context (genre query uses subject search)
+        context = get_execution_context("subject")
+
+        # Run curation agent with mixed candidates
+        curation = CurationAgent(
+            current_user=user,
+            db=db,
+            user_num_ratings=rating_count,
+        )
+
+        curation_input = CurationInput(
+            query=query,
+            candidates=candidates_data["books"],
+            execution_context=context,
+        )
+
+        curation_output = curation.execute(curation_input)
+
+        # Parse the response to get final books
+        from app.agents.domain.entities import BookRecommendation
+
+        final_books = (
+            curation_output.book_recommendations
+            if hasattr(curation_output, "book_recommendations")
+            else []
+        )
+
+        result["agent_success"] = len(final_books) >= expected_curation.get("min_final_books", 3)
+        result["pipeline"] = {
+            "candidate_count": len(candidates_data["books"]),
+            "final_book_count": len(final_books),
+        }
+
+        # Validate genre matching with LLM-as-judge
+        if expected_curation.get("llm_judge_needed") and len(final_books) > 0:
+            judge_result = llm_judge_genre_match(
+                books=final_books, expected_genre=expected_genre, db=db, judge_llm=curation.llm
+            )
+
+            result["evaluation"] = {
+                "checks": {
+                    "genre_match": {
+                        "expected": f"books match genre: {expected_genre}",
+                        "actual": judge_result["verdict"],
+                        "passed": judge_result["passed"],
+                        "details": {
+                            "reasoning": judge_result["reasoning"],
+                            "violating_books": judge_result.get("violating_books", []),
+                            "match_rate": judge_result.get("match_count", 0)
+                            / judge_result.get("total_count", 1)
+                            if judge_result.get("total_count", 0) > 0
+                            else 0,
+                        },
+                    }
+                },
+                "all_passed": judge_result["passed"],
+            }
+            result["overall_pass"] = judge_result["passed"] and result["agent_success"]
+        else:
+            result["evaluation"] = {
+                "checks": {
+                    "min_books": {
+                        "expected": f">= {expected_curation.get('min_final_books', 3)} books",
+                        "actual": len(final_books),
+                        "passed": len(final_books) >= expected_curation.get("min_final_books", 3),
+                    }
+                },
+                "all_passed": result["agent_success"],
+            }
+            result["overall_pass"] = result["agent_success"]
+
+    except Exception as e:
+        result["error"] = str(e)
+        result["overall_pass"] = False
+
+    return result
+
+
+def run_personalization_prose_test(test_case: Dict, db) -> Dict[str, Any]:
+    """
+    Run a single personalization prose test case using isolated curation testing.
+
+    Tests that curation prose correctly reflects personalization context.
+    Uses test data factory for candidates/context and LLM-as-judge for validation.
+    """
+    name = test_case["name"]
+    query = test_case["query"]
+    user_state = test_case["user_state"]
+    test_scenario = test_case["test_scenario"]
+    context_scenario = test_case["context_scenario"]
+    expected_prose = test_case["expected_prose"]
+
+    result = {
+        "name": name,
+        "query": query,
+        "user_state": user_state,
+        "test_type": "curation_prose",
+        "agent_success": False,
+        "overall_pass": False,
+    }
+
+    try:
+        # Get user
+        user, rating_count = get_user_by_id(db, test_case["user_id"])
+
+        # Get candidates based on test scenario
+        if test_scenario == "als":
+            candidates_data = get_candidates("als", db, user_id=user.user_id)
+        elif test_scenario == "subject":
+            # Use user's actual favorite subjects if available
+            candidates_data = get_candidates("subject", db, subject_ids=[978, 1066, 2317])
+        else:
+            candidates_data = get_candidates("basic", db, query=query)
+
+        # Get execution context (tells curation what personalization was used)
+        context = get_execution_context(context_scenario)
+
+        # Run curation agent
+        curation = CurationAgent(
+            current_user=user,
+            db=db,
+            user_num_ratings=rating_count,
+        )
+
+        curation_input = CurationInput(
+            query=query,
+            candidates=candidates_data["books"],
+            execution_context=context,
+        )
+
+        curation_output = curation.execute(curation_input)
+
+        # Get response text and books
+        response_text = (
+            curation_output.response_text if hasattr(curation_output, "response_text") else ""
+        )
+        final_books = (
+            curation_output.book_recommendations
+            if hasattr(curation_output, "book_recommendations")
+            else []
+        )
+
+        result["agent_success"] = len(response_text) > 50 and len(final_books) >= 3
+        result["pipeline"] = {
+            "candidate_count": len(candidates_data["books"]),
+            "final_book_count": len(final_books),
+            "response_length": len(response_text),
+        }
+
+        # Validate prose with LLM-as-judge
+        if expected_prose.get("llm_judge_needed") and len(response_text) > 0:
+            # Check if this is a negative test (should NOT claim personalization)
+            expect_no_personalization = expected_prose.get(
+                "should_NOT_claim_personalization", False
+            )
+
+            judge_result = llm_judge_personalization_prose(
+                response_text=response_text,
+                execution_context=context,
+                judge_llm=curation.llm,
+                expect_no_personalization=expect_no_personalization,
+            )
+
+            result["evaluation"] = {
+                "checks": {
+                    "prose_validation": {
+                        "expected": "prose correctly reflects personalization context",
+                        "actual": judge_result["verdict"],
+                        "passed": judge_result["passed"],
+                        "details": {
+                            "reasoning": judge_result["reasoning"],
+                            "issues": judge_result.get("issues", []),
+                        },
+                    }
+                },
+                "all_passed": judge_result["passed"],
+            }
+            result["overall_pass"] = judge_result["passed"] and result["agent_success"]
+        else:
+            result["evaluation"] = {
+                "checks": {
+                    "basic_structure": {
+                        "expected": "prose and books present",
+                        "actual": f"{len(response_text)} chars, {len(final_books)} books",
+                        "passed": result["agent_success"],
+                    }
+                },
+                "all_passed": result["agent_success"],
+            }
+            result["overall_pass"] = result["agent_success"]
 
     except Exception as e:
         result["error"] = str(e)
@@ -758,10 +1003,12 @@ def evaluate_retrieval_execution(
 
 def run_retrieval_test(test_case: Dict, db) -> Dict[str, Any]:
     """
-    Run a single retrieval test case.
+    Run a single retrieval test case using mock strategy (no planner call).
 
-    Creates planner + retrieval agents and validates tool execution.
+    Tests retrieval agent's tool execution and argument validation in isolation.
     """
+    from test_data_factory import get_mock_strategy
+
     name = test_case["name"]
     query = test_case["query"]
     user_state = test_case["user_state"]
@@ -803,34 +1050,51 @@ def run_retrieval_test(test_case: Dict, db) -> Dict[str, Any]:
         # Get user
         user, rating_count = get_user_by_id(db, test_case["user_id"])
 
-        # Step 1: Run planner
-        planner = PlannerAgent(
-            current_user=user,
-            db=db,
-            user_num_ratings=rating_count,
-            has_als_recs_available=user_state["is_warm"],
-            allow_profile=user_state["allow_profile"],
-        )
-
-        available_tools = [
-            "book_semantic_search",
-            "subject_hybrid_pool",
-            "subject_id_search",
-            "popular_books",
+        # Get mock strategy based on query type (NO planner call)
+        query_lower = query.lower()
+        genre_keywords = [
+            "fantasy",
+            "mystery",
+            "thriller",
+            "romance",
+            "fiction",
+            "crime",
+            "detective",
+            "adventure",
+            "science fiction",
+            "historical",
         ]
-        if user_state["is_warm"]:
-            available_tools.insert(0, "als_recs")
-
-        planner_input = PlannerInput(
-            query=query,
-            has_als_recs_available=user_state["is_warm"],
-            allow_profile=user_state["allow_profile"],
-            available_retrieval_tools=available_tools,
+        is_genre_query = any(keyword in query_lower for keyword in genre_keywords)
+        is_vague_query = any(
+            word in query_lower for word in ["recommend", "suggest", "what should", "good book"]
         )
 
-        strategy = planner.execute(planner_input)
+        # Determine appropriate mock strategy
+        if is_genre_query and not is_vague_query:
+            # Genre query - use subject search strategy
+            strategy = get_mock_strategy("subject")
+        elif "dark" in query_lower or "atmospheric" in query_lower or "cozy" in query_lower:
+            # Descriptive query - use semantic search
+            strategy = get_mock_strategy("semantic")
+        elif user_state["is_warm"] and is_vague_query:
+            # Warm user vague query - use ALS
+            strategy = get_mock_strategy("als")
+        elif not user_state["is_warm"] and user_state["allow_profile"]:
+            # Cold user with profile - use profile strategy
+            strategy = get_mock_strategy(
+                "profile",
+                profile_data={
+                    "user_profile": {
+                        "favorite_subjects": USER_SUBJECTS.get(user.user_id, []),
+                        "favorite_genres": ["mystery", "thriller"],
+                    }
+                },
+            )
+        else:
+            # Default to semantic
+            strategy = get_mock_strategy("semantic")
 
-        # Step 2: Run retrieval
+        # Run retrieval with mock strategy
         retrieval = RetrievalAgent(
             current_user=user,
             db=db,
@@ -852,25 +1116,6 @@ def run_retrieval_test(test_case: Dict, db) -> Dict[str, Any]:
         }
 
         # Classify query type for argument validation
-        query_lower = query.lower()
-        genre_keywords = [
-            "fantasy",
-            "mystery",
-            "thriller",
-            "romance",
-            "fiction",
-            "crime",
-            "detective",
-            "adventure",
-            "science fiction",
-            "historical",
-        ]
-        is_genre_query = any(keyword in query_lower for keyword in genre_keywords)
-        is_vague_query = any(
-            word in query_lower for word in ["recommend", "suggest", "what should", "good book"]
-        )
-
-        # Get user's actual favorite subjects
         user_id = test_case["user_id"]
         user_favorite_subjects = USER_SUBJECTS.get(user_id, [])
 
@@ -903,6 +1148,7 @@ def run_retrieval_test(test_case: Dict, db) -> Dict[str, Any]:
 
 
 # ============================================================================
+# PART 3: CURATION EVALUATION# ============================================================================
 # PART 3: CURATION EVALUATION (10 tests)
 # ============================================================================
 
@@ -975,9 +1221,9 @@ def evaluate_curation_output(
 
 def run_curation_test(test_case: Dict, db) -> Dict[str, Any]:
     """
-    Run a single curation test case.
+    Run a single curation test case using isolated testing (no full pipeline).
 
-    Runs full pipeline but focuses on validating curation output.
+    Tests curation agent's JSON structure and inline reference validation.
     """
     name = test_case["name"]
     query = test_case["query"]
@@ -1012,30 +1258,60 @@ def run_curation_test(test_case: Dict, db) -> Dict[str, Any]:
         # Get user
         user, rating_count = get_user_by_id(db, test_case["user_id"])
 
-        # Run full pipeline
-        orchestrator = RecommendationAgent(
+        # Get candidates and context from factory (NO full pipeline)
+        candidates_data = get_candidates("basic", db, query=query)
+        context = get_execution_context("semantic")
+
+        # Run curation agent in isolation
+        curation = CurationAgent(
             current_user=user,
             db=db,
             user_num_ratings=rating_count,
-            warm_threshold=10,
-            allow_profile=user_state["allow_profile"],
         )
 
-        request = AgentRequest(user_text=query, conversation_history=[])
+        curation_input = CurationInput(
+            query=query,
+            candidates=candidates_data["books"],
+            execution_context=context,
+        )
 
-        final_response = orchestrator.execute(request)
+        curation_output = curation.execute(curation_input)
 
-        result["agent_success"] = final_response.success
+        # Get final response
+        final_books = (
+            curation_output.book_recommendations
+            if hasattr(curation_output, "book_recommendations")
+            else []
+        )
+        response_text = (
+            curation_output.response_text if hasattr(curation_output, "response_text") else ""
+        )
+
+        result["agent_success"] = len(final_books) >= 3 and len(response_text) > 50
         result["curation"] = {
-            "book_count": len(final_response.book_recommendations),
-            "text_length": len(final_response.text) if final_response.text else 0,
-            "has_inline_refs": "<book id=" in (final_response.text or ""),
+            "candidate_count": len(candidates_data["books"]),
+            "book_count": len(final_books),
+            "text_length": len(response_text),
+            "has_inline_refs": "<book id=" in response_text,
         }
 
+        # Create a mock final_response object for evaluation
+        from dataclasses import dataclass
+
+        @dataclass
+        class MockResponse:
+            success: bool
+            text: str
+            book_recommendations: list
+
+        mock_response = MockResponse(
+            success=True, text=response_text, book_recommendations=final_books
+        )
+
         # Evaluate curation output
-        eval_result = evaluate_curation_output(final_response, final_response.book_recommendations)
+        eval_result = evaluate_curation_output(mock_response, final_books)
         result["evaluation"] = eval_result
-        result["overall_pass"] = eval_result["all_passed"] and final_response.success
+        result["overall_pass"] = eval_result["all_passed"] and result["agent_success"]
 
     except Exception as e:
         result["error"] = str(e)
@@ -1342,6 +1618,9 @@ def evaluate_all(test_cases: Dict[str, List[Dict]]) -> Dict[str, Any]:
             "edge_cases": ("integration", run_integration_test),
             "negative_constraints": ("negative_constraints", run_negative_constraint_test),
             "curation_critical": ("curation", run_curation_test),
+            "curation_genre_matching": ("curation_genre", run_genre_matching_test),
+            "curation_personalization_prose": ("curation_prose", run_personalization_prose_test),
+            "curation_false_personalization": ("curation_prose", run_personalization_prose_test),
         }
 
         for category, cases in test_cases.items():
@@ -1380,7 +1659,15 @@ def evaluate_all(test_cases: Dict[str, List[Dict]]) -> Dict[str, Any]:
 
         # Overall stats by eval type
         eval_type_stats = {}
-        for eval_type in ["planner", "retrieval", "curation", "integration"]:
+        for eval_type in [
+            "planner",
+            "retrieval",
+            "curation",
+            "curation_genre",
+            "curation_prose",
+            "negative_constraints",
+            "integration",
+        ]:
             type_results = [r for r in all_results if r.get("test_type") == eval_type]
             if type_results:
                 passed = sum(1 for r in type_results if r["overall_pass"])

@@ -613,5 +613,115 @@
 				"final_response_should_have_books": true
 			}
 		}
+	],
+	"curation_genre_matching": [
+		{
+			"name": "genre_match_fantasy",
+			"query": "recommend fantasy books",
+			"user_id": 278859,
+			"user_state": {
+				"num_ratings": 12,
+				"allow_profile": false,
+				"is_warm": true
+			},
+			"test_scenario": "genre_fantasy",
+			"expected_genre": "fantasy",
+			"expected_curation": {
+				"should_filter_wrong_genre": true,
+				"llm_judge_needed": true,
+				"min_final_books": 3,
+				"min_genre_match_rate": 0.8
+			}
+		},
+		{
+			"name": "genre_match_historical_fiction",
+			"query": "recommend historical fiction",
+			"user_id": 278859,
+			"user_state": {
+				"num_ratings": 12,
+				"allow_profile": false,
+				"is_warm": true
+			},
+			"test_scenario": "genre_historical",
+			"expected_genre": "historical fiction",
+			"expected_curation": {
+				"should_filter_wrong_genre": true,
+				"llm_judge_needed": true,
+				"min_final_books": 3,
+				"min_genre_match_rate": 0.8
+			}
+		}
+	],
+	"curation_personalization_prose": [
+		{
+			"name": "als_personalization_prose",
+			"query": "recommend something good for me",
+			"user_id": 278859,
+			"user_state": {
+				"num_ratings": 12,
+				"allow_profile": false,
+				"is_warm": true
+			},
+			"test_scenario": "als",
+			"context_scenario": "als",
+			"expected_prose": {
+				"should_mention_reading_history": true,
+				"should_mention_personalization": true,
+				"llm_judge_needed": true
+			}
+		},
+		{
+			"name": "profile_favorite_subjects_prose",
+			"query": "recommend something for me",
+			"user_id": 278857,
+			"user_state": {
+				"num_ratings": 2,
+				"allow_profile": true,
+				"is_warm": false
+			},
+			"test_scenario": "subject",
+			"context_scenario": "profile",
+			"expected_prose": {
+				"should_mention_favorite_subjects": true,
+				"should_mention_interests": true,
+				"llm_judge_needed": true
+			}
+		},
+		{
+			"name": "profile_recent_interactions_prose",
+			"query": "recommend something similar",
+			"user_id": 278859,
+			"user_state": {
+				"num_ratings": 12,
+				"allow_profile": true,
+				"is_warm": true
+			},
+			"test_scenario": "basic",
+			"context_scenario": "profile_recent",
+			"expected_prose": {
+				"should_mention_recent_reads": true,
+				"should_reference_patterns": true,
+				"llm_judge_needed": true
+			}
+		}
+	],
+	"curation_false_personalization": [
+		{
+			"name": "no_false_personalization_claims",
+			"query": "recommend dark atmospheric mystery novels",
+			"user_id": 278859,
+			"user_state": {
+				"num_ratings": 12,
+				"allow_profile": false,
+				"is_warm": true
+			},
+			"test_scenario": "basic",
+			"context_scenario": "no_personalization",
+			"expected_prose": {
+				"should_NOT_claim_personalization": true,
+				"should_focus_on_query_matching": true,
+				"llm_judge_needed": true
+			}
+		}
 	]
 }
