@@ -10,6 +10,8 @@ from typing import Dict, List, Any, Optional, Tuple
 from datetime import datetime
 from dataclasses import dataclass
 import sys
+import os
+import argparse
 
 ROOT = Path(__file__).resolve().parents[3]
 sys.path.insert(0, str(ROOT))
@@ -22,13 +24,25 @@ from app.agents.domain.recsys_schemas import PlannerInput, RetrievalInput, Execu
 from app.agents.domain.entities import AgentRequest, BookRecommendation
 from app.agents.domain.parsers import InlineReferenceParser
 from app.database import SessionLocal
-from app.table_models import User, Interaction
+from app.table_models import User, Interaction, Book
 from sqlalchemy import func
 
 
 # ============================================================================
 # DATABASE HELPERS
 # ============================================================================
+
+
+def validate_query(query: str) -> tuple[bool, str]:
+    """
+    Validate that query is not empty or whitespace-only.
+
+    Returns:
+        (is_valid, error_message)
+    """
+    if not query or not query.strip():
+        return False, f"Empty or whitespace-only query: '{query}'"
+    return True, ""
 
 
 def get_user_by_id(db, user_id: int) -> Tuple[User, int]:
@@ -56,6 +70,291 @@ def load_test_cases(json_path: Path) -> Dict[str, List[Dict]]:
 
 
 # ============================================================================
+
+
+# ============================================================================
+# LLM-AS-JUDGE FOR NEGATIVE CONSTRAINTS
+# ============================================================================
+
+
+def llm_judge_negative_constraints(
+    books: List[BookRecommendation], negative_constraints: List[str], db, judge_llm
+) -> Dict[str, Any]:
+    """
+    Use LLM-as-judge to determine if recommended books match negative constraints.
+
+    Args:
+        books: List of recommended books
+        negative_constraints: List of phrases that should NOT appear (e.g., ["cozy mystery", "serial killer"])
+        db: Database session to fetch book details
+        judge_llm: LLM instance from agent (reuse same model as agent uses)
+
+    Returns:
+        Dict with verdict, passed status, and reasoning
+    """
+    # Get book details from database
+    book_ids = [book.item_idx for book in books]
+    items = db.query(Book).filter(Book.item_idx.in_(book_ids)).all()
+
+    book_details = []
+    for item in items:
+        author_name = item.author.name if item.author else "Unknown"
+        book_details.append(
+            f"- {item.title} by {author_name}: {item.description[:200] if item.description else 'No description'}..."
+        )
+
+    if not book_details:
+        return {
+            "passed": False,
+            "verdict": "ERROR",
+            "reasoning": "Could not fetch book details from database",
+        }
+
+    # Create LLM judge prompt
+    prompt = f"""You are evaluating book recommendations to ensure they don't contain unwanted content.
+
+**Negative constraints (books should NOT match these):**
+{", ".join(f'"{c}"' for c in negative_constraints)}
+
+**Recommended books:**
+{chr(10).join(book_details)}
+
+**Task:**
+Determine if ANY of the recommended books match the negative constraints. A book matches if:
+- Its title, author, or description mentions the constrained topic
+- It's clearly about the constrained theme
+
+**Response format (JSON only):**
+{{
+    "verdict": "PASS" or "FAIL",
+    "reasoning": "Brief explanation",
+    "violating_books": ["book title 1", ...]  // Only if verdict is FAIL
+}}"""
+
+    try:
+        response = judge_llm.invoke([{"role": "user", "content": prompt}])
+
+        # Parse JSON response (handle markdown code blocks)
+        content = response.content if hasattr(response, "content") else str(response)
+        if "```json" in content:
+            content = content.split("```json")[1].split("```")[0]
+        elif "```" in content:
+            content = content.split("```")[1].split("```")[0]
+        content = content.strip()
+
+        judge_result = json.loads(content)
+
+        passed = judge_result.get("verdict") == "PASS"
+        return {
+            "passed": passed,
+            "verdict": judge_result.get("verdict", "UNKNOWN"),
+            "reasoning": judge_result.get("reasoning", ""),
+            "violating_books": judge_result.get("violating_books", []),
+        }
+
+    except Exception as e:
+        # Judge failure should FAIL the test, not skip it
+        return {
+            "passed": False,
+            "verdict": "ERROR",
+            "reasoning": f"LLM judge failed: {str(e)}",
+        }
+
+
+# ============================================================================
+# NEGATIVE CONSTRAINT EVALUATION
+# ============================================================================
+
+
+def evaluate_negative_constraints(
+    retrieval_output, final_response, test_case: Dict, db, judge_llm
+) -> Dict[str, Any]:
+    """
+    Evaluate handling of negative constraints across retrieval and curation.
+
+    Checks:
+    1. Retrieval doesn't include negative terms in search queries
+    2. Curation filters out books matching negative constraints (LLM judge)
+    """
+    results = {"checks": {}, "all_passed": True}
+
+    negative_terms = test_case.get("negative_constraints", [])
+    if not negative_terms:
+        return results
+
+    # Check 1: Retrieval should NOT include negative terms in queries
+    tool_executions = retrieval_output.tool_executions
+    for exec in tool_executions:
+        if exec.tool_name in ["book_semantic_search", "subject_id_search"]:
+            query_used = exec.arguments.get("query", "")
+            phrases_used = exec.arguments.get("phrases", [])
+
+            # Check if negative terms appear in query or phrases
+            query_text = query_used if isinstance(query_used, str) else " ".join(phrases_used)
+            contains_negative = any(term.lower() in query_text.lower() for term in negative_terms)
+
+            results["checks"]["retrieval_excludes_constraints"] = {
+                "expected": "negative terms NOT in query",
+                "actual": f"query='{query_text[:100]}'",
+                "passed": not contains_negative,
+                "details": {
+                    "tool": exec.tool_name,
+                    "negative_terms": negative_terms,
+                    "contains_negative": contains_negative,
+                },
+            }
+
+            if contains_negative:
+                results["all_passed"] = False
+
+    # Check 2: Curation should filter out books matching constraints (LLM judge)
+    expected_curation = test_case.get("expected_curation", {})
+    if expected_curation.get("llm_judge_needed"):
+        final_books = final_response.book_recommendations
+
+        if len(final_books) > 0:
+            judge_result = llm_judge_negative_constraints(
+                final_books, negative_terms, db, judge_llm
+            )
+
+            results["checks"]["curation_filters_constraints"] = {
+                "expected": "no books matching negative constraints",
+                "actual": judge_result["verdict"],
+                "passed": judge_result["passed"],
+                "details": {
+                    "reasoning": judge_result["reasoning"],
+                    "violating_books": judge_result.get("violating_books", []),
+                },
+            }
+
+            if not judge_result["passed"]:
+                results["all_passed"] = False
+        else:
+            # No books returned - can't judge, but mark as passed (no violations)
+            results["checks"]["curation_filters_constraints"] = {
+                "expected": "no books matching negative constraints",
+                "actual": "no books returned",
+                "passed": True,
+            }
+
+    return results
+
+
+def run_negative_constraint_test(test_case: Dict, db) -> Dict[str, Any]:
+    """
+    Run a single negative constraint test case.
+
+    Tests both retrieval and curation handling of negative constraints.
+    """
+    name = test_case["name"]
+    query = test_case["query"]
+    user_state = test_case["user_state"]
+
+    result = {
+        "name": name,
+        "query": query,
+        "user_state": user_state,
+        "test_type": "negative_constraints",
+        "agent_success": False,
+        "overall_pass": False,
+    }
+
+    # Validate query is not empty
+    if not query or not query.strip():
+        result["error"] = "Empty or whitespace-only query"
+        result["evaluation"] = {
+            "checks": {
+                "query_validation": {
+                    "expected": "non-empty query",
+                    "actual": f"'{query}'",
+                    "passed": False,
+                }
+            },
+            "all_passed": False,
+        }
+        return result
+
+    try:
+        # Get user
+        user, rating_count = get_user_by_id(db, test_case["user_id"])
+
+        # Step 1: Run planner
+        planner = PlannerAgent(
+            current_user=user,
+            db=db,
+            user_num_ratings=rating_count,
+            has_als_recs_available=user_state["is_warm"],
+            allow_profile=user_state["allow_profile"],
+        )
+
+        available_tools = [
+            "book_semantic_search",
+            "subject_hybrid_pool",
+            "subject_id_search",
+            "popular_books",
+        ]
+        if user_state["is_warm"]:
+            available_tools.insert(0, "als_recs")
+
+        planner_input = PlannerInput(
+            query=query,
+            has_als_recs_available=user_state["is_warm"],
+            allow_profile=user_state["allow_profile"],
+            available_retrieval_tools=available_tools,
+        )
+
+        strategy = planner.execute(planner_input)
+
+        # Get judge LLM (reuse planner's LLM for judging)
+        judge_llm = planner.llm
+
+        # Step 2: Run retrieval
+        retrieval = RetrievalAgent(
+            current_user=user,
+            db=db,
+            user_num_ratings=rating_count,
+            has_als_recs_available=user_state["is_warm"],
+        )
+
+        retrieval_input = RetrievalInput(
+            query=query, strategy=strategy, profile_data=strategy.profile_data
+        )
+
+        retrieval_output = retrieval.execute(retrieval_input)
+
+        # Step 3: Run full pipeline for curation
+        orchestrator = RecommendationAgent(
+            current_user=user,
+            db=db,
+            user_num_ratings=rating_count,
+            warm_threshold=10,
+            allow_profile=user_state["allow_profile"],
+        )
+
+        request = AgentRequest(user_text=query, conversation_history=[])
+        final_response = orchestrator.execute(request)
+
+        result["agent_success"] = final_response.success
+        result["pipeline"] = {
+            "candidate_count": len(retrieval_output.candidates),
+            "final_book_count": len(final_response.book_recommendations),
+            "tools_used": retrieval_output.execution_context.tools_used,
+        }
+
+        # Evaluate negative constraints (pass judge_llm)
+        eval_result = evaluate_negative_constraints(
+            retrieval_output, final_response, test_case, db, judge_llm
+        )
+        result["evaluation"] = eval_result
+        result["overall_pass"] = eval_result["all_passed"] and final_response.success
+
+    except Exception as e:
+        result["error"] = str(e)
+        result["overall_pass"] = False
+
+    return result
+
+
 # PART 1: PLANNER EVALUATION (18 tests)
 # ============================================================================
 
@@ -188,6 +487,22 @@ def run_planner_test(test_case: Dict, db) -> Dict[str, Any]:
         "agent_success": False,
         "overall_pass": False,
     }
+
+    # Validate query is not empty
+    is_valid, error_msg = validate_query(query)
+    if not is_valid:
+        result["error"] = error_msg
+        result["evaluation"] = {
+            "checks": {
+                "query_validation": {
+                    "expected": "non-empty query",
+                    "actual": f"'{query}'",
+                    "passed": False,
+                }
+            },
+            "all_passed": False,
+        }
+        return result
 
     try:
         # Get user
@@ -468,6 +783,22 @@ def run_retrieval_test(test_case: Dict, db) -> Dict[str, Any]:
         "overall_pass": False,
     }
 
+    # Validate query is not empty
+    is_valid, error_msg = validate_query(query)
+    if not is_valid:
+        result["error"] = error_msg
+        result["evaluation"] = {
+            "checks": {
+                "query_validation": {
+                    "expected": "non-empty query",
+                    "actual": f"'{query}'",
+                    "passed": False,
+                }
+            },
+            "all_passed": False,
+        }
+        return result
+
     try:
         # Get user
         user, rating_count = get_user_by_id(db, test_case["user_id"])
@@ -661,6 +992,22 @@ def run_curation_test(test_case: Dict, db) -> Dict[str, Any]:
         "overall_pass": False,
     }
 
+    # Validate query is not empty
+    is_valid, error_msg = validate_query(query)
+    if not is_valid:
+        result["error"] = error_msg
+        result["evaluation"] = {
+            "checks": {
+                "query_validation": {
+                    "expected": "non-empty query",
+                    "actual": f"'{query}'",
+                    "passed": False,
+                }
+            },
+            "all_passed": False,
+        }
+        return result
+
     try:
         # Get user
         user, rating_count = get_user_by_id(db, test_case["user_id"])
@@ -702,7 +1049,9 @@ def run_curation_test(test_case: Dict, db) -> Dict[str, Any]:
 # ============================================================================
 
 
-def evaluate_full_pipeline(final_response, expected_behavior: Dict[str, Any]) -> Dict[str, Any]:
+def evaluate_full_pipeline(
+    final_response, expected_behavior: Dict[str, Any], execution_context=None
+) -> Dict[str, Any]:
     """
     Evaluate full 3-stage pipeline integration.
 
@@ -710,6 +1059,7 @@ def evaluate_full_pipeline(final_response, expected_behavior: Dict[str, Any]) ->
     - All stages completed successfully
     - Data flowed correctly between stages
     - Final output meets quality standards
+    - Tool usage matches expectations (for high-impact tests)
     """
     results = {"checks": {}, "all_passed": True}
 
@@ -766,6 +1116,58 @@ def evaluate_full_pipeline(final_response, expected_behavior: Dict[str, Any]) ->
         if not handled:
             results["all_passed"] = False
 
+    # High-impact integration checks (require execution_context)
+    if execution_context:
+        tools_used = (
+            execution_context.tools_used if hasattr(execution_context, "tools_used") else []
+        )
+
+        # Check: Genre queries should use subject search
+        if expected_behavior.get("should_use_subject_search_for_fantasy"):
+            uses_subject = any(
+                tool in tools_used for tool in ["subject_id_search", "subject_hybrid_pool"]
+            )
+            results["checks"]["genre_uses_subject_search"] = {
+                "expected": "subject_id_search or subject_hybrid_pool",
+                "actual": tools_used,
+                "passed": uses_subject,
+            }
+            if not uses_subject:
+                results["all_passed"] = False
+
+        # Check: Genre queries should NOT use personalization
+        if expected_behavior.get("should_NOT_use_als_or_profile"):
+            uses_personalization = "als_recs" in tools_used
+            results["checks"]["no_personalization_for_genre"] = {
+                "expected": "NOT als_recs",
+                "actual": tools_used,
+                "passed": not uses_personalization,
+            }
+            if uses_personalization:
+                results["all_passed"] = False
+
+        # Check: Must use subject_id_search
+        if expected_behavior.get("must_use_subject_id_search"):
+            uses_subject_id = "subject_id_search" in tools_used
+            results["checks"]["uses_subject_id_search"] = {
+                "expected": "subject_id_search",
+                "actual": tools_used,
+                "passed": uses_subject_id,
+            }
+            if not uses_subject_id:
+                results["all_passed"] = False
+
+        # Check: Should NOT use popular_books
+        if expected_behavior.get("should_NOT_use_popular_books"):
+            uses_popular = "popular_books" in tools_used
+            results["checks"]["no_popular_books"] = {
+                "expected": "NOT popular_books",
+                "actual": tools_used,
+                "passed": not uses_popular,
+            }
+            if uses_popular:
+                results["all_passed"] = False
+
     return results
 
 
@@ -789,9 +1191,79 @@ def run_integration_test(test_case: Dict, db) -> Dict[str, Any]:
         "overall_pass": False,
     }
 
+    # Validate query is not empty (unless it's explicitly testing empty query)
+    if name != "empty_query_e2e":
+        is_valid, error_msg = validate_query(query)
+        if not is_valid:
+            result["error"] = error_msg
+            result["evaluation"] = {
+                "checks": {
+                    "query_validation": {
+                        "expected": "non-empty query",
+                        "actual": f"'{query}'",
+                        "passed": False,
+                    }
+                },
+                "all_passed": False,
+            }
+            return result
+
     try:
         # Get user
         user, rating_count = get_user_by_id(db, test_case["user_id"])
+
+        # For high-impact tests, run planner + retrieval separately to get execution_context
+        execution_context = None
+        if any(
+            expected_behavior.get(key)
+            for key in [
+                "should_use_subject_search_for_fantasy",
+                "should_NOT_use_als_or_profile",
+                "must_use_subject_id_search",
+                "should_NOT_use_popular_books",
+            ]
+        ):
+            # Run planner
+            planner = PlannerAgent(
+                current_user=user,
+                db=db,
+                user_num_ratings=rating_count,
+                has_als_recs_available=user_state["is_warm"],
+                allow_profile=user_state["allow_profile"],
+            )
+
+            available_tools = [
+                "book_semantic_search",
+                "subject_hybrid_pool",
+                "subject_id_search",
+                "popular_books",
+            ]
+            if user_state["is_warm"]:
+                available_tools.insert(0, "als_recs")
+
+            planner_input = PlannerInput(
+                query=query,
+                has_als_recs_available=user_state["is_warm"],
+                allow_profile=user_state["allow_profile"],
+                available_retrieval_tools=available_tools,
+            )
+
+            strategy = planner.execute(planner_input)
+
+            # Run retrieval
+            retrieval = RetrievalAgent(
+                current_user=user,
+                db=db,
+                user_num_ratings=rating_count,
+                has_als_recs_available=user_state["is_warm"],
+            )
+
+            retrieval_input = RetrievalInput(
+                query=query, strategy=strategy, profile_data=strategy.profile_data
+            )
+
+            retrieval_output = retrieval.execute(retrieval_input)
+            execution_context = retrieval_output.execution_context
 
         # Run full pipeline
         orchestrator = RecommendationAgent(
@@ -813,8 +1285,11 @@ def run_integration_test(test_case: Dict, db) -> Dict[str, Any]:
             "text_length": len(final_response.text) if final_response.text else 0,
         }
 
+        if execution_context:
+            result["pipeline"]["tools_used"] = execution_context.tools_used
+
         # Evaluate integration
-        eval_result = evaluate_full_pipeline(final_response, expected_behavior)
+        eval_result = evaluate_full_pipeline(final_response, expected_behavior, execution_context)
         result["evaluation"] = eval_result
         result["overall_pass"] = eval_result["all_passed"]
 
@@ -863,7 +1338,10 @@ def evaluate_all(test_cases: Dict[str, List[Dict]]) -> Dict[str, Any]:
             "tool_selection_warm_user": ("planner", run_planner_test),
             "tool_selection_cold_user": ("planner", run_planner_test),
             "two_stage_integration": ("integration", run_integration_test),
+            "integration_high_impact": ("integration", run_integration_test),
             "edge_cases": ("integration", run_integration_test),
+            "negative_constraints": ("negative_constraints", run_negative_constraint_test),
+            "curation_critical": ("curation", run_curation_test),
         }
 
         for category, cases in test_cases.items():
@@ -998,7 +1476,45 @@ def save_results(eval_results: Dict[str, Any], output_dir: Path):
 
 
 def main():
-    """Main evaluation function."""
+    """Main evaluation function with CLI argument support."""
+    parser = argparse.ArgumentParser(
+        description="Recommendation Agent Evaluation Suite",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog="""
+Examples:
+  # Run all tests (default)
+  python evaluate_recommendation.py
+
+  # Run only planner tests
+  python evaluate_recommendation.py --categories planner
+
+  # Run planner and retrieval tests
+  python evaluate_recommendation.py --categories planner retrieval
+
+  # Run only negative constraint tests
+  python evaluate_recommendation.py --categories negative_constraints
+
+  # List available categories
+  python evaluate_recommendation.py --list-categories
+        """,
+    )
+
+    parser.add_argument(
+        "--categories",
+        "-c",
+        nargs="+",
+        help="Test categories to run (space-separated). Run all if not specified.",
+    )
+
+    parser.add_argument(
+        "--list-categories",
+        "-l",
+        action="store_true",
+        help="List available test categories and exit",
+    )
+
+    args = parser.parse_args()
+
     script_dir = Path(__file__).parent
     test_cases_path = script_dir / "test_cases.json"
     results_dir = script_dir / "results"
@@ -1008,10 +1524,44 @@ def main():
     print("3-Stage Architecture: Planner → Retrieval → Curation")
     print("=" * 70)
     print("\nLoading test cases...")
-    test_cases = load_test_cases(test_cases_path)
+    all_test_cases = load_test_cases(test_cases_path)
 
-    total_cases = sum(len(cases) for cases in test_cases.values())
-    print(f"Loaded {total_cases} test cases across {len(test_cases)} categories")
+    # List categories if requested
+    if args.list_categories:
+        print("\nAvailable test categories:")
+        for category, cases in all_test_cases.items():
+            print(f"  - {category}: {len(cases)} tests")
+        print(
+            f"\nTotal: {sum(len(c) for c in all_test_cases.values())} tests across {len(all_test_cases)} categories"
+        )
+        return
+
+    # Filter categories if specified
+    if args.categories:
+        test_cases = {}
+        invalid_categories = []
+
+        for cat in args.categories:
+            if cat in all_test_cases:
+                test_cases[cat] = all_test_cases[cat]
+            else:
+                invalid_categories.append(cat)
+
+        if invalid_categories:
+            print(f"\n❌ ERROR: Invalid categories: {', '.join(invalid_categories)}")
+            print("\nAvailable categories:")
+            for category in all_test_cases.keys():
+                print(f"  - {category}")
+            sys.exit(1)
+
+        total_cases = sum(len(cases) for cases in test_cases.values())
+        print(f"Running {total_cases} tests from {len(test_cases)} selected categories:")
+        for cat, cases in test_cases.items():
+            print(f"  - {cat}: {len(cases)} tests")
+    else:
+        test_cases = all_test_cases
+        total_cases = sum(len(cases) for cases in test_cases.values())
+        print(f"Loaded {total_cases} test cases across {len(test_cases)} categories")
 
     print("\n📊 Testing with REAL database connection and users")
     print("   Tools will execute against actual data\n")

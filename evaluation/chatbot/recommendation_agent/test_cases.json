@@ -490,5 +490,128 @@
 			},
 			"note": "BUG TEST: Genre query with user who has NO subjects - must use subject_id_search"
 		}
+	],
+	"negative_constraints": [
+		{
+			"name": "negative_constraint_genre_excluded",
+			"query": "recommend mystery novels but NOT cozy mysteries",
+			"user_id": 278859,
+			"user_state": {
+				"num_ratings": 12,
+				"allow_profile": false,
+				"is_warm": true
+			},
+			"negative_constraints": [
+				"cozy mystery",
+				"cozy mysteries",
+				"cozy"
+			],
+			"expected_retrieval": {
+				"should_use_subject_search": true,
+				"should_NOT_include_constraints_in_query": true,
+				"should_return_mixed_candidates": true
+			},
+			"expected_curation": {
+				"should_filter_out_cozy_books": true,
+				"llm_judge_needed": true,
+				"min_final_books": 3
+			}
+		},
+		{
+			"name": "negative_constraint_descriptive_excluded",
+			"query": "recommend thriller books but nothing about serial killers or forensics",
+			"user_id": 278859,
+			"user_state": {
+				"num_ratings": 12,
+				"allow_profile": false,
+				"is_warm": true
+			},
+			"negative_constraints": [
+				"serial killer",
+				"serial killers",
+				"forensics",
+				"forensic"
+			],
+			"expected_retrieval": {
+				"should_use_semantic_search": true,
+				"should_search_for": "thriller books",
+				"should_NOT_search_for": [
+					"serial killer",
+					"forensics"
+				]
+			},
+			"expected_curation": {
+				"should_filter_out_serial_killer_books": true,
+				"llm_judge_needed": true,
+				"min_final_books": 3
+			}
+		}
+	],
+	"curation_critical": [
+		{
+			"name": "curation_json_parsing_success",
+			"query": "recommend science fiction with space exploration",
+			"user_id": 278859,
+			"user_state": {
+				"num_ratings": 12,
+				"allow_profile": false,
+				"is_warm": true
+			},
+			"expected_output": {
+				"should_parse_json_successfully": true,
+				"should_have_book_ids_field": true,
+				"should_have_response_text_field": true,
+				"min_final_books": 3
+			}
+		},
+		{
+			"name": "curation_inline_refs_all_valid",
+			"query": "recommend historical fiction",
+			"user_id": 278859,
+			"user_state": {
+				"num_ratings": 12,
+				"allow_profile": false,
+				"is_warm": true
+			},
+			"expected_output": {
+				"all_inline_refs_in_book_ids": true,
+				"no_unclosed_tags": true,
+				"no_non_integer_ids": true,
+				"min_final_books": 3
+			}
+		}
+	],
+	"integration_high_impact": [
+		{
+			"name": "genre_query_overrides_personalization",
+			"query": "recommend fantasy novels",
+			"user_id": 278859,
+			"user_state": {
+				"num_ratings": 12,
+				"allow_profile": true,
+				"is_warm": true
+			},
+			"expected_behavior": {
+				"should_use_subject_search_for_fantasy": true,
+				"should_NOT_use_als_or_profile": true,
+				"genre_should_override_personalization": true,
+				"final_response_should_have_books": true
+			}
+		},
+		{
+			"name": "cold_user_genre_must_use_subjects",
+			"query": "recommend horror books",
+			"user_id": 278857,
+			"user_state": {
+				"num_ratings": 2,
+				"allow_profile": false,
+				"is_warm": false
+			},
+			"expected_behavior": {
+				"must_use_subject_id_search": true,
+				"should_NOT_use_popular_books": true,
+				"final_response_should_have_books": true
+			}
+		}
 	]
 }
