@@ -206,7 +206,8 @@
 			},
 			"expected_output": {
 				"min_candidates": 30
-			}
+			},
+			"strategy_scenario": "als"
 		},
 		{
 			"name": "retrieval_follows_semantic_strategy",
@@ -222,7 +223,8 @@
 			},
 			"expected_output": {
 				"min_candidates": 30
-			}
+			},
+			"strategy_scenario": "semantic"
 		},
 		{
 			"name": "retrieval_uses_fallback_when_needed",
@@ -238,7 +240,8 @@
 			},
 			"expected_output": {
 				"min_candidates": 10
-			}
+			},
+			"strategy_scenario": "semantic"
 		},
 		{
 			"name": "bug_genre_query_warm_user_mystery",
@@ -255,7 +258,8 @@
 			"expected_output": {
 				"min_candidates": 20
 			},
-			"bug_test": "genre_query_must_use_explicit_subjects"
+			"bug_test": "genre_query_must_use_explicit_subjects",
+			"strategy_scenario": "subject"
 		},
 		{
 			"name": "bug_genre_query_cold_user_fantasy",
@@ -272,7 +276,8 @@
 			"expected_output": {
 				"min_candidates": 20
 			},
-			"bug_test": "genre_query_must_use_explicit_subjects"
+			"bug_test": "genre_query_must_use_explicit_subjects",
+			"strategy_scenario": "subject"
 		},
 		{
 			"name": "bug_genre_query_new_user_romance",
@@ -289,7 +294,8 @@
 			"expected_output": {
 				"min_candidates": 20
 			},
-			"bug_test": "genre_query_must_use_explicit_subjects"
+			"bug_test": "genre_query_must_use_explicit_subjects",
+			"strategy_scenario": "subject"
 		},
 		{
 			"name": "correct_vague_query_with_subjects",
@@ -306,7 +312,8 @@
 			"expected_output": {
 				"min_candidates": 20
 			},
-			"bug_test": "vague_with_subjects_auto_fetch_ok"
+			"bug_test": "vague_with_subjects_auto_fetch_ok",
+			"strategy_scenario": "profile"
 		},
 		{
 			"name": "bug_vague_query_no_subjects",
@@ -323,7 +330,8 @@
 			"expected_output": {
 				"min_candidates": 20
 			},
-			"bug_test": "vague_no_subjects_should_not_use_subject_hybrid"
+			"bug_test": "vague_no_subjects_should_not_use_subject_hybrid",
+			"strategy_scenario": "fallback"
 		}
 	],
 	"curation_quality": [

@@ -1065,49 +1065,28 @@ def run_retrieval_test(test_case: Dict, db) -> Dict[str, Any]:
         # Get user
         user, rating_count = get_user_by_id(db, test_case["user_id"])
 
-        # Get mock strategy based on query type (NO planner call)
-        query_lower = query.lower()
-        genre_keywords = [
-            "fantasy",
-            "mystery",
-            "thriller",
-            "romance",
-            "fiction",
-            "crime",
-            "detective",
-            "adventure",
-            "science fiction",
-            "historical",
-        ]
-        is_genre_query = any(keyword in query_lower for keyword in genre_keywords)
-        is_vague_query = any(
-            word in query_lower for word in ["recommend", "suggest", "what should", "good book"]
-        )
+        # Get mock strategy from test case (deterministic, no guessing)
+        strategy_scenario = test_case.get("strategy_scenario")
+        if not strategy_scenario:
+            raise ValueError(
+                f"Test case '{name}' missing 'strategy_scenario' field. "
+                f"Must specify one of: semantic, als, subject, profile, negative, fallback"
+            )
 
-        # Determine appropriate mock strategy
-        if is_genre_query and not is_vague_query:
-            # Genre query - use subject search strategy
-            strategy = get_mock_strategy("subject")
-        elif "dark" in query_lower or "atmospheric" in query_lower or "cozy" in query_lower:
-            # Descriptive query - use semantic search
-            strategy = get_mock_strategy("semantic")
-        elif user_state["is_warm"] and is_vague_query:
-            # Warm user vague query - use ALS
-            strategy = get_mock_strategy("als")
-        elif not user_state["is_warm"] and user_state["allow_profile"]:
-            # Cold user with profile - use profile strategy
+        # Create mock strategy with appropriate profile data for profile scenarios
+        if strategy_scenario == "profile":
+            user_id = test_case["user_id"]
             strategy = get_mock_strategy(
                 "profile",
                 profile_data={
                     "user_profile": {
-                        "favorite_subjects": USER_SUBJECTS.get(user.user_id, []),
+                        "favorite_subjects": USER_SUBJECTS.get(user_id, []),
                         "favorite_genres": ["mystery", "thriller"],
                     }
                 },
             )
         else:
-            # Default to semantic
-            strategy = get_mock_strategy("semantic")
+            strategy = get_mock_strategy(strategy_scenario)
 
         # Run retrieval with mock strategy
         retrieval = RetrievalAgent(
@@ -1134,11 +1113,14 @@ def run_retrieval_test(test_case: Dict, db) -> Dict[str, Any]:
         user_id = test_case["user_id"]
         user_favorite_subjects = USER_SUBJECTS.get(user_id, [])
 
+        # Determine query type from strategy scenario
+        query_type = "genre" if strategy_scenario == "subject" else "vague"
+
         # Build expected checks
         expected_checks = {
             "should_follow_strategy": True,
             "min_candidates": expected_output.get("min_candidates", 20),
-            "query_type": "genre" if is_genre_query and not is_vague_query else "vague",
+            "query_type": query_type,
             "user_favorite_subjects": user_favorite_subjects,
         }
 
@@ -1621,14 +1603,16 @@ def evaluate_all(test_cases: Dict[str, List[Dict]]) -> Dict[str, Any]:
         category_handlers = {
             "tool_selection_warm_user": ("planner", run_planner_test),
             "tool_selection_cold_user": ("planner", run_planner_test),
-            "two_stage_integration": ("integration", run_integration_test),
-            "integration_high_impact": ("integration", run_integration_test),
-            "edge_cases": ("integration", run_integration_test),
-            "negative_constraints": ("negative_constraints", run_negative_constraint_test),
+            "retrieval_strategy_adherence": ("retrieval", run_retrieval_test),
+            "curation_quality": ("curation", run_curation_test),
             "curation_critical": ("curation", run_curation_test),
             "curation_genre_matching": ("curation_genre", run_genre_matching_test),
             "curation_personalization_prose": ("curation_prose", run_personalization_prose_test),
             "curation_false_personalization": ("curation_prose", run_personalization_prose_test),
+            "negative_constraints": ("negative_constraints", run_negative_constraint_test),
+            "two_stage_integration": ("integration", run_integration_test),
+            "integration_high_impact": ("integration", run_integration_test),
+            "edge_cases": ("integration", run_integration_test),
         }
 
         for category, cases in test_cases.items():
