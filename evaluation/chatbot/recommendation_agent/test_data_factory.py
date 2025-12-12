@@ -1,231 +1,282 @@
 # evaluation/chatbot/recommendation_agent/test_data_factory.py
 """
-Test data factory for recommendation agent evaluation.
-Provides mock strategies, candidate queries, and execution contexts for isolated stage testing.
+Test data factory for isolated recommendation agent testing.
+Provides mock strategies, real candidate books, and execution contexts.
 """
 
+from typing import Dict, Any, Optional, List
 import random
-from typing import Dict, List, Optional, Any
+
 from app.agents.domain.recsys_schemas import PlannerStrategy, ExecutionContext
+from app.agents.tools.registry import ToolRegistry, InternalToolGates
 
 
 # ============================================================================
-# RETRIEVAL TEST DATA - Mock PlannerStrategy Objects
+# MOCK PLANNER STRATEGIES
 # ============================================================================
 
 
 def get_mock_strategy(scenario: str, **kwargs) -> PlannerStrategy:
     """
-    Get mock planner strategy for retrieval agent testing.
+    Get mock planner strategy for retrieval testing.
 
     Args:
         scenario: Strategy type - 'semantic', 'als', 'subject', 'profile',
-                  'negative', or 'fallback'
-        **kwargs: Optional overrides (profile_data, negative_constraints, etc.)
+                  'negative', 'fallback'
+        **kwargs: Optional profile_data for profile scenarios
 
     Returns:
-        PlannerStrategy object for testing
+        PlannerStrategy object ready for retrieval agent
     """
-    strategies = {
-        "semantic": PlannerStrategy(
+
+    if scenario == "semantic":
+        return PlannerStrategy(
             recommended_tools=["book_semantic_search"],
+            reasoning="Descriptive query - use semantic search",
             fallback_tools=["popular_books"],
-            reasoning="Descriptive query with atmosphere - semantic search ideal",
             profile_data=None,
-            negative_constraints=None,
-        ),
-        "als": PlannerStrategy(
+        )
+
+    elif scenario == "als":
+        return PlannerStrategy(
             recommended_tools=["als_recs"],
+            reasoning="Warm user vague query - use collaborative filtering",
             fallback_tools=["popular_books"],
-            reasoning="Vague query with warm user - personalized recommendations best",
             profile_data=None,
-            negative_constraints=None,
-        ),
-        "subject": PlannerStrategy(
+        )
+
+    elif scenario == "subject":
+        return PlannerStrategy(
             recommended_tools=["subject_id_search", "subject_hybrid_pool"],
-            fallback_tools=["book_semantic_search"],
-            reasoning="Genre query - need explicit subject IDs for accurate results",
-            profile_data=None,
-            negative_constraints=None,
-        ),
-        "profile": PlannerStrategy(
-            recommended_tools=["subject_hybrid_pool"],
+            reasoning="Genre query - resolve subject and search",
             fallback_tools=["popular_books"],
-            reasoning="Cold user with profile - use favorite subjects for personalization",
-            profile_data={
+            profile_data=None,
+        )
+
+    elif scenario == "profile":
+        profile_data = kwargs.get(
+            "profile_data",
+            {
                 "user_profile": {
-                    "favorite_subjects": [978, 1066, 2317],
-                    "favorite_genres": ["mystery", "thriller", "crime"],
+                    "favorite_subjects": [978, 1066, 2317],  # Mystery, Detective, Crime
+                    "favorite_genres": ["mystery", "thriller"],
                 }
             },
-            negative_constraints=None,
-        ),
-        "negative": PlannerStrategy(
-            recommended_tools=["book_semantic_search"],
+        )
+        return PlannerStrategy(
+            recommended_tools=["subject_hybrid_pool"],
+            reasoning="Cold user with profile - use favorite subjects",
             fallback_tools=["popular_books"],
-            reasoning="Query with negative constraints - semantic search then filter",
-            profile_data=None,
-            negative_constraints=kwargs.get("negative_constraints", ["cozy"]),
-        ),
-        "fallback": PlannerStrategy(
-            recommended_tools=["book_semantic_search"],
-            fallback_tools=["popular_books"],
-            reasoning="Primary tool may underperform - have fallback ready",
-            profile_data=None,
-            negative_constraints=None,
-        ),
-    }
+            profile_data=profile_data,
+        )
 
-    if scenario not in strategies:
+    elif scenario == "negative":
+        return PlannerStrategy(
+            recommended_tools=["book_semantic_search"],
+            reasoning="Query with negative constraint - semantic search then filter",
+            fallback_tools=["popular_books"],
+            profile_data=None,
+        )
+
+    elif scenario == "fallback":
+        return PlannerStrategy(
+            recommended_tools=["popular_books"],
+            reasoning="New user, no profile - use popular books",
+            fallback_tools=[],
+            profile_data=None,
+        )
+
+    else:
         raise ValueError(f"Unknown strategy scenario: {scenario}")
-
-    strategy = strategies[scenario]
-
-    # Apply any overrides
-    for key, value in kwargs.items():
-        if hasattr(strategy, key):
-            setattr(strategy, key, value)
-
-    return strategy
 
 
 # ============================================================================
-# CURATION TEST DATA - Candidate Queries
+# REAL CANDIDATE BOOKS (via ToolRegistry)
 # ============================================================================
 
 
 def get_candidates(scenario: str, db, **kwargs) -> Dict[str, Any]:
     """
-    Get candidate books for curation agent testing.
+    Get candidate books for curation agent testing using ToolRegistry.
 
     Args:
         scenario: Candidate type - 'basic', 'negative_cozy', 'negative_serial_killer',
                   'genre_fantasy', 'genre_historical', 'als', 'subject'
         db: Database session
-        **kwargs: Additional params (user_id, subject_ids, query, etc.)
+        **kwargs: Additional params (user_id, subject_ids, query, user_num_ratings)
 
     Returns:
         Dict with 'books' list and metadata
     """
-    from app.agents.tools.native_tools import book_semantic_search, subject_hybrid_pool, als_recs
+    # Get user if provided
+    user_id = kwargs.get("user_id")
+    current_user = None
+    if user_id and db:
+        from app.table_models import User
+
+        current_user = db.query(User).filter(User.user_id == user_id).first()
+
+    # Create tool gates
+    user_num_ratings = kwargs.get("user_num_ratings", 12)
+    gates = InternalToolGates(
+        user_num_ratings=user_num_ratings,
+        warm_threshold=10,
+        profile_allowed=True,  # Allow profile access for testing
+    )
+
+    # Create registry with retrieval tools
+    registry = ToolRegistry.for_retrieval(gates=gates, ctx_user=current_user, ctx_db=db)
 
     # Basic scenarios - simple semantic search
     if scenario == "basic":
         query = kwargs.get("query", "mystery novels")
-        result = book_semantic_search(query=query, limit=60, db=db)
-        return {
-            "books": result.get("books", []),
-            "tools_used": ["book_semantic_search"],
-            "query_used": query,
-        }
+        semantic_tool = registry.get_tool("book_semantic_search")
+        if not semantic_tool:
+            raise RuntimeError("book_semantic_search tool not available")
 
-    # Negative constraint scenarios - mix base + constraint books, shuffle
+        books = semantic_tool.execute(query=query, top_k=60)
+        return {"books": books, "tools_used": ["book_semantic_search"], "query_used": query}
+
+    # Negative constraint scenarios - mix base + constraint books
     elif scenario == "negative_cozy":
-        # Get regular mysteries (should pass through)
-        base = book_semantic_search(
-            query="mystery detective crime investigation thriller", limit=40, db=db
+        # Get 40 mystery books
+        semantic_tool = registry.get_tool("book_semantic_search")
+        base_books = semantic_tool.execute(
+            query="mystery detective crime thriller suspense", top_k=40
         )
 
-        # Get cozy mysteries (should be filtered out)
-        cozy = book_semantic_search(
-            query="cozy mystery amateur sleuth small town cats bakery tea shop inn", limit=20, db=db
+        # Get 20 cozy mystery books
+        cozy_books = semantic_tool.execute(
+            query="cozy mystery amateur sleuth small town cats bakery tea shop inn charming",
+            top_k=20,
         )
 
-        # Combine and shuffle to mix constraint books throughout
-        all_books = base.get("books", []) + cozy.get("books", [])
+        # Mix and shuffle
+        all_books = base_books + cozy_books
         random.shuffle(all_books)
 
         return {
             "books": all_books,
             "tools_used": ["book_semantic_search"],
-            "query_used": "mystery novels",
+            "query_used": "mystery NOT cozy",
+            "base_count": len(base_books),
+            "constraint_count": len(cozy_books),
         }
 
     elif scenario == "negative_serial_killer":
-        # Get regular thrillers (should pass through)
-        base = book_semantic_search(
-            query="thriller suspense action espionage political international", limit=40, db=db
+        semantic_tool = registry.get_tool("book_semantic_search")
+
+        # Get 40 thriller books
+        base_books = semantic_tool.execute(query="thriller suspense crime psychological", top_k=40)
+
+        # Get 20 serial killer books
+        serial_books = semantic_tool.execute(
+            query="serial killer psychopath killer profiler FBI forensics murder investigation",
+            top_k=20,
         )
 
-        # Get serial killer books (should be filtered out)
-        serial = book_semantic_search(
-            query="serial killer FBI profiler forensics criminal minds detective", limit=20, db=db
-        )
-
-        # Combine and shuffle
-        all_books = base.get("books", []) + serial.get("books", [])
+        # Mix and shuffle
+        all_books = base_books + serial_books
         random.shuffle(all_books)
 
         return {
             "books": all_books,
             "tools_used": ["book_semantic_search"],
-            "query_used": "thriller books",
+            "query_used": "thriller NOT serial killer",
+            "base_count": len(base_books),
+            "constraint_count": len(serial_books),
         }
 
-    # Genre matching scenarios - mix correct + wrong genre, shuffle
+    # Genre matching scenarios - mix correct + wrong genre
     elif scenario == "genre_fantasy":
-        # Get fantasy books (should pass through)
-        fantasy = subject_hybrid_pool(
-            subject_ids=[1378],  # Fantasy subject ID
-            limit=40,
-            db=db,
+        # Get 40 fantasy books using subject_hybrid_pool
+        subject_tool = registry.get_tool("subject_hybrid_pool")
+        fantasy_books = subject_tool.execute(
+            top_k=40,
+            fav_subjects_idxs=[1378],  # Fantasy subject
+            weight=0.7,
         )
 
-        # Get wrong-genre books (should be filtered out)
-        wrong = book_semantic_search(
-            query="mystery detective crime thriller suspense investigation", limit=20, db=db
+        # Get 20 mystery/thriller books
+        semantic_tool = registry.get_tool("book_semantic_search")
+        wrong_books = semantic_tool.execute(
+            query="mystery detective crime thriller suspense", top_k=20
         )
 
-        # Combine and shuffle
-        all_books = fantasy.get("books", []) + wrong.get("books", [])
+        # Mix and shuffle
+        all_books = fantasy_books + wrong_books
         random.shuffle(all_books)
 
         return {
             "books": all_books,
-            "tools_used": ["subject_hybrid_pool"],
-            "query_used": "fantasy books",
+            "tools_used": ["subject_hybrid_pool", "book_semantic_search"],
+            "query_used": "fantasy",
+            "correct_genre_count": len(fantasy_books),
+            "wrong_genre_count": len(wrong_books),
         }
 
     elif scenario == "genre_historical":
-        # Get historical fiction (should pass through)
-        historical = subject_hybrid_pool(
-            subject_ids=[1501],  # Historical Fiction subject ID
-            limit=40,
-            db=db,
+        # Get 40 historical fiction books
+        subject_tool = registry.get_tool("subject_hybrid_pool")
+        historical_books = subject_tool.execute(
+            top_k=40,
+            fav_subjects_idxs=[1669, 1415],  # Historical Fiction subject
+            weight=0.7,
         )
 
-        # Get wrong-genre books (should be filtered out)
-        wrong = book_semantic_search(
-            query="science fiction space fantasy magic futuristic aliens", limit=20, db=db
+        # Get 20 sci-fi/fantasy books
+        semantic_tool = registry.get_tool("book_semantic_search")
+        wrong_books = semantic_tool.execute(
+            query="science fiction fantasy space alien dragon magic", top_k=20
         )
 
-        # Combine and shuffle
-        all_books = historical.get("books", []) + wrong.get("books", [])
+        # Mix and shuffle
+        all_books = historical_books + wrong_books
         random.shuffle(all_books)
 
         return {
             "books": all_books,
-            "tools_used": ["subject_hybrid_pool"],
+            "tools_used": ["subject_hybrid_pool", "book_semantic_search"],
             "query_used": "historical fiction",
+            "correct_genre_count": len(historical_books),
+            "wrong_genre_count": len(wrong_books),
         }
 
-    # Personalization scenarios
+    # ALS personalization scenario
     elif scenario == "als":
-        user_id = kwargs.get("user_id", 278859)
-        result = als_recs(user_id=user_id, limit=60, db=db)
+        if not current_user:
+            raise ValueError("ALS scenario requires user_id")
+
+        als_tool = registry.get_tool("als_recs")
+        if not als_tool:
+            # Fall back to semantic if ALS not available (cold user)
+            semantic_tool = registry.get_tool("book_semantic_search")
+            books = semantic_tool.execute(query="popular books", top_k=60)
+            return {
+                "books": books,
+                "tools_used": ["book_semantic_search"],
+                "query_used": "fallback due to cold user",
+            }
+
+        books = als_tool.execute(top_k=60)
         return {
-            "books": result.get("books", []),
+            "books": books,
             "tools_used": ["als_recs"],
             "query_used": "personalized recommendations",
         }
 
+    # Subject-based scenario
     elif scenario == "subject":
-        subject_ids = kwargs.get("subject_ids", [978, 1066])
-        result = subject_hybrid_pool(subject_ids=subject_ids, limit=60, db=db)
+        subject_ids = kwargs.get("subject_ids", [978, 1066, 2317])  # Mystery, Detective, Crime
+        subject_tool = registry.get_tool("subject_hybrid_pool")
+        if not subject_tool:
+            raise RuntimeError("subject_hybrid_pool tool not available")
+
+        books = subject_tool.execute(top_k=60, fav_subjects_idxs=subject_ids, weight=0.6)
         return {
-            "books": result.get("books", []),
+            "books": books,
             "tools_used": ["subject_hybrid_pool"],
-            "query_used": "subject-based recommendations",
+            "query_used": f"subjects {subject_ids}",
         }
 
     else:
@@ -233,84 +284,97 @@ def get_candidates(scenario: str, db, **kwargs) -> Dict[str, Any]:
 
 
 # ============================================================================
-# CURATION TEST DATA - Mock ExecutionContext Objects
+# MOCK EXECUTION CONTEXTS
 # ============================================================================
 
 
 def get_execution_context(scenario: str, **kwargs) -> ExecutionContext:
     """
-    Get mock execution context for curation agent testing.
+    Get mock execution context for curation testing.
 
     Args:
         scenario: Context type - 'semantic', 'als', 'subject', 'profile',
-                  'negative', 'fallback', 'no_personalization'
-        **kwargs: Optional overrides (profile_data, tools_used, etc.)
+                  'profile_recent', 'negative', 'fallback', 'no_personalization'
+        **kwargs: Optional profile_data for profile scenarios
 
     Returns:
-        ExecutionContext object for testing
+        ExecutionContext object ready for curation agent
     """
-    contexts = {
-        "semantic": ExecutionContext(
-            planner_reasoning="Descriptive query with atmosphere - semantic search ideal",
+
+    if scenario == "semantic":
+        return ExecutionContext(
+            planner_reasoning="Descriptive query about dark mysteries - used semantic search",
             tools_used=["book_semantic_search"],
             profile_data=None,
-        ),
-        "als": ExecutionContext(
-            planner_reasoning="Vague query with warm user - personalized recommendations",
+        )
+
+    elif scenario == "als":
+        return ExecutionContext(
+            planner_reasoning="Vague query from warm user - used collaborative filtering",
             tools_used=["als_recs"],
             profile_data=None,
-        ),
-        "subject": ExecutionContext(
-            planner_reasoning="Genre query - using subject search for accurate results",
+        )
+
+    elif scenario == "subject":
+        return ExecutionContext(
+            planner_reasoning="Genre query - resolved to subjects and searched",
             tools_used=["subject_id_search", "subject_hybrid_pool"],
             profile_data=None,
-        ),
-        "profile": ExecutionContext(
-            planner_reasoning="Cold user but profile shows favorite subjects",
-            tools_used=["subject_hybrid_pool"],
-            profile_data={
+        )
+
+    elif scenario == "profile":
+        profile_data = kwargs.get(
+            "profile_data",
+            {
                 "user_profile": {
                     "favorite_subjects": [978, 1066, 2317],
-                    "favorite_genres": ["mystery", "thriller", "crime"],
+                    "favorite_genres": ["mystery", "thriller"],
                 }
             },
-        ),
-        "profile_recent": ExecutionContext(
-            planner_reasoning="User with recent activity - considering recent reads",
+        )
+        return ExecutionContext(
+            planner_reasoning="Vague query from cold user with profile - used favorite subjects",
             tools_used=["subject_hybrid_pool"],
-            profile_data={
+            profile_data=profile_data,
+        )
+
+    elif scenario == "profile_recent":
+        profile_data = kwargs.get(
+            "profile_data",
+            {
+                "user_profile": {"favorite_subjects": [978, 1066], "favorite_genres": ["mystery"]},
                 "recent_interactions": [
-                    {"title": "Gone Girl", "rating": 5, "item_idx": 12345},
-                    {"title": "The Girl with the Dragon Tattoo", "rating": 5, "item_idx": 67890},
-                    {"title": "Big Little Lies", "rating": 4, "item_idx": 11111},
-                ]
+                    {"book_title": "The Silent Patient", "rating": 5},
+                    {"book_title": "Gone Girl", "rating": 5},
+                ],
             },
-        ),
-        "negative": ExecutionContext(
-            planner_reasoning="Query with negative constraints - semantic search then filter",
-            tools_used=["book_semantic_search"],
-            profile_data=None,
-        ),
-        "fallback": ExecutionContext(
-            planner_reasoning="Primary tool underperformed - using fallback",
-            tools_used=["book_semantic_search", "popular_books"],
-            profile_data=None,
-        ),
-        "no_personalization": ExecutionContext(
-            planner_reasoning="Descriptive query - no personalization needed",
-            tools_used=["book_semantic_search"],
-            profile_data=None,
-        ),
-    }
+        )
+        return ExecutionContext(
+            planner_reasoning="Vague query with recent interaction context - used favorite subjects",
+            tools_used=["subject_hybrid_pool"],
+            profile_data=profile_data,
+        )
 
-    if scenario not in contexts:
+    elif scenario == "negative":
+        return ExecutionContext(
+            planner_reasoning="Query with negative constraint - will filter in curation",
+            tools_used=["book_semantic_search"],
+            profile_data=None,
+        )
+
+    elif scenario == "fallback":
+        return ExecutionContext(
+            planner_reasoning="Vague query from new user - used popular books",
+            tools_used=["popular_books"],
+            profile_data=None,
+        )
+
+    elif scenario == "no_personalization":
+        return ExecutionContext(
+            planner_reasoning="Descriptive query, no personalization - query-based search only",
+            tools_used=["book_semantic_search"],
+            profile_data=None,
+        )
+
+    else:
         raise ValueError(f"Unknown context scenario: {scenario}")
-
-    context = contexts[scenario]
-
-    # Apply any overrides
-    for key, value in kwargs.items():
-        if hasattr(context, key):
-            setattr(context, key, value)
-
-    return context

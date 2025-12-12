@@ -20,12 +20,7 @@ from app.agents.infrastructure.recsys.orchestrator import RecommendationAgent
 from app.agents.infrastructure.recsys.planner_agent import PlannerAgent
 from app.agents.infrastructure.recsys.retrieval_agent import RetrievalAgent
 from app.agents.infrastructure.recsys.curation_agent import CurationAgent
-from app.agents.domain.recsys_schemas import (
-    PlannerInput,
-    RetrievalInput,
-    ExecutionContext,
-    CurationInput,
-)
+from app.agents.domain.recsys_schemas import PlannerInput, RetrievalInput, ExecutionContext
 from app.agents.domain.entities import AgentRequest, BookRecommendation
 from app.agents.domain.parsers import InlineReferenceParser
 from app.database import SessionLocal
@@ -400,34 +395,40 @@ def run_genre_matching_test(test_case: Dict, db) -> Dict[str, Any]:
         user, rating_count = get_user_by_id(db, test_case["user_id"])
 
         # Get mixed candidates (correct genre + wrong genre, shuffled)
-        candidates_data = get_candidates(test_scenario, db)
+        candidates_data = get_candidates(
+            test_scenario, db, user_id=user.user_id, user_num_ratings=rating_count
+        )
 
         # Get execution context (genre query uses subject search)
         context = get_execution_context("subject")
 
-        # Run curation agent with mixed candidates
-        curation = CurationAgent(
-            current_user=user,
-            db=db,
-            user_num_ratings=rating_count,
-        )
-
-        curation_input = CurationInput(
-            query=query,
-            candidates=candidates_data["books"],
-            execution_context=context,
-        )
-
-        curation_output = curation.execute(curation_input)
-
-        # Parse the response to get final books
+        # Convert dict candidates to BookRecommendation objects
         from app.agents.domain.entities import BookRecommendation
 
-        final_books = (
-            curation_output.book_recommendations
-            if hasattr(curation_output, "book_recommendations")
-            else []
+        candidates = [
+            BookRecommendation(
+                item_idx=book["item_idx"],
+                title=book.get("title"),
+                author=book.get("author"),
+                year=book.get("year"),
+                num_ratings=book.get("num_ratings"),
+            )
+            for book in candidates_data["books"]
+        ]
+
+        # Run curation agent (no args in __init__)
+        curation = CurationAgent()
+
+        # Create AgentRequest
+        request = AgentRequest(user_text=query, conversation_history=[])
+
+        # Execute with correct signature
+        curation_output = curation.execute(
+            request=request, candidates=candidates, execution_context=context
         )
+
+        # Get final books
+        final_books = curation_output.book_recommendations
 
         result["agent_success"] = len(final_books) >= expected_curation.get("min_final_books", 3)
         result["pipeline"] = {
@@ -509,40 +510,54 @@ def run_personalization_prose_test(test_case: Dict, db) -> Dict[str, Any]:
 
         # Get candidates based on test scenario
         if test_scenario == "als":
-            candidates_data = get_candidates("als", db, user_id=user.user_id)
+            candidates_data = get_candidates(
+                "als", db, user_id=user.user_id, user_num_ratings=rating_count
+            )
         elif test_scenario == "subject":
             # Use user's actual favorite subjects if available
-            candidates_data = get_candidates("subject", db, subject_ids=[978, 1066, 2317])
+            candidates_data = get_candidates(
+                "subject",
+                db,
+                user_id=user.user_id,
+                user_num_ratings=rating_count,
+                subject_ids=[978, 1066, 2317],
+            )
         else:
-            candidates_data = get_candidates("basic", db, query=query)
+            candidates_data = get_candidates(
+                "basic", db, query=query, user_id=user.user_id, user_num_ratings=rating_count
+            )
 
         # Get execution context (tells curation what personalization was used)
         context = get_execution_context(context_scenario)
 
-        # Run curation agent
-        curation = CurationAgent(
-            current_user=user,
-            db=db,
-            user_num_ratings=rating_count,
-        )
+        # Convert dict candidates to BookRecommendation objects
+        from app.agents.domain.entities import BookRecommendation
 
-        curation_input = CurationInput(
-            query=query,
-            candidates=candidates_data["books"],
-            execution_context=context,
-        )
+        candidates = [
+            BookRecommendation(
+                item_idx=book["item_idx"],
+                title=book.get("title"),
+                author=book.get("author"),
+                year=book.get("year"),
+                num_ratings=book.get("num_ratings"),
+            )
+            for book in candidates_data["books"]
+        ]
 
-        curation_output = curation.execute(curation_input)
+        # Run curation agent (no args in __init__)
+        curation = CurationAgent()
+
+        # Create AgentRequest
+        request = AgentRequest(user_text=query, conversation_history=[])
+
+        # Execute with correct signature
+        curation_output = curation.execute(
+            request=request, candidates=candidates, execution_context=context
+        )
 
         # Get response text and books
-        response_text = (
-            curation_output.response_text if hasattr(curation_output, "response_text") else ""
-        )
-        final_books = (
-            curation_output.book_recommendations
-            if hasattr(curation_output, "book_recommendations")
-            else []
-        )
+        response_text = curation_output.text
+        final_books = curation_output.book_recommendations
 
         result["agent_success"] = len(response_text) > 50 and len(final_books) >= 3
         result["pipeline"] = {
@@ -1259,33 +1274,39 @@ def run_curation_test(test_case: Dict, db) -> Dict[str, Any]:
         user, rating_count = get_user_by_id(db, test_case["user_id"])
 
         # Get candidates and context from factory (NO full pipeline)
-        candidates_data = get_candidates("basic", db, query=query)
+        candidates_data = get_candidates(
+            "basic", db, query=query, user_id=user.user_id, user_num_ratings=rating_count
+        )
         context = get_execution_context("semantic")
 
-        # Run curation agent in isolation
-        curation = CurationAgent(
-            current_user=user,
-            db=db,
-            user_num_ratings=rating_count,
-        )
+        # Convert dict candidates to BookRecommendation objects
+        from app.agents.domain.entities import BookRecommendation
 
-        curation_input = CurationInput(
-            query=query,
-            candidates=candidates_data["books"],
-            execution_context=context,
-        )
+        candidates = [
+            BookRecommendation(
+                item_idx=book["item_idx"],
+                title=book.get("title"),
+                author=book.get("author"),
+                year=book.get("year"),
+                num_ratings=book.get("num_ratings"),
+            )
+            for book in candidates_data["books"]
+        ]
 
-        curation_output = curation.execute(curation_input)
+        # Run curation agent in isolation (no args in __init__)
+        curation = CurationAgent()
+
+        # Create AgentRequest
+        request = AgentRequest(user_text=query, conversation_history=[])
+
+        # Execute with correct signature
+        curation_output = curation.execute(
+            request=request, candidates=candidates, execution_context=context
+        )
 
         # Get final response
-        final_books = (
-            curation_output.book_recommendations
-            if hasattr(curation_output, "book_recommendations")
-            else []
-        )
-        response_text = (
-            curation_output.response_text if hasattr(curation_output, "response_text") else ""
-        )
+        final_books = curation_output.book_recommendations
+        response_text = curation_output.text
 
         result["agent_success"] = len(final_books) >= 3 and len(response_text) > 50
         result["curation"] = {
@@ -1295,21 +1316,8 @@ def run_curation_test(test_case: Dict, db) -> Dict[str, Any]:
             "has_inline_refs": "<book id=" in response_text,
         }
 
-        # Create a mock final_response object for evaluation
-        from dataclasses import dataclass
-
-        @dataclass
-        class MockResponse:
-            success: bool
-            text: str
-            book_recommendations: list
-
-        mock_response = MockResponse(
-            success=True, text=response_text, book_recommendations=final_books
-        )
-
-        # Evaluate curation output
-        eval_result = evaluate_curation_output(mock_response, final_books)
+        # Evaluate curation output (curation_output is AgentResponse)
+        eval_result = evaluate_curation_output(curation_output, final_books)
         result["evaluation"] = eval_result
         result["overall_pass"] = eval_result["all_passed"] and result["agent_success"]
 

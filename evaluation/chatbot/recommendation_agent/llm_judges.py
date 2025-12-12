@@ -29,12 +29,17 @@ def llm_judge_genre_match(books: List[Any], expected_genre: str, db, judge_llm) 
 
     book_details = []
     for item in items:
+        author_name = item.author.name if item.author else "Unknown"
+
+        # Extract subject names from BookSubject relationship
+        subject_names = [bs.subject.subject for bs in item.subjects] if item.subjects else []
+
         book_details.append(
             {
                 "id": item.item_idx,
                 "title": item.title,
-                "author": item.author_name,
-                "subjects": item.subjects if hasattr(item, "subjects") else [],
+                "author": author_name,
+                "subjects": subject_names,
                 "description": item.description[:200] if item.description else "No description",
             }
         )
@@ -72,11 +77,17 @@ CRITERIA FOR PASSING:
 """
 
     try:
-        response = judge_llm.create_message(
-            messages=[{"role": "user", "content": judge_prompt}], max_tokens=1000, temperature=0.1
-        )
+        response = judge_llm.invoke([{"role": "user", "content": judge_prompt}])
 
-        result = json.loads(response.content[0].text)
+        # Parse JSON response (handle markdown code blocks)
+        content = response.content if hasattr(response, "content") else str(response)
+        if "```json" in content:
+            content = content.split("```json")[1].split("```")[0]
+        elif "```" in content:
+            content = content.split("```")[1].split("```")[0]
+        content = content.strip()
+
+        result = json.loads(content)
 
         # Ensure required fields exist
         result.setdefault("passed", False)
@@ -257,11 +268,17 @@ CRITERIA FOR PASSING:
 """
 
     try:
-        response = judge_llm.create_message(
-            messages=[{"role": "user", "content": judge_prompt}], max_tokens=800, temperature=0.1
-        )
+        response = judge_llm.invoke([{"role": "user", "content": judge_prompt}])
 
-        result = json.loads(response.content[0].text)
+        # Parse JSON response (handle markdown code blocks)
+        content = response.content if hasattr(response, "content") else str(response)
+        if "```json" in content:
+            content = content.split("```json")[1].split("```")[0]
+        elif "```" in content:
+            content = content.split("```")[1].split("```")[0]
+        content = content.strip()
+
+        result = json.loads(content)
 
         # Ensure required fields exist
         result.setdefault("passed", False)
