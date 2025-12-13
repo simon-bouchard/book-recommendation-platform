@@ -40,11 +40,11 @@ class PlannerAgent:
         Initialize PlannerAgent.
 
         Args:
-            current_user: Current user object (for profile data fetching)
-            db: Database session (for profile data fetching)
-            user_num_ratings: Number of ratings user has (for strategy decisions)
-            has_als_recs_available: Whether ALS collaborative filtering is available
-            allow_profile: Whether agent can access user profile data
+                current_user: Current user object (for profile data fetching)
+                db: Database session (for profile data fetching)
+                user_num_ratings: Number of ratings user has (for strategy decisions)
+                has_als_recs_available: Whether ALS collaborative filtering is available
+                allow_profile: Whether agent can access user profile data
         """
         self.llm = get_llm(tier="medium", json_mode=True, temperature=0.0)
         self._ctx_user = current_user
@@ -64,13 +64,13 @@ class PlannerAgent:
         4. Parse JSON response into PlannerStrategy
 
         Args:
-            planner_input: Query and available tools context
+                planner_input: Query and available tools context
 
         Returns:
-            PlannerStrategy with tool recommendations and reasoning
+                PlannerStrategy with tool recommendations and reasoning
 
         Raises:
-            ValueError: If JSON parsing fails or required fields missing
+                ValueError: If JSON parsing fails or required fields missing
         """
         append_chatbot_log("\n=== PLANNER AGENT ===")
         append_chatbot_log(f"Query: {planner_input.query[:100]}...")
@@ -144,7 +144,7 @@ class PlannerAgent:
         Returns None if user has no profile data or fetching fails.
 
         Returns:
-            Dictionary with favorite_subjects and recent_interactions, or None
+                Dictionary with favorite_subjects and recent_interactions, or None
         """
         from app.agents.user_context import fetch_user_context
 
@@ -179,12 +179,12 @@ class PlannerAgent:
         Build complete prompt with all context for strategy decision.
 
         Args:
-            query: User's query
-            available_tools: List of available retrieval tool names
-            profile_data: User profile data if available
+                query: User's query
+                available_tools: List of available retrieval tool names
+                profile_data: User profile data if available
 
         Returns:
-            Complete prompt string with system instructions and context
+                Complete prompt string with system instructions and context
         """
         # Load base system prompt (decision logic)
         system_prompt = read_prompt("recsys.planner.md")
@@ -235,6 +235,9 @@ class PlannerAgent:
                     context_parts.append(f"  - {title} (rating: {rating})")
 
             context_parts.append("")
+        else:
+            context_parts.append("**User Profile Data:** None (no profile available)")
+            context_parts.append("")
 
         # Available tools section
         context_parts.append("# AVAILABLE RETRIEVAL TOOLS")
@@ -277,15 +280,15 @@ class PlannerAgent:
         Attaches the pre-fetched profile_data to the strategy.
 
         Args:
-            response_text: Raw LLM response (should be JSON)
-            profile_data: Pre-fetched profile data to attach
+                response_text: Raw LLM response (should be JSON)
+                profile_data: Pre-fetched profile data to attach
 
         Returns:
-            Parsed PlannerStrategy object
+                Parsed PlannerStrategy object
 
         Raises:
-            json.JSONDecodeError: If response is not valid JSON
-            KeyError: If required fields are missing
+                json.JSONDecodeError: If response is not valid JSON
+                KeyError: If required fields are missing
         """
         # Strip markdown code blocks if present
         text = response_text.strip()
