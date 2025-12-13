@@ -40,11 +40,11 @@ class PlannerAgent:
         Initialize PlannerAgent.
 
         Args:
-                current_user: Current user object (for profile data fetching)
-                db: Database session (for profile data fetching)
-                user_num_ratings: Number of ratings user has (for strategy decisions)
-                has_als_recs_available: Whether ALS collaborative filtering is available
-                allow_profile: Whether agent can access user profile data
+            current_user: Current user object (for profile data fetching)
+            db: Database session (for profile data fetching)
+            user_num_ratings: Number of ratings user has (for strategy decisions)
+            has_als_recs_available: Whether ALS collaborative filtering is available
+            allow_profile: Whether agent can access user profile data
         """
         self.llm = get_llm(tier="medium", json_mode=True, temperature=0.0)
         self._ctx_user = current_user
@@ -64,13 +64,13 @@ class PlannerAgent:
         4. Parse JSON response into PlannerStrategy
 
         Args:
-                planner_input: Query and available tools context
+            planner_input: Query and available tools context
 
         Returns:
-                PlannerStrategy with tool recommendations and reasoning
+            PlannerStrategy with tool recommendations and reasoning
 
         Raises:
-                ValueError: If JSON parsing fails or required fields missing
+            ValueError: If JSON parsing fails or required fields missing
         """
         append_chatbot_log("\n=== PLANNER AGENT ===")
         append_chatbot_log(f"Query: {planner_input.query[:100]}...")
@@ -143,10 +143,13 @@ class PlannerAgent:
         Calls the user_context module directly instead of going through tool wrappers.
         Returns None if user has no profile data or fetching fails.
 
+        For favorite_subjects, fetches both names and IDs for direct use in subject_hybrid_pool.
+
         Returns:
-                Dictionary with favorite_subjects and recent_interactions, or None
+            Dictionary with favorite_subjects (with IDs) and recent_interactions, or None
         """
         from app.agents.user_context import fetch_user_context
+        from app.table_models import UserFavSubject, Subject
 
         user_id = getattr(self._ctx_user, "user_id", None)
         if not user_id:
@@ -155,16 +158,32 @@ class PlannerAgent:
         try:
             ctx = fetch_user_context(self._ctx_db, user_id, limit=5)
 
-            # Extract relevant data
-            favorite_subjects = ctx.get("fav_subjects", [])
-            recent_interactions = ctx.get("interactions", [])[:3]  # Keep top 3
+            # Extract recent interactions (no subject info - keep simple)
+            recent_interactions = ctx.get("interactions", [])[:3]
+
+            # Fetch favorite subjects WITH IDs for direct tool use
+            fav_subjects_with_ids = []
+            try:
+                results = (
+                    self._ctx_db.query(Subject.subject, Subject.subject_idx)
+                    .join(UserFavSubject, Subject.subject_idx == UserFavSubject.subject_idx)
+                    .filter(UserFavSubject.user_id == user_id)
+                    .filter(Subject.subject != "[NO_SUBJECT]")
+                    .limit(5)
+                    .all()
+                )
+                fav_subjects_with_ids = [
+                    {"subject": name, "subject_idx": idx} for name, idx in results
+                ]
+            except Exception as e:
+                append_chatbot_log(f"[PLANNER WARNING] Subject ID fetch failed: {e}")
 
             # Only return if we have any data
-            if not favorite_subjects and not recent_interactions:
+            if not fav_subjects_with_ids and not recent_interactions:
                 return None
 
             return {
-                "favorite_subjects": favorite_subjects,
+                "favorite_subjects": fav_subjects_with_ids,
                 "recent_interactions": recent_interactions,
             }
 
@@ -179,12 +198,12 @@ class PlannerAgent:
         Build complete prompt with all context for strategy decision.
 
         Args:
-                query: User's query
-                available_tools: List of available retrieval tool names
-                profile_data: User profile data if available
+            query: User's query
+            available_tools: List of available retrieval tool names
+            profile_data: User profile data if available
 
         Returns:
-                Complete prompt string with system instructions and context
+            Complete prompt string with system instructions and context
         """
         # Load base system prompt (decision logic)
         system_prompt = read_prompt("recsys.planner.md")
@@ -207,24 +226,18 @@ class PlannerAgent:
 
             fav_subjects = profile_data.get("favorite_subjects", [])
             if fav_subjects:
-                # Show both names and IDs clearly
+                # Show subjects with inline IDs
                 subject_display = []
-                subject_ids = []
 
                 for subj in fav_subjects[:5]:
                     if isinstance(subj, dict):
-                        # New format: {"subject_idx": 12, "subject": "Science Fiction"}
+                        # New format: {"subject": "Science Fiction", "subject_idx": 12}
                         subject_display.append(f"{subj['subject']} (ID: {subj['subject_idx']})")
-                        subject_ids.append(subj["subject_idx"])
                     else:
                         # Old format: just strings (backward compatibility)
                         subject_display.append(str(subj))
 
                 context_parts.append(f"- Favorite subjects: {', '.join(subject_display)}")
-
-                # Provide IDs in easy-to-use format for tools
-                if subject_ids:
-                    context_parts.append(f"- Subject IDs for subject_hybrid_pool: {subject_ids}")
 
             interactions = profile_data.get("recent_interactions", [])
             if interactions:
@@ -280,15 +293,15 @@ class PlannerAgent:
         Attaches the pre-fetched profile_data to the strategy.
 
         Args:
-                response_text: Raw LLM response (should be JSON)
-                profile_data: Pre-fetched profile data to attach
+            response_text: Raw LLM response (should be JSON)
+            profile_data: Pre-fetched profile data to attach
 
         Returns:
-                Parsed PlannerStrategy object
+            Parsed PlannerStrategy object
 
         Raises:
-                json.JSONDecodeError: If response is not valid JSON
-                KeyError: If required fields are missing
+            json.JSONDecodeError: If response is not valid JSON
+            KeyError: If required fields are missing
         """
         # Strip markdown code blocks if present
         text = response_text.strip()
@@ -317,4 +330,5 @@ class PlannerAgent:
             fallback_tools=data["fallback_tools"],
             reasoning=data["reasoning"],
             profile_data=profile_data,  # Use pre-fetched data
+            negative_constraints=data.get("negative_constraints"),
         )
