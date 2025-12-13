@@ -374,12 +374,16 @@ class BaseLangGraphAgent(BaseAgent):
             )
         )
 
+        parts.append("\n3. To finalize without answer:")
+        parts.append(json.dumps({"action": "finalize", "reasoning": "brief explanation"}, indent=2))
         parts.append("\nRULES:")
         parts.append("- Return ONLY valid JSON")
-        parts.append("- 'action' must be 'tool_call' or 'answer'")
+        parts.append("- 'action' must be 'tool_call', 'answer', or 'finalize'")
         parts.append("- Arguments must be a dict matching tool parameters")
         parts.append("- Don't call the same tool twice with identical arguments")
-        parts.append("- If you have sufficient information, choose 'answer'")
+        parts.append(
+            "- If you have sufficient information, choose 'answer' (user-facing) or 'finalize' (internal)"
+        )
         parts.append(
             "- If you see '[Guardrail]' or 'âš ï¸ GUARDRAIL' in tool results, DON'T repeat that call"
         )
@@ -426,8 +430,14 @@ class BaseLangGraphAgent(BaseAgent):
             if not isinstance(decision["text"], str):
                 raise ValueError("'text' must be a string")
 
+        elif action == "finalize":
+            # No required fields for finalize - just stop execution
+            pass
+
         else:
-            raise ValueError(f"Invalid action '{action}'. Must be 'tool_call' or 'answer'")
+            raise ValueError(
+                f"Invalid action '{action}'. Must be 'tool_call', 'answer', or 'finalize'"
+            )
 
         return decision
 
@@ -483,6 +493,13 @@ class BaseLangGraphAgent(BaseAgent):
 
         elif action == "answer":
             state.intermediate_outputs["final_answer"] = decision["text"]
+            state.intermediate_outputs["next_action"] = {"type": "finalize"}
+
+            if "reasoning" in decision:
+                append_chatbot_log(f"Reasoning: {decision['reasoning']}")
+
+        elif action == "finalize":
+            # Finalize without user-facing answer (for retrieval/executor agents)
             state.intermediate_outputs["next_action"] = {"type": "finalize"}
 
             if "reasoning" in decision:
@@ -632,17 +649,31 @@ class BaseLangGraphAgent(BaseAgent):
         """Mark execution as complete."""
         append_chatbot_log("=== FINALIZE NODE ===")
 
-        if "final_answer" not in state.intermediate_outputs:
-            append_chatbot_log("WARNING: No final_answer - generating fallback")
+        # Check if we have a user-facing answer or book objects (retrieval agents)
+        has_answer = "final_answer" in state.intermediate_outputs
+        has_books = len(state.intermediate_outputs.get("book_objects", [])) > 0
+
+        if not has_answer and not has_books:
+            append_chatbot_log("WARNING: No final_answer or book_objects - generating fallback")
             state.intermediate_outputs["final_answer"] = (
                 "I apologize, I couldn't generate a proper response."
+            )
+        elif not has_answer and has_books:
+            # Retrieval agent - no user-facing answer needed, just book candidates
+            append_chatbot_log(
+                f"Retrieval complete: {len(state.intermediate_outputs['book_objects'])} candidates gathered"
             )
 
         state.mark_completed()
 
+        # Log different metrics based on agent type
+        book_count = len(state.intermediate_outputs.get("book_objects", []))
+        if not book_count:
+            book_count = len(state.intermediate_outputs.get("book_ids", []))
+
         append_chatbot_log(
             f"Finalized: {len(state.tool_executions)} tools, "
-            f"{len(state.intermediate_outputs.get('book_ids', []))} books, "
+            f"{book_count} books, "
             f"{state.execution_time_ms}ms"
         )
 
