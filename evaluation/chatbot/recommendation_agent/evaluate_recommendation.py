@@ -653,7 +653,7 @@ def evaluate_planner_strategy(
                     "passed": True,
                 }
 
-        # Cold users should use subject_hybrid_pool or popular_books
+        # Cold users with profile should use subject_hybrid_pool or popular_books
         elif expected_tools.get("has_profile"):
             uses_subject_or_popular = (
                 "subject_hybrid_pool" in recommended or "popular_books" in recommended
@@ -664,6 +664,32 @@ def evaluate_planner_strategy(
                 "passed": uses_subject_or_popular,
             }
             if not uses_subject_or_popular:
+                results["all_passed"] = False
+
+        # Unconnected/cold users with NO profile should use popular_books
+        else:
+            # This is the unconnected user case (no ratings, no profile)
+            # Should recommend popular_books, NOT subject_hybrid_pool
+            uses_popular = "popular_books" in recommended
+            uses_subject_hybrid = "subject_hybrid_pool" in recommended
+
+            results["checks"]["unconnected_user_strategy"] = {
+                "expected": "popular_books (NOT subject_hybrid_pool)",
+                "actual": recommended,
+                "passed": uses_popular and not uses_subject_hybrid,
+            }
+
+            if not uses_popular:
+                results["all_passed"] = False
+
+            if uses_subject_hybrid:
+                # Critical bug: Using subject_hybrid_pool for user with no subjects
+                results["checks"]["bug_subject_hybrid_for_unconnected"] = {
+                    "expected": "NOT subject_hybrid_pool (user has no subjects)",
+                    "actual": recommended,
+                    "passed": False,
+                    "severity": "CRITICAL BUG",
+                }
                 results["all_passed"] = False
 
     # Check for descriptive queries
@@ -1434,6 +1460,28 @@ def evaluate_full_pipeline(
             if uses_popular:
                 results["all_passed"] = False
 
+        # Check: Should NOT use subject_hybrid_pool (unconnected user scenario)
+        if expected_behavior.get("should_NOT_use_subject_hybrid_pool"):
+            uses_subject_hybrid = "subject_hybrid_pool" in tools_used
+            results["checks"]["no_subject_hybrid_pool"] = {
+                "expected": "NOT subject_hybrid_pool (user has no subjects)",
+                "actual": tools_used,
+                "passed": not uses_subject_hybrid,
+            }
+            if uses_subject_hybrid:
+                results["all_passed"] = False
+
+        # Check: Should use popular_books (unconnected user scenario)
+        if expected_behavior.get("should_use_popular_books"):
+            uses_popular = "popular_books" in tools_used
+            results["checks"]["uses_popular_books"] = {
+                "expected": "popular_books (fallback for unconnected user)",
+                "actual": tools_used,
+                "passed": uses_popular,
+            }
+            if not uses_popular:
+                results["all_passed"] = False
+
     return results
 
 
@@ -1487,6 +1535,8 @@ def run_integration_test(test_case: Dict, db) -> Dict[str, Any]:
                 "should_NOT_use_als_or_profile",
                 "must_use_subject_id_search",
                 "should_NOT_use_popular_books",
+                "should_NOT_use_subject_hybrid_pool",
+                "should_use_popular_books",
             ]
         ):
             # Run planner

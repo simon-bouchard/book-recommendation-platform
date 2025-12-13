@@ -134,7 +134,9 @@
 			"expected_tools": {
 				"should_use_user_profile": false,
 				"should_use_any_retrieval_tool": true,
-				"should_not_use_als": true
+				"should_not_use_als": true,
+				"should_recommend_popular_books": true,
+				"should_NOT_recommend_subject_hybrid_pool": true
 			},
 			"expected_output": {
 				"min_candidates": 20
@@ -446,6 +448,23 @@
 				"retrieval_may_fail": true,
 				"orchestrator_should_handle_gracefully": true,
 				"should_return_error_or_fallback": true
+			}
+		},
+		{
+			"name": "integration_unconnected_vague",
+			"query": "recommend a good book for me",
+			"user_id": 278867,
+			"user_state": {
+				"num_ratings": 0,
+				"allow_profile": false,
+				"is_warm": false
+			},
+			"expected_behavior": {
+				"final_response_should_have_prose": true,
+				"final_response_should_have_books": true,
+				"should_NOT_use_subject_hybrid_pool": true,
+				"should_use_popular_books": true,
+				"min_books": 3
 			}
 		}
 	],
