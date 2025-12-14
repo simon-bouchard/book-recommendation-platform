@@ -833,19 +833,21 @@ def run_planner_test(test_case: Dict, db) -> Dict[str, Any]:
             "has_profile_data": strategy.profile_data is not None,
         }
 
-        # Determine query type for validation
-        query_lower = query.lower()
-        if any(
-            word in query_lower
-            for word in ["dark", "cozy", "atmospheric", "heartwarming", "gothic"]
-        ):
-            query_type = "descriptive"
-        elif any(
-            word in query_lower for word in ["fiction", "mystery", "fantasy", "romance", "thriller"]
-        ):
-            query_type = "genre"
-        else:
-            query_type = "vague"
+        # Get expected query type from test case (explicit field)
+        # Read from test_case, not expected_tools (it's a top-level field)
+        query_type = test_case.get("expected_query_type")
+
+        if query_type is None:
+            # Fallback for tests without explicit type (legacy support)
+            query_lower = query.lower()
+            if len(query.split()) <= 3 and any(
+                g in query_lower for g in ["fantasy", "mystery", "romance"]
+            ):
+                query_type = "genre"  # Simple genre queries
+            elif any(word in query_lower for word in ["recommend", "suggest", "what should"]):
+                query_type = "vague"  # Vague queries
+            else:
+                query_type = "descriptive"  # Default: descriptive
 
         # Add query type expectation
         expected_tools["user_is_warm"] = user_state["is_warm"]

@@ -21,8 +21,8 @@ def get_mock_strategy(scenario: str, **kwargs) -> PlannerStrategy:
     Get mock planner strategy for retrieval testing.
 
     Args:
-        scenario: Strategy type - 'semantic', 'als', 'subject', 'profile',
-                  'negative', 'fallback'
+        scenario: Strategy type - 'semantic', 'als', 'als_with_profile',
+                  'als_no_profile', 'subject', 'profile', 'negative', 'fallback'
         **kwargs: Optional profile_data for profile scenarios
 
     Returns:
@@ -33,14 +33,44 @@ def get_mock_strategy(scenario: str, **kwargs) -> PlannerStrategy:
         return PlannerStrategy(
             recommended_tools=["book_semantic_search"],
             reasoning="Descriptive query - use semantic search",
-            fallback_tools=["popular_books"],
+            fallback_tools=[
+                "subject_hybrid_pool"
+            ],  # Updated: descriptive queries often mention genres
             profile_data=None,
         )
 
     elif scenario == "als":
+        # Generic ALS - defaults to no profile fallback
         return PlannerStrategy(
             recommended_tools=["als_recs"],
-            reasoning="Warm user vague query - use collaborative filtering",
+            reasoning="Vague query from warm user - use collaborative filtering",
+            fallback_tools=["popular_books"],
+            profile_data=None,
+        )
+
+    elif scenario == "als_with_profile":
+        # ALS with profile data - uses subject fallback
+        profile_data = kwargs.get(
+            "profile_data",
+            {
+                "user_profile": {
+                    "favorite_subjects": [978, 1066, 2317],  # Mystery, Detective, Crime
+                    "favorite_genres": ["mystery", "thriller"],
+                }
+            },
+        )
+        return PlannerStrategy(
+            recommended_tools=["als_recs"],
+            reasoning="Vague query from warm user with profile - use collaborative filtering",
+            fallback_tools=["subject_hybrid_pool"],  # Updated: better fallback when profile exists
+            profile_data=profile_data,
+        )
+
+    elif scenario == "als_no_profile":
+        # ALS without profile - uses popular books fallback
+        return PlannerStrategy(
+            recommended_tools=["als_recs"],
+            reasoning="Vague query from warm user without profile - use collaborative filtering",
             fallback_tools=["popular_books"],
             profile_data=None,
         )
@@ -48,12 +78,15 @@ def get_mock_strategy(scenario: str, **kwargs) -> PlannerStrategy:
     elif scenario == "subject":
         return PlannerStrategy(
             recommended_tools=["subject_id_search", "subject_hybrid_pool"],
-            reasoning="Genre query - resolve subject and search",
-            fallback_tools=["popular_books"],
+            reasoning="Simple genre query - resolve subject and search",
+            fallback_tools=[
+                "book_semantic_search"
+            ],  # Updated: semantic as fallback for genre queries
             profile_data=None,
         )
 
     elif scenario == "profile":
+        # Cold user with profile data
         profile_data = kwargs.get(
             "profile_data",
             {
@@ -65,7 +98,7 @@ def get_mock_strategy(scenario: str, **kwargs) -> PlannerStrategy:
         )
         return PlannerStrategy(
             recommended_tools=["subject_hybrid_pool"],
-            reasoning="Cold user with profile - use favorite subjects",
+            reasoning="Vague query from cold user with profile - use favorite subjects",
             fallback_tools=["popular_books"],
             profile_data=profile_data,
         )
@@ -74,7 +107,9 @@ def get_mock_strategy(scenario: str, **kwargs) -> PlannerStrategy:
         return PlannerStrategy(
             recommended_tools=["book_semantic_search"],
             reasoning="Query with negative constraint - semantic search then filter",
-            fallback_tools=["popular_books"],
+            fallback_tools=[
+                "subject_hybrid_pool"
+            ],  # Updated: negative constraints usually on genre queries
             profile_data=None,
         )
 
@@ -82,7 +117,7 @@ def get_mock_strategy(scenario: str, **kwargs) -> PlannerStrategy:
         return PlannerStrategy(
             recommended_tools=["popular_books"],
             reasoning="New user, no profile - use popular books",
-            fallback_tools=[],
+            fallback_tools=["book_semantic_search"],  # Updated: semantic as last resort
             profile_data=None,
         )
 
@@ -293,8 +328,9 @@ def get_execution_context(scenario: str, **kwargs) -> ExecutionContext:
     Get mock execution context for curation testing.
 
     Args:
-        scenario: Context type - 'semantic', 'als', 'subject', 'profile',
-                  'profile_recent', 'negative', 'fallback', 'no_personalization'
+        scenario: Context type - 'semantic', 'als', 'als_no_profile', 'als_with_profile',
+                  'subject', 'profile', 'profile_recent', 'negative', 'fallback',
+                  'no_personalization'
         **kwargs: Optional profile_data for profile scenarios
 
     Returns:
@@ -308,16 +344,34 @@ def get_execution_context(scenario: str, **kwargs) -> ExecutionContext:
             profile_data=None,
         )
 
-    elif scenario == "als":
+    elif scenario == "als" or scenario == "als_no_profile":
+        # ALS without profile (als_no_profile is explicit variant)
         return ExecutionContext(
             planner_reasoning="Vague query from warm user - used collaborative filtering",
             tools_used=["als_recs"],
             profile_data=None,
         )
 
+    elif scenario == "als_with_profile":
+        # ALS with profile context
+        profile_data = kwargs.get(
+            "profile_data",
+            {
+                "user_profile": {
+                    "favorite_subjects": [978, 1066, 2317],
+                    "favorite_genres": ["mystery", "thriller"],
+                }
+            },
+        )
+        return ExecutionContext(
+            planner_reasoning="Vague query from warm user with profile - used collaborative filtering",
+            tools_used=["als_recs"],
+            profile_data=profile_data,
+        )
+
     elif scenario == "subject":
         return ExecutionContext(
-            planner_reasoning="Genre query - resolved to subjects and searched",
+            planner_reasoning="Simple genre query - resolved to subjects and searched",
             tools_used=["subject_id_search", "subject_hybrid_pool"],
             profile_data=None,
         )

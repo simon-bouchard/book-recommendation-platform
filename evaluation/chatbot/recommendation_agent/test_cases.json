@@ -16,7 +16,8 @@
 			},
 			"expected_output": {
 				"min_candidates": 20
-			}
+			},
+			"expected_query_type": "vague"
 		},
 		{
 			"name": "vague_query_warm_no_profile",
@@ -33,7 +34,8 @@
 			},
 			"expected_output": {
 				"min_candidates": 20
-			}
+			},
+			"expected_query_type": "vague"
 		},
 		{
 			"name": "descriptive_atmospheric_query",
@@ -50,7 +52,8 @@
 			},
 			"expected_output": {
 				"min_candidates": 20
-			}
+			},
+			"expected_query_type": "descriptive"
 		},
 		{
 			"name": "descriptive_cozy_query",
@@ -67,7 +70,8 @@
 			},
 			"expected_output": {
 				"min_candidates": 20
-			}
+			},
+			"expected_query_type": "descriptive"
 		},
 		{
 			"name": "genre_single_subject",
@@ -83,7 +87,8 @@
 			},
 			"expected_output": {
 				"min_candidates": 20
-			}
+			},
+			"expected_query_type": "genre"
 		},
 		{
 			"name": "genre_multiple_subjects",
@@ -95,11 +100,12 @@
 				"is_warm": true
 			},
 			"expected_tools": {
-				"should_use_subject_search": true
+				"should_use_semantic_search": true
 			},
 			"expected_output": {
 				"min_candidates": 20
-			}
+			},
+			"expected_query_type": "descriptive"
 		}
 	],
 	"tool_selection_cold_user": [
@@ -120,7 +126,8 @@
 			},
 			"expected_output": {
 				"min_candidates": 20
-			}
+			},
+			"expected_query_type": "vague"
 		},
 		{
 			"name": "vague_query_new_user",
@@ -140,7 +147,8 @@
 			},
 			"expected_output": {
 				"min_candidates": 20
-			}
+			},
+			"expected_query_type": "vague"
 		},
 		{
 			"name": "descriptive_fantasy_query",
@@ -157,7 +165,8 @@
 			},
 			"expected_output": {
 				"min_candidates": 20
-			}
+			},
+			"expected_query_type": "descriptive"
 		},
 		{
 			"name": "descriptive_thriller_query",
@@ -174,7 +183,8 @@
 			},
 			"expected_output": {
 				"min_candidates": 20
-			}
+			},
+			"expected_query_type": "descriptive"
 		},
 		{
 			"name": "genre_romance_query",
@@ -190,7 +200,8 @@
 			},
 			"expected_output": {
 				"min_candidates": 20
-			}
+			},
+			"expected_query_type": "genre"
 		}
 	],
 	"retrieval_strategy_adherence": [
@@ -209,7 +220,7 @@
 			"expected_output": {
 				"min_candidates": 30
 			},
-			"strategy_scenario": "als"
+			"strategy_scenario": "als_no_profile"
 		},
 		{
 			"name": "retrieval_follows_semantic_strategy",
@@ -479,7 +490,8 @@
 				"is_warm": false
 			},
 			"expected_behavior": {
-				"should_handle_gracefully": true
+				"should_handle_gracefully": true,
+				"should_return_error": true
 			}
 		},
 		{
@@ -689,8 +701,8 @@
 				"allow_profile": false,
 				"is_warm": true
 			},
-			"test_scenario": "als",
-			"context_scenario": "als",
+			"test_scenario": "als_no_profile",
+			"context_scenario": "als_no_profile",
 			"expected_prose": {
 				"should_mention_reading_history": true,
 				"should_mention_personalization": true,
