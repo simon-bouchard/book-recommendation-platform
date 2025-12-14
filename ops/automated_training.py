@@ -20,7 +20,7 @@ AZURE_VM = os.getenv("AZURE_VM_NAME")
 AZURE_RG = os.getenv("AZURE_RESOURCE_GROUP")
 REMOTE_HOST = os.getenv("REMOTE_HOST")
 REMOTE_REPO = os.getenv("REMOTE_REPO_PATH")
-REMOTE_BACKUP_DIR = os.getenv('REMOTE_BACKUP_DIR')
+REMOTE_BACKUP_DIR = os.getenv("REMOTE_BACKUP_DIR")
 
 with open(AZURE_AUTH) as f:
     sp = json.load(f)
@@ -41,7 +41,7 @@ LOG_DIR = Path(os.getenv("TRAIN_LOG_DIR", PROJECT_ROOT / "models/training/logs")
 
 # Pick the correct train_subject_embs script based on ATTN_STRATEGY
 ATTN_STRATEGY = os.getenv("ATTN_STRATEGY", "scalar").lower()
-train_subject_script = os.getenv("SUBJECT_TRAIN_FILE", 'train_subject_embs_scalar.py')
+train_subject_script = os.getenv("SUBJECT_TRAIN_FILE", "train_subject_embs_scalar.py")
 SUBJECT_AUTO_TRAIN = os.getenv("SUBJECT_AUTO_TRAIN", "false")
 
 # Fallback if script doesn’t exist (e.g., for scalar)
@@ -53,15 +53,19 @@ TRAIN_SCRIPTS = []
 if SUBJECT_AUTO_TRAIN.lower() == "true":
     TRAIN_SCRIPTS.append(train_subject_script)
 
-TRAIN_SCRIPTS.extend([
-    "precompute_embs.py",
-    "precompute_bayesian.py",
-    "train_als.py",
-])
+TRAIN_SCRIPTS.extend(
+    [
+        "precompute_embs.py",
+        "precompute_bayesian.py",
+        "train_als.py",
+    ]
+)
+
 
 def run(cmd, **kwargs):
     print(f"▶ Running: {cmd}")
     return subprocess.run(cmd, shell=True, check=True, **kwargs)
+
 
 def main():
     LOG_DIR.mkdir(parents=True, exist_ok=True)
@@ -71,7 +75,9 @@ def main():
 
     # Perform login
     print("📡 Authenticating with Azure...")
-    run(f'az login --service-principal -u {AZURE_CLIENT_ID} -p {AZURE_CLIENT_SECRET} --tenant {AZURE_TENANT_ID}')
+    run(
+        f"az login --service-principal -u {AZURE_CLIENT_ID} -p {AZURE_CLIENT_SECRET} --tenant {AZURE_TENANT_ID}"
+    )
 
     print("🚀 Starting training VM...")
     run(f'az vm start --name {AZURE_VM} --resource-group "{AZURE_RG}"')
@@ -80,22 +86,24 @@ def main():
     run("python models/training/export_training_data.py")
 
     print("⌛ Waiting for SSH to be available...")
-    while subprocess.run(f"ssh -o BatchMode=no {REMOTE_HOST} 'echo ready'", shell=True).returncode != 0:
+    while (
+        subprocess.run(f"ssh -o BatchMode=no {REMOTE_HOST} 'echo ready'", shell=True).returncode
+        != 0
+    ):
         print("  - Still waiting for SSH...")
         time.sleep(5)
 
-
     print("🔄 Backing up current database...")
-    run(f'python {PROJECT_ROOT}/ops/backup_db.py')
+    run(f"python {PROJECT_ROOT}/ops/backup_db.py")
 
     def _db_from_env():
-            db = os.getenv("MYSQL_DB", "").strip()
-            if db:
-                return db
-            try:
-                return (urlsplit(os.getenv("DATABASE_URL","")).path or "").lstrip("/")
-            except Exception:
-                return ""
+        db = os.getenv("MYSQL_DB", "").strip()
+        if db:
+            return db
+        try:
+            return (urlsplit(os.getenv("DATABASE_URL", "")).path or "").lstrip("/")
+        except Exception:
+            return ""
 
     db_name = _db_from_env()
     backup_dir = PROJECT_ROOT / "data/backups/db"
@@ -121,7 +129,9 @@ def main():
             f"conda activate bookrec-api && "
             f"python models/training/{script}'"
         )
-        with subprocess.Popen(cmd, shell=True, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True) as proc:
+        with subprocess.Popen(
+            cmd, shell=True, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True
+        ) as proc:
             lines = []
             for line in proc.stdout:
                 print(line, end="")
@@ -159,10 +169,11 @@ def main():
     except Exception as e:
         print(f"❌ Exception during reload: {e}")
 
-	print("📊 Updating bayes_pop in Meilisearch...")
-	run(f"python {PROJECT_ROOT}/ops/meilisearch/update_bayes_pop.py")
+    print("📊 Updating bayes_pop in Meilisearch...")
+    run(f"python {PROJECT_ROOT}/ops/meilisearch/update_bayes_pop.py")
 
     print("✅ Done. Logs saved to:", log_file_local)
+
 
 if __name__ == "__main__":
     main()
