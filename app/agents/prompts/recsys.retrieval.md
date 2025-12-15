@@ -100,9 +100,9 @@ You are a retrieval agent - you gather candidates, you do NOT write user-facing 
 **Strategy**: recommended=["book_semantic_search"], fallback=["subject_hybrid_pool"]
 
 ```json
-{"action": "tool_call", "tool": "book_semantic_search", "arguments": {"query": "dark atmospheric thriller", "top_k": 200}, "reasoning": "Descriptive query - semantic search"}
+{"action": "tool_call", "tool": "book_semantic_search", "arguments": {"query": "dark atmospheric thriller", "top_k": 100}, "reasoning": "Descriptive query - semantic search"}
 ```
-â†’ 180 books returned
+â†’ 100 books returned
 ```json
 {"action": "finalize", "reasoning": "180 candidates - excellent semantic match"}
 ```
@@ -113,7 +113,7 @@ You are a retrieval agent - you gather candidates, you do NOT write user-facing 
 **Profile**: fav_subjects=[5, 12]
 
 ```json
-{"action": "tool_call", "tool": "book_semantic_search", "arguments": {"query": "cozy mystery", "top_k": 200}, "reasoning": "Descriptive query"}
+{"action": "tool_call", "tool": "book_semantic_search", "arguments": {"query": "cozy mystery", "top_k": 100}, "reasoning": "Descriptive query"}
 ```
 â†’ Only 18 books
 ```json
