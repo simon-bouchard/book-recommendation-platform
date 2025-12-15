@@ -219,22 +219,21 @@ class InternalTools:
         return tools
 
     def _create_semantic_search_tool(self) -> ToolDefinition:
-        """Semantic search over book embeddings with full enrichment metadata."""
+        """Semantic search over book embeddings with minimal metadata."""
 
         def semantic_search(query: str, top_k: int = 200) -> list[dict]:
             """
             Search books using semantic similarity.
 
-            Returns books with full enrichment metadata from semantic_meta.json:
-            - subjects, tones, genre, vibe (from enrichment pipeline)
-            - Standardized to include num_ratings from books.pkl
+            Returns books with basic metadata only (title, author, num_ratings).
+            Enrichment metadata is excluded to reduce token usage during retrieval.
 
             Args:
                     query: Search query describing books to find
                     top_k: Number of results (max 200)
 
             Returns:
-                    Standardized list of books with enrichment metadata
+                    Standardized list of books with basic metadata
             """
             searcher = self._get_semantic_searcher()
             top_k = max(1, min(200, top_k))
@@ -242,7 +241,7 @@ class InternalTools:
             try:
                 raw_results = searcher.search(query, top_k=top_k)
 
-                # Build intermediate format with metadata from JSON
+                # Build intermediate format with basic metadata only
                 intermediate = []
                 for r in raw_results:
                     meta = r.get("meta", {})
@@ -252,14 +251,12 @@ class InternalTools:
                             "score": r.get("score"),
                             "title": meta.get("title"),
                             "author": meta.get("author"),
-                            "subjects": meta.get("subjects", []),
-                            "tone_ids": meta.get("tone_ids", []),  # Will be resolved to names
-                            "vibe": meta.get("vibe"),
-                            "genre": meta.get("genre"),
+                            # Enrichment fields excluded to reduce token usage:
+                            # subjects, tone_ids, vibe, genre
                         }
                     )
 
-                # Standardize (adds num_ratings, resolves tones)
+                # Standardize (adds num_ratings)
                 return self._standardize_tool_output(intermediate)
 
             except Exception as e:
