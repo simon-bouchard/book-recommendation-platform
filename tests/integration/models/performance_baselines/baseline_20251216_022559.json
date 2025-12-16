@@ -1,0 +1,8 @@
+{
+  "timestamp": "20251216_022559",
+  "config": {
+    "warmup_runs": 2,
+    "measurement_runs": 10
+  },
+  "results": {}
+}
