@@ -30,8 +30,7 @@ You are **tactical** - the Planner chose the strategy, you execute it intelligen
 ## Parameters
 
 Use these defaults unless you have reason to adjust:
-- `top_k=120` for als_recs, subject_hybrid_pool
-- `top_k=200` for book_semantic_search
+- `top_k=120` for als_recs, subject_hybrid_pool, semantic_search
 - `top_k=100` for popular_books
 - `weight=0.6` for subject_hybrid_pool
 
