@@ -2,7 +2,7 @@
 .env
 
 # Data paths
-/models/data/
+/models/artifacts/
 /models/training/data/
 /models/training/logs/
 data/backups/db/
