@@ -19,7 +19,8 @@ class ModelPaths:
         ├── artifacts/
         │   ├── embeddings/     # Vector representations
         │   ├── attention/      # Attention pooling components
-        │   └── scoring/        # Ranking/scoring models
+        │   ├── scoring/        # Ranking/scoring models
+                |	└── Semantic_indexes # Semantic indexes for semantic search
         └── training/
             └── data/           # Training input data
     """
@@ -45,6 +46,7 @@ class ModelPaths:
         self.embeddings_dir = self.artifacts_dir / "embeddings"
         self.attention_dir = self.artifacts_dir / "attention"
         self.scoring_dir = self.artifacts_dir / "scoring"
+        self.semantic_indexes_dir = self.artifacts_dir / "semantic_indexes"
 
         # Training data directory
         self.training_data_dir = self.training_root / "data"
@@ -150,6 +152,40 @@ class ModelPaths:
         return self.scoring_dir / "gbt_warm.pickle"
 
     # -------------------------------------------------------------------------
+    # Semantic Indexes (FAISS-based semantic search)
+    # -------------------------------------------------------------------------
+
+    @property
+    def semantic_index_baseline(self) -> Path:
+        """Baseline semantic search index directory."""
+        return self.semantic_indexes_dir / "baseline"
+
+    @property
+    def semantic_index_baseline_clean(self) -> Path:
+        """Baseline clean semantic search index directory."""
+        return self.semantic_indexes_dir / "baseline_clean"
+
+    @property
+    def semantic_index_enriched_v1(self) -> Path:
+        """Enriched v1 semantic search index directory."""
+        return self.semantic_indexes_dir / "enriched_v1"
+
+    @property
+    def semantic_index_enriched_v1_subjects(self) -> Path:
+        """Enriched v1 subjects semantic search index directory."""
+        return self.semantic_indexes_dir / "enriched_v1_subjects"
+
+    @property
+    def semantic_index_enriched_v2(self) -> Path:
+        """Enriched v2 semantic search index directory."""
+        return self.semantic_indexes_dir / "enriched_v2"
+
+    @property
+    def semantic_index_enriched_v2_subjects(self) -> Path:
+        """Enriched v2 subjects semantic search index directory."""
+        return self.semantic_indexes_dir / "enriched_v2_subjects"
+
+    # -------------------------------------------------------------------------
     # Training data
     # -------------------------------------------------------------------------
 
@@ -192,6 +228,7 @@ class ModelPaths:
         self.embeddings_dir.mkdir(parents=True, exist_ok=True)
         self.attention_dir.mkdir(parents=True, exist_ok=True)
         self.scoring_dir.mkdir(parents=True, exist_ok=True)
+        self.semantic_indexes_dir.mkdir(parents=True, exist_ok=True)
 
     def ensure_training_dirs(self) -> None:
         """Create training data directory if it doesn't exist."""
