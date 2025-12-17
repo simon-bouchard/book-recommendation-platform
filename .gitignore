@@ -18,6 +18,7 @@ ops/enrichment/test_*.csv
 ops/enrichment/test_*.txt
 ops/enrichment/*.html
 **/results/**
+tests/integration/models/performance_baselines
 
 # Model artifacts
 *.pickle

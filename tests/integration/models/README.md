@@ -1,172 +1,168 @@
+# tests/integration/models/README.md
+"""
+Performance testing suite for recommendation and similarity models.
+Establishes baseline metrics before refactoring and validates performance after changes.
+"""
+
 # Models Performance Testing Suite
 
 This test suite measures the latency and performance of your recommendation and similarity models at the API level. Use it to establish a baseline before refactoring and compare results afterward.
 
 ## Overview
 
-The suite tests:
-- **Recommendation endpoints**: `/profile/recommend` with different user types
-- **Similarity endpoints**: `/book/{item_idx}/similar` with different modes
-- **Various parameters**: `top_n`, `top_k`, `alpha`, `mode`
-- **Concurrent load**: Simulated concurrent requests
-- **Cold start**: First request vs. cached requests
+The suite tests all performance-critical code paths:
+- Recommendation endpoints with different user types and modes
+- Similarity endpoints with different modes and parameters
+- Concurrent request handling
+- Cold start vs cached performance
 
 ## Quick Start
 
 ### 1. Setup Test Data
 
-First, identify suitable user and book IDs for testing:
+Generate test data configuration:
 
 ```bash
-# Generate test data configuration
 python tests/integration/models/setup_test_data.py
-
-# This creates: tests/integration/models/test_data_config.json
 ```
 
-Review the generated `test_data_config.json` and copy the IDs into `test_models_performance.py`:
+This creates `test_data_config.json` with properly categorized user and book IDs.
+
+### 2. Configure Test IDs
+
+Copy the generated IDs into `test_models_performance.py`:
 
 ```python
-# In test_models_performance.py
-WARM_USER_IDS = [123, 456, 789, ...]  # Users with >=10 ratings
-COLD_USER_IDS = [111, 222, 333, ...]  # Users with 1-9 ratings
-NO_SUBJECT_USER_IDS = [444, 555, ...] # Users with no favorite subjects
-TEST_BOOK_IDS = [1000, 2000, 3000, ...] # Books for similarity testing
+WARM_USER_IDS = [123, 456, 789, ...]
+COLD_WITH_SUBJECTS_USER_IDS = [111, 222, 333, ...]
+COLD_WITHOUT_SUBJECTS_USER_IDS = [444, 555, 666, ...]
+TEST_BOOK_IDS = [1000, 2000, 3000, ...]
 ```
 
-### 2. Run Baseline Tests (Before Refactor)
+### 3. Run Baseline Tests (Before Refactor)
 
 ```bash
-# Run all performance tests
-pytest tests/integration/models/test_models_performance.py -v -s
-
-# Run with detailed output
-pytest tests/integration/models/test_models_performance.py -v -s --tb=short
-
-# Run specific test categories
-pytest tests/integration/models/test_models_performance.py::test_warm_user_recommendations_latency -v
-pytest tests/integration/models/test_models_performance.py::test_similar_books_latency -v
-```
-
-This will:
-- Execute all performance tests
-- Print a summary report at the end
-- Save results to `tests/integration/models/performance_baselines/baseline_YYYYMMDD_HHMMSS.json`
-
-### 3. Perform Your Refactoring
-
-Make your changes to the models module...
-
-### 4. Run Tests Again (After Refactor)
-
-```bash
-# Run the same tests again
 pytest tests/integration/models/test_models_performance.py -v -s
 ```
 
-### 5. Compare Results
+Results are saved to `performance_baselines/baseline_YYYYMMDD_HHMMSS.json`
+
+### 4. Perform Your Refactoring
+
+Make your changes to the models module.
+
+### 5. Run Tests Again (After Refactor)
 
 ```bash
-# Auto-compare the two most recent baseline files
-python tests/integration/models/compare_performance.py --auto
+pytest tests/integration/models/test_models_performance.py -v -s
+```
 
-# Or specify files explicitly
-python tests/integration/models/compare_performance.py baseline_20241216_140000.json baseline_20241216_150000.json
+### 6. Compare Results
 
-# Generate HTML report
+```bash
 python tests/integration/models/compare_performance.py --auto --html
-
-# Fail CI/CD if regressions detected
-python tests/integration/models/compare_performance.py --auto --fail-on-regression
 ```
+
+This generates a detailed comparison report and HTML visualization.
 
 ## Test Categories
 
 ### User Recommendation Tests
 
-#### Warm Users (>=10 ratings)
+#### Warm Users (>=10 ratings) - ALS Path
 - **Test**: `test_warm_user_recommendations_latency`
-- **Tests**: Auto mode, explicit behavioral mode
-- **Expected**: Should use ALS-based recommendations
-- **Typical latency**: 50-200ms
+- **Modes**: auto, behavioral
+- **Code Path**: WarmRecommender -> ALSCandidateGenerator
+- **Expected Latency**: 50-200ms
+- **What's Tested**: ALS matrix multiplication performance
 
-#### Cold Users (1-9 ratings)
-- **Test**: `test_cold_user_recommendations_latency`
-- **Tests**: Auto mode (routes to cold strategy)
-- **Expected**: Should use subject-based recommendations
-- **Typical latency**: 100-300ms
+#### Warm Users Forced to Subject Mode
+- **Test**: `test_warm_user_forced_subject_mode_latency`
+- **Mode**: subject (explicit)
+- **Code Path**: ColdRecommender -> ColdHybridCandidateGenerator
+- **Expected Latency**: 100-300ms
+- **What's Tested**: Subject similarity with large user history
 
-#### No Favorite Subjects
-- **Test**: `test_no_subject_user_recommendations_latency`
-- **Tests**: Fallback to Bayesian popularity
-- **Expected**: Should return reasonable results
-- **Typical latency**: 50-150ms
+#### Cold Users WITH Subjects - Hybrid Path
+- **Test**: `test_cold_user_with_subjects_latency`
+- **Code Path**: ColdRecommender -> ColdHybridCandidateGenerator (use_only_bayesian=False)
+- **Expected Latency**: 100-300ms
+- **What's Tested**: Attention pooling + similarity + Bayesian blending
+
+#### Cold Users WITHOUT Subjects - Bayesian Fallback
+- **Test**: `test_cold_user_without_subjects_latency`
+- **Code Path**: ColdRecommender -> ColdHybridCandidateGenerator (use_only_bayesian=True)
+- **Expected Latency**: 50-150ms (fastest cold path)
+- **What's Tested**: Pure Bayesian popularity (no embeddings/similarity)
+
+#### Varying w Parameter
+- **Test**: `test_cold_recommendations_varying_w`
+- **Parameters**: w=0.3, 0.6, 0.9
+- **What's Tested**: Similarity vs Bayesian weight balance
 
 #### Varying top_n
 - **Test**: `test_recommendations_varying_top_n`
-- **Tests**: top_n = 50, 200, 500
-- **Expected**: Linear scaling with top_n
-- **Purpose**: Verify candidate generation doesn't become bottleneck
+- **Parameters**: top_n=50, 200, 500
+- **What's Tested**: Candidate generation scaling
 
 ### Book Similarity Tests
 
 #### Subject Mode
-- **Test**: `test_similar_books_latency` with `mode="subject"`
-- **Uses**: Attention-pooled subject embeddings + FAISS
-- **Typical latency**: 10-50ms
-- **Works for**: All books with subjects
+- **Test**: `test_similar_books_latency` with mode="subject"
+- **Code Path**: SubjectSimilarityStrategy -> FAISS IndexFlatIP
+- **Expected Latency**: 10-50ms
+- **Works For**: All books with subjects
 
 #### ALS Mode
-- **Test**: `test_similar_books_latency` with `mode="als"`
-- **Uses**: Collaborative filtering factors
-- **Typical latency**: 10-50ms
-- **Works for**: Books with ALS data (min 10 ratings)
+- **Test**: `test_similar_books_latency` with mode="als"
+- **Code Path**: ALSSimilarityStrategy -> FAISS IndexFlatIP
+- **Expected Latency**: 10-50ms
+- **Works For**: Books in ALS training set (check via ModelStore().has_book_als())
 
 #### Hybrid Mode
-- **Test**: `test_similar_books_latency` with `mode="hybrid"`
-- **Uses**: Weighted combination of subject + ALS
-- **Typical latency**: 20-100ms
-- **Tests**: Various alpha values (0.3, 0.5, 0.7)
+- **Test**: `test_similar_books_latency` with mode="hybrid"
+- **Code Path**: HybridSimilarityStrategy (blends subject + ALS)
+- **Expected Latency**: 20-100ms
+- **Works For**: Books with subjects
+
+#### Varying Alpha
+- **Test**: `test_hybrid_similarity_varying_alpha`
+- **Parameters**: alpha=0.3, 0.5, 0.7
+- **What's Tested**: Subject vs ALS balance
 
 #### Varying top_k
 - **Test**: `test_similarity_varying_top_k`
-- **Tests**: top_k = 10, 50, 200, 500
-- **Expected**: Minimal impact (FAISS is efficient)
+- **Parameters**: top_k=10, 50, 200, 500
+- **What's Tested**: FAISS search scaling
 
 ### Stress Tests
 
 #### Concurrent Requests
 - **Test**: `test_concurrent_recommendation_requests`
-- **Tests**: Sequential vs. 5 concurrent threads
-- **Purpose**: Verify thread safety and resource contention
+- **What's Tested**: Sequential vs 5 concurrent threads
 - **Expected**: <50% overhead from concurrency
 
 #### Cold Start
 - **Test**: `test_cold_start_latency`
-- **Tests**: First request after model reload vs. subsequent requests
-- **Purpose**: Measure model loading overhead
-- **Expected**: First request 2-10x slower
+- **What's Tested**: First request after model reload vs subsequent
+- **Expected**: 2-10x slower for first request
 
 ## Configuration
 
 ### Environment Variables
 
 ```bash
-# In your .env file
 ADMIN_SECRET=your_secret_here  # For model reload endpoint
 TESTING=1  # Enable test mode
 ```
 
 ### Test Parameters
 
-Edit `test_models_performance.py` to adjust:
+Edit `test_models_performance.py`:
 
 ```python
-# Number of warmup runs (discarded)
-WARMUP_RUNS = 2
-
-# Number of measurement runs
-MEASUREMENT_RUNS = 10
+WARMUP_RUNS = 2  # Discarded measurements
+MEASUREMENT_RUNS = 10  # Actual measurements
 ```
 
 ## Understanding Results
@@ -175,22 +171,22 @@ MEASUREMENT_RUNS = 10
 
 Each test measures:
 - **Mean**: Average latency
-- **Median**: 50th percentile (less affected by outliers)
+- **Median**: 50th percentile
 - **P95**: 95th percentile (captures tail latency)
 - **P99**: 99th percentile (worst case)
 - **Min/Max**: Range of observed latencies
-- **Stdev**: Consistency of performance
+- **Stdev**: Performance consistency
 
 ### What to Look For
 
 **Good results:**
 - Mean ≈ Median (consistent performance)
 - Low stdev (predictable latency)
-- P95 < 2x median (no extreme outliers)
+- P95 < 2x median
 
 **Potential issues:**
-- Mean >> Median (outliers affecting average)
-- High stdev (inconsistent performance)
+- Mean >> Median (outliers)
+- High stdev (inconsistent)
 - P95 >> Mean (tail latency problems)
 
 ### Acceptable Changes After Refactor
@@ -200,63 +196,31 @@ Each test measures:
 - **+10% to +20%**: Minor regression (investigate if systematic)
 - **>+25%**: Significant regression (requires attention)
 
-## Troubleshooting
+## Critical Performance Paths
 
-### Tests Fail Due to Missing Data
+### Most Important to Measure
 
-**Problem**: Tests skip or fail because user/book IDs don't exist
+1. **Cold without subjects** (Bayesian fallback)
+   - Fastest cold path
+   - No embedding/similarity computation
+   - Should be significantly faster than cold-with-subjects
 
-**Solution**:
-```bash
-# Regenerate test data
-python tests/integration/models/setup_test_data.py
+2. **Warm user ALS**
+   - Most common production path for engaged users
+   - Matrix multiplication performance critical
 
-# Verify the IDs
-python tests/integration/models/setup_test_data.py --verify
-```
+3. **Cold with subjects**
+   - New user with preferences
+   - Attention pooling + similarity computation
 
-### High Latency Variance
+### Less Critical But Still Measured
 
-**Problem**: Stdev is high, results are inconsistent
+4. **Warm forced subject mode**
+   - Edge case but valid API call
+   - Tests subject similarity scaling
 
-**Possible causes**:
-- Insufficient warmup runs
-- System load during testing
-- Database queries not cached
-- Network issues
-
-**Solutions**:
-- Increase `WARMUP_RUNS` and `MEASUREMENT_RUNS`
-- Run tests on idle system
-- Run tests multiple times and compare
-
-### Cold Start Too Slow
-
-**Problem**: First request after model reload is very slow
-
-**This is normal if**:
-- Models are large (>100MB)
-- Multiple models need loading
-- FAISS indexes are large
-
-**Consider**:
-- Model preloading on startup
-- Lazy loading optimization
-- Smaller model sizes
-
-### Concurrent Tests Show High Overhead
-
-**Problem**: Concurrent requests are much slower than sequential
-
-**Possible causes**:
-- GIL (Global Interpreter Lock) contention
-- Resource locking (database, model access)
-- Memory thrashing
-
-**Solutions**:
-- Use multiprocessing instead of threading
-- Implement connection pooling
-- Profile with `py-spy` or similar tools
+5. **Parameter variations** (w, alpha, top_n, top_k)
+   - Ensures no unexpected scaling issues
 
 ## Integration with CI/CD
 
@@ -276,18 +240,11 @@ jobs:
     steps:
       - uses: actions/checkout@v2
 
-      - name: Setup environment
-        run: |
-          # Install dependencies, setup database, etc.
-
       - name: Run baseline tests
-        run: |
-          pytest tests/integration/models/test_models_performance.py -v
+        run: pytest tests/integration/models/test_models_performance.py -v
 
-      - name: Compare with main branch baseline
+      - name: Compare with main branch
         run: |
-          # Download baseline from main branch
-          # Run comparison
           python tests/integration/models/compare_performance.py \
             baseline_main.json \
             baseline_pr.json \
@@ -296,7 +253,6 @@ jobs:
 
       - name: Upload results
         uses: actions/upload-artifact@v2
-        if: always()
         with:
           name: performance-report
           path: tests/integration/models/performance_baselines/
@@ -304,60 +260,55 @@ jobs:
 
 ## Best Practices
 
-1. **Run tests on stable environment**: Avoid running during backups, deployments, or high load
-2. **Multiple runs**: Run tests 3-5 times and average results for more reliable baselines
-3. **Document system specs**: Include CPU, RAM, disk type in baseline metadata
-4. **Version control baselines**: Commit baseline files to track performance over time
-5. **Set thresholds**: Define acceptable regression thresholds for your use case
-6. **Profile regressions**: Use `cProfile` or `py-spy` to investigate specific regressions
-7. **Monitor production**: Use these tests to predict production performance
+1. Run tests on stable environment (avoid during high load)
+2. Multiple runs (3-5 times) for reliable baselines
+3. Document system specs in baseline metadata
+4. Version control baseline files
+5. Set acceptable regression thresholds for your use case
+6. Profile specific regressions with cProfile or py-spy
+7. Monitor production performance alongside tests
+
+## Troubleshooting
+
+### Tests Skip Due to Missing Data
+
+Run setup script to regenerate test data:
+```bash
+python tests/integration/models/setup_test_data.py --verify
+```
+
+### High Latency Variance
+
+Increase `WARMUP_RUNS` and `MEASUREMENT_RUNS`. Run on idle system.
+
+### Cold Start Too Slow
+
+This is normal for large models. Consider:
+- Model preloading on startup
+- Lazy loading optimization
+- Smaller model sizes
+
+### Concurrent Tests Show High Overhead
+
+Possible causes:
+- GIL contention
+- Database connection pooling issues
+- Resource locking
+
+Consider using multiprocessing instead of threading.
 
 ## Project Structure
 
 ```
 tests/integration/models/
-├── README.md                          # This file
-├── test_models_performance.py         # Main test suite
-├── setup_test_data.py                 # Test data configuration generator
-├── compare_performance.py             # Comparison tool
-├── test_data_config.json             # Generated test IDs (gitignore)
-├── performance_baselines/            # Stored baseline results
-│   ├── baseline_20241216_140000.json
-│   ├── baseline_20241216_150000.json
-│   └── comparison_20241216_151500.html
-└── conftest.py                       # pytest fixtures (if needed)
+├── README.md
+├── test_models_performance.py
+├── setup_test_data.py
+├── compare_performance.py
+├── conftest.py
+├── test_data_config.json (generated, gitignored)
+└── performance_baselines/
+    ├── baseline_20241216_140000.json
+    ├── baseline_20241216_150000.json
+    └── comparison_20241216_151500.html
 ```
-
-## Example Output
-
-```
-PERFORMANCE TEST SUMMARY
-================================================================================
-
-recommend_warm_user_123_mode_auto:
-  Mean: 87.23ms
-  Median: 85.10ms
-  P95: 105.30ms
-  P99: 112.45ms
-  Range: [78.20ms - 115.60ms]
-  Stdev: 8.45ms
-  Count: 10
-
-similar_book_1000_mode_subject:
-  Mean: 12.34ms
-  Median: 11.90ms
-  P95: 15.20ms
-  P99: 16.10ms
-  Range: [10.50ms - 17.20ms]
-  Stdev: 1.85ms
-  Count: 10
-
-...
-```
-
-## Need Help?
-
-- Check test output for detailed error messages
-- Verify database connection and data availability
-- Ensure models are properly loaded with `ModelStore`
-- Check logs for warnings or errors during test execution

@@ -11,7 +11,7 @@
     16795,
     248718
   ],
-  "cold_user_ids": [
+  "cold_with_subjects_user_ids": [
     248965,
     249650,
     249939,
@@ -23,7 +23,11 @@
     258352,
     259734
   ],
-  "no_subject_user_ids": [],
+  "cold_without_subjects_user_ids": [
+    278860,
+    278855,
+    52702
+  ],
   "test_book_ids": {
     "has_als": [
       402,
