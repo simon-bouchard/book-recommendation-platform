@@ -188,3 +188,45 @@ def get_user_num_ratings(user_id: int) -> int:
         pass
 
     return 0
+
+
+def has_book_subjects(item_idx: int) -> bool:
+    """
+    Check if a book has valid subject embeddings.
+
+    Used by UI to determine if subject-based similarity is available.
+
+    Args:
+        item_idx: Book item index to check
+
+    Returns:
+        True if book has subject embeddings (not just PAD_IDX)
+    """
+    try:
+        from models.data.loaders import load_book_subject_embeddings
+
+        _, book_ids = load_book_subject_embeddings(use_cache=True)
+        return int(item_idx) in book_ids
+    except Exception:
+        return False
+
+
+def has_book_als(item_idx: int) -> bool:
+    """
+    Check if a book has ALS factors.
+
+    Used by UI to determine if behavioral similarity is available.
+    Convenience wrapper around infrastructure layer.
+
+    Args:
+        item_idx: Book item index to check
+
+    Returns:
+        True if book has ALS factors
+    """
+    try:
+        from models.infrastructure.als_model import ALSModel
+
+        return ALSModel().has_book(item_idx)
+    except Exception:
+        return False

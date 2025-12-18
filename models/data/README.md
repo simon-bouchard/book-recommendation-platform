@@ -94,6 +94,30 @@ df = filter_read_books(df, user_id=123, db=db_session)
 df = add_book_embeddings(df)  # Adds book_emb_0, book_emb_1, ...
 ```
 
+### UI Helpers
+
+```python
+from models.data import has_book_subjects, has_book_als
+
+# Check if book has subject embeddings (for subject similarity)
+if has_book_subjects(item_idx=123):
+    # Enable subject-based similarity button in UI
+    pass
+
+# Check if book has ALS factors (for behavioral similarity)
+if has_book_als(item_idx=123):
+    # Enable behavioral similarity button in UI
+    pass
+
+# Use in book page template context
+book_data = {
+    "item_idx": 123,
+    "title": "Example Book",
+    "has_subjects": has_book_subjects(123),
+    "has_als": has_book_als(123),
+}
+```
+
 ### Helper Functions
 
 ```python
@@ -182,6 +206,8 @@ preload_all_artifacts()
 | `decompose_embeddings(tensor, prefix)` | Flatten tensor to dict | `Dict[str, float]` |
 | `clean_row(row)` | Replace NaN/inf with None | `Dict` |
 | `get_user_num_ratings(user_id)` | Get user rating count from cache | `int` |
+| `has_book_subjects(item_idx)` | Check if book has subject embeddings (UI helper) | `bool` |
+| `has_book_als(item_idx)` | Check if book has ALS factors (UI helper) | `bool` |
 
 ## Migration from ModelStore
 
