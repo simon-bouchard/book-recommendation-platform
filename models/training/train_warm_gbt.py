@@ -1,5 +1,4 @@
 import os, sys
-import json
 import pickle
 import numpy as np
 import pandas as pd
@@ -10,8 +9,7 @@ from lightgbm import LGBMRegressor, early_stopping, log_evaluation
 
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "../..")))
 from models.core import PAD_IDX, PATHS
-from models.data import load_attention_strategy
-from models.core import PATHS
+from models.data import load_attention_strategy, load_book_subject_embeddings
 
 REPO_ROOT = Path(__file__).parent.parent.parent
 DATA_DIR = REPO_ROOT / "models" / "training" / "data"
