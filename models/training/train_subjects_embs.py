@@ -1,6 +1,7 @@
 import os
 import sys
 from pathlib import Path
+
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "../../")))
 
 import math
@@ -12,9 +13,10 @@ from fastai.data.core import DataLoaders
 from fastai.losses import MSELossFlat
 from fastai.optimizer import Adam
 from fastprogress.fastprogress import progress_bar
+
 progress_bar.NO_BAR = True
 
-device = 'cuda' if torch.cuda.is_available() else 'cpu'
+device = "cuda" if torch.cuda.is_available() else "cpu"
 
 # Shared loaders + attention poolers
 from models.training.data_loader import load_rows_and_dataset
@@ -22,6 +24,7 @@ from models.training.train_subject_attention import (
     build_pooler_from_env,
     save_components,
 )
+from models.core import PATHS
 
 REPO_ROOT = Path(__file__).parent.parent.parent
 OUT_DIR = REPO_ROOT / "models" / "data"
@@ -61,7 +64,8 @@ def main():
     # fastai Learner (same loss/metrics/opt as before)
     # -----------------------------
     learn = Learner(
-        dls, pooler,
+        dls,
+        pooler,
         loss_func=MSELossFlat(),
         metrics=[rmse, mae],
         wd=0.05,
@@ -69,6 +73,7 @@ def main():
     )
 
     from fastai.callback.progress import ProgressCallback
+
     learn.remove_cbs(ProgressCallback)
 
     print("🚀 Starting training...")
@@ -81,8 +86,7 @@ def main():
     # -----------------------------
     # Save exactly the keys your inference loaders expect
     # -----------------------------
-    out_name = OUT_NAME_BY_KIND.get(kind, f"subject_attention_components_{kind}.pth")
-    out_path = OUT_DIR / out_name
+    out_path = PATHS.get_attention_path(kind)
     save_components(pooler, str(out_path), kind)
     print(f"✅ Saved to {out_path}")
 

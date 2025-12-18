@@ -1,14 +1,13 @@
 import os
 import sys
 from pathlib import Path
-sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "../../")))
-
 import math
-from typing import Dict
 
 import torch
 import torch.nn.functional as F
 from torch.utils.data import DataLoader, RandomSampler
+
+sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "../../")))
 
 # Shared loaders + attention poolers
 from models.training.data_loader import load_rows_and_dataset
@@ -16,7 +15,7 @@ from models.training.train_subject_attention import (
     build_pooler_from_env,
     save_components,
 )
-from models.shared_utils import PAD_IDX
+from models.core import PATHS, PAD_IDX
 
 # ---------------------------------------------------------
 # Setup
@@ -39,7 +38,9 @@ OUT_NAME_BY_KIND = {
 # Contrastive utilities
 # ---------------------------------------------------------
 @torch.no_grad()
-def _jaccard_pos_mask_from_indices(book_subjects: torch.Tensor, thresh_overlap: int = 2) -> torch.Tensor:
+def _jaccard_pos_mask_from_indices(
+    book_subjects: torch.Tensor, thresh_overlap: int = 2
+) -> torch.Tensor:
     """
     book_subjects: LongTensor [B, L] (padded with PAD_IDX)
     Returns BoolTensor [B, B] where mask[i,j]=True if |S_i ∩ S_j| >= thresh (and i!=j)
@@ -60,12 +61,14 @@ def _jaccard_pos_mask_from_indices(book_subjects: torch.Tensor, thresh_overlap: 
     return M
 
 
-def multi_positive_infonce(item_emb: torch.Tensor,
-                           user_idx: torch.Tensor,
-                           book_subjects: torch.Tensor,
-                           t: float = 0.07,
-                           use_jaccard: bool = True,
-                           overlap_thresh: int = 2):
+def multi_positive_infonce(
+    item_emb: torch.Tensor,
+    user_idx: torch.Tensor,
+    book_subjects: torch.Tensor,
+    t: float = 0.07,
+    use_jaccard: bool = True,
+    overlap_thresh: int = 2,
+):
     """
     item_emb: [B, D] (not normalized)
     user_idx: [B]
@@ -74,7 +77,7 @@ def multi_positive_infonce(item_emb: torch.Tensor,
     """
     B = item_emb.size(0)
     Z = F.normalize(item_emb, dim=1)
-    sim = (Z @ Z.t()) / t                          # [B,B]
+    sim = (Z @ Z.t()) / t  # [B,B]
     # mask self in denom by a huge negative
     sim = sim - torch.eye(B, device=sim.device) * 1e9
 
@@ -87,7 +90,7 @@ def multi_positive_infonce(item_emb: torch.Tensor,
     else:
         subj_mask = torch.zeros_like(same_user)
 
-    pos_mask = (same_user | subj_mask)
+    pos_mask = same_user | subj_mask
     valid = pos_mask.any(dim=1)
 
     if not valid.any():
@@ -108,8 +111,12 @@ def multi_positive_infonce(item_emb: torch.Tensor,
         neg_vals = sim[(~pos_mask) & (~torch.eye(B, device=sim.device, dtype=torch.bool))]
         stats = {
             "pct_with_positive": valid.float().mean() * 100.0,
-            "pos_mean": pos_vals.mean() if pos_vals.numel() else torch.tensor(float("nan"), device=sim.device),
-            "neg_mean": neg_vals.mean() if neg_vals.numel() else torch.tensor(float("nan"), device=sim.device),
+            "pos_mean": pos_vals.mean()
+            if pos_vals.numel()
+            else torch.tensor(float("nan"), device=sim.device),
+            "neg_mean": neg_vals.mean()
+            if neg_vals.numel()
+            else torch.tensor(float("nan"), device=sim.device),
         }
     return loss, stats
 
@@ -117,6 +124,7 @@ def multi_positive_infonce(item_emb: torch.Tensor,
 # ---------------------------------------------------------
 # Training
 # ---------------------------------------------------------
+
 
 def main():
     # Data
@@ -130,15 +138,19 @@ def main():
     # DataLoader — RandomSampler with replacement improves chance of repeated users per batch
     bs = int(os.getenv("SUBJ_BS", "1024"))
     sampler = RandomSampler(ds, replacement=True, num_samples=len(ds))
-    dl = DataLoader(ds, batch_size=bs, sampler=sampler, num_workers=2, pin_memory=True, drop_last=True)
+    dl = DataLoader(
+        ds, batch_size=bs, sampler=sampler, num_workers=2, pin_memory=True, drop_last=True
+    )
 
     # Model
     pooler, kind = build_pooler_from_env(n_users=n_users, n_items=n_items, n_subjects=n_subjects)
     pooler = pooler.to(device)
 
-    opt = torch.optim.AdamW(pooler.parameters(), lr=float(os.getenv("SUBJ_LR", "3e-3")), weight_decay=5e-2)
+    opt = torch.optim.AdamW(
+        pooler.parameters(), lr=float(os.getenv("SUBJ_LR", "3e-3")), weight_decay=5e-2
+    )
     epochs = int(os.getenv("SUBJ_EPOCHS", "14"))
-    print('num epochs: ', epochs)
+    print("num epochs: ", epochs)
 
     # Loss weights & params
     lambda_contrast = float(os.getenv("LAMBDA_CONTRAST", "0.8"))
@@ -163,9 +175,11 @@ def main():
             opt.zero_grad(set_to_none=True)
 
             # forward through attention pooler
-            u_emb = pooler.attention_pool(batch["fav_subjects"])   # [B, D]
+            u_emb = pooler.attention_pool(batch["fav_subjects"])  # [B, D]
             i_emb = pooler.attention_pool(batch["book_subjects"])  # [B, D]
-            pred = pooler.rating_head(u_emb, i_emb, batch["user_idx"], batch["item_idx"])  # supervised head
+            pred = pooler.rating_head(
+                u_emb, i_emb, batch["user_idx"], batch["item_idx"]
+            )  # supervised head
 
             # --- supervised (MSE) ---
             mse = mse_loss(pred, batch["rating"])  # unweighted MSE
@@ -222,7 +236,7 @@ def main():
             pct_with_pos, pos_mean, neg_mean = 0.0, float("nan"), float("nan")
 
         print(
-            f"epoch {epoch+1}/{epochs}  "
+            f"epoch {epoch + 1}/{epochs}  "
             f"total={avg_total:.4f}  "
             f"contrast={avg_contrast:.4f}  "
             f"mse={avg_mse:.4f}  "
@@ -232,8 +246,7 @@ def main():
         )
 
     # Save components exactly as inference expects for the chosen kind
-    out_name = OUT_NAME_BY_KIND.get(kind, f"subject_attention_components_{kind}.pth")
-    out_path = OUT_DIR / out_name
+    out_path = PATHS.get_attention_path(kind)
     save_components(pooler, str(out_path), kind)
     print(f"✅ Saved to {out_path}")
 

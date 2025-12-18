@@ -9,15 +9,16 @@ from sklearn.model_selection import train_test_split
 from lightgbm import LGBMRegressor, early_stopping, log_evaluation
 
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "../..")))
-from models.shared_utils import ModelStore, PAD_IDX
+from models.core import PAD_IDX, PATHS
+from models.data import load_attention_strategy
+from models.core import PATHS
 
 REPO_ROOT = Path(__file__).parent.parent.parent
 DATA_DIR = REPO_ROOT / "models" / "training" / "data"
 
-MODEL_PATH = Path(REPO_ROOT / "models/data/gbt_warm.pickle")
+from models.data import load_book_subject_embeddings
 
-BOOK_EMBS_PATH = REPO_ROOT / "models/data/book_embs.npy"
-BOOK_IDS_PATH = REPO_ROOT / "models/data/book_ids.json"
+book_embs, book_ids = load_book_subject_embeddings(normalized=False)
 
 # -------------------------------
 # Load base data
@@ -28,9 +29,6 @@ users = pd.read_pickle(DATA_DIR / "users.pkl")
 books = pd.read_pickle(DATA_DIR / "books.pkl")
 user_fav_df = pd.read_pickle(DATA_DIR / "user_fav_subjects.pkl")
 
-book_embs = np.load(BOOK_EMBS_PATH)
-with open(BOOK_IDS_PATH, "r") as f:
-    book_ids = json.load(f)
 item_idx_to_row = {idx: i for i, idx in enumerate(book_ids)}
 
 # -------------------------------
@@ -42,8 +40,7 @@ valid_users = set(users["user_id"])
 valid_items = set(books["item_idx"]) & set(item_idx_to_row)
 
 interactions = interactions[
-    interactions["user_id"].isin(valid_users) &
-    interactions["item_idx"].isin(valid_items)
+    interactions["user_id"].isin(valid_users) & interactions["item_idx"].isin(valid_items)
 ]
 
 # Remove interactions with books that don't have pretrained embeddings
@@ -57,10 +54,7 @@ warm_user_ids = rating_counts[rating_counts >= 10].index
 interactions = interactions[interactions["user_id"].isin(warm_user_ids)]
 
 train_inter, val_inter = train_test_split(
-    interactions,
-    test_size=0.1,
-    stratify=interactions["user_id"],
-    random_state=42
+    interactions, test_size=0.1, stratify=interactions["user_id"], random_state=42
 )
 
 # -------------------------------
@@ -68,35 +62,29 @@ train_inter, val_inter = train_test_split(
 # -------------------------------
 print("📊 Computing aggregates (train only)...")
 
-users = users.drop(columns=[
-    "user_num_ratings",
-    "user_avg_rating",
-    "user_rating_std"
-], errors="ignore")
+users = users.drop(
+    columns=["user_num_ratings", "user_avg_rating", "user_rating_std"], errors="ignore"
+)
 
-books = books.drop(columns=[
-    "book_num_ratings",
-    "book_avg_rating",
-    "book_rating_std"
-], errors="ignore")
+books = books.drop(
+    columns=["book_num_ratings", "book_avg_rating", "book_rating_std"], errors="ignore"
+)
 
-user_stats = train_inter.groupby("user_id")["rating"].agg(
-    user_num_ratings="count",
-    user_avg_rating="mean",
-    user_rating_std="std"
-).reset_index()
+user_stats = (
+    train_inter.groupby("user_id")["rating"]
+    .agg(user_num_ratings="count", user_avg_rating="mean", user_rating_std="std")
+    .reset_index()
+)
 
-book_stats = train_inter.groupby("item_idx")["rating"].agg(
-    book_num_ratings="count",
-    book_avg_rating="mean",
-    book_rating_std="std"
-).reset_index()
+book_stats = (
+    train_inter.groupby("item_idx")["rating"]
+    .agg(book_num_ratings="count", book_avg_rating="mean", book_rating_std="std")
+    .reset_index()
+)
 
 global_avg = train_inter["rating"].mean()
 book_stats["book_avg_rating"] = np.where(
-    book_stats["book_num_ratings"] < 15,
-    global_avg,
-    book_stats["book_avg_rating"]
+    book_stats["book_num_ratings"] < 15, global_avg, book_stats["book_avg_rating"]
 )
 
 users = users.merge(user_stats, on="user_id", how="left")
@@ -121,6 +109,7 @@ user_fav = defaultdict(list)
 for row in user_fav_df.itertuples(index=False):
     user_fav[row.user_id].append(row.subject_idx)
 
+
 # -------------------------------
 # Feature builder
 # -------------------------------
@@ -134,30 +123,46 @@ def build_rows(inter_df):
     book_emb_matrix = book_embs[inter_df["book_emb_row"].values]
 
     book_emb_df = pd.DataFrame(
-        book_emb_matrix,
-        columns=[f"book_emb_{i}" for i in range(book_emb_matrix.shape[1])]
+        book_emb_matrix, columns=[f"book_emb_{i}" for i in range(book_emb_matrix.shape[1])]
     )
     inter_df = pd.concat([inter_df.reset_index(drop=True), book_emb_df], axis=1)
 
     # Build list of favorite subject indices
     fav_subjects_list = [user_fav.get(uid, [PAD_IDX]) for uid in inter_df["user_id"]]
 
-    pooler = ModelStore().get_attention_strategy()
+    pooler = load_attention_strategy()
     user_emb_matrix = pooler(fav_subjects_list).cpu().numpy()
 
     user_emb_df = pd.DataFrame(
-        user_emb_matrix,
-        columns=[f"user_emb_{i}" for i in range(user_emb_matrix.shape[1])]
+        user_emb_matrix, columns=[f"user_emb_{i}" for i in range(user_emb_matrix.shape[1])]
     )
     inter_df = pd.concat([inter_df.reset_index(drop=True), user_emb_df], axis=1)
-    
-    return inter_df[[
-        "user_id", "item_idx", "rating",
-        "main_subject", "year", "filled_year", "language", "num_pages", "filled_num_pages",
-        "book_num_ratings", "book_avg_rating", "book_rating_std", 
-        "country", "age", "filled_age",
-        "user_num_ratings", "user_avg_rating", "user_rating_std"
-    ] + list(user_emb_df.columns) + list(book_emb_df.columns)]
+
+    return inter_df[
+        [
+            "user_id",
+            "item_idx",
+            "rating",
+            "main_subject",
+            "year",
+            "filled_year",
+            "language",
+            "num_pages",
+            "filled_num_pages",
+            "book_num_ratings",
+            "book_avg_rating",
+            "book_rating_std",
+            "country",
+            "age",
+            "filled_age",
+            "user_num_ratings",
+            "user_avg_rating",
+            "user_rating_std",
+        ]
+        + list(user_emb_df.columns)
+        + list(book_emb_df.columns)
+    ]
+
 
 print("Building features...")
 train_df = build_rows(train_inter)
@@ -172,14 +177,19 @@ for col in cat_cols:
     val_df[col] = val_df[col].astype("category")
 
 cont_cols = [
-    "age", 'year', 'num_pages', 
-    "book_num_ratings", "book_rating_std", #"book_avg_rating", 
-    "user_num_ratings", "user_rating_std", "user_avg_rating" 
+    "age",
+    "year",
+    "num_pages",
+    "book_num_ratings",
+    "book_rating_std",  # "book_avg_rating",
+    "user_num_ratings",
+    "user_rating_std",
+    "user_avg_rating",
 ]
 emb_cols = [c for c in train_df.columns if c.startswith("user_emb_") or c.startswith("book_emb_")]
-features = cont_cols + cat_cols + emb_cols 
+features = cont_cols + cat_cols + emb_cols
 
-X_train, y_train = train_df[features], train_df['rating']
+X_train, y_train = train_df[features], train_df["rating"]
 X_val, y_val = val_df[features], val_df["rating"]
 
 print("Training GBT model...")
@@ -190,22 +200,19 @@ model = LGBMRegressor(
     max_depth=7,
     subsample=0.8,
     colsample_bytree=0.6,
-    random_state=42
+    random_state=42,
 )
 
 model.fit(
-    X_train, y_train,
+    X_train,
+    y_train,
     eval_set=[(X_val, y_val)],
-    eval_metric=['rmse', 'mae'],
-    callbacks=[
-        early_stopping(50),
-        log_evaluation(100)
-    ]
+    eval_metric=["rmse", "mae"],
+    callbacks=[early_stopping(50), log_evaluation(100)],
 )
 
-os.makedirs(REPO_ROOT / "models/data", exist_ok=True)
-with open(MODEL_PATH, "wb") as f:
+PATHS.ensure_artifact_dirs()
+with open(PATHS.gbt_warm, "wb") as f:
     pickle.dump(model, f)
 
-print(f"✅ Model saved to: {MODEL_PATH}")
-
+print(f"✅ Model saved to: {PATHS.gbt_warm}")
