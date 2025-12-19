@@ -143,9 +143,12 @@ class ALSModel:
 
         Returns:
             List of item_idx sorted by predicted score (descending)
-            Returns empty list if user not in model.
+            Returns empty list if user not in model or k <= 0.
         """
         if not self.has_user(user_id):
+            return []
+
+        if k <= 0:
             return []
 
         # Get user latent factors

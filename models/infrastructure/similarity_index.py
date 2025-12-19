@@ -217,7 +217,8 @@ class SimilarityIndex:
             return SimilarityIndex(embeddings, ids, normalize=normalize)
 
         # Build filter mask based on rating counts
-        rating_counts = metadata.loc[ids, "book_num_ratings"].fillna(0).astype(int)
+        # Use reindex to handle missing items gracefully (fills with 0)
+        rating_counts = metadata.reindex(ids)["book_num_ratings"].fillna(0).astype(int)
         candidate_mask = rating_counts.values >= min_rating_count
 
         return SimilarityIndex(embeddings, ids, normalize=normalize, candidate_mask=candidate_mask)
