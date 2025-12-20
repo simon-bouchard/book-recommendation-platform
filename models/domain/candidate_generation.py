@@ -107,7 +107,11 @@ class SubjectBasedGenerator(CandidateGenerator):
 
         # Compute similarities: embeddings @ user_embedding
         embeddings = self.similarity_index.embeddings_full
-        scores = embeddings @ user_embedding
+        cosine_scores = embeddings @ user_embedding
+
+        # Transform cosine similarity [-1, 1] to non-negative scores [0, 1]
+        # This is required because Candidate enforces non-negative scores
+        scores = (cosine_scores + 1) / 2
 
         # Get top k
         top_indices = np.argsort(-scores)[:k]
