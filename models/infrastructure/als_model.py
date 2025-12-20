@@ -91,9 +91,9 @@ class ALSModel:
             self.book_id_to_row = {bid: i for i, bid in enumerate(book_ids)}
         else:
             # Load from disk
-            from models.data.loaders import load_als_embeddings
+            from models.data.loaders import load_als_factors
 
-            (self.user_factors, self.book_factors, user_id_map, book_row_map) = load_als_embeddings(
+            (self.user_factors, self.book_factors, user_id_map, book_row_map) = load_als_factors(
                 normalized=False, use_cache=True
             )
 

@@ -91,7 +91,7 @@ def load_book_subject_embeddings(
     return embeddings, ids
 
 
-def load_als_embeddings(
+def load_als_factors(
     normalized: bool = False, use_cache: bool = True
 ) -> Tuple[np.ndarray, np.ndarray, Dict[int, int], Dict[int, int]]:
     """
@@ -111,8 +111,8 @@ def load_als_embeddings(
     Raises:
         FileNotFoundError: If ALS files don't exist
     """
-    cache_key = "als_embeddings"
-    cache_key_norm = "als_embeddings_normalized"
+    cache_key = "als_factors"
+    cache_key_norm = "als_factors_normalized"
 
     if use_cache and cache_key in _CACHE:
         user_factors, book_factors, user_map, book_map = _CACHE[cache_key]
@@ -403,8 +403,8 @@ def preload_all_artifacts():
     """
     load_book_subject_embeddings(normalized=False, use_cache=True)
     load_book_subject_embeddings(normalized=True, use_cache=True)
-    load_als_embeddings(normalized=False, use_cache=True)
-    load_als_embeddings(normalized=True, use_cache=True)
+    load_als_factors(normalized=False, use_cache=True)
+    load_als_factors(normalized=True, use_cache=True)
     load_bayesian_scores(use_cache=True)
     load_book_meta(use_cache=True)
     load_user_meta(use_cache=True)

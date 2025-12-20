@@ -25,7 +25,7 @@ models/data/
 ### Loading Embeddings
 
 ```python
-from models.data import load_book_subject_embeddings, load_als_embeddings
+from models.data import load_book_subject_embeddings, load_als_factors
 
 # Load subject-based book embeddings
 embeddings, book_ids = load_book_subject_embeddings()
@@ -34,7 +34,7 @@ embeddings, book_ids = load_book_subject_embeddings()
 norm_embs, book_ids = load_book_subject_embeddings(normalized=True)
 
 # Load ALS factors
-user_factors, book_factors, user_map, book_map = load_als_embeddings()
+user_factors, book_factors, user_map, book_map = load_als_factors()
 
 # Check if book has ALS data
 from models.data.loaders import has_book_als
@@ -180,7 +180,7 @@ preload_all_artifacts()
 | Function | Description | Returns |
 |----------|-------------|---------|
 | `load_book_subject_embeddings(normalized, use_cache)` | Load attention-pooled book embeddings | `(embeddings, book_ids)` |
-| `load_als_embeddings(normalized, use_cache)` | Load ALS factors for users and books | `(user_factors, book_factors, user_map, book_map)` |
+| `load_als_factors(normalized, use_cache)` | Load ALS factors for users and books | `(user_factors, book_factors, user_map, book_map)` |
 | `has_book_als(item_idx)` | Check if book has ALS data | `bool` |
 | `load_bayesian_scores(use_cache)` | Load precomputed Bayesian scores | `np.ndarray` |
 | `load_book_meta(use_cache)` | Load book metadata with Bayesian scores | `pd.DataFrame` |
