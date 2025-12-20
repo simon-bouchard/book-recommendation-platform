@@ -5,7 +5,7 @@ Data loading layer providing functions to load model artifacts and query databas
 
 from models.data.loaders import (
     load_book_subject_embeddings,
-    load_als_embeddings,
+    load_als_factors,
     load_bayesian_scores,
     load_book_meta,
     load_user_meta,

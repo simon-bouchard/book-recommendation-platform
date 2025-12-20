@@ -18,7 +18,7 @@ print(project_root)
 
 from models.data.loaders import (
     load_book_subject_embeddings,
-    load_als_embeddings,
+    load_als_factors,
     has_book_als,
     load_bayesian_scores,
     load_book_meta,
@@ -99,9 +99,9 @@ class TestBookSubjectEmbeddings:
 class TestALSEmbeddings:
     """Test loading ALS collaborative filtering factors."""
 
-    def test_load_als_embeddings_returns_four_components(self):
+    def test_load_als_factors(self):
         """Should return user factors, book factors, and two mappings."""
-        result = load_als_embeddings(use_cache=False)
+        result = load_als_factors(use_cache=False)
 
         assert len(result) == 4
         user_factors, book_factors, user_map, book_map = result
@@ -113,27 +113,27 @@ class TestALSEmbeddings:
 
     def test_als_factors_are_2d_arrays(self):
         """User and book factors should be 2D arrays."""
-        user_factors, book_factors, _, _ = load_als_embeddings(use_cache=False)
+        user_factors, book_factors, _, _ = load_als_factors(use_cache=False)
 
         assert user_factors.ndim == 2
         assert book_factors.ndim == 2
 
     def test_als_factors_have_same_embedding_dimension(self):
         """User and book factors should have same number of latent dimensions."""
-        user_factors, book_factors, _, _ = load_als_embeddings(use_cache=False)
+        user_factors, book_factors, _, _ = load_als_factors(use_cache=False)
 
         assert user_factors.shape[1] == book_factors.shape[1]
 
     def test_als_mappings_are_consistent(self):
         """Mapping sizes should match factor array sizes."""
-        user_factors, book_factors, user_map, book_map = load_als_embeddings(use_cache=False)
+        user_factors, book_factors, user_map, book_map = load_als_factors(use_cache=False)
 
         assert len(user_map) == user_factors.shape[0]
         assert len(book_map) == book_factors.shape[0]
 
     def test_normalized_als_factors_are_unit_vectors(self):
         """Normalized ALS factors should have L2 norm of ~1."""
-        user_factors, book_factors, _, _ = load_als_embeddings(normalized=True, use_cache=False)
+        user_factors, book_factors, _, _ = load_als_factors(normalized=True, use_cache=False)
 
         # Check first 10 user vectors
         user_norms = np.linalg.norm(user_factors[:10], axis=1)
@@ -145,7 +145,7 @@ class TestALSEmbeddings:
 
     def test_has_book_als_for_existing_book(self):
         """has_book_als should return True for books in ALS."""
-        _, _, _, book_map = load_als_embeddings(use_cache=False)
+        _, _, _, book_map = load_als_factors(use_cache=False)
 
         # Get a book that should exist
         if book_map:
