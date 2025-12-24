@@ -89,29 +89,34 @@ def add_book_embeddings(df: pd.DataFrame) -> pd.DataFrame:
     """
     Add book subject embeddings as columns to DataFrame.
 
+    Uses vectorized operations for optimal performance - significantly faster
+    than row-by-row iteration, especially for large DataFrames.
+
     Args:
         df: DataFrame with 'item_idx' column
 
     Returns:
         DataFrame with additional 'book_emb_0', 'book_emb_1', ... columns
     """
-    embeddings, _ = load_book_subject_embeddings()
-    idx_to_row = get_item_idx_to_row(
-        load_book_subject_embeddings()[1]  # Get book_ids
-    )
+    # Load embeddings once (avoid duplicate calls)
+    embeddings, book_ids = load_book_subject_embeddings()
+    idx_to_row = get_item_idx_to_row(book_ids)
 
     dim = embeddings.shape[1]
 
-    # Build embedding matrix for candidates
-    emb_matrix = []
-    for item_idx in df["item_idx"]:
-        row_idx = idx_to_row.get(item_idx)
-        if row_idx is not None:
-            emb_matrix.append(embeddings[row_idx])
-        else:
-            emb_matrix.append(np.zeros(dim))
+    # Vectorized mapping: item_idx -> row index
+    # Use -1 for missing items (will be replaced with zeros)
+    item_indices = df["item_idx"].map(idx_to_row).fillna(-1).astype(int).values
 
-    emb_matrix = np.array(emb_matrix)
+    # Pre-allocate result array (much faster than building list)
+    emb_matrix = np.zeros((len(df), dim), dtype=embeddings.dtype)
+
+    # Find valid indices (books that exist in embedding matrix)
+    valid_mask = item_indices >= 0
+
+    # Use numpy advanced indexing to extract all embeddings at once
+    if valid_mask.any():
+        emb_matrix[valid_mask] = embeddings[item_indices[valid_mask]]
 
     # Create DataFrame with embedding columns
     emb_df = pd.DataFrame(emb_matrix, columns=[f"book_emb_{i}" for i in range(dim)])
