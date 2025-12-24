@@ -19,32 +19,33 @@ from models.domain.candidate_generation import (
     BayesianPopularityGenerator,
     HybridGenerator,
 )
-from models.domain.filters import ReadBooksFilter, FilterChain
+from models.domain.filters import ReadBooksFilter
 from models.domain.rankers import NoOpRanker
 from models.data.loaders import load_book_meta
 
 logger = logging.getLogger(__name__)
 
 
+# Cache at module level (shared across all requests)
+_GENERATOR_CACHE = {
+    "als": None,
+    "subject": None,
+    "popularity": None,
+}
+
+_FILTER_CACHE = {
+    "read_books": None,
+}
+
+_RANKER_CACHE = {
+    "noop": None,
+}
+
+
 class RecommendationService:
     """
     Main recommendation service implementing business logic.
-
-    Responsibilities:
-    - Select appropriate recommendation strategy (warm/cold/fallback)
-    - Execute recommendation pipeline
-    - Enrich candidates with metadata
-    - Provide structured logging for observability
-
-    Business Rules:
-    - Warm users (is_warm=True): Use ALS collaborative filtering
-    - Cold users with preferences: Use hybrid (subject + popularity)
-    - Cold users without preferences: Use popularity fallback
-
-    Example:
-        service = RecommendationService()
-        config = RecommendationConfig(k=20, mode="auto")
-        recommendations = service.recommend(user, config, db)
+    Uses module-level caching for components to avoid recreation on every request.
     """
 
     def __init__(self):
@@ -54,20 +55,7 @@ class RecommendationService:
     def recommend(
         self, user: User, config: RecommendationConfig, db: Session
     ) -> List[RecommendedBook]:
-        """
-        Generate personalized recommendations for a user.
-
-        Args:
-            user: User to generate recommendations for
-            config: Recommendation configuration
-            db: Database session for filtering read books
-
-        Returns:
-            List of recommended books with metadata
-
-        Raises:
-            ValueError: If config is invalid
-        """
+        """Generate personalized recommendations for a user."""
         start_time = time.time()
 
         logger.info(
@@ -82,11 +70,8 @@ class RecommendationService:
         )
 
         try:
-            # Select and execute pipeline
             pipeline = self._build_pipeline(user, config)
             candidates = pipeline.recommend(user, config.k, db)
-
-            # Enrich candidates with metadata
             recommendations = self._enrich_candidates(candidates)
 
             latency_ms = int((time.time() - start_time) * 1000)
@@ -113,73 +98,67 @@ class RecommendationService:
 
     def _build_pipeline(self, user: User, config: RecommendationConfig) -> RecommendationPipeline:
         """
-        Build recommendation pipeline based on user status and config.
-
-        Args:
-            user: User to build pipeline for
-            config: Recommendation configuration
-
-        Returns:
-            Configured recommendation pipeline
+        Build recommendation pipeline using cached components.
+        Components are cached at module level for reuse across requests.
         """
+        # Lazy-initialize cached components
+        if _GENERATOR_CACHE["als"] is None:
+            _GENERATOR_CACHE["als"] = ALSBasedGenerator()
+        if _GENERATOR_CACHE["subject"] is None:
+            _GENERATOR_CACHE["subject"] = SubjectBasedGenerator()
+        if _GENERATOR_CACHE["popularity"] is None:
+            _GENERATOR_CACHE["popularity"] = BayesianPopularityGenerator()
+        if _FILTER_CACHE["read_books"] is None:
+            _FILTER_CACHE["read_books"] = ReadBooksFilter()
+        if _RANKER_CACHE["noop"] is None:
+            _RANKER_CACHE["noop"] = NoOpRanker()
+
         # Determine strategy based on mode
         if config.mode == "behavioral":
-            # Force behavioral (ALS) mode
-            primary_generator = ALSBasedGenerator()
-            fallback_generator = BayesianPopularityGenerator()
+            primary_generator = _GENERATOR_CACHE["als"]
+            fallback_generator = _GENERATOR_CACHE["popularity"]
 
         elif config.mode == "subject":
-            # Force subject-based mode
             primary_generator = self._build_hybrid_generator(config)
-            fallback_generator = BayesianPopularityGenerator()
+            fallback_generator = _GENERATOR_CACHE["popularity"]
 
         else:
             # Auto mode - decide based on user status
             if user.is_warm:
-                # Warm user: use ALS
-                primary_generator = ALSBasedGenerator()
-                fallback_generator = BayesianPopularityGenerator()
-
+                primary_generator = _GENERATOR_CACHE["als"]
+                fallback_generator = _GENERATOR_CACHE["popularity"]
             elif user.has_preferences:
-                # Cold user with preferences: use hybrid
                 primary_generator = self._build_hybrid_generator(config)
-                fallback_generator = BayesianPopularityGenerator()
-
+                fallback_generator = _GENERATOR_CACHE["popularity"]
             else:
-                # Cold user without preferences: use popularity
-                primary_generator = BayesianPopularityGenerator()
+                primary_generator = _GENERATOR_CACHE["popularity"]
                 fallback_generator = None
 
-        # Build pipeline with read book filtering
         pipeline = RecommendationPipeline(
             generator=primary_generator,
             fallback_generator=fallback_generator,
-            filter=ReadBooksFilter(),
-            ranker=NoOpRanker(),
+            filter=_FILTER_CACHE["read_books"],
+            ranker=_RANKER_CACHE["noop"],
         )
 
         return pipeline
 
     def _build_hybrid_generator(self, config: RecommendationConfig) -> HybridGenerator:
-        """
-        Build hybrid generator combining subject similarity and popularity.
-
-        Args:
-            config: Configuration with hybrid_config settings
-
-        Returns:
-            Configured hybrid generator
-        """
+        """Build hybrid generator combining subject similarity and popularity."""
         subject_weight = config.hybrid_config.subject_weight
         popularity_weight = config.hybrid_config.popularity_weight
 
         generators = []
 
         if subject_weight > 0:
-            generators.append((SubjectBasedGenerator(), subject_weight))
+            if _GENERATOR_CACHE["subject"] is None:
+                _GENERATOR_CACHE["subject"] = SubjectBasedGenerator()
+            generators.append((_GENERATOR_CACHE["subject"], subject_weight))
 
         if popularity_weight > 0:
-            generators.append((BayesianPopularityGenerator(), popularity_weight))
+            if _GENERATOR_CACHE["popularity"] is None:
+                _GENERATOR_CACHE["popularity"] = BayesianPopularityGenerator()
+            generators.append((_GENERATOR_CACHE["popularity"], popularity_weight))
 
         if not generators:
             raise ValueError("At least one generator weight must be > 0")
@@ -187,15 +166,7 @@ class RecommendationService:
         return HybridGenerator(generators)
 
     def _enrich_candidates(self, candidates: List[Candidate]) -> List[RecommendedBook]:
-        """
-        Enrich candidates with book metadata.
-
-        Args:
-            candidates: Raw candidates from pipeline
-
-        Returns:
-            Enriched recommendations with full metadata
-        """
+        """Enrich candidates with book metadata."""
         if self._book_meta is None:
             self._book_meta = load_book_meta(use_cache=True)
 
