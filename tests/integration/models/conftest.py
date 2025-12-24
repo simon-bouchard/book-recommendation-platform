@@ -50,17 +50,16 @@ def client(db: Session):
 @pytest.fixture(scope="session")
 def ensure_models_loaded():
     """
-    Ensure ModelStore is initialized before tests.
+    Ensure all models are preloaded before tests.
     This warms up the cache so first test isn't penalized.
     """
-    from models.shared_utils import ModelStore
+    from models.data.loaders import preload_all_artifacts
 
-    print("\n🔄 Preloading models for performance tests...")
-    store = ModelStore()
-    store.preload()
-    print("✅ Models loaded\n")
+    print("\nPreloading models for performance tests...")
+    preload_all_artifacts()
+    print("Models loaded\n")
 
-    yield store
+    yield
 
 
 @pytest.fixture(scope="session")

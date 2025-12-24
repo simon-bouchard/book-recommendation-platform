@@ -13,7 +13,8 @@ from sqlalchemy import func, desc
 from sqlalchemy.orm import Session
 from app.database import SessionLocal
 from app.table_models import User, Book, Interaction, UserFavSubject
-from models.shared_utils import ModelStore
+from models.infrastructure.als_model import ALSModel
+from models.data.loaders import load_als_factors
 import json
 
 
@@ -87,8 +88,8 @@ def find_test_books(db: Session, limit: int = 10) -> dict[str, list[int]]:
     Find books suitable for similarity testing.
     Categorizes by ALS availability and popularity to test different code paths.
     """
-    store = ModelStore()
-    als_book_ids = store.get_book_als_id_set()
+    _, _, _, book_row_map = load_als_factors(use_cache=True)
+    als_book_ids = set(book_row_map.values())
 
     popular_books = (
         db.query(Book.item_idx, func.count(Interaction.id).label("rating_count"))
