@@ -1,7 +1,7 @@
 # models/domain/candidate_generation.py
 """
-Candidate generation strategies with module-level singleton instances.
-Import these singletons instead of creating new instances.
+Candidate generation strategies using shared FAISS indices for optimal performance.
+All subject-based operations share a single singleton FAISS index.
 """
 
 from abc import ABC, abstractmethod
@@ -35,7 +35,11 @@ class CandidateGenerator(ABC):
 
 
 class SubjectBasedGenerator(CandidateGenerator):
-    """Generate candidates based on subject similarity."""
+    """
+    Generate candidates based on subject similarity using FAISS.
+
+    Uses shared singleton FAISS index for optimal performance.
+    """
 
     def __init__(self, embedder: SubjectEmbedder = None, similarity_index: SimilarityIndex = None):
         self.embedder = embedder or SubjectEmbedder()
@@ -58,17 +62,20 @@ class SubjectBasedGenerator(CandidateGenerator):
             return []
 
         user_embedding = self.embedder.embed(user.fav_subjects)
+        query = user_embedding.reshape(1, -1).astype(np.float32)
 
-        embeddings = self.similarity_index.embeddings_full
-        scores = embeddings @ user_embedding
+        search_k = min(k, self.similarity_index.index.ntotal)
+        if search_k == 0:
+            return []
 
-        top_indices = np.argsort(-scores)[:k]
-        top_scores = scores[top_indices]
-        top_item_ids = self.similarity_index.ids_full[top_indices]
+        distances, indices = self.similarity_index.index.search(query, search_k)
+
+        scores = distances[0]
+        item_ids = self.similarity_index.ids_full[indices[0]]
 
         candidates = [
             Candidate(item_idx=int(item_id), score=float(score), source=self.name)
-            for item_id, score in zip(top_item_ids, top_scores)
+            for item_id, score in zip(item_ids, scores)
         ]
 
         return candidates
@@ -199,10 +206,6 @@ class HybridGenerator(CandidateGenerator):
         source_names = [gen.name for gen, _ in self.generators]
         return f"hybrid({'+'.join(source_names)})"
 
-
-# ============================================================================
-# MODULE-LEVEL SINGLETONS - Import these instead of creating new instances
-# ============================================================================
 
 _subject_generator = None
 _als_generator = None

@@ -1,6 +1,7 @@
 # models/services/similarity_service.py
 """
-Book similarity service with singleton similarity indices.
+Book similarity service using shared FAISS indices for optimal performance.
+Hybrid mode uses FAISS for initial retrieval then blends scores for accuracy.
 """
 
 import logging
@@ -20,13 +21,8 @@ from models.data.loaders import (
 logger = logging.getLogger(__name__)
 
 
-# ============================================================================
-# MODULE-LEVEL SINGLETON INDICES
-# ============================================================================
-
 _subject_index = None
 _als_index = None
-_hybrid_data = None
 
 
 def _get_subject_index() -> SimilarityIndex:
@@ -50,70 +46,23 @@ def _get_als_index() -> SimilarityIndex:
             embeddings=book_factors,
             ids=book_ids,
             metadata=metadata,
-            min_rating_count=10,  # ALS default threshold
+            min_rating_count=10,
             normalize=False,
         )
     return _als_index
 
 
-def _get_hybrid_data() -> dict:
-    """Get or create singleton hybrid similarity data structures."""
-    global _hybrid_data
-    if _hybrid_data is None:
-        # Load embeddings
-        subject_embs, subject_ids_list = load_book_subject_embeddings(
-            normalized=True, use_cache=True
-        )
-        subject_ids = np.array(subject_ids_list, dtype=np.int64)
-
-        _, als_factors, _, als_row_map = load_als_factors(normalized=True, use_cache=True)
-
-        # Build alignment mappings
-        item_to_subject_row = {item_idx: i for i, item_idx in enumerate(subject_ids_list)}
-
-        als_row_to_item = {row: item_idx for row, item_idx in als_row_map.items()}
-        item_to_als_row = {item_idx: row for row, item_idx in als_row_to_item.items()}
-
-        n_subject = len(subject_ids_list)
-        als_row_for_subject = np.full(n_subject, -1, dtype=np.int32)
-
-        for subject_row, item_idx in enumerate(subject_ids_list):
-            als_row = item_to_als_row.get(int(item_idx), -1)
-            als_row_for_subject[subject_row] = als_row
-
-        # Load rating counts
-        metadata = load_book_meta(use_cache=True)
-        counts = (
-            metadata.reindex(subject_ids)["book_num_ratings"].fillna(0).astype(np.int32).to_numpy()
-        )
-
-        _hybrid_data = {
-            "subject_embs": subject_embs,
-            "subject_ids": subject_ids,
-            "als_factors": als_factors,
-            "als_row_for_subject": als_row_for_subject,
-            "counts": counts,
-            "item_to_subject_row": item_to_subject_row,
-        }
-
-    return _hybrid_data
-
-
-# ============================================================================
-# SERVICE
-# ============================================================================
-
-
 class SimilarityService:
     """
-    Book similarity service using singleton indices.
+    Book similarity service using singleton FAISS indices.
 
-    No instance-level state - can be recreated cheaply.
-    All heavy data is cached at module level.
+    All subject operations share the same FAISS index for memory efficiency.
+    Hybrid mode uses FAISS for fast initial retrieval then exact scoring for accuracy.
     """
 
     ALS_MIN_RATINGS = 10
     HYBRID_MIN_RATINGS = 5
+    HYBRID_RETRIEVAL_MULTIPLIER = 3
 
     def __init__(self):
         """Initialize similarity service."""
@@ -168,7 +117,7 @@ class SimilarityService:
             raise
 
     def _get_similar_subject(self, item_idx: int, k: int) -> List[Dict]:
-        """Get subject-based similarity (uses singleton index)."""
+        """Get subject-based similarity using shared FAISS index."""
         index = _get_subject_index()
         scores, item_ids = index.search(query_item_id=item_idx, k=k, exclude_query=True)
         return self._format_results(item_ids, scores)
@@ -180,7 +129,7 @@ class SimilarityService:
         min_rating_count: Optional[int],
         filter_candidates: bool,
     ) -> List[Dict]:
-        """Get ALS-based similarity (uses singleton index)."""
+        """Get ALS-based similarity using filtered FAISS index."""
         index = _get_als_index()
         scores, item_ids = index.search(query_item_id=item_idx, k=k, exclude_query=True)
         return self._format_results(item_ids, scores)
@@ -193,58 +142,117 @@ class SimilarityService:
         min_rating_count: Optional[int],
         filter_candidates: bool,
     ) -> List[Dict]:
-        """Get hybrid similarity (uses singleton data structures)."""
-        data = _get_hybrid_data()
+        """
+        Get hybrid similarity using FAISS for initial retrieval then exact scoring.
 
-        if item_idx not in data["item_to_subject_row"]:
+        Strategy:
+        1. Use FAISS to get top-N candidates from subject similarity (N = 3*k)
+        2. Use FAISS to get top-N candidates from ALS similarity
+        3. Take union of candidates
+        4. For each candidate, compute exact subject + ALS scores
+        5. Blend and rank
+        6. Return top-k
+
+        This avoids computing scores for ALL books while maintaining accuracy.
+        """
+        subject_index = _get_subject_index()
+        als_index = _get_als_index()
+
+        if not subject_index.has_item(item_idx):
             return []
 
-        subject_row = data["item_to_subject_row"][item_idx]
-        query_subject = data["subject_embs"][subject_row].astype(np.float32)
+        retrieval_k = k * self.HYBRID_RETRIEVAL_MULTIPLIER
 
-        subject_scores = data["subject_embs"] @ query_subject
+        subject_scores_initial, subject_ids_initial = subject_index.search(
+            query_item_id=item_idx, k=retrieval_k, exclude_query=True
+        )
 
-        als_row = data["als_row_for_subject"][subject_row]
+        candidate_set = set(int(iid) for iid in subject_ids_initial)
 
-        if als_row >= 0:
-            query_als = data["als_factors"][als_row].astype(np.float32)
-            als_scores_all = data["als_factors"] @ query_als
+        if als_index.has_item(item_idx):
+            als_scores_initial, als_ids_initial = als_index.search(
+                query_item_id=item_idx, k=retrieval_k, exclude_query=True
+            )
+            candidate_set.update(int(iid) for iid in als_ids_initial)
 
-            als_scores_aligned = np.zeros_like(subject_scores, dtype=np.float32)
-            valid_mask = data["als_row_for_subject"] >= 0
-            als_scores_aligned[valid_mask] = als_scores_all[data["als_row_for_subject"][valid_mask]]
+        if not candidate_set:
+            return []
+
+        subject_embeddings, subject_ids_list = load_book_subject_embeddings(
+            normalized=True, use_cache=True
+        )
+        subject_id_to_row = {iid: i for i, iid in enumerate(subject_ids_list)}
+
+        query_row = subject_id_to_row.get(item_idx)
+        if query_row is None:
+            return []
+
+        query_vec = subject_embeddings[query_row]
+
+        candidate_list = sorted(candidate_set)
+        candidate_rows = [
+            subject_id_to_row[iid] for iid in candidate_list if iid in subject_id_to_row
+        ]
+
+        if not candidate_rows:
+            return []
+
+        candidate_embeddings = subject_embeddings[candidate_rows]
+        subject_scores = candidate_embeddings @ query_vec
+
+        if als_index.has_item(item_idx):
+            _, als_factors, _, als_row_map = load_als_factors(normalized=True, use_cache=True)
+            als_id_to_row = {item_idx: row for row, item_idx in als_row_map.items()}
+
+            query_als_row = als_id_to_row.get(item_idx)
+            if query_als_row is not None:
+                query_als_vec = als_factors[query_als_row]
+
+                candidate_item_ids = [subject_ids_list[row] for row in candidate_rows]
+                candidate_als_rows = np.array(
+                    [als_id_to_row.get(iid, -1) for iid in candidate_item_ids]
+                )
+
+                valid_als_mask = candidate_als_rows >= 0
+                als_scores = np.zeros(len(candidate_rows), dtype=np.float32)
+
+                if valid_als_mask.any():
+                    valid_als_rows = candidate_als_rows[valid_als_mask]
+                    valid_als_factors = als_factors[valid_als_rows]
+                    als_scores[valid_als_mask] = valid_als_factors @ query_als_vec
+            else:
+                als_scores = np.zeros(len(candidate_rows), dtype=np.float32)
         else:
-            als_scores_aligned = np.zeros_like(subject_scores, dtype=np.float32)
+            als_scores = np.zeros(len(candidate_rows), dtype=np.float32)
 
-        final_scores = (1.0 - alpha) * subject_scores + alpha * als_scores_aligned
+        blended_scores = (1.0 - alpha) * subject_scores + alpha * als_scores
 
         if filter_candidates:
+            metadata = self._get_book_meta()
             threshold = (
                 min_rating_count if min_rating_count is not None else self.HYBRID_MIN_RATINGS
             )
-            candidate_mask = data["counts"] >= threshold
-            candidate_indices = np.flatnonzero(candidate_mask)
-        else:
-            candidate_indices = np.arange(len(final_scores), dtype=np.int64)
 
-        if candidate_indices.size == 0:
-            return []
+            valid_mask = np.array(
+                [
+                    metadata.loc[subject_ids_list[row], "book_num_ratings"] >= threshold
+                    if subject_ids_list[row] in metadata.index
+                    else False
+                    for row in candidate_rows
+                ]
+            )
 
-        search_k = min(k + 1, candidate_indices.size)
-        candidate_scores = final_scores[candidate_indices]
+            if not valid_mask.any():
+                return []
 
-        top_k_indices_in_candidates = np.argpartition(-candidate_scores, search_k - 1)[:search_k]
-        top_k_indices_in_candidates = top_k_indices_in_candidates[
-            np.argsort(-candidate_scores[top_k_indices_in_candidates])
-        ]
+            blended_scores = blended_scores[valid_mask]
+            candidate_rows = [
+                candidate_rows[i] for i in range(len(candidate_rows)) if valid_mask[i]
+            ]
 
-        top_indices = candidate_indices[top_k_indices_in_candidates]
-        top_scores = final_scores[top_indices]
-        top_item_ids = data["subject_ids"][top_indices]
-
-        mask = top_item_ids != item_idx
-        top_item_ids = top_item_ids[mask][:k]
-        top_scores = top_scores[mask][:k]
+        top_k_indices = np.argsort(-blended_scores)[:k]
+        top_scores = blended_scores[top_k_indices]
+        top_item_ids = np.array([subject_ids_list[candidate_rows[i]] for i in top_k_indices])
 
         return self._format_results(top_item_ids, top_scores)
 
