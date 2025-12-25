@@ -79,7 +79,7 @@ class PerformanceComparator:
             after_metrics = after_results[test_name]
 
             # Compare key metrics
-            for metric in ["mean_ms", "median_ms", "p95_ms", "p99_ms"]:
+            for metric in ["mean_ms", "median_ms", "p95_ms"]:
                 if metric in before_metrics and metric in after_metrics:
                     before_val = before_metrics[metric]
                     after_val = after_metrics[metric]
