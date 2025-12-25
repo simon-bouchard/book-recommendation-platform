@@ -1,7 +1,6 @@
 # models/services/recommendation_service.py
 """
-Recommendation service implementing business rules for user-specific recommendation strategies.
-Orchestrates pipeline selection, execution, and result enrichment.
+Recommendation service using singleton generators/filters/rankers.
 """
 
 import logging
@@ -14,38 +13,24 @@ from models.domain.config import RecommendationConfig
 from models.domain.recommendation import Candidate, RecommendedBook
 from models.domain.pipeline import RecommendationPipeline
 from models.domain.candidate_generation import (
-    ALSBasedGenerator,
-    SubjectBasedGenerator,
-    BayesianPopularityGenerator,
-    HybridGenerator,
+    get_subject_generator,
+    get_als_generator,
+    get_popularity_generator,
+    create_hybrid_generator,
 )
-from models.domain.filters import ReadBooksFilter
-from models.domain.rankers import NoOpRanker
+from models.domain.filters import get_read_books_filter
+from models.domain.rankers import get_noop_ranker
 from models.data.loaders import load_book_meta
 
 logger = logging.getLogger(__name__)
 
 
-# Cache at module level (shared across all requests)
-_GENERATOR_CACHE = {
-    "als": None,
-    "subject": None,
-    "popularity": None,
-}
-
-_FILTER_CACHE = {
-    "read_books": None,
-}
-
-_RANKER_CACHE = {
-    "noop": None,
-}
-
-
 class RecommendationService:
     """
     Main recommendation service implementing business logic.
-    Uses module-level caching for components to avoid recreation on every request.
+
+    Uses singleton generators/filters/rankers for optimal performance.
+    No instance-level state - can be recreated cheaply.
     """
 
     def __init__(self):
@@ -98,72 +83,47 @@ class RecommendationService:
 
     def _build_pipeline(self, user: User, config: RecommendationConfig) -> RecommendationPipeline:
         """
-        Build recommendation pipeline using cached components.
-        Components are cached at module level for reuse across requests.
-        """
-        # Lazy-initialize cached components
-        if _GENERATOR_CACHE["als"] is None:
-            _GENERATOR_CACHE["als"] = ALSBasedGenerator()
-        if _GENERATOR_CACHE["subject"] is None:
-            _GENERATOR_CACHE["subject"] = SubjectBasedGenerator()
-        if _GENERATOR_CACHE["popularity"] is None:
-            _GENERATOR_CACHE["popularity"] = BayesianPopularityGenerator()
-        if _FILTER_CACHE["read_books"] is None:
-            _FILTER_CACHE["read_books"] = ReadBooksFilter()
-        if _RANKER_CACHE["noop"] is None:
-            _RANKER_CACHE["noop"] = NoOpRanker()
+        Build recommendation pipeline using singleton components.
 
+        Key insight: Generators/filters/rankers are singletons (one copy),
+        but pipelines are recreated per request (they're lightweight wrappers).
+        """
         # Determine strategy based on mode
         if config.mode == "behavioral":
-            primary_generator = _GENERATOR_CACHE["als"]
-            fallback_generator = _GENERATOR_CACHE["popularity"]
+            primary_generator = get_als_generator()
+            fallback_generator = get_popularity_generator()
 
         elif config.mode == "subject":
-            primary_generator = self._build_hybrid_generator(config)
-            fallback_generator = _GENERATOR_CACHE["popularity"]
+            primary_generator = create_hybrid_generator(
+                subject_weight=config.hybrid_config.subject_weight,
+                popularity_weight=config.hybrid_config.popularity_weight,
+            )
+            fallback_generator = get_popularity_generator()
 
         else:
             # Auto mode - decide based on user status
             if user.is_warm:
-                primary_generator = _GENERATOR_CACHE["als"]
-                fallback_generator = _GENERATOR_CACHE["popularity"]
+                primary_generator = get_als_generator()
+                fallback_generator = get_popularity_generator()
             elif user.has_preferences:
-                primary_generator = self._build_hybrid_generator(config)
-                fallback_generator = _GENERATOR_CACHE["popularity"]
+                primary_generator = create_hybrid_generator(
+                    subject_weight=config.hybrid_config.subject_weight,
+                    popularity_weight=config.hybrid_config.popularity_weight,
+                )
+                fallback_generator = get_popularity_generator()
             else:
-                primary_generator = _GENERATOR_CACHE["popularity"]
+                primary_generator = get_popularity_generator()
                 fallback_generator = None
 
+        # Pipeline is lightweight - recreate each time (just holds references)
         pipeline = RecommendationPipeline(
             generator=primary_generator,
             fallback_generator=fallback_generator,
-            filter=_FILTER_CACHE["read_books"],
-            ranker=_RANKER_CACHE["noop"],
+            filter=get_read_books_filter(),
+            ranker=get_noop_ranker(),
         )
 
         return pipeline
-
-    def _build_hybrid_generator(self, config: RecommendationConfig) -> HybridGenerator:
-        """Build hybrid generator combining subject similarity and popularity."""
-        subject_weight = config.hybrid_config.subject_weight
-        popularity_weight = config.hybrid_config.popularity_weight
-
-        generators = []
-
-        if subject_weight > 0:
-            if _GENERATOR_CACHE["subject"] is None:
-                _GENERATOR_CACHE["subject"] = SubjectBasedGenerator()
-            generators.append((_GENERATOR_CACHE["subject"], subject_weight))
-
-        if popularity_weight > 0:
-            if _GENERATOR_CACHE["popularity"] is None:
-                _GENERATOR_CACHE["popularity"] = BayesianPopularityGenerator()
-            generators.append((_GENERATOR_CACHE["popularity"], popularity_weight))
-
-        if not generators:
-            raise ValueError("At least one generator weight must be > 0")
-
-        return HybridGenerator(generators)
 
     def _enrich_candidates(self, candidates: List[Candidate]) -> List[RecommendedBook]:
         """Enrich candidates with book metadata."""

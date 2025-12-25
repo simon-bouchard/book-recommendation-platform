@@ -1,7 +1,6 @@
 # models/domain/rankers.py
 """
-Rankers for sorting candidates by relevance.
-Rankers determine final ordering of filtered candidates.
+Rankers with module-level singleton instances.
 """
 
 from typing import Protocol, List
@@ -11,48 +10,44 @@ from models.domain.user import User
 
 
 class Ranker(Protocol):
-    """
-    Protocol for candidate rankers.
+    """Protocol for candidate rankers."""
 
-    Rankers determine the final ordering of candidates after
-    generation and filtering.
-    """
-
-    def rank(self, candidates: List[Candidate], user: User) -> List[Candidate]:
-        """
-        Rank candidates by relevance.
-
-        Args:
-            candidates: Candidates to rank
-            user: User context for ranking decisions
-
-        Returns:
-            Candidates sorted by relevance (highest first)
-        """
-        ...
+    def rank(self, candidates: List[Candidate], user: User) -> List[Candidate]: ...
 
 
 class NoOpRanker:
-    """
-    Pass-through ranker that preserves generator ordering.
-
-    Returns candidates in their original order (assuming generators
-    already sorted by score).
-    """
+    """Pass-through ranker that preserves generator ordering."""
 
     def rank(self, candidates: List[Candidate], user: User) -> List[Candidate]:
-        """Return candidates in original order."""
         return candidates
 
 
 class ScoreRanker:
-    """
-    Rank candidates by their score in descending order.
-
-    Useful when combining candidates from multiple sources that may
-    not be pre-sorted.
-    """
+    """Rank candidates by their score in descending order."""
 
     def rank(self, candidates: List[Candidate], user: User) -> List[Candidate]:
-        """Sort candidates by score (highest first)."""
         return sorted(candidates, key=lambda c: c.score, reverse=True)
+
+
+# ============================================================================
+# MODULE-LEVEL SINGLETONS
+# ============================================================================
+
+_noop_ranker = None
+_score_ranker = None
+
+
+def get_noop_ranker() -> NoOpRanker:
+    """Get or create singleton NoOpRanker."""
+    global _noop_ranker
+    if _noop_ranker is None:
+        _noop_ranker = NoOpRanker()
+    return _noop_ranker
+
+
+def get_score_ranker() -> ScoreRanker:
+    """Get or create singleton ScoreRanker."""
+    global _score_ranker
+    if _score_ranker is None:
+        _score_ranker = ScoreRanker()
+    return _score_ranker
