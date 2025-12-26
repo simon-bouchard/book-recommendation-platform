@@ -12,6 +12,10 @@ import numpy as np
 import pandas as pd
 
 from models.infrastructure.similarity_index import SimilarityIndex
+from models.infrastructure.similarity_indices import (
+    get_subject_similarity_index,
+    get_als_similarity_index,
+)
 from models.data.loaders import (
     load_book_subject_embeddings,
     load_als_factors,
@@ -21,36 +25,7 @@ from models.data.loaders import (
 logger = logging.getLogger(__name__)
 
 
-_subject_index = None
-_als_index = None
 _hybrid_data = None
-
-
-def _get_subject_index() -> SimilarityIndex:
-    """Get or create singleton subject similarity index."""
-    global _subject_index
-    if _subject_index is None:
-        embeddings, ids = load_book_subject_embeddings(normalized=True, use_cache=True)
-        _subject_index = SimilarityIndex(embeddings=embeddings, ids=ids, normalize=False)
-    return _subject_index
-
-
-def _get_als_index() -> SimilarityIndex:
-    """Get or create singleton ALS similarity index with filtering."""
-    global _als_index
-    if _als_index is None:
-        _, book_factors, _, book_row_map = load_als_factors(normalized=True, use_cache=True)
-        book_ids = [book_row_map[i] for i in range(book_factors.shape[0])]
-        metadata = load_book_meta(use_cache=True)
-
-        _als_index = SimilarityIndex.create_filtered_index(
-            embeddings=book_factors,
-            ids=book_ids,
-            metadata=metadata,
-            min_rating_count=10,
-            normalize=False,
-        )
-    return _als_index
 
 
 def _get_hybrid_data() -> dict:
@@ -165,7 +140,7 @@ class SimilarityService:
 
     def _get_similar_subject(self, item_idx: int, k: int) -> List[Dict]:
         """Get subject-based similarity using shared FAISS index."""
-        index = _get_subject_index()
+        index = get_subject_similarity_index()
         scores, item_ids = index.search(query_item_id=item_idx, k=k, exclude_query=True)
         return self._format_results(item_ids, scores)
 
@@ -176,8 +151,8 @@ class SimilarityService:
         min_rating_count: Optional[int],
         filter_candidates: bool,
     ) -> List[Dict]:
-        """Get ALS-based similarity using filtered FAISS index."""
-        index = _get_als_index()
+        """Get ALS-based similarity using shared filtered FAISS index."""
+        index = get_als_similarity_index()
         scores, item_ids = index.search(query_item_id=item_idx, k=k, exclude_query=True)
         return self._format_results(item_ids, scores)
 

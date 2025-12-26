@@ -411,3 +411,7 @@ def preload_all_artifacts():
     load_book_to_subjects(use_cache=True)
     load_gbt_warm_model(use_cache=True)
     load_attention_strategy(use_cache=True)
+
+    from models.infrastructure.similarity_indices import preload_indices
+
+    preload_indices()

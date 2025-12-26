@@ -180,6 +180,9 @@ def get_similar_books(
 # ============================================================================
 
 
+# In routes/models.py, update reload_models_endpoint
+
+
 @router.post("/admin/reload_models")
 def reload_models_endpoint(secret: str = Query(...)):
     """
@@ -195,13 +198,15 @@ def reload_models_endpoint(secret: str = Query(...)):
         from models.data.loaders import clear_cache, preload_all_artifacts
         from models.infrastructure.subject_embedder import SubjectEmbedder
         from models.infrastructure.als_model import ALSModel
+        from models.infrastructure.similarity_indices import reset_indices
 
         # Clear all caches
         clear_cache()
         SubjectEmbedder.reset()
         ALSModel.reset()
+        reset_indices()  # NEW: Clear FAISS indices
 
-        # Preload artifacts
+        # Preload artifacts (now includes indices)
         preload_all_artifacts()
 
         logger.info("Models reloaded successfully")

@@ -5,7 +5,7 @@ All subject-based operations share a single singleton FAISS index.
 """
 
 from abc import ABC, abstractmethod
-from typing import List, Tuple
+from typing import List, Tuple, Optional
 from collections import defaultdict
 
 import numpy as np
@@ -15,9 +15,10 @@ from models.domain.user import User
 from models.infrastructure.subject_embedder import SubjectEmbedder
 from models.infrastructure.als_model import ALSModel
 from models.infrastructure.similarity_index import SimilarityIndex
+from models.infrastructure.similarity_indices import get_subject_similarity_index
 from models.data.loaders import (
-    load_book_subject_embeddings,
     load_bayesian_scores,
+    load_book_subject_embeddings,
 )
 
 
@@ -38,21 +39,24 @@ class SubjectBasedGenerator(CandidateGenerator):
     """
     Generate candidates based on subject similarity using FAISS.
 
-    Uses shared singleton FAISS index for optimal performance.
+    Uses shared singleton FAISS index for optimal performance and memory usage.
     """
 
-    def __init__(self, embedder: SubjectEmbedder = None, similarity_index: SimilarityIndex = None):
-        self.embedder = embedder or SubjectEmbedder()
+    def __init__(
+        self,
+        embedder: Optional[SubjectEmbedder] = None,
+        similarity_index: Optional[SimilarityIndex] = None,
+    ):
+        """
+        Initialize subject-based generator.
 
-        if similarity_index is None:
-            embeddings, ids = load_book_subject_embeddings(normalized=True, use_cache=True)
-            self.similarity_index = SimilarityIndex(
-                embeddings=embeddings,
-                ids=ids,
-                normalize=False,
-            )
-        else:
-            self.similarity_index = similarity_index
+        Args:
+            embedder: Subject embedder instance. If None, uses singleton.
+            similarity_index: Similarity index instance. If None, uses shared singleton.
+                             Only provide for testing with mock data.
+        """
+        self.embedder = embedder or SubjectEmbedder()
+        self.similarity_index = similarity_index or get_subject_similarity_index()
 
     def generate(self, user: User, k: int) -> List[Candidate]:
         if not user.has_preferences:
@@ -88,7 +92,13 @@ class SubjectBasedGenerator(CandidateGenerator):
 class ALSBasedGenerator(CandidateGenerator):
     """Generate candidates using ALS collaborative filtering."""
 
-    def __init__(self, als_model: ALSModel = None):
+    def __init__(self, als_model: Optional[ALSModel] = None):
+        """
+        Initialize ALS-based generator.
+
+        Args:
+            als_model: ALS model instance. If None, uses singleton.
+        """
         self.als_model = als_model or ALSModel()
 
     def generate(self, user: User, k: int) -> List[Candidate]:
@@ -152,6 +162,15 @@ class HybridGenerator(CandidateGenerator):
     """Generate candidates by blending multiple generators."""
 
     def __init__(self, generators: List[Tuple[CandidateGenerator, float]]):
+        """
+        Initialize hybrid generator.
+
+        Args:
+            generators: List of (generator, weight) tuples where weights are positive
+
+        Raises:
+            ValueError: If no generators provided or any weight is non-positive
+        """
         if not generators:
             raise ValueError("HybridGenerator requires at least one generator")
 
@@ -243,7 +262,17 @@ def create_hybrid_generator(
     Create HybridGenerator using singleton base generators.
 
     Note: HybridGenerator is NOT cached because weights can vary per request.
-    But it reuses the cached base generators internally.
+    But it reuses the cached base generators internally for efficiency.
+
+    Args:
+        subject_weight: Weight for subject-based scoring (0-1)
+        popularity_weight: Weight for popularity-based scoring (0-1)
+
+    Returns:
+        HybridGenerator instance with specified weights
+
+    Raises:
+        ValueError: If both weights are zero
     """
     generators = []
 
