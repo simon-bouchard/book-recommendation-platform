@@ -1,10 +1,15 @@
+# models/training/train_subjects_embs.py
+"""
+Supervised subject embedding training with configurable PAD_IDX.
+"""
+
 import os
 import sys
+import argparse
 from pathlib import Path
 
-sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "../../")))
+sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "../..")))
 
-import math
 import torch
 from torch.utils.data import random_split
 from fastai.learner import Learner
@@ -18,18 +23,15 @@ progress_bar.NO_BAR = True
 
 device = "cuda" if torch.cuda.is_available() else "cpu"
 
-# Shared loaders + attention poolers
 from models.training.data_loader import load_rows_and_dataset
 from models.training.train_subject_attention import (
     build_pooler_from_env,
     save_components,
 )
-from models.core import PATHS
 
 REPO_ROOT = Path(__file__).parent.parent.parent
 OUT_DIR = REPO_ROOT / "models" / "data"
 
-# Map kind → historical filename used by existing loaders
 OUT_NAME_BY_KIND = {
     "scalar": "subject_attention_components.pth",
     "perdim": "subject_attention_components_perdim.pth",
@@ -38,57 +40,72 @@ OUT_NAME_BY_KIND = {
 }
 
 
+def parse_args():
+    parser = argparse.ArgumentParser(
+        description="Train subject embeddings with supervised RMSE loss"
+    )
+    parser.add_argument(
+        "--pad-idx",
+        type=int,
+        default=None,
+        help="Padding index for invalid subjects (default: from PAD_IDX env var)",
+    )
+    return parser.parse_args()
+
+
 def main():
-    # -----------------------------
-    # Load rows + dataset (supervised)
-    # -----------------------------
-    rows, ds, n_users, n_items, n_subjects = load_rows_and_dataset(mode="supervised", pad_to=5)
+    args = parse_args()
+
+    # Use provided PAD_IDX or fall back to environment variable
+    pad_idx = args.pad_idx if args.pad_idx is not None else int(os.getenv("PAD_IDX", "0"))
+
+    print(f"Using PAD_IDX = {pad_idx}")
+
+    # Load rows + dataset with custom PAD_IDX
+    rows, ds, n_users, n_items, n_subjects = load_rows_and_dataset(
+        mode="supervised", pad_to=5, pad_idx=pad_idx
+    )
+
     if not rows or ds is None:
-        print("❌ No valid training data found.")
+        print("No valid training data found.")
         return
 
-    print(f"✅ Loaded {len(rows)} training samples")
+    print(f"Loaded {len(rows)} training samples")
 
-    # Split train/valid like original scripts
+    # Split train/valid
     cut = int(0.9 * len(ds))
     train_ds, valid_ds = random_split(ds, [cut, len(ds) - cut])
     dls = DataLoaders.from_dsets(train_ds, valid_ds, bs=512, device=device)
 
-    # -----------------------------
-    # Build model from .env (keeps logic identical to old poolers)
-    # -----------------------------
+    # Build model (pass n_subjects which includes PAD_IDX)
     pooler, kind = build_pooler_from_env(n_users=n_users, n_items=n_items, n_subjects=n_subjects)
     pooler = pooler.to(device)
 
-    # -----------------------------
-    # fastai Learner (same loss/metrics/opt as before)
-    # -----------------------------
+    # Update pooler to use correct PAD_IDX
+    if hasattr(pooler, "shared_subj_emb"):
+        pooler.shared_subj_emb.padding_idx = pad_idx
+    elif hasattr(pooler, "subject_emb"):
+        pooler.subject_emb.padding_idx = pad_idx
+
+    # Create learner
     learn = Learner(
-        dls,
-        pooler,
-        loss_func=MSELossFlat(),
-        metrics=[rmse, mae],
-        wd=0.05,
-        opt_func=Adam,
+        dls, pooler, loss_func=MSELossFlat(), metrics=[rmse, mae], wd=0.05, opt_func=Adam
     )
 
     from fastai.callback.progress import ProgressCallback
 
     learn.remove_cbs(ProgressCallback)
 
-    print("🚀 Starting training...")
-    # keep schedule consistent with your earlier scripts
-    # (you can override with EPOCHS env if desired)
+    print("Starting training...")
     epochs = int(os.getenv("SUBJ_EPOCHS", "5"))
     lr = float(os.getenv("SUBJ_LR", "3e-2"))
     learn.fit_one_cycle(epochs, lr_max=lr)
 
-    # -----------------------------
-    # Save exactly the keys your inference loaders expect
-    # -----------------------------
-    out_path = PATHS.get_attention_path(kind)
+    # Save
+    out_name = OUT_NAME_BY_KIND.get(kind, f"subject_attention_components_{kind}.pth")
+    out_path = OUT_DIR / out_name
     save_components(pooler, str(out_path), kind)
-    print(f"✅ Saved to {out_path}")
+    print(f"Saved to {out_path}")
 
 
 if __name__ == "__main__":
