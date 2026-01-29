@@ -11,7 +11,7 @@ from app.agents.schemas import ChatIn, ChatOut
 from app.agents.runtime import rate_limit_check, ensure_conv_cookie, load_history, save_history, normalize_visible_reply, extract_book_ids_from_steps, build_books_from_ids
 from app.agents.context_builder import build_composed_input
 from app.agents.logging import get_logger, chatbot_logger
-from models.shared_utils import get_user_num_ratings
+from models.data.queries import get_user_num_ratings
 
 logger = get_logger(__name__)
 router = APIRouter()

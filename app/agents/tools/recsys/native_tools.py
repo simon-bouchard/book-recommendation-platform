@@ -1,15 +1,17 @@
 # app/agents/tools/recsys/native_tools.py
 """
-Modernized internal recommendation tools with output standardization.
+Modernized internal recommendation tools using refactored models API.
 All retrieval tools return consistent schema with enrichment data where available.
 """
 
 from typing import Optional
 from sqlalchemy.orm import Session
-from types import SimpleNamespace
 
-from models.recommender_strategy import WarmRecommender, ColdRecommender
-from models.shared_utils import get_read_books, ModelStore
+from models.services.recommendation_service import RecommendationService
+from models.domain.user import User
+from models.domain.config import RecommendationConfig, HybridConfig
+from models.data.queries import get_read_books
+from models.data.loaders import load_book_meta, load_bayesian_scores, load_book_subject_embeddings
 from app.semantic_index.search import SemanticSearcher
 from app.agents.settings import settings
 
@@ -37,7 +39,8 @@ class InternalTools:
         """Lazy-load semantic searcher."""
         if self._semantic_searcher is None:
             self._semantic_searcher = SemanticSearcher(
-                dir_path="models/data/enriched_v1", embedder=settings.embedder
+                dir_path="models/artifacts/semantic_indexes/enriched_v1",
+                embedder=settings.embedder,
             )
         return self._semantic_searcher
 
@@ -49,7 +52,7 @@ class InternalTools:
         Single query returns ~36 rows (all tones in ontology).
 
         Returns:
-                Dictionary mapping tone_id (int) to tone name (str)
+            Dictionary mapping tone_id (int) to tone name (str)
         """
         if self._tone_map is None and self.db:
             from app.table_models import Tone
@@ -74,22 +77,21 @@ class InternalTools:
 
         Operations:
         1. Resolve tone_ids -> tone names (from cached DB map)
-        2. Add num_ratings from books.pkl (via ModelStore, in-memory)
+        2. Add num_ratings from book metadata (via loaders, in-memory)
         3. Standardize field names (vibe not description)
         4. Exclude empty enrichment fields to reduce token usage
 
         Args:
-                raw_results: Raw output from recommender or searcher
+            raw_results: Raw output from service or searcher
 
         Returns:
-                Standardized list of book dicts with consistent schema
+            Standardized list of book dicts with consistent schema
         """
         if not raw_results:
             return []
 
         # Load shared resources once
-        store = ModelStore()
-        book_meta = store.get_book_meta()  # books.pkl, cached in-memory
+        book_meta = load_book_meta(use_cache=True)
         tone_map = self._ensure_tone_map()  # Cached DB query result
 
         standardized = []
@@ -104,7 +106,7 @@ class InternalTools:
             if not item_idx:
                 continue
 
-            # Get num_ratings from books.pkl (always available, zero queries)
+            # Get num_ratings from book metadata (always available, zero queries)
             num_ratings = 0
             if item_idx in book_meta.index:
                 num_ratings = int(book_meta.loc[item_idx].get("book_num_ratings", 0))
@@ -155,7 +157,7 @@ class InternalTools:
         They do NOT retrieve books.
 
         Returns:
-                List of context tools (empty if profile not allowed)
+            List of context tools (empty if profile not allowed)
         """
         if not self.allow_profile or not self.current_user or not self.db:
             return []
@@ -170,10 +172,10 @@ class InternalTools:
         All tools return standardized output format.
 
         Args:
-                is_warm: Whether user has enough ratings for collaborative filtering
+            is_warm: Whether user has enough ratings for collaborative filtering
 
         Returns:
-                List of retrieval tools
+            List of retrieval tools
         """
         tools = []
 
@@ -200,10 +202,10 @@ class InternalTools:
         This method is kept for backward compatibility.
 
         Args:
-                is_warm: Whether user has enough ratings for warm recommendations
+            is_warm: Whether user has enough ratings for warm recommendations
 
         Returns:
-                List of all available tools
+            List of all available tools
         """
         tools = []
 
@@ -219,83 +221,95 @@ class InternalTools:
         return tools
 
     def _create_semantic_search_tool(self) -> ToolDefinition:
-        """Semantic search over book embeddings with minimal metadata."""
+        """Semantic search with enriched metadata."""
 
-        def semantic_search(query: str, top_k: int = 200) -> list[dict]:
+        def semantic_search(query: str, top_k: int = 100, filters: Optional[dict] = None) -> list[dict]:
             """
-            Search books using semantic similarity.
+            Search books using semantic embeddings with optional subject filters.
 
-            Returns books with basic metadata only (title, author, num_ratings).
-            Enrichment metadata is excluded to reduce token usage during retrieval.
+            Use for specific queries about themes, topics, or vibes.
+            Returns enriched metadata: subjects, tones, genre, vibe.
+            Works for both authenticated and anonymous users.
 
             Args:
-                    query: Search query describing books to find
-                    top_k: Number of results (max 200)
+                query: Natural language search query
+                top_k: Number of results to return
+                filters: Optional dict with 'subjects' list for filtering
 
             Returns:
-                    Standardized list of books with basic metadata
+                Standardized list of books with enrichment metadata
             """
-            searcher = self._get_semantic_searcher()
-            top_k = max(1, min(200, top_k))
+            top_k = max(1, min(500, top_k))
 
             try:
-                raw_results = searcher.search(query, top_k=top_k)
+                searcher = self._get_semantic_searcher()
 
-                # Build intermediate format with basic metadata only
-                intermediate = []
-                for r in raw_results:
-                    meta = r.get("meta", {})
-                    intermediate.append(
-                        {
-                            "item_idx": r.get("book_id"),
-                            "score": r.get("score"),
-                            "title": meta.get("title"),
-                            "author": meta.get("author"),
-                            # Enrichment fields excluded to reduce token usage:
-                            # subjects, tone_ids, vibe, genre
-                        }
-                    )
+                # Extract subject filters if provided
+                subject_filter = None
+                if filters and "subjects" in filters:
+                    subject_filter = filters["subjects"]
 
-                # Standardize (adds num_ratings)
-                return self._standardize_tool_output(intermediate)
+                results = searcher.search(
+                    query=query, top_k=top_k, subject_filter=subject_filter, return_scores=True
+                )
+
+                # Results already have enrichment data from semantic index
+                return self._standardize_tool_output(results)
 
             except Exception as e:
                 return [{"error": f"Semantic search failed: {e}"}]
 
         return tool(
-            name="book_semantic_search",
-            description="Semantic search for books by description, vibe, or themes",
+            name="semantic_search",
+            description="Search books using semantic embeddings with enriched metadata",
             category=ToolCategory.INTERNAL,
         )(semantic_search)
 
     def _create_als_recs_tool(self) -> ToolDefinition:
-        """ALS collaborative filtering for warm users."""
+        """ALS-based collaborative filtering recommendations."""
 
-        def als_recommendations(top_k: int = 200) -> list[dict]:
+        def als_recs(top_k: int = 100) -> list[dict]:
             """
-            Generate personalized recommendations using collaborative filtering.
+            Get collaborative filtering recommendations based on user's rating history.
 
-            Requires: User must have rated at least 10 books.
-
+            Use ONLY for warm users (10+ ratings).
+            Returns books similar to what user has rated highly.
             Returns basic metadata (title, author, year, num_ratings).
-            No enrichment data since ALS is based on rating patterns, not content.
 
             Args:
-                    top_k: Number of candidates to generate
+                top_k: Number of recommendations to return
 
             Returns:
-                    Standardized list of books with basic metadata
+                Standardized list of recommended books with basic metadata
             """
             if not self.current_user or not self.db:
-                return [{"error": "ALS requires authenticated user with database"}]
+                return [{"error": "ALS recommendations require authentication"}]
 
             top_k = max(1, min(500, top_k))
 
             try:
-                recommender = WarmRecommender()
-                raw_results = recommender.recommend(user=self.current_user, db=self.db, top_k=top_k)
+                # Convert ORM user to domain User
+                domain_user = self._to_domain_user(self.current_user)
 
-                # Standardize (adds num_ratings, no enrichment data expected)
+                # Use new recommendation service with behavioral mode
+                service = RecommendationService()
+                config = RecommendationConfig(k=top_k, mode="behavioral")
+
+                recommendations = service.recommend(domain_user, config, self.db)
+
+                # Convert RecommendedBook objects to dicts
+                raw_results = [
+                    {
+                        "item_idx": rec.item_idx,
+                        "title": rec.title,
+                        "author": rec.author,
+                        "year": rec.year,
+                        "score": rec.score,
+                        "num_ratings": rec.num_ratings,
+                    }
+                    for rec in recommendations
+                ]
+
                 return self._standardize_tool_output(raw_results)
 
             except Exception as e:
@@ -303,145 +317,118 @@ class InternalTools:
 
         return tool(
             name="als_recs",
-            description="Personalized collaborative filtering recommendations for warm users",
+            description="Get collaborative filtering recommendations for warm users",
             category=ToolCategory.INTERNAL,
             requires_auth=True,
             requires_db=True,
-        )(als_recommendations)
+        )(als_recs)
 
     def _create_subject_hybrid_tool(self) -> ToolDefinition:
-        """Subject-based hybrid recommendations."""
+        """Subject-based recommendations with popularity blending."""
 
-        def subject_hybrid_pool(
-            top_k: int = 200,
-            fav_subjects_idxs: Optional[list[int]] = None,
-            weight: float = 0.6,
+        def subject_hybrid(
+            subjects: list[str],
+            top_k: int = 100,
+            subject_weight: float = 0.6,
         ) -> list[dict]:
             """
-            Generate recommendations based on subject preferences.
+            Get recommendations based on subject preferences with popularity blending.
 
-            Uses a hybrid approach combining subject matching and Bayesian popularity.
+            Use for cold users with known subject preferences.
+            Blends subject similarity with popularity for quality results.
             Returns basic metadata (title, author, year, num_ratings).
 
             Args:
-                    top_k: Number of candidates to generate
-                    fav_subjects_idxs: Subject indices to use (auto-fetches from profile if None)
-                    weight: Blend weight for subject vs popularity (0.0-1.0)
+                subjects: List of subject names user is interested in
+                top_k: Number of recommendations to return
+                subject_weight: Weight for subject similarity (0-1), rest is popularity
 
             Returns:
-                    Standardized list of books excluding already-read items
+                Standardized list of recommended books with basic metadata
             """
             if not self.db:
-                return [{"error": "Subject hybrid requires database"}]
+                return [{"error": "Subject hybrid requires database connection"}]
+
+            if not subjects:
+                return [{"error": "Subject hybrid requires at least one subject"}]
 
             top_k = max(1, min(500, top_k))
-            weight = max(0.0, min(1.0, weight))
-
-            # AUTO-FETCH: If no subjects provided, get from user profile
-            if fav_subjects_idxs is None:
-                # Try user object first (might have fav_subjects_idxs attribute)
-                user_favs = getattr(self.current_user, "fav_subjects_idxs", None)
-
-                if user_favs:
-                    fav_subjects_idxs = user_favs
-                else:
-                    # Query from database directly
-                    try:
-                        from app.table_models import UserFavSubject
-
-                        user_id = getattr(self.current_user, "user_id", None)
-
-                        if user_id:
-                            results = (
-                                self.db.query(UserFavSubject.subject_idx)
-                                .filter(UserFavSubject.user_id == user_id)
-                                .limit(10)
-                                .all()
-                            )  # Limit to top 10 favorite subjects
-
-                            fav_subjects_idxs = [r[0] for r in results if r[0] is not None]
-
-                            # Log what we fetched for debugging
-                            if fav_subjects_idxs:
-                                print(
-                                    f"[subject_hybrid_pool] Auto-fetched {len(fav_subjects_idxs)} favorite subjects for user {user_id}"
-                                )
-
-                    except Exception as e:
-                        print(f"[subject_hybrid_pool] Failed to fetch user favorites: {e}")
-                        # Continue without subjects - will fall back to popularity
-
-            # Build user object for recommender
-            if fav_subjects_idxs is not None and fav_subjects_idxs:
-                # Have explicit subjects - use them
-                user_obj = SimpleNamespace(
-                    user_id=getattr(self.current_user, "user_id", None)
-                    if self.current_user
-                    else None,
-                    fav_subjects_idxs=fav_subjects_idxs,
-                )
-            else:
-                # No subjects available - use user if authenticated, else create anonymous user
-                # Recommender will fall back to Bayesian popularity
-                user_obj = self.current_user if self.current_user else SimpleNamespace(user_id=None)
+            subject_weight = max(0.0, min(1.0, subject_weight))
 
             try:
-                recommender = ColdRecommender()
-                raw_results = recommender.recommend(
-                    user=user_obj,
-                    db=self.db,
-                    top_k=top_k,
-                    top_k_bayes=0,
-                    top_k_sim=0,
-                    top_k_mixed=max(top_k, 200),
-                    w=weight,
+                # Convert subjects to indices
+                from app.table_models import Subject
+
+                subject_objs = (
+                    self.db.query(Subject.subject_idx)
+                    .filter(Subject.subject.in_(subjects))
+                    .all()
+                )
+                subject_indices = [obj.subject_idx for obj in subject_objs]
+
+                if not subject_indices:
+                    return [{"error": f"No matching subjects found for: {subjects}"}]
+
+                # Create domain user with subject preferences
+                domain_user = self._create_user_with_subjects(subject_indices)
+
+                # Use new recommendation service with subject mode
+                service = RecommendationService()
+                config = RecommendationConfig(
+                    k=top_k,
+                    mode="subject",
+                    hybrid_config=HybridConfig(subject_weight=subject_weight),
                 )
 
-                # Exclude already-read books
-                user_id = getattr(self.current_user, "user_id", None)
-                if user_id:
-                    already_read = get_read_books(user_id=user_id, db=self.db)
-                    raw_results = [
-                        r for r in raw_results if int(r.get("item_idx", -1)) not in already_read
-                    ]
+                recommendations = service.recommend(domain_user, config, self.db)
 
-                raw_results = raw_results[:top_k]
+                # Convert RecommendedBook objects to dicts
+                raw_results = [
+                    {
+                        "item_idx": rec.item_idx,
+                        "title": rec.title,
+                        "author": rec.author,
+                        "year": rec.year,
+                        "score": rec.score,
+                        "num_ratings": rec.num_ratings,
+                    }
+                    for rec in recommendations
+                ]
 
-                # Standardize (adds num_ratings)
                 return self._standardize_tool_output(raw_results)
 
             except Exception as e:
                 return [{"error": f"Subject hybrid failed: {e}"}]
 
         return tool(
-            name="subject_hybrid_pool",
-            description="Generate recommendations based on subject preferences with popularity blending (auto-uses profile if no subjects specified)",
+            name="subject_hybrid",
+            description="Get subject-based recommendations with popularity blending",
             category=ToolCategory.INTERNAL,
-            requires_auth=False,
             requires_db=True,
-        )(subject_hybrid_pool)
+        )(subject_hybrid)
 
     def _create_subject_id_search_tool(self) -> ToolDefinition:
-        """Resolve subject phrases to IDs."""
+        """Subject ID search using 3-gram TF-IDF."""
+        from .subject_search import make_subject_id_search_tool
 
         def subject_id_search(phrases: list[str], top_k: int = 5) -> list[dict]:
             """
-            Resolve free-text subject phrases to subject indices.
+            Resolve free-text subject phrases to database subject IDs.
 
-            Uses TF-IDF similarity to match phrases to database subjects.
-            Returns different format than other tools (subject matches, not books).
+            Use to map user's subject interests to database subjects.
+            Returns subject_idx, subject name, and match score.
 
             Args:
-                    phrases: List of subject phrases to resolve
-                    top_k: Number of candidates per phrase
+                phrases: List of subject phrases to resolve
+                top_k: Number of matches per phrase
 
             Returns:
-                    List of matches per phrase with scores
+                List of dicts with phrase and candidates
             """
             if not self.db:
-                return [{"error": "Subject search requires database"}]
+                return [{"error": "Subject ID search requires database"}]
 
-            from .subject_search import make_subject_id_search_tool
+            top_k = max(1, min(10, top_k))
 
             # Use the existing implementation
             tool_func = make_subject_id_search_tool(self.db)
@@ -449,8 +436,7 @@ class InternalTools:
             # Call with JSON input
             import json
 
-            input_json = json.dumps({"phrases": phrases, "top_k": max(1, min(10, top_k))})
-
+            input_json = json.dumps({"phrases": phrases, "top_k": top_k})
             result_json = tool_func(input_json)
             return json.loads(result_json)
 
@@ -474,55 +460,49 @@ class InternalTools:
             Returns basic metadata (title, author, year, num_ratings).
 
             Args:
-                    top_k: Number of popular books to return
+                top_k: Number of popular books to return
 
             Returns:
-                    Standardized list of popular books with basic metadata
+                Standardized list of popular books with basic metadata
             """
-            # Only require database, not authentication
             if not self.db:
                 return [{"error": "Popular books requires database connection"}]
 
             top_k = max(1, min(500, top_k))
 
             try:
-                # Handle anonymous users by creating a minimal user object
-                # RecommendationEngine expects: user_id, fav_subjects_idxs, country, filled_age, age
-                user = self.current_user
-                if user is None:
-                    # Create anonymous user with all required attributes
-                    from types import SimpleNamespace
+                # Create user for popularity fallback
+                # For anonymous: use None values
+                # For authenticated: use real user
+                if self.current_user:
+                    domain_user = self._to_domain_user(self.current_user)
+                else:
+                    # Anonymous user - popularity generator doesn't need user data
+                    from models.core.constants import PAD_IDX
 
-                    user = SimpleNamespace(
-                        user_id=None,
-                        fav_subjects_idxs=None,
-                        country=None,
-                        filled_age=None,
-                        age=None,
-                    )
+                    domain_user = User(user_id=-1, fav_subjects=[PAD_IDX])
 
-                recommender = ColdRecommender()
-                raw_results = recommender.recommend(
-                    user=user,
-                    db=self.db,
-                    top_k=top_k,
-                    top_k_bayes=max(top_k, 200),  # Pure Bayesian ranking
-                    top_k_sim=0,
-                    top_k_mixed=0,
-                    w=0.0,  # No mixing
-                )
+                # Use new recommendation service
+                # The service will automatically use popularity generator
+                # when user has no preferences (which is true for anonymous users)
+                service = RecommendationService()
+                config = RecommendationConfig(k=top_k, mode="auto")
 
-                # Only filter already-read books for authenticated users
-                user_id = getattr(self.current_user, "user_id", None)
-                if user_id:
-                    already_read = get_read_books(user_id=user_id, db=self.db)
-                    raw_results = [
-                        r for r in raw_results if int(r.get("item_idx", -1)) not in already_read
-                    ]
+                recommendations = service.recommend(domain_user, config, self.db)
 
-                raw_results = raw_results[:top_k]
+                # Convert RecommendedBook objects to dicts
+                raw_results = [
+                    {
+                        "item_idx": rec.item_idx,
+                        "title": rec.title,
+                        "author": rec.author,
+                        "year": rec.year,
+                        "score": rec.score,
+                        "num_ratings": rec.num_ratings,
+                    }
+                    for rec in recommendations
+                ]
 
-                # Standardize (adds num_ratings)
                 return self._standardize_tool_output(raw_results)
 
             except Exception as e:
@@ -532,7 +512,6 @@ class InternalTools:
             name="popular_books",
             description="Get popular books ranked by Bayesian average rating for cold users",
             category=ToolCategory.INTERNAL,
-            requires_auth=True,
             requires_db=True,
         )(popular_books)
 
@@ -547,10 +526,10 @@ class InternalTools:
             of book IDs to show the user.
 
             Args:
-                    book_ids: List of item_idx values to return
+                book_ids: List of item_idx values to return
 
             Returns:
-                    Dictionary with deduplicated book_ids list
+                Dictionary with deduplicated book_ids list
             """
             # Deduplicate while preserving order
             seen = set()
@@ -582,10 +561,10 @@ class InternalTools:
             Requires: User consent for profile access.
 
             Args:
-                    limit: Maximum number of subjects to return (max 5)
+                limit: Maximum number of subjects to return (max 5)
 
             Returns:
-                    Dictionary with fav_subjects list
+                Dictionary with fav_subjects list
             """
             if not self.current_user or not self.db:
                 return {"error": "User profile requires authentication"}
@@ -620,11 +599,11 @@ class InternalTools:
             Requires: User consent for profile access.
 
             Args:
-                    limit: Maximum number of interactions (max 5)
-                    include_comments: Whether to include user comments
+                limit: Maximum number of interactions (max 5)
+                include_comments: Whether to include user comments
 
             Returns:
-                    Dictionary with interactions list
+                Dictionary with interactions list
             """
             if not self.current_user or not self.db:
                 return {"error": "Recent interactions requires authentication"}
@@ -662,3 +641,53 @@ class InternalTools:
         )
 
         return tools
+
+    def _to_domain_user(self, orm_user) -> User:
+        """
+        Convert ORM user to domain User object.
+
+        Args:
+            orm_user: SQLAlchemy User object
+
+        Returns:
+            Domain User object with favorite subjects
+        """
+        from models.core.constants import PAD_IDX
+
+        # Get favorite subjects
+        fav_subjects = []
+        if hasattr(orm_user, "favorite_subjects"):
+            fav_subjects = [s.subject_idx for s in orm_user.favorite_subjects]
+
+        if not fav_subjects:
+            fav_subjects = [PAD_IDX]
+
+        return User(
+            user_id=orm_user.user_id,
+            fav_subjects=fav_subjects,
+            country=getattr(orm_user, "country", None),
+            age=getattr(orm_user, "age", None),
+            filled_age=getattr(orm_user, "filled_age", None),
+        )
+
+    def _create_user_with_subjects(self, subject_indices: list[int]) -> User:
+        """
+        Create a domain User with given subject preferences.
+
+        Used for subject_hybrid when we need to create a user with specific subjects.
+
+        Args:
+            subject_indices: List of subject indices
+
+        Returns:
+            Domain User object
+        """
+        # Use a temporary user ID (negative to avoid collision)
+        # The service layer doesn't need a real user_id for cold recommendations
+        user_id = -1
+
+        # If we have a real user, use their ID
+        if self.current_user:
+            user_id = getattr(self.current_user, "user_id", -1)
+
+        return User(user_id=user_id, fav_subjects=subject_indices, country=None, age=None, filled_age=None)

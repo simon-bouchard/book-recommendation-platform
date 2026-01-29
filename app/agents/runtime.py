@@ -1,3 +1,8 @@
+# app/agents/runtime.py
+"""
+Runtime utilities for chat agents: rate limiting, conversation history, and book data helpers.
+"""
+
 from __future__ import annotations
 
 import json, time, uuid
@@ -12,7 +17,7 @@ from fastapi import Request, Response, HTTPException
 
 from app.agents.schemas import BookOut
 from app.agents.settings import settings
-from models.shared_utils import ModelStore
+from models.data.loaders import load_book_meta
 
 # Single Redis client (decode to str)
 try:
@@ -119,11 +124,22 @@ def _safe_str(val) -> Optional[str]:
     return s or None
 
 def build_books_from_ids(ids: Iterable[int]) -> List[BookOut]:
+    """
+    Build list of BookOut objects from item_idx list, preserving order.
+    
+    Args:
+        ids: Iterable of item_idx values
+        
+    Returns:
+        List of BookOut objects with metadata from book_meta
+    """
     ids = list(dict.fromkeys(int(i) for i in ids))  # de-dup, preserve order
     if not ids:
         return []
 
-    BOOK_META = ModelStore().get_book_meta()  # pd.DataFrame indexed by item_idx
+    # Load book metadata using refactored loader
+    BOOK_META = load_book_meta(use_cache=True)  # pd.DataFrame indexed by item_idx
+    
     # Select & keep order
     rows = BOOK_META.loc[BOOK_META.index.intersection(ids)].copy()
     rows["__sort"] = rows.index.map({idx: i for i, idx in enumerate(ids)})
@@ -241,7 +257,6 @@ def ensure_conv_cookie(request: Request, response: Response) -> str:
     return conv_id
 
 
-# In runtime.py
 def load_history(conv_id: str, user_id: Optional[int] = None) -> List[dict]:
     """Return rolling history list from Redis (or [])."""
     if r is None:
