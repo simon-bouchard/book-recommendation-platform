@@ -1,0 +1,132 @@
+{
+  "timestamp": "2025-12-17T01:08:11.686934",
+  "dry_run": true,
+  "total_files": 13,
+  "total_directories": 6,
+  "migrated_files": "N/A",
+  "errors": [],
+  "file_migrations": [
+    {
+      "old_path": "models/data/book_embs.npy",
+      "new_path": "models/artifacts/embeddings/book_subject_embeddings.npy",
+      "exists_before": true,
+      "exists_after": null
+    },
+    {
+      "old_path": "models/data/book_ids.json",
+      "new_path": "models/artifacts/embeddings/book_subject_ids.json",
+      "exists_before": true,
+      "exists_after": null
+    },
+    {
+      "old_path": "models/data/book_als_emb.npy",
+      "new_path": "models/artifacts/embeddings/book_als_factors.npy",
+      "exists_before": true,
+      "exists_after": null
+    },
+    {
+      "old_path": "models/data/book_als_ids.json",
+      "new_path": "models/artifacts/embeddings/book_als_ids.json",
+      "exists_before": true,
+      "exists_after": null
+    },
+    {
+      "old_path": "models/data/user_als_emb.npy",
+      "new_path": "models/artifacts/embeddings/user_als_factors.npy",
+      "exists_before": true,
+      "exists_after": null
+    },
+    {
+      "old_path": "models/data/user_als_ids.json",
+      "new_path": "models/artifacts/embeddings/user_als_ids.json",
+      "exists_before": true,
+      "exists_after": null
+    },
+    {
+      "old_path": "models/data/subject_attention_components.pth",
+      "new_path": "models/artifacts/attention/subject_attention_scalar.pth",
+      "exists_before": false,
+      "exists_after": null
+    },
+    {
+      "old_path": "models/data/subject_attention_components_perdim.pth",
+      "new_path": "models/artifacts/attention/subject_attention_perdim.pth",
+      "exists_before": true,
+      "exists_after": null
+    },
+    {
+      "old_path": "models/data/subject_attention_components_selfattn.pth",
+      "new_path": "models/artifacts/attention/subject_attention_selfattn.pth",
+      "exists_before": true,
+      "exists_after": null
+    },
+    {
+      "old_path": "models/data/subject_attention_components_selfattn_perdim.pth",
+      "new_path": "models/artifacts/attention/subject_attention_selfattn_perdim.pth",
+      "exists_before": false,
+      "exists_after": null
+    },
+    {
+      "old_path": "models/data/bayesian_tensor.npy",
+      "new_path": "models/artifacts/scoring/bayesian_scores.npy",
+      "exists_before": true,
+      "exists_after": null
+    },
+    {
+      "old_path": "models/data/gbt_cold.pickle",
+      "new_path": "models/artifacts/scoring/gbt_cold.pickle",
+      "exists_before": true,
+      "exists_after": null
+    },
+    {
+      "old_path": "models/data/gbt_warm.pickle",
+      "new_path": "models/artifacts/scoring/gbt_warm.pickle",
+      "exists_before": true,
+      "exists_after": null
+    }
+  ],
+  "directory_migrations": [
+    {
+      "old_path": "models/data/baseline",
+      "new_path": "models/artifacts/semantic_indexes/baseline",
+      "exists_before": true,
+      "exists_after": null,
+      "file_count": 3
+    },
+    {
+      "old_path": "models/data/baseline_clean",
+      "new_path": "models/artifacts/semantic_indexes/baseline_clean",
+      "exists_before": true,
+      "exists_after": null,
+      "file_count": 3
+    },
+    {
+      "old_path": "models/data/enriched_v1",
+      "new_path": "models/artifacts/semantic_indexes/enriched_v1",
+      "exists_before": true,
+      "exists_after": null,
+      "file_count": 3
+    },
+    {
+      "old_path": "models/data/enriched_v1_subjects",
+      "new_path": "models/artifacts/semantic_indexes/enriched_v1_subjects",
+      "exists_before": true,
+      "exists_after": null,
+      "file_count": 3
+    },
+    {
+      "old_path": "models/data/enriched_v2",
+      "new_path": "models/artifacts/semantic_indexes/enriched_v2",
+      "exists_before": true,
+      "exists_after": null,
+      "file_count": 1995
+    },
+    {
+      "old_path": "models/data/enriched_v2_subjects",
+      "new_path": "models/artifacts/semantic_indexes/enriched_v2_subjects",
+      "exists_before": true,
+      "exists_after": null,
+      "file_count": 3
+    }
+  ]
+}

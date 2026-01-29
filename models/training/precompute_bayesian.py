@@ -1,7 +1,7 @@
 import pandas as pd
 import numpy as np
-import json
 from pathlib import Path
+import os, sys
 
 # Config
 REPO_ROOT = Path(__file__).parent.parent.parent
@@ -9,11 +9,15 @@ DATA_DIR = REPO_ROOT / "models" / "training" / "data"
 
 INTERACTIONS_PATH = Path(DATA_DIR / "interactions.pkl")
 BOOKS_PATH = Path(DATA_DIR / "books.pkl")
-BOOK_IDS_PATH = Path(REPO_ROOT / "models/data/book_ids.json")
-OUTPUT_PATH = Path(REPO_ROOT / "models/data/bayesian_tensor.npy")
+
+sys.path.append(os.path.abspath(os.path.join(REPO_ROOT)))
+
+from models.core import PATHS
+from models.data import load_book_subject_embeddings
 
 # Smoothing parameter
 m = 30
+
 
 def main():
     print("📄 Loading files ...")
@@ -21,14 +25,15 @@ def main():
 
     books = pd.read_pickle(BOOKS_PATH).set_index("item_idx")
 
-    with open(BOOK_IDS_PATH, "r") as f:
-        book_ids = json.load(f)
+    _, book_ids = load_book_subject_embeddings(normalized=False, use_cache=False)
 
     rated = interactions[interactions["rating"].notna()]
 
     print("📊 Computing book aggregates...")
-    book_stats = rated.groupby("item_idx")["rating"].agg(["count", "mean"]).rename(
-        columns={"count": "book_num_ratings", "mean": "book_avg_rating"}
+    book_stats = (
+        rated.groupby("item_idx")["rating"]
+        .agg(["count", "mean"])
+        .rename(columns={"count": "book_num_ratings", "mean": "book_avg_rating"})
     )
 
     global_avg = book_stats["book_avg_rating"].mean()
@@ -45,10 +50,7 @@ def main():
             score = (n / (n + m)) * avg + (m / (n + m)) * global_avg
             scores.append(score)
 
-    score_df = pd.DataFrame({
-        "item_idx": book_ids,
-        "score": scores
-    })
+    score_df = pd.DataFrame({"item_idx": book_ids, "score": scores})
     score_df = score_df.set_index("item_idx")
     score_df["title"] = books["title"]
     score_df = score_df.sort_values("score", ascending=False)
@@ -58,8 +60,10 @@ def main():
         print(f"{title} ({score:.6f})")
 
     bayesian_tensor = score_df.loc[book_ids]["score"].fillna(0).values.astype(np.float32)
-    np.save(OUTPUT_PATH, bayesian_tensor)
-    print(f"✅ Saved: {OUTPUT_PATH} (shape: {bayesian_tensor.shape})")
+    PATHS.ensure_artifact_dirs()
+    np.save(PATHS.bayesian_scores, bayesian_tensor)
+    print(f"✅ Saved: {PATHS.bayesian_scores} (shape: {bayesian_tensor.shape})")
+
 
 if __name__ == "__main__":
     main()

@@ -1,0 +1,159 @@
+{
+  "timestamp": "2025-12-17T01:09:18.885418",
+  "dry_run": false,
+  "total_files": 13,
+  "total_directories": 6,
+  "migrated_files": 11,
+  "errors": [],
+  "file_migrations": [
+    {
+      "old_path": "models/data/book_embs.npy",
+      "new_path": "models/artifacts/embeddings/book_subject_embeddings.npy",
+      "exists_before": null,
+      "exists_after": true,
+      "checksum_before": "32eba219ddb6002d55879c63466a2eb1e1ebbfab8a927795c7b4c3881e890e5f",
+      "checksum_after": "32eba219ddb6002d55879c63466a2eb1e1ebbfab8a927795c7b4c3881e890e5f",
+      "verified": true
+    },
+    {
+      "old_path": "models/data/book_ids.json",
+      "new_path": "models/artifacts/embeddings/book_subject_ids.json",
+      "exists_before": null,
+      "exists_after": true,
+      "checksum_before": "69656b5035e49ec69df6b360bbf22b175c56266f998cac288ccbfa5ae8208740",
+      "checksum_after": "69656b5035e49ec69df6b360bbf22b175c56266f998cac288ccbfa5ae8208740",
+      "verified": true
+    },
+    {
+      "old_path": "models/data/book_als_emb.npy",
+      "new_path": "models/artifacts/embeddings/book_als_factors.npy",
+      "exists_before": null,
+      "exists_after": true,
+      "checksum_before": "0f84c4f2ecd61d8dfff601c8876a37fc03593779dd8701a3d52d9a90080c680a",
+      "checksum_after": "0f84c4f2ecd61d8dfff601c8876a37fc03593779dd8701a3d52d9a90080c680a",
+      "verified": true
+    },
+    {
+      "old_path": "models/data/book_als_ids.json",
+      "new_path": "models/artifacts/embeddings/book_als_ids.json",
+      "exists_before": null,
+      "exists_after": true,
+      "checksum_before": "480945230ae64c668a25206b18566c773ab0b8b5253213888fd0a5fc579d5b9a",
+      "checksum_after": "480945230ae64c668a25206b18566c773ab0b8b5253213888fd0a5fc579d5b9a",
+      "verified": true
+    },
+    {
+      "old_path": "models/data/user_als_emb.npy",
+      "new_path": "models/artifacts/embeddings/user_als_factors.npy",
+      "exists_before": null,
+      "exists_after": true,
+      "checksum_before": "7de5248c61c6647d7bc0f33d8c716792ed76f7488d49d02871684e7761d025dd",
+      "checksum_after": "7de5248c61c6647d7bc0f33d8c716792ed76f7488d49d02871684e7761d025dd",
+      "verified": true
+    },
+    {
+      "old_path": "models/data/user_als_ids.json",
+      "new_path": "models/artifacts/embeddings/user_als_ids.json",
+      "exists_before": null,
+      "exists_after": true,
+      "checksum_before": "9943fc15e13595ea6eca15a43733912fd824e500e4578e5fbb6e6a858ceb2def",
+      "checksum_after": "9943fc15e13595ea6eca15a43733912fd824e500e4578e5fbb6e6a858ceb2def",
+      "verified": true
+    },
+    {
+      "old_path": "models/data/subject_attention_components.pth",
+      "new_path": "models/artifacts/attention/subject_attention_scalar.pth",
+      "exists_before": null,
+      "exists_after": false
+    },
+    {
+      "old_path": "models/data/subject_attention_components_perdim.pth",
+      "new_path": "models/artifacts/attention/subject_attention_perdim.pth",
+      "exists_before": null,
+      "exists_after": true,
+      "checksum_before": "8c49873084701129ce4b9f66d50d4e1b3fd99bd56b90af052e2dc194d1942017",
+      "checksum_after": "8c49873084701129ce4b9f66d50d4e1b3fd99bd56b90af052e2dc194d1942017",
+      "verified": true
+    },
+    {
+      "old_path": "models/data/subject_attention_components_selfattn.pth",
+      "new_path": "models/artifacts/attention/subject_attention_selfattn.pth",
+      "exists_before": null,
+      "exists_after": true,
+      "checksum_before": "09d966c5f163865930d3bd8d19bbe79ff7336ef8a48e945c69f7ed6746d25b9c",
+      "checksum_after": "09d966c5f163865930d3bd8d19bbe79ff7336ef8a48e945c69f7ed6746d25b9c",
+      "verified": true
+    },
+    {
+      "old_path": "models/data/subject_attention_components_selfattn_perdim.pth",
+      "new_path": "models/artifacts/attention/subject_attention_selfattn_perdim.pth",
+      "exists_before": null,
+      "exists_after": false
+    },
+    {
+      "old_path": "models/data/bayesian_tensor.npy",
+      "new_path": "models/artifacts/scoring/bayesian_scores.npy",
+      "exists_before": null,
+      "exists_after": true,
+      "checksum_before": "f3d26a09efd0efbddee7e0654c764089b17ca093fc318079812eab33cb9425c5",
+      "checksum_after": "f3d26a09efd0efbddee7e0654c764089b17ca093fc318079812eab33cb9425c5",
+      "verified": true
+    },
+    {
+      "old_path": "models/data/gbt_cold.pickle",
+      "new_path": "models/artifacts/scoring/gbt_cold.pickle",
+      "exists_before": null,
+      "exists_after": true,
+      "checksum_before": "c656e0ed76cbe66853622c0170fd8f1ae6935e44873430a946867de1d3c3d6a7",
+      "checksum_after": "c656e0ed76cbe66853622c0170fd8f1ae6935e44873430a946867de1d3c3d6a7",
+      "verified": true
+    },
+    {
+      "old_path": "models/data/gbt_warm.pickle",
+      "new_path": "models/artifacts/scoring/gbt_warm.pickle",
+      "exists_before": null,
+      "exists_after": true,
+      "checksum_before": "cb12df0287322519058f787dbc06cc8348a93a4f45a3f48ad6b7fdc804cfaef3",
+      "checksum_after": "cb12df0287322519058f787dbc06cc8348a93a4f45a3f48ad6b7fdc804cfaef3",
+      "verified": true
+    }
+  ],
+  "directory_migrations": [
+    {
+      "old_path": "models/data/baseline",
+      "new_path": "models/artifacts/semantic_indexes/baseline",
+      "exists_before": null,
+      "exists_after": true
+    },
+    {
+      "old_path": "models/data/baseline_clean",
+      "new_path": "models/artifacts/semantic_indexes/baseline_clean",
+      "exists_before": null,
+      "exists_after": true
+    },
+    {
+      "old_path": "models/data/enriched_v1",
+      "new_path": "models/artifacts/semantic_indexes/enriched_v1",
+      "exists_before": null,
+      "exists_after": true
+    },
+    {
+      "old_path": "models/data/enriched_v1_subjects",
+      "new_path": "models/artifacts/semantic_indexes/enriched_v1_subjects",
+      "exists_before": null,
+      "exists_after": true
+    },
+    {
+      "old_path": "models/data/enriched_v2",
+      "new_path": "models/artifacts/semantic_indexes/enriched_v2",
+      "exists_before": null,
+      "exists_after": true
+    },
+    {
+      "old_path": "models/data/enriched_v2_subjects",
+      "new_path": "models/artifacts/semantic_indexes/enriched_v2_subjects",
+      "exists_before": null,
+      "exists_after": true
+    }
+  ]
+}

@@ -6,26 +6,29 @@ import pickle
 from collections import defaultdict
 from pathlib import Path
 
-from sklearn.preprocessing import StandardScaler
 from lightgbm import LGBMRegressor
 from lightgbm import early_stopping, log_evaluation
 
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "../..")))
 
-from models.shared_utils import (
-    load_book_embeddings,
+from models.core import PAD_IDX
+from models.data import (
+    load_book_subject_embeddings,
     get_item_idx_to_row,
     compute_subject_overlap,
     decompose_embeddings,
-    PAD_IDX,
-    ModelStore
+    load_attention_strategy,
 )
 
+from models.core import PATHS
+
 import torch
+
 DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
 
 REPO_ROOT = Path(__file__).parent.parent.parent
 DATA_DIR = REPO_ROOT / "models" / "training" / "data"
+
 
 def load_data_from_pickle():
     print("📦 Loading .pkl data from:", DATA_DIR)
@@ -46,32 +49,39 @@ def load_data_from_pickle():
 
     return interactions, users, books, user_fav, book_subj
 
+
 def main():
     interactions, users, books, user_fav, book_subj = load_data_from_pickle()
 
-    book_embs, book_ids = load_book_embeddings()
+    book_embs, book_ids = load_book_subject_embeddings(normalized=False)
     item_idx_to_row = get_item_idx_to_row(book_ids)
 
     interactions = interactions[interactions["rating"].notnull()].copy()
     rating_counts = interactions["user_id"].value_counts()
-    interactions["is_warm"] = interactions["user_id"].map(lambda uid: rating_counts.get(uid, 0) >= 10)
+    interactions["is_warm"] = interactions["user_id"].map(
+        lambda uid: rating_counts.get(uid, 0) >= 10
+    )
 
     valid_item_ids = set(item_idx_to_row)
 
     interactions = interactions[
-        interactions["user_id"].isin(users["user_id"]) &
-        interactions["item_idx"].isin(valid_item_ids)
+        interactions["user_id"].isin(users["user_id"])
+        & interactions["item_idx"].isin(valid_item_ids)
     ].copy()
 
     print("Computing and mapping embeddings")
     interactions["book_emb_row"] = interactions["item_idx"].map(item_idx_to_row)
     book_emb_matrix = book_embs[interactions["book_emb_row"].values]
-    book_emb_df = pd.DataFrame(book_emb_matrix, columns=[f"book_emb_{i}" for i in range(book_emb_matrix.shape[1])])
+    book_emb_df = pd.DataFrame(
+        book_emb_matrix, columns=[f"book_emb_{i}" for i in range(book_emb_matrix.shape[1])]
+    )
 
     fav_subjects_list = [user_fav.get(uid, [PAD_IDX]) for uid in interactions["user_id"]]
-    pooler = ModelStore().get_attention_strategy()
+    pooler = load_attention_strategy()
     user_emb_matrix = pooler(fav_subjects_list).cpu().numpy()
-    user_emb_df = pd.DataFrame(user_emb_matrix, columns=[f"user_emb_{i}" for i in range(user_emb_matrix.shape[1])])
+    user_emb_df = pd.DataFrame(
+        user_emb_matrix, columns=[f"user_emb_{i}" for i in range(user_emb_matrix.shape[1])]
+    )
 
     interactions["subject_overlap"] = [
         compute_subject_overlap(user_fav[uid], book_subj[iid])
@@ -83,8 +93,20 @@ def main():
 
     df = df.merge(users, on="user_id", how="left")
     df = df.merge(
-        books[["item_idx", "main_subject", "year", "filled_year", "language", "num_pages", "filled_num_pages", "book_num_ratings"]],
-        on="item_idx", how="left"
+        books[
+            [
+                "item_idx",
+                "main_subject",
+                "year",
+                "filled_year",
+                "language",
+                "num_pages",
+                "filled_num_pages",
+                "book_num_ratings",
+            ]
+        ],
+        on="item_idx",
+        how="left",
     )
 
     cat_cols = ["country", "filled_year", "filled_age", "main_subject"]
@@ -92,7 +114,11 @@ def main():
         df[col] = df[col].astype("category")
 
     cont_cols = ["age", "year", "num_pages", "subject_overlap", "book_num_ratings"]
-    emb_cols = [c for c in df.columns if (c.startswith("user_emb_") or c.startswith("book_emb_")) and c != 'book_emb_row']
+    emb_cols = [
+        c
+        for c in df.columns
+        if (c.startswith("user_emb_") or c.startswith("book_emb_")) and c != "book_emb_row"
+    ]
     features = emb_cols + cont_cols + cat_cols
 
     train = df[df["is_warm"] == True]
@@ -117,17 +143,19 @@ def main():
     )
 
     model.fit(
-        X_train, y_train,
+        X_train,
+        y_train,
         eval_set=[(X_val, y_val)],
-        eval_metric=['rmse', 'mae'],
-        callbacks=[early_stopping(50), log_evaluation(100)]
+        eval_metric=["rmse", "mae"],
+        callbacks=[early_stopping(50), log_evaluation(100)],
     )
 
-    os.makedirs(REPO_ROOT / "models/data", exist_ok=True)
-    with open(REPO_ROOT / "models/data/gbt_cold.pickle", "wb") as f:
+    PATHS.ensure_artifact_dirs()
+    with open(PATHS.gbt_cold, "wb") as f:
         pickle.dump(model, f)
 
     print(f"✅ Saved: {REPO_ROOT}/models/data/gbt_cold.pickle")
+
 
 if __name__ == "__main__":
     main()
