@@ -44,7 +44,7 @@ PROJECT_ROOT = SCRIPT_DIR.parent
 TRAINING_DATA_NEW = PROJECT_ROOT / "models/training/data/new_data"
 TRAINING_DATA_MAIN = PROJECT_ROOT / "models/training/data"
 REMOTE_DATA = f"{REMOTE_HOST}:{REMOTE_REPO}/models/training/data"
-REMOTE_MODELS = f"{REMOTE_HOST}:{REMOTE_REPO}/models/data"
+REMOTE_MODELS = f"{REMOTE_HOST}:{REMOTE_REPO}/models/artifacts"
 LOCAL_MODELS = PROJECT_ROOT / "models/data"
 LOG_DIR = Path(os.getenv("TRAIN_LOG_DIR", PROJECT_ROOT / "models/training/logs"))
 
