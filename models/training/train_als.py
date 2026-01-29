@@ -2,7 +2,7 @@ import pandas as pd
 import numpy as np
 import scipy.sparse as sp
 import json
-import os
+import os, sys
 from implicit.als import AlternatingLeastSquares
 from pathlib import Path
 
@@ -10,10 +10,11 @@ import logging
 
 logging.getLogger("implicit").setLevel(logging.ERROR)
 
-from models.core import PATHS
-
 REPO_ROOT = Path(__file__).parent.parent.parent
 DATA_DIR = REPO_ROOT / "models" / "training" / "data"
+sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "../..")))
+
+from models.core import PATHS
 
 ALPHA = 40
 FACTORS = 64

@@ -1,10 +1,7 @@
 import pandas as pd
 import numpy as np
-import json
 from pathlib import Path
-
-from models.core import PATHS
-from models.data import load_book_subject_embeddings
+import os, sys
 
 # Config
 REPO_ROOT = Path(__file__).parent.parent.parent
@@ -13,6 +10,10 @@ DATA_DIR = REPO_ROOT / "models" / "training" / "data"
 INTERACTIONS_PATH = Path(DATA_DIR / "interactions.pkl")
 BOOKS_PATH = Path(DATA_DIR / "books.pkl")
 
+sys.path.append(os.path.abspath(os.path.join(REPO_ROOT)))
+
+from models.core import PATHS
+from models.data import load_book_subject_embeddings
 
 # Smoothing parameter
 m = 30
