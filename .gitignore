@@ -3,6 +3,7 @@
 
 # Data paths
 /models/data/
+/models/data_backup_*
 /models/training/data/
 /models/training/logs/
 data/backups/db/
