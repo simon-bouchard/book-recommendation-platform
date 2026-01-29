@@ -40,7 +40,7 @@ def main():
 
     print(f"Using PAD_IDX = {pad_idx}")
 
-    ATTN_STRATEGY = os.getenv("ATTN_STRATEGY", "scalar")
+    ATTN_STRATEGY = os.getenv("ATTN_STRATEGY", "perdim")
 
     print("Loading book and subject mappings...")
     books = pd.read_pickle(DATA_DIR / "books.pkl")
