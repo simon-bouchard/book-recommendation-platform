@@ -45,7 +45,7 @@ TRAINING_DATA_NEW = PROJECT_ROOT / "models/training/data/new_data"
 TRAINING_DATA_MAIN = PROJECT_ROOT / "models/training/data"
 REMOTE_DATA = f"{REMOTE_HOST}:{REMOTE_REPO}/models/training/data"
 REMOTE_MODELS = f"{REMOTE_HOST}:{REMOTE_REPO}/models/artifacts"
-LOCAL_MODELS = PROJECT_ROOT / "models/data"
+LOCAL_MODELS = PROJECT_ROOT / "models/artifacts"
 LOG_DIR = Path(os.getenv("TRAIN_LOG_DIR", PROJECT_ROOT / "models/training/logs"))
 
 ATTN_STRATEGY = os.getenv("ATTN_STRATEGY", "scalar").lower()
