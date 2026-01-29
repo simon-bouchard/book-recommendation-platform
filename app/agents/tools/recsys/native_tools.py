@@ -223,7 +223,9 @@ class InternalTools:
     def _create_semantic_search_tool(self) -> ToolDefinition:
         """Semantic search with enriched metadata."""
 
-        def semantic_search(query: str, top_k: int = 100, filters: Optional[dict] = None) -> list[dict]:
+        def semantic_search(
+            query: str, top_k: int = 100, filters: Optional[dict] = None
+        ) -> list[dict]:
             """
             Search books using semantic embeddings with optional subject filters.
 
@@ -327,7 +329,7 @@ class InternalTools:
         """Subject-based recommendations with popularity blending."""
 
         def subject_hybrid(
-            subjects: list[str],
+            fav_subjects_idxs: list[str],
             top_k: int = 100,
             subject_weight: float = 0.6,
         ) -> list[dict]:
@@ -349,25 +351,14 @@ class InternalTools:
             if not self.db:
                 return [{"error": "Subject hybrid requires database connection"}]
 
-            if not subjects:
+            if not fav_subjects_idxs:
                 return [{"error": "Subject hybrid requires at least one subject"}]
 
             top_k = max(1, min(500, top_k))
             subject_weight = max(0.0, min(1.0, subject_weight))
 
             try:
-                # Convert subjects to indices
-                from app.table_models import Subject
-
-                subject_objs = (
-                    self.db.query(Subject.subject_idx)
-                    .filter(Subject.subject.in_(subjects))
-                    .all()
-                )
-                subject_indices = [obj.subject_idx for obj in subject_objs]
-
-                if not subject_indices:
-                    return [{"error": f"No matching subjects found for: {subjects}"}]
+                subject_indices = fav_subjects_idxs
 
                 # Create domain user with subject preferences
                 domain_user = self._create_user_with_subjects(subject_indices)
@@ -690,4 +681,6 @@ class InternalTools:
         if self.current_user:
             user_id = getattr(self.current_user, "user_id", -1)
 
-        return User(user_id=user_id, fav_subjects=subject_indices, country=None, age=None, filled_age=None)
+        return User(
+            user_id=user_id, fav_subjects=subject_indices, country=None, age=None, filled_age=None
+        )
