@@ -260,7 +260,7 @@ class InternalTools:
                 return [{"error": f"Semantic search failed: {e}"}]
 
         return tool(
-            name="semantic_search",
+            name="book_semantic_search",
             description="Search books using semantic embeddings with enriched metadata",
             category=ToolCategory.INTERNAL,
         )(semantic_search)
@@ -401,7 +401,7 @@ class InternalTools:
                 return [{"error": f"Subject hybrid failed: {e}"}]
 
         return tool(
-            name="subject_hybrid",
+            name="subject_hybrid_pool",
             description="Get subject-based recommendations with popularity blending",
             category=ToolCategory.INTERNAL,
             requires_db=True,
