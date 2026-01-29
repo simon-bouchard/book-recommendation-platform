@@ -2,6 +2,8 @@
 .env
 
 # Data paths
+/models/data/
+/models/data_backup_*
 /models/artifacts/
 /models/training/data/
 /models/training/logs/
@@ -17,6 +19,7 @@ backfill.out
 ops/enrichment/test_*.csv
 ops/enrichment/test_*.txt
 ops/enrichment/*.html
+ops/models/migration_report_*
 **/results/**
 tests/integration/models/performance_baselines
 
