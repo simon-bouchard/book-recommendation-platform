@@ -246,12 +246,19 @@ class InternalTools:
             try:
                 searcher = self._get_semantic_searcher()
 
+                """
                 # Extract subject filters if provided
                 subject_filter = None
                 if filters and "subjects" in filters:
                     subject_filter = filters["subjects"]
+                """
 
                 results = searcher.search(query=query, top_k=top_k)
+
+                for book in results:
+                    if "meta" in book:
+                        meta = book.pop("meta")
+                        book.update(meta)
 
                 # Results already have enrichment data from semantic index
                 return self._standardize_tool_output(results)
