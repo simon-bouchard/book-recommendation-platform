@@ -20,5 +20,5 @@ class SemanticSearcher:
             if idx == -1: 
                 continue
             bid = int(self.ids[idx])
-            results.append({"book_id": bid, "score": float(-dist), "meta": self.meta[idx]})
+            results.append({"item_idx": bid, "score": float(-dist), "meta": self.meta[idx]})
         return results

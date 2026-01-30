@@ -39,7 +39,7 @@ class InternalTools:
         """Lazy-load semantic searcher."""
         if self._semantic_searcher is None:
             self._semantic_searcher = SemanticSearcher(
-                dir_path="models/artifacts/semantic_indexes/enriched_v1",
+                dir_path="models/artifacts/semantic_indexes/enriched_v2",
                 embedder=settings.embedder,
             )
         return self._semantic_searcher
@@ -251,9 +251,7 @@ class InternalTools:
                 if filters and "subjects" in filters:
                     subject_filter = filters["subjects"]
 
-                results = searcher.search(
-                    query=query, top_k=top_k, subject_filter=subject_filter, return_scores=True
-                )
+                results = searcher.search(query=query, top_k=top_k)
 
                 # Results already have enrichment data from semantic index
                 return self._standardize_tool_output(results)
