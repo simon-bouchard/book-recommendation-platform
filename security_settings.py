@@ -10,12 +10,12 @@ ALLOWED_ORIGINS = [
     "simonbouchard.space",
     "www.simonbouchard.space",
     "recsys.simonbouchard.space",
-    "89.117.146.162"
-
+    "89.117.146.162",
     # Development origins
     # "http://localhost:8000",
     # "http://127.0.0.1:8000",
 ]
+
 
 def apply_security(app):
     """
@@ -70,6 +70,7 @@ def apply_security(app):
     async def _init_rl():
         r = redis.from_url("redis://127.0.0.1:6379/0")
         await FastAPILimiter.init(r)
+
 
 def health_dependency():
     return RateLimiter(times=10, seconds=60)

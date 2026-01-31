@@ -174,18 +174,12 @@ def main():
     for file in TRAINING_DATA_NEW.glob("*"):
         shutil.move(str(file), TRAINING_DATA_MAIN)
 
-    print("Reloading models in memory...")
-    api_url = os.getenv("RELOAD_API_URL", "http://localhost:8000/admin/reload_models")
-    admin_secret = os.getenv("ADMIN_SECRET")
+    print("Reloading models in memory for all workers...")
+    signal_file = Path(PROJECT_ROOT) / "models" / "data" / ".reload_signal"
+    with open(signal_file, "w") as f:
+        f.write(str(time.time()))
 
-    try:
-        resp = requests.post(api_url, params={"secret": admin_secret})
-        if resp.status_code == 200:
-            print("API reload successful.")
-        else:
-            print(f"API reload failed: {resp.status_code} {resp.text}")
-    except Exception as e:
-        print(f"Exception during reload: {e}")
+    print("✅ Reload signal written:", signal_file)
 
     print("Updating bayes_pop in Meilisearch...")
     run(f"python {PROJECT_ROOT}/ops/meilisearch/update_bayes_pop.py")

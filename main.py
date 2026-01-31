@@ -12,6 +12,8 @@ import os
 from datetime import datetime
 from dotenv import load_dotenv
 
+from models.core.reload_poller import get_poller
+
 load_dotenv()
 
 app = FastAPI()
@@ -55,3 +57,17 @@ app.include_router(models_router)
 @app.get("/", response_class=HTMLResponse)
 def root(request: Request):
     return templates.TemplateResponse("index.html", {"request": request, "page": "home"})
+
+
+@app.on_event("startup")
+async def startup_event():
+    """Start model reload poller on application startup."""
+    poller = get_poller()
+    await poller.start()
+
+
+@app.on_event("shutdown")
+async def shutdown_event():
+    """Stop model reload poller on application shutdown."""
+    poller = get_poller()
+    await poller.stop()
