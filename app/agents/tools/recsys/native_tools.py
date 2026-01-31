@@ -5,6 +5,7 @@ All retrieval tools return consistent schema with enrichment data where availabl
 """
 
 from typing import Optional
+from pandas.core.common import standardize_mapping
 from sqlalchemy.orm import Session
 
 from models.services.recommendation_service import RecommendationService
@@ -92,7 +93,6 @@ class InternalTools:
 
         # Load shared resources once
         book_meta = load_book_meta(use_cache=True)
-        tone_map = self._ensure_tone_map()  # Cached DB query result
 
         standardized = []
 
@@ -111,12 +111,6 @@ class InternalTools:
             if item_idx in book_meta.index:
                 num_ratings = int(book_meta.loc[item_idx].get("book_num_ratings", 0))
 
-            # Resolve tone IDs to names (only if present - semantic_search has this)
-            tone_ids = book.get("tone_ids", [])
-            tone_names = []
-            if tone_ids:
-                tone_names = [tone_map.get(tid) for tid in tone_ids if tid in tone_map]
-
             # Build standardized dict - only include fields with content
             result = {
                 # Core metadata (always present)
@@ -128,22 +122,6 @@ class InternalTools:
                 # Internal only (not sent to curation)
                 "score": book.get("score", 0.0),
             }
-
-            # Add enrichment metadata only if present
-            subjects = book.get("subjects", [])
-            if subjects:
-                result["subjects"] = subjects
-
-            if tone_names:
-                result["tones"] = tone_names
-
-            genre = book.get("genre")
-            if genre:
-                result["genre"] = genre
-
-            vibe = book.get("vibe")
-            if vibe:
-                result["vibe"] = vibe
 
             standardized.append(result)
 
