@@ -18,6 +18,7 @@ from models.services.similarity_service import SimilarityService
 from models.domain.user import User
 from models.domain.config import RecommendationConfig, HybridConfig, RecommendationMode
 from models.core.constants import PAD_IDX
+from models.cache import cached_recommendations, cached_similarity
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
@@ -29,6 +30,7 @@ router = APIRouter()
 
 
 @router.get("/profile/recommend")
+@cached_recommendations
 async def recommend_for_user(
     user: str = Query(..., description="User ID or username"),
     _id: bool = Query(True, description="If true, user param is user_id; if false, username"),
@@ -117,6 +119,7 @@ async def recommend_for_user(
 
 
 @router.get("/book/{item_idx}/similar")
+@cached_similarity
 def get_similar_books(
     item_idx: int,
     mode: str = Query("subject", regex="^(subject|als|hybrid)$"),
