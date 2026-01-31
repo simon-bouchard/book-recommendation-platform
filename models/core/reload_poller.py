@@ -114,11 +114,14 @@ class ModelReloadPoller:
         from models.infrastructure.subject_embedder import SubjectEmbedder
         from models.infrastructure.als_model import ALSModel
         from models.infrastructure.similarity_indices import reset_indices
+        from models.cache import clear_ml_cache
 
         clear_cache()
         SubjectEmbedder.reset()
         ALSModel.reset()
         reset_indices()
+
+        clear_ml_cache()
 
         preload_all_artifacts()
 
