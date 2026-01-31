@@ -9,11 +9,9 @@ from typing import Callable
 import logging
 import time
 
-from sqlalchemy.orm import joinedload
-
 from app.cache import get_redis_client, cached
 from app.cache.serializers import serialize, deserialize
-from app.table_models import User as ORMUser
+from app.table_models import User as ORMUser, UserFavSubject
 from models.cache.keys import similarity_key, recommendation_key
 
 logger = logging.getLogger(__name__)
@@ -80,15 +78,23 @@ def cached_recommendations(func: Callable) -> Callable:
         subject_idxs = None
 
         if mode == "subject":
-            user_query = db.query(ORMUser).options(joinedload(ORMUser.favorite_subjects))
-
             if _id:
-                user_obj = user_query.filter(ORMUser.user_id == int(user)).first()
+                subject_idxs = [
+                    row[0]
+                    for row in db.query(UserFavSubject.subject_idx)
+                    .filter(UserFavSubject.user_id == int(user))
+                    .all()
+                ]
             else:
-                user_obj = user_query.filter(ORMUser.username == user).first()
-
-            if user_obj:
-                subject_idxs = [s.subject_idx for s in user_obj.favorite_subjects]
+                subquery = (
+                    db.query(ORMUser.user_id).filter(ORMUser.username == user).scalar_subquery()
+                )
+                subject_idxs = [
+                    row[0]
+                    for row in db.query(UserFavSubject.subject_idx)
+                    .filter(UserFavSubject.user_id == subquery)
+                    .all()
+                ]
 
         try:
             cache_key = recommendation_key(
