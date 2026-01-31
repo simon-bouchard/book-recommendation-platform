@@ -174,31 +174,12 @@ def main():
     for file in TRAINING_DATA_NEW.glob("*"):
         shutil.move(str(file), TRAINING_DATA_MAIN)
 
-    print(" Reloading models in memory...")
-    admin_secret = os.getenv("ADMIN_SECRET")
-    reload_url = os.getenv("RELOAD_API_URL")
+    print("Reloading models in memory for all workers...")
+    signal_file = Path(PROJECT_ROOT) / "models" / "data" / ".reload_signal"
+    with open(signal_file, "w") as f:
+        f.write(str(time.time()))
 
-    if not admin_secret:
-        print("⚠️  WARNING: ADMIN_SECRET not found, skipping reload")
-    else:
-        try:
-            import urllib3
-            urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
-            
-            # Your app uses HTTPS, so call it directly
-            resp = requests.post(
-                reload_url,
-                params={"secret": admin_secret},
-                timeout=10,
-                verify=False  # Needed for self-signed cert
-            )
-            
-            if resp.status_code == 200:
-                print("✅ Models reloaded successfully")
-            else:
-                print(f"⚠️  Reload failed: {resp.status_code} - {resp.text}")
-        except Exception as e:
-            print(f"⚠️  Could not reload: {e}")
+    print("✅ Reload signal written:", signal_file)
 
     print("Updating bayes_pop in Meilisearch...")
     run(f"python {PROJECT_ROOT}/ops/meilisearch/update_bayes_pop.py")
