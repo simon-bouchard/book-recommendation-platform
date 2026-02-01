@@ -4,19 +4,17 @@ Modernized internal recommendation tools using refactored models API.
 All retrieval tools return consistent schema with enrichment data where available.
 """
 
-from typing import Optional
-from pandas.core.common import standardize_mapping
+from typing import Callable, Dict, Optional
 from sqlalchemy.orm import Session
 
 from models.services.recommendation_service import RecommendationService
 from models.domain.user import User
 from models.domain.config import RecommendationConfig, HybridConfig
-from models.data.queries import get_read_books
-from models.data.loaders import load_book_meta, load_bayesian_scores, load_book_subject_embeddings
+from models.data.loaders import load_book_meta
 from app.semantic_index.search import SemanticSearcher
 from app.agents.settings import settings
 
-from ..native_tool import tool, ToolCategory, ToolDefinition
+from langchain_core.tools import tool
 
 
 class InternalTools:
@@ -127,7 +125,7 @@ class InternalTools:
 
         return standardized
 
-    def get_context_tools(self) -> list[ToolDefinition]:
+    def get_context_tools(self) -> list[Callable]:
         """
         Get context tools for PlannerAgent.
 
@@ -142,7 +140,7 @@ class InternalTools:
 
         return self._create_user_context_tools()
 
-    def get_retrieval_tools(self, is_warm: bool) -> list[ToolDefinition]:
+    def get_retrieval_tools(self, is_warm: bool) -> list[Callable]:
         """
         Get retrieval tools for CandidateGeneratorAgent.
 
@@ -172,7 +170,7 @@ class InternalTools:
 
         return tools
 
-    def get_tools(self, is_warm: bool) -> list[ToolDefinition]:
+    def get_tools(self, is_warm: bool) -> list[Callable]:
         """
         Get all available internal tools based on user state.
 
@@ -198,10 +196,11 @@ class InternalTools:
 
         return tools
 
-    def _create_semantic_search_tool(self) -> ToolDefinition:
+    def _create_semantic_search_tool(self) -> Callable:
         """Semantic search with enriched metadata."""
 
-        def semantic_search(
+        @tool
+        def book_semantic_search(
             query: str, top_k: int = 100, filters: Optional[dict] = None
         ) -> list[dict]:
             """
@@ -244,15 +243,12 @@ class InternalTools:
             except Exception as e:
                 return [{"error": f"Semantic search failed: {e}"}]
 
-        return tool(
-            name="book_semantic_search",
-            description="Search books using semantic embeddings with enriched metadata",
-            category=ToolCategory.INTERNAL,
-        )(semantic_search)
+        return book_semantic_search
 
-    def _create_als_recs_tool(self) -> ToolDefinition:
+    def _create_als_recs_tool(self) -> Callable:
         """ALS-based collaborative filtering recommendations."""
 
+        @tool
         def als_recs(top_k: int = 100) -> list[dict]:
             """
             Get collaborative filtering recommendations based on user's rating history.
@@ -300,18 +296,13 @@ class InternalTools:
             except Exception as e:
                 return [{"error": f"ALS recommendations failed: {e}"}]
 
-        return tool(
-            name="als_recs",
-            description="Get collaborative filtering recommendations for warm users",
-            category=ToolCategory.INTERNAL,
-            requires_auth=True,
-            requires_db=True,
-        )(als_recs)
+        return als_recs
 
-    def _create_subject_hybrid_tool(self) -> ToolDefinition:
+    def _create_subject_hybrid_tool(self) -> Callable:
         """Subject-based recommendations with popularity blending."""
 
-        def subject_hybrid(
+        @tool
+        def subject_hybrid_pool(
             fav_subjects_idxs: list[str],
             top_k: int = 100,
             subject_weight: float = 0.6,
@@ -374,17 +365,13 @@ class InternalTools:
             except Exception as e:
                 return [{"error": f"Subject hybrid failed: {e}"}]
 
-        return tool(
-            name="subject_hybrid_pool",
-            description="Get subject-based recommendations with popularity blending",
-            category=ToolCategory.INTERNAL,
-            requires_db=True,
-        )(subject_hybrid)
+        return subject_hybrid_pool
 
-    def _create_subject_id_search_tool(self) -> ToolDefinition:
+    def _create_subject_id_search_tool(self) -> Callable:
         """Subject ID search using 3-gram TF-IDF."""
         from .subject_search import make_subject_id_search_tool
 
+        @tool
         def subject_id_search(phrases: list[str], top_k: int = 5) -> list[dict]:
             """
             Resolve free-text subject phrases to database subject IDs.
@@ -414,16 +401,12 @@ class InternalTools:
             result_json = tool_func(input_json)
             return json.loads(result_json)
 
-        return tool(
-            name="subject_id_search",
-            description="Resolve free-text subject phrases to database subject indices",
-            category=ToolCategory.INTERNAL,
-            requires_db=True,
-        )(subject_id_search)
+        return subject_id_search
 
-    def _create_popular_books_tool(self) -> ToolDefinition:
+    def _create_popular_books_tool(self) -> Callable:
         """Get popular books ranked by Bayesian average rating."""
 
+        @tool
         def popular_books(top_k: int = 100) -> list[dict]:
             """
             Get popular books ranked by Bayesian average rating.
@@ -482,16 +465,12 @@ class InternalTools:
             except Exception as e:
                 return [{"error": f"Popular books failed: {e}"}]
 
-        return tool(
-            name="popular_books",
-            description="Get popular books ranked by Bayesian average rating for cold users",
-            category=ToolCategory.INTERNAL,
-            requires_db=True,
-        )(popular_books)
+        return popular_books
 
-    def _create_return_book_ids_tool(self) -> ToolDefinition:
+    def _create_return_book_ids_tool(self) -> Callable:
         """Finalize and return selected book IDs."""
 
+        @tool
         def return_book_ids(book_ids: list[int]) -> dict[str, list[int]]:
             """
             Finalize selected book recommendations.
@@ -515,20 +494,17 @@ class InternalTools:
 
             return {"book_ids": deduped}
 
-        return tool(
-            name="return_book_ids",
-            description="Finalize and return selected book recommendations to user",
-            category=ToolCategory.INTERNAL,
-        )(return_book_ids)
+        return return_book_ids
 
-    def _create_user_context_tools(self) -> list[ToolDefinition]:
+    def _create_user_context_tools(self) -> list[Callable]:
         """User profile and interaction history tools (requires consent)."""
         from app.agents.user_context import fetch_user_context
 
         tools = []
 
         # User profile tool
-        def user_profile(limit: int = 5) -> dict:
+        @tool
+        def user_profile(limit: int = 5) -> Dict:
             """
             Get user's favorite subjects.
 
@@ -555,17 +531,10 @@ class InternalTools:
             except Exception as e:
                 return {"error": f"Profile fetch failed: {e}"}
 
-        tools.append(
-            tool(
-                name="user_profile",
-                description="Get user's favorite subjects (requires consent)",
-                category=ToolCategory.INTERNAL,
-                requires_auth=True,
-                requires_db=True,
-            )(user_profile)
-        )
+        tools.append(user_profile)
 
         # Recent interactions tool
+        @tool
         def recent_interactions(limit: int = 5, include_comments: bool = False) -> dict:
             """
             Get user's recent book interactions.
@@ -604,15 +573,7 @@ class InternalTools:
             except Exception as e:
                 return {"error": f"Interactions fetch failed: {e}"}
 
-        tools.append(
-            tool(
-                name="recent_interactions",
-                description="Get user's recent rated books (requires consent)",
-                category=ToolCategory.INTERNAL,
-                requires_auth=True,
-                requires_db=True,
-            )(recent_interactions)
-        )
+        tools.append(recent_interactions)
 
         return tools
 

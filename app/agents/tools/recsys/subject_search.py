@@ -3,32 +3,37 @@
 import math
 import unicodedata
 import re
-from collections import Counter, defaultdict
-from typing import Tuple, List, Dict, Any
+from collections import Counter
+from typing import List, Dict, Any
 import json
 from sqlalchemy.orm import Session
 
 # Index caches (module-level; warm on first use)
 _SUBJ_INDEX_BUILT = False
-_SUBJ_DOCS: List[Dict[str, Any]] = []   # [{subject_idx, subject, count, norm, grams:Counter, tokens:set}]
-_IDF: Dict[str, float] = {}             # 3-gram -> idf
-_VEC_NORMS: Dict[int, float] = {}       # subject_idx -> ||tfidf||_2
-_MAX_LOGP: float = 1.0                   # normalizer for popularity prior
+_SUBJ_DOCS: List[
+    Dict[str, Any]
+] = []  # [{subject_idx, subject, count, norm, grams:Counter, tokens:set}]
+_IDF: Dict[str, float] = {}  # 3-gram -> idf
+_VEC_NORMS: Dict[int, float] = {}  # subject_idx -> ||tfidf||_2
+_MAX_LOGP: float = 1.0  # normalizer for popularity prior
 
 
 def _normalize_text(s: str) -> str:
     s = unicodedata.normalize("NFKD", s or "").encode("ascii", "ignore").decode("ascii")
     s = s.lower()
-    s = re.sub(r"[^\w\s]", " ", s)       # remove punctuation
+    s = re.sub(r"[^\w\s]", " ", s)  # remove punctuation
     s = re.sub(r"\s+", " ", s).strip()
     return s
 
+
 def _char_ngrams(s: str, n: int = 3) -> List[str]:
     s2 = f"  {s}  "  # boundaries
-    return [s2[i:i+n] for i in range(max(0, len(s2)-n+1))] if s2 else []
+    return [s2[i : i + n] for i in range(max(0, len(s2) - n + 1))] if s2 else []
+
 
 def _tokens(s: str) -> List[str]:
     return [t for t in re.split(r"\s+", s) if t]
+
 
 def _build_subject_index(db: Session):
     global _SUBJ_INDEX_BUILT, _SUBJ_DOCS, _IDF, _VEC_NORMS, _MAX_LOGP
@@ -36,6 +41,7 @@ def _build_subject_index(db: Session):
         return
 
     from app.models import get_all_subject_counts  # reuse your cache
+
     rows = get_all_subject_counts(db)  # [{"subject_idx","subject","count"}, ...]
     if not rows:
         _SUBJ_INDEX_BUILT = True
@@ -61,7 +67,16 @@ def _build_subject_index(db: Session):
         if not norm or not grams:
             continue
 
-        docs.append({"subject_idx": sid, "subject": name, "count": cnt, "norm": norm, "grams": grams, "tokens": toks})
+        docs.append(
+            {
+                "subject_idx": sid,
+                "subject": name,
+                "count": cnt,
+                "norm": norm,
+                "grams": grams,
+                "tokens": toks,
+            }
+        )
         for g in grams.keys():
             df_counter[g] += 1
 
@@ -111,6 +126,7 @@ def make_subject_id_search_tool(db: Session):
     Input (JSON): {"phrases": ["light mysteries", "heist"], "top_k": 5}
     Output (JSON): [{"phrase": "...", "candidates": [{"subject_idx":..., "subject":"...", "score":0.93}, ...]}]
     """
+
     def _tool(arg: str = "") -> str:
         try:
             obj = json.loads(arg or "{}") if arg and arg.strip() else {}
@@ -122,7 +138,9 @@ def make_subject_id_search_tool(db: Session):
 
             # Short-circuit if no index
             if not _SUBJ_DOCS:
-                return json.dumps([{"phrase": p, "candidates": []} for p in phrases], ensure_ascii=False)
+                return json.dumps(
+                    [{"phrase": p, "candidates": []} for p in phrases], ensure_ascii=False
+                )
 
             out = []
             for p in phrases:
@@ -159,11 +177,13 @@ def make_subject_id_search_tool(db: Session):
                     # Blend score (tunable)
                     score = 0.75 * cos + 0.25 * prior
 
-                    candidates.append({
-                        "subject_idx": int(d["subject_idx"]),
-                        "subject": d["subject"],
-                        "score": round(float(score), 6)
-                    })
+                    candidates.append(
+                        {
+                            "subject_idx": int(d["subject_idx"]),
+                            "subject": d["subject"],
+                            "score": round(float(score), 6),
+                        }
+                    )
 
                 # Top-k by score
                 candidates.sort(key=lambda x: x["score"], reverse=True)
@@ -173,4 +193,5 @@ def make_subject_id_search_tool(db: Session):
 
         except Exception as e:
             return json.dumps({"error": f"subject_id_search failed: {e}"})
+
     return _tool
