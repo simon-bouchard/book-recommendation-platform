@@ -3,12 +3,12 @@
 Modernized tool registry with native tool support.
 No LangChain dependencies - clean separation of concerns.
 """
+
 from dataclasses import dataclass
-from typing import Optional, Any
+from typing import Optional, Any, Callable
 
 from sqlalchemy.orm import Session
 
-from .native_tool import ToolDefinition, ToolCategory
 from .external.web_tools import WebTools, WebToolState
 from .docs_tools import DocsTools
 from .recsys.native_tools import InternalTools
@@ -18,14 +18,15 @@ from .recsys.native_tools import InternalTools
 class InternalToolGates:
     """
     Controls for internal tool availability based on user state.
-    
+
     This encapsulates all the business logic for determining which
     internal tools should be available to a given user.
     """
+
     user_num_ratings: Optional[int] = None
     warm_threshold: int = 10
     profile_allowed: bool = False
-    
+
     @property
     def is_warm_user(self) -> bool:
         """Check if user has enough ratings for warm recommendations."""
@@ -37,17 +38,17 @@ class InternalToolGates:
 class ToolRegistry:
     """
     Unified tool registry with native tool support.
-    
+
     Manages tool discovery, filtering, and access control based on:
     - Agent capabilities (web, docs, internal)
     - User authentication state
     - User rating history (warm/cold)
     - Profile access consent
-    
+
     This is the single source of truth for what tools are available
     to a given agent in a given context.
     """
-    
+
     def __init__(
         self,
         *,
@@ -61,7 +62,7 @@ class ToolRegistry:
     ):
         """
         Initialize registry with capability flags and context.
-        
+
         Args:
             web: Enable web tools
             docs: Enable documentation tools
@@ -78,15 +79,15 @@ class ToolRegistry:
         self.gates = gates or InternalToolGates()
         self.ctx_user = ctx_user
         self.ctx_db = ctx_db
-        
+
         # Tool factories
         self._web_tools: Optional[WebTools] = None
         self._docs_tools: Optional[DocsTools] = None
         self._internal_tools: Optional[InternalTools] = None
-        
+
         # Cached tool list
-        self._tools_cache: Optional[list[ToolDefinition]] = None
-    
+        self._tools_cache: Optional[list[Callable]] = None
+
     @classmethod
     def for_context(
         cls,
@@ -94,17 +95,17 @@ class ToolRegistry:
         gates: Optional[InternalToolGates] = None,
         ctx_user: Any = None,
         ctx_db: Optional[Session] = None,
-    ) -> 'ToolRegistry':
+    ) -> "ToolRegistry":
         """
         Create a registry for context tools only (PlannerAgent).
-        
+
         Returns only user_profile and recent_interactions tools.
-        
+
         Args:
             gates: Access control for internal tools
             ctx_user: Current user object
             ctx_db: Database session
-            
+
         Returns:
             ToolRegistry configured for context tools
         """
@@ -117,7 +118,7 @@ class ToolRegistry:
             ctx_user=ctx_user,
             ctx_db=ctx_db,
         )
-    
+
     @classmethod
     def for_retrieval(
         cls,
@@ -125,18 +126,18 @@ class ToolRegistry:
         gates: Optional[InternalToolGates] = None,
         ctx_user: Any = None,
         ctx_db: Optional[Session] = None,
-    ) -> 'ToolRegistry':
+    ) -> "ToolRegistry":
         """
         Create a registry for retrieval tools only (CandidateGeneratorAgent).
-        
-        Returns book retrieval tools: als_recs, semantic_search, subject_hybrid, 
+
+        Returns book retrieval tools: als_recs, semantic_search, subject_hybrid,
         subject_id_search, and popular_books.
-        
+
         Args:
             gates: Access control for internal tools
             ctx_user: Current user object
             ctx_db: Database session
-            
+
         Returns:
             ToolRegistry configured for retrieval tools
         """
@@ -149,35 +150,35 @@ class ToolRegistry:
             ctx_user=ctx_user,
             ctx_db=ctx_db,
         )
-    
-    def get_tools(self) -> list[ToolDefinition]:
+
+    def get_tools(self) -> list[Callable]:
         """
         Get all enabled tools based on capabilities and gates.
-        
+
         Tools are filtered based on:
         1. Category-level flags (web, docs, internal)
         2. Per-tool gates (authentication, warm/cold, consent)
-        
+
         Returns:
             List of available tool definitions
         """
         if self._tools_cache is not None:
             return self._tools_cache
-        
-        tools: list[ToolDefinition] = []
-        
+
+        tools: list[Callable] = []
+
         # Web tools
         if self.web_enabled:
             if self._web_tools is None:
                 self._web_tools = WebTools()
             tools.extend(self._web_tools.get_tools())
-        
+
         # Documentation tools
         if self.docs_enabled:
             if self._docs_tools is None:
                 self._docs_tools = DocsTools()
             tools.extend(self._docs_tools.get_tools())
-        
+
         # Internal recommendation tools
         if self.retrieval_enabled or self.context_enabled:
             if self._internal_tools is None:
@@ -187,78 +188,55 @@ class ToolRegistry:
                     user_num_ratings=self.gates.user_num_ratings or 0,
                     allow_profile=self.gates.profile_allowed,
                 )
-            
+
             # Get tools based on inclusion flags
             if self.context_enabled and self.retrieval_enabled:
                 # Both enabled - use backward compatible get_tools
-                tools.extend(self._internal_tools.get_tools(
-                    is_warm=self.gates.is_warm_user
-                ))
+                tools.extend(self._internal_tools.get_tools(is_warm=self.gates.is_warm_user))
             else:
                 # Selective inclusion
                 if self.context_enabled:
                     tools.extend(self._internal_tools.get_context_tools())
                 if self.retrieval_enabled:
-                    tools.extend(self._internal_tools.get_retrieval_tools(
-                        is_warm=self.gates.is_warm_user
-                    ))
-        
+                    tools.extend(
+                        self._internal_tools.get_retrieval_tools(is_warm=self.gates.is_warm_user)
+                    )
+
         self._tools_cache = tools
         return tools
-    
-    def get_tool(self, name: str) -> Optional[ToolDefinition]:
+
+    def get_tool(self, name: str) -> Optional[Callable]:
         """
         Get a specific tool by name.
-        
+
         Args:
             name: Tool name
-            
+
         Returns:
             Tool definition if found and enabled, None otherwise
         """
         for tool in self.get_tools():
-            if tool.name == name:
+            if hasattr(tool, "name") and tool.name == name:
                 return tool
         return None
-    
+
     def has_tool(self, name: str) -> bool:
         """Check if a tool is available."""
         return self.get_tool(name) is not None
-    
-    def get_tools_by_category(self, category: ToolCategory) -> list[ToolDefinition]:
-        """Get all tools in a specific category."""
-        return [t for t in self.get_tools() if t.category == category]
-    
+
     def get_tool_names(self) -> list[str]:
         """Get list of all available tool names."""
-        return [t.name for t in self.get_tools()]
-    
-    def format_for_llm(self) -> str:
-        """
-        Format available tools for LLM consumption.
-        
-        Returns:
-            Formatted string describing all available tools
-        """
-        tools = self.get_tools()
-        if not tools:
-            return "No tools available."
-        
-        lines = ["Available Tools:"]
-        for tool in tools:
-            lines.append(f"- {tool.to_llm_description()}")
-        
-        return "\n".join(lines)
-    
+        return [t.name for t in self.get_tools() if hasattr(t, "name")]
+
     def reset_web_state(self) -> None:
         """Reset web tool deduplication state (for new conversation turn)."""
         if self._web_tools:
             self._web_tools.state.reset()
-    
+
     def get_statistics(self) -> dict[str, Any]:
         """Get registry statistics for debugging/monitoring."""
         tools = self.get_tools()
-        
+
         return {
             "total_tools": len(tools),
             "web_enabled": self.web_enabled,
@@ -268,10 +246,5 @@ class ToolRegistry:
             "include_retrieval_tools": self.retrieval_enabled,
             "is_warm_user": self.gates.is_warm_user,
             "profile_allowed": self.gates.profile_allowed,
-            "tools_by_category": {
-                "web": len([t for t in tools if t.category == ToolCategory.WEB]),
-                "docs": len([t for t in tools if t.category == ToolCategory.DOCS]),
-                "internal": len([t for t in tools if t.category == ToolCategory.INTERNAL]),
-            },
             "tool_names": self.get_tool_names(),
         }
