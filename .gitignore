@@ -21,6 +21,7 @@ ops/enrichment/test_*.txt
 ops/enrichment/*.html
 ops/models/migration_report_*
 **/results/**
+**/logs/**
 tests/integration/models/performance_baselines
 
 # Model artifacts
