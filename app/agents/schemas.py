@@ -6,6 +6,7 @@ from pydantic import BaseModel, Field, AliasChoices
 SchemaVersion = Literal["v1"]
 Target = Literal["web", "docs", "recsys", "respond"]
 
+
 def _version_field():
     # Accept both "schema" and "version" on input, serialize as "schema"
     return Field(
@@ -14,16 +15,19 @@ def _version_field():
         serialization_alias="schema",
     )
 
+
 class ToolCall(BaseModel):
     name: str
     args: Dict[str, Any] = Field(default_factory=dict)
     ok: Optional[bool] = None
     elapsed_ms: Optional[int] = None
 
+
 class Citation(BaseModel):
     source: Literal["web", "docs", "internal"]
     ref: str
     meta: Dict[str, Any] = Field(default_factory=dict)
+
 
 class BookOut(BaseModel):
     item_idx: int
@@ -35,12 +39,14 @@ class BookOut(BaseModel):
     class Config:
         extra = "allow"  # tolerate additional fields your builder may attach
 
+
 class ChatIn(BaseModel):
     version: SchemaVersion = _version_field()
     user_text: str
     use_profile: bool = False
     force_target: Optional[Target] = None
     session_id: Optional[str] = None
+
 
 class ChatOut(BaseModel):
     version: SchemaVersion = _version_field()
@@ -50,10 +56,12 @@ class ChatOut(BaseModel):
     steps: List[ToolCall] = Field(default_factory=list)
     citations: List[Citation] = Field(default_factory=list)
 
+
 class RoutePlan(BaseModel):
     version: SchemaVersion = _version_field()
     target: Target
     reason: str
+
 
 class TurnInput(BaseModel):
     version: SchemaVersion = _version_field()
@@ -62,6 +70,7 @@ class TurnInput(BaseModel):
     profile_allowed: bool = False
     user_num_ratings: Optional[int] = None
     ctx: Dict[str, Any] = Field(default_factory=dict)  # e.g., {"db": db, "current_user": user}
+
 
 class AgentResult(BaseModel):
     version: SchemaVersion = _version_field()
@@ -72,3 +81,21 @@ class AgentResult(BaseModel):
     tool_calls: List[ToolCall] = Field(default_factory=list)
     citations: List[Citation] = Field(default_factory=list)
     policy_version: Optional[str] = None
+
+
+class StreamChunk(BaseModel):
+    """
+    A chunk of streaming response data.
+
+    Types:
+        - status: Status update (e.g., "Analyzing request...")
+        - token: Individual token of final response text
+        - complete: Final completion with full result data
+    """
+
+    type: Literal["status", "token", "complete"]
+    content: Optional[str] = None
+    data: Optional[Dict[str, Any]] = None
+
+    class Config:
+        extra = "forbid"
