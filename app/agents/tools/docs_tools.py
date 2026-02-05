@@ -101,6 +101,7 @@ class DocsTools:
             """
             return self._load_manifest()
 
+        help_manifest.status_message = "Checking available documentation..."
         return help_manifest
 
     def _create_help_read_tool(self) -> Callable:
@@ -134,6 +135,7 @@ class DocsTools:
             except Exception as e:
                 return f"[Help Error] Could not read document: {e}"
 
+        help_read.status_message = "Reading {doc_name}..."
         return help_read
 
     def render_manifest_for_prompt(
@@ -174,4 +176,3 @@ class DocsTools:
             lines.append(line)
 
         return "\n".join(lines)
-

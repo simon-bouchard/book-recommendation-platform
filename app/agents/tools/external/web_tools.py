@@ -88,6 +88,7 @@ class WebTools:
             except Exception as e:
                 return f"[Search Error] {str(e)}"
 
+        web_search.status_message = "Searching the web for '{query}'..."
         return web_search
 
     def _create_wikipedia_tool(self) -> Callable:
@@ -120,6 +121,7 @@ class WebTools:
             except Exception as e:
                 return f"[Wikipedia Error] {str(e)}"
 
+        wikipedia_lookup.status_message = "Looking up '{query}' on Wikipedia..."
         return wikipedia_lookup
 
     def _create_openlibrary_search_tool(self) -> Callable:
@@ -185,6 +187,7 @@ class WebTools:
             except Exception as e:
                 return f"[OpenLibrary Error] {str(e)}"
 
+        openlibrary_search.status_message = "Searching OpenLibrary for '{query}'..."
         return openlibrary_search
 
     def _create_openlibrary_work_tool(self) -> Callable:
@@ -247,5 +250,5 @@ class WebTools:
             except Exception as e:
                 return f"[OpenLibrary Error] {str(e)}"
 
+        openlibrary_work.status_message = "Fetching book details..."
         return openlibrary_work
-

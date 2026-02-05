@@ -243,6 +243,7 @@ class InternalTools:
             except Exception as e:
                 return [{"error": f"Semantic search failed: {e}"}]
 
+        semantic_search.status_message = "Searching for books matching '{query}'..."
         return book_semantic_search
 
     def _create_als_recs_tool(self) -> Callable:
@@ -296,6 +297,7 @@ class InternalTools:
             except Exception as e:
                 return [{"error": f"ALS recommendations failed: {e}"}]
 
+        als_recs.status_message = "Getting personalized recommendations..."
         return als_recs
 
     def _create_subject_hybrid_tool(self) -> Callable:
@@ -365,6 +367,7 @@ class InternalTools:
             except Exception as e:
                 return [{"error": f"Subject hybrid failed: {e}"}]
 
+        subject_hybrid_pool.status_message = "Searching books by subject..."
         return subject_hybrid_pool
 
     def _create_subject_id_search_tool(self) -> Callable:
@@ -401,6 +404,7 @@ class InternalTools:
             result_json = tool_func(input_json)
             return json.loads(result_json)
 
+        subject_id_search.status_message = "Searching books by subject..."
         return subject_id_search
 
     def _create_popular_books_tool(self) -> Callable:
@@ -465,6 +469,7 @@ class InternalTools:
             except Exception as e:
                 return [{"error": f"Popular books failed: {e}"}]
 
+        popular_books.status_message = "Getting popular books..."
         return popular_books
 
     def _create_return_book_ids_tool(self) -> Callable:
