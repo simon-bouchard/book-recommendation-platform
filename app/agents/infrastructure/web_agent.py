@@ -1,63 +1,86 @@
 # app/agents/infrastructure/web_agent.py
 """
-Web search agent with access to external search tools.
+Web search agent using BaseLangGraphAgent.
+Performs external web searches and synthesizes information with citations.
 """
-from datetime import datetime
-from app.agents.domain.entities import AgentConfiguration, AgentCapability, AgentExecutionState
+
+from app.agents.infrastructure.base_langgraph_agent import BaseLangGraphAgent
+from app.agents.domain.entities import AgentConfiguration, AgentCapability
 from app.agents.prompts.loader import read_prompt
-from .base_langgraph_agent import BaseLangGraphAgent
+from app.agents.tools.registry import ToolRegistry, InternalToolGates
 
 
 class WebAgent(BaseLangGraphAgent):
     """
-    Agent specialized in web search and information retrieval.
-    
-    Has access to:
-    - Web search
-    - Web page fetching
+    Web search agent for external information retrieval.
+
+    Capabilities:
+        - Search the web for current information
+        - Fetch and analyze web pages
+        - Synthesize findings with citations
+
+    Tools:
+        - web_search(query): Search the web
+        - web_fetch(url): Fetch full page content
     """
-    
+
     def __init__(self):
-        # Build configuration
+        """Initialize web agent with high-tier LLM and web tools."""
         configuration = AgentConfiguration(
             policy_name="web.system.md",
             capabilities=frozenset([AgentCapability.WEB_SEARCH]),
-            allowed_tools=frozenset([
-                "web_search",
-                "web_fetch"
-            ]),
-            llm_tier="medium",
-            timeout_seconds=60,  # Increased from 45
-            max_iterations=8  # Increased from 4 for complex queries
+            allowed_tools=frozenset(["web_search", "web_fetch"]),
+            llm_tier="large",
+            timeout_seconds=60,
+            max_iterations=10,
         )
-        
+
         super().__init__(configuration)
-    
+
     def _get_system_prompt(self) -> str:
-        """Load web search specific system prompt."""
+        """
+        Build system prompt from persona + web policy.
+
+        Returns:
+            Complete system prompt for web search
+        """
         persona = read_prompt("persona.system.md")
         policy = read_prompt("web.system.md")
+
         return f"{persona}\n\n{policy}".strip()
-    
+
+    def _create_tool_registry(self, ctx_user, ctx_db) -> ToolRegistry:
+        """
+        Create tool registry with web tools enabled.
+
+        Args:
+            ctx_user: Not used for web agent
+            ctx_db: Not used for web agent
+
+        Returns:
+            ToolRegistry with web tools
+        """
+        return ToolRegistry(
+            web=True,
+            docs=False,
+            retrieval=False,
+            context=False,
+            gates=InternalToolGates(),
+        )
+
     def _get_target_category(self) -> str:
+        """
+        Get target category for web agent.
+
+        Returns:
+            Category string "web"
+        """
         return "web"
-    
-    def _build_current_situation(self, state: AgentExecutionState) -> str:
-        """
-        Override to add current date context for web agent.
-        Critical for temporal reasoning about 'recent', 'current', 'latest'.
-        """
-        parts = []
-        
-        # CURRENT DATE CONTEXT (web agent specific)
-        current_date = datetime.now().strftime("%B %d, %Y")
-        parts.append(f"CURRENT DATE: {current_date}")
-        parts.append("Use this to determine what is 'recent', 'current', 'latest', or 'new'.")
-        parts.append("If search results contain information from 2024-2025, that IS current/recent.")
-        parts.append("")
-        
-        # Get base situation from parent (tools, query, format)
-        base_situation = super()._build_current_situation(state)
-        parts.append(base_situation)
-        
-        return "\n".join(parts)
+
+    def _get_start_status(self) -> str:
+        """Initial status for web search."""
+        return "Searching the web..."
+
+    def _get_tool_complete_status(self) -> str:
+        """Status after tool execution."""
+        return "Analyzing results..."
