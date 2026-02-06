@@ -1,87 +1,94 @@
 # app/agents/infrastructure/response_agent.py
 """
-Simple conversational agent with no tools - just LLM responses.
+Simple response agent using BaseLangGraphAgent.
+Handles conversational responses without any tool usage.
 """
-from app.agents.domain.entities import (
-    AgentConfiguration, 
-    AgentCapability,
-    AgentExecutionState,
-    ExecutionStatus
-)
+
+from app.agents.infrastructure.base_langgraph_agent import BaseLangGraphAgent
+from app.agents.domain.entities import AgentConfiguration, AgentCapability
 from app.agents.prompts.loader import read_prompt
-from .base_langgraph_agent import BaseLangGraphAgent
-from langchain_core.messages import HumanMessage
+from app.agents.tools.registry import ToolRegistry, InternalToolGates
 
 
 class ResponseAgent(BaseLangGraphAgent):
     """
-    Simple conversational agent with no tool access.
-    Just provides direct LLM responses.
+    Conversational response agent with no tools.
+
+    Capabilities:
+        - Handle greetings and acknowledgements
+        - Provide simple conversational responses
+        - No tool usage required
+
+    Tools:
+        None - purely conversational
     """
-    
+
     def __init__(self):
-        # Build configuration
+        """Initialize response agent with medium-tier LLM and no tools."""
         configuration = AgentConfiguration(
             policy_name="persona.system.md",
             capabilities=frozenset([AgentCapability.CONVERSATIONAL]),
             allowed_tools=frozenset(),  # No tools
             llm_tier="medium",
             timeout_seconds=20,
-            max_iterations=1  # Single pass
+            max_iterations=1,  # Single turn only
         )
-        
+
         super().__init__(configuration)
-    
+
     def _get_system_prompt(self) -> str:
-        """Load basic conversational prompt."""
+        """
+        Build system prompt for conversational responses.
+
+        Returns:
+            System prompt emphasizing helpful, brief responses
+        """
         persona = read_prompt("persona.system.md")
-        return persona.strip()
-    
+
+        # Add simple instruction for response mode
+        instruction = (
+            "Provide brief, helpful responses to acknowledgements and simple questions. "
+            "Keep responses concise and friendly. No tools are available."
+        )
+
+        return f"{persona}\n\n{instruction}".strip()
+
+    def _create_tool_registry(self, ctx_user, ctx_db) -> ToolRegistry:
+        """
+        Create tool registry with no tools enabled.
+
+        Args:
+            ctx_user: Not used for response agent
+            ctx_db: Not used for response agent
+
+        Returns:
+            ToolRegistry with no tools
+        """
+        return ToolRegistry(
+            web=False,
+            docs=False,
+            retrieval=False,
+            context=False,
+            gates=InternalToolGates(),
+        )
+
     def _get_target_category(self) -> str:
+        """
+        Get target category for response agent.
+
+        Returns:
+            Category string "respond"
+        """
         return "respond"
-    
-    def _reason_node(self, state: AgentExecutionState) -> AgentExecutionState:
+
+    def _get_start_status(self) -> str:
+        """Initial status for response generation."""
+        return "Responding..."
+
+    def _get_tool_complete_status(self) -> str:
         """
-        Override reason node for response agent - just generate answer directly.
-        No tool decision making needed.
+        Status after tool execution.
+
+        Note: This should never be called since ResponseAgent has no tools.
         """
-        try:
-            # Build simple prompt
-            system_prompt = self._get_system_prompt()
-            user_query = state.input_text
-            
-            # Add conversation history if available
-            context_parts = [system_prompt]
-            
-            if state.conversation_history:
-                context_parts.append("\nConversation History:")
-                for turn in state.conversation_history[-3:]:
-                    if 'u' in turn:
-                        context_parts.append(f"User: {turn['u']}")
-                    if 'a' in turn:
-                        context_parts.append(f"Assistant: {turn['a']}")
-            
-            context_parts.append(f"\nUser: {user_query}")
-            context_parts.append("\nProvide a helpful, conversational response.")
-            
-            full_prompt = "\n".join(context_parts)
-            
-            # Get LLM response
-            messages = [HumanMessage(content=full_prompt)]
-            response = self.llm.invoke(messages)
-            
-            answer = response.content if hasattr(response, 'content') else str(response)
-            
-            # Store as final answer
-            state.intermediate_outputs["final_answer"] = answer
-            state.intermediate_outputs["next_action"] = {"type": "finalize"}
-            state.add_reasoning_step(answer)
-            
-        except Exception as e:
-            state.mark_failed(str(e))
-            state.intermediate_outputs["final_answer"] = (
-                "I'm having trouble responding right now."
-            )
-            state.intermediate_outputs["next_action"] = {"type": "finalize"}
-        
-        return state
+        return "Processing..."
