@@ -94,11 +94,16 @@ class BaseLangGraphAgent(BaseAgent):
         self.tool_registry = self._create_tool_registry(ctx_user, ctx_db)
         self.tools = self.tool_registry.get_tools()
 
+        if self.configuration.allowed_tools:
+            self.tools = [t for t in self.tools if t.name in self.configuration.allowed_tools]
+
         # Result processor
         self.result_processor = StandardResultProcessor()
 
+        llm_with_tools = self.llm.bind_tools(self.tools) if self.tools else self.llm
+
         # Create ReAct agent using prebuilt
-        self.graph = create_react_agent(self.llm, self.tools)
+        self.graph = create_react_agent(llm_with_tools, self.tools)
 
         append_chatbot_log(
             f"Initialized {self.__class__.__name__} with {len(self.tools)} tools "
@@ -396,10 +401,10 @@ class BaseLangGraphAgent(BaseAgent):
         """
         Get status message when tool is about to execute.
 
-        Automatically uses tool.status_message attribute if available,
+        Automatically uses tool.metadata["status_message"] if available,
         with support for {arg_name} placeholders.
 
-        Override for additional customization beyond tool attributes.
+        Override for additional customization beyond tool metadata.
 
         Args:
             tool_name: Name of tool being called
@@ -411,14 +416,16 @@ class BaseLangGraphAgent(BaseAgent):
         # Find tool object by name
         tool = next((t for t in self.tools if t.name == tool_name), None)
 
-        # Use custom status_message if available
-        if tool and hasattr(tool, "status_message"):
-            try:
-                # Format with args (e.g., "Reading {doc_name}..." → "Reading intro.md...")
-                return tool.status_message.format(**args)
-            except (KeyError, ValueError):
-                # If formatting fails, use message as-is
-                return tool.status_message
+        # Use custom status_message from metadata if available
+        if tool and hasattr(tool, "metadata") and isinstance(tool.metadata, dict):
+            status_msg = tool.metadata.get("status_message")
+            if status_msg:
+                try:
+                    # Format with args (e.g., "Reading {doc_name}..." → "Reading intro.md...")
+                    return status_msg.format(**args)
+                except (KeyError, ValueError):
+                    # If formatting fails, use message as-is
+                    return status_msg
 
         # Default fallback
         return f"Using {tool_name}..."
