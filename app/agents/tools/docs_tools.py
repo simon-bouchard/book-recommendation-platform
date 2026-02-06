@@ -101,7 +101,8 @@ class DocsTools:
             """
             return self._load_manifest()
 
-        help_manifest.status_message = "Checking available documentation..."
+        # Store status message in metadata (Pydantic models don't allow arbitrary attributes)
+        help_manifest.metadata = {"status_message": "Checking available documentation..."}
         return help_manifest
 
     def _create_help_read_tool(self) -> Callable:
@@ -135,7 +136,8 @@ class DocsTools:
             except Exception as e:
                 return f"[Help Error] Could not read document: {e}"
 
-        help_read.status_message = "Reading {doc_name}..."
+        # Store status message in metadata with {doc_name} placeholder
+        help_read.metadata = {"status_message": "Reading {doc_name}..."}
         return help_read
 
     def render_manifest_for_prompt(

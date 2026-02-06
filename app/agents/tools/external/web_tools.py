@@ -88,7 +88,7 @@ class WebTools:
             except Exception as e:
                 return f"[Search Error] {str(e)}"
 
-        web_search.status_message = "Searching the web for '{query}'..."
+        web_search.metadata = {"status_message": "Searching the web for '{query}'..."}
         return web_search
 
     def _create_wikipedia_tool(self) -> Callable:
@@ -121,7 +121,7 @@ class WebTools:
             except Exception as e:
                 return f"[Wikipedia Error] {str(e)}"
 
-        wikipedia_lookup.status_message = "Looking up '{query}' on Wikipedia..."
+        wikipedia_lookup.metadata = {"status_message": "Looking up '{query}' on Wikipedia..."}
         return wikipedia_lookup
 
     def _create_openlibrary_search_tool(self) -> Callable:
@@ -180,14 +180,14 @@ class WebTools:
                         meta_parts.append(f"{editions} editions")
 
                     meta_str = f" ({', '.join(meta_parts)})" if meta_parts else ""
-                    lines.append(f"- {title} — {author}{meta_str}  [openlibrary.org{work_key}]")
+                    lines.append(f"- {title} â€” {author}{meta_str}  [openlibrary.org{work_key}]")
 
                 return "\n".join(lines)
 
             except Exception as e:
                 return f"[OpenLibrary Error] {str(e)}"
 
-        openlibrary_search.status_message = "Searching OpenLibrary for '{query}'..."
+        openlibrary_search.metadata = {"status_message": "Searching OpenLibrary for '{query}'..."}
         return openlibrary_search
 
     def _create_openlibrary_work_tool(self) -> Callable:
@@ -238,7 +238,7 @@ class WebTools:
 
                 # Truncate long descriptions
                 if len(description) > 800:
-                    description = description[:800] + "…"
+                    description = description[:800] + "â€¦"
 
                 return (
                     f"Title: {title}\n"
@@ -250,5 +250,5 @@ class WebTools:
             except Exception as e:
                 return f"[OpenLibrary Error] {str(e)}"
 
-        openlibrary_work.status_message = "Fetching book details..."
+        openlibrary_work.metadata = {"status_message": "Fetching book details..."}
         return openlibrary_work
