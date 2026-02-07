@@ -1,10 +1,10 @@
 # app/agents/infrastructure/recsys/orchestrator.py
 """
 Three-stage recommendation agent: Planning -> Retrieval -> Curation
-Orchestrates the complete pipeline without implementing agent logic itself.
+Orchestrates the complete pipeline with both sync and streaming execution.
 """
 
-from typing import Optional, Any
+from typing import Optional, Any, AsyncGenerator
 import time
 
 from app.agents.domain.entities import (
@@ -19,6 +19,7 @@ from app.agents.domain.recsys_schemas import (
 )
 from app.agents.domain.interfaces import BaseAgent
 from app.agents.domain.services import StandardResultProcessor
+from app.agents.schemas import StreamChunk
 from app.agents.logging import append_chatbot_log
 
 from .planner_agent import PlannerAgent
@@ -32,9 +33,9 @@ class RecommendationAgent(BaseAgent):
 
     Stage 1 (PlannerAgent): Analyze query and determine strategy
     Stage 2 (RetrievalAgent): Execute strategy, gather 60-120 candidates
-    Stage 3 (CurationAgent): Rank, filter, and generate prose
+    Stage 3 (CurationAgent): Rank, filter, and generate prose with citations
 
-    This class handles coordination and fallback logic only.
+    Supports both synchronous and streaming execution.
     """
 
     def __init__(
@@ -66,8 +67,8 @@ class RecommendationAgent(BaseAgent):
             policy_name="recsys.orchestrator",
             capabilities=frozenset([AgentCapability.INTERNAL_TOOLS]),
             llm_tier="large",
-            timeout_seconds=120,  # Combined timeout for all three stages
-            max_iterations=0,  # Orchestrator doesn't iterate
+            timeout_seconds=120,
+            max_iterations=0,
         )
 
         super().__init__(configuration)
@@ -116,9 +117,9 @@ class RecommendationAgent(BaseAgent):
             f"(warm={self._has_als_recs}, profile={allow_profile})"
         )
 
-    def execute(self, request: AgentRequest) -> AgentResponse:
+    async def execute(self, request: AgentRequest) -> AgentResponse:
         """
-        Execute three-stage recommendation pipeline.
+        Execute three-stage recommendation pipeline asynchronously.
 
         Args:
             request: User request with query and context
@@ -148,7 +149,7 @@ class RecommendationAgent(BaseAgent):
                 "popular_books",
             ]
             if self._has_als_recs:
-                available_tools.insert(0, "als_recs")  # Add ALS as first option
+                available_tools.insert(0, "als_recs")
 
             planner_input = PlannerInput(
                 query=request.user_text,
@@ -157,7 +158,13 @@ class RecommendationAgent(BaseAgent):
                 available_retrieval_tools=available_tools,
             )
 
-            strategy = self.planner_agent.execute(planner_input)
+            # Execute planner (await if async)
+            import inspect
+
+            if inspect.iscoroutinefunction(self.planner_agent.execute):
+                strategy = await self.planner_agent.execute(planner_input)
+            else:
+                strategy = self.planner_agent.execute(planner_input)
 
         except Exception as e:
             planning_time = int((time.time() - planning_start) * 1000)
@@ -186,7 +193,8 @@ class RecommendationAgent(BaseAgent):
                 profile_data=strategy.profile_data,
             )
 
-            retrieval_output = self.retrieval_agent.execute(retrieval_input)
+            # Execute retrieval (async)
+            retrieval_output = await self.retrieval_agent.execute(retrieval_input)
 
         except Exception as e:
             retrieval_time = int((time.time() - retrieval_start) * 1000)
@@ -223,7 +231,8 @@ class RecommendationAgent(BaseAgent):
         curation_start = time.time()
 
         try:
-            final_response = self.curation_agent.execute(
+            # Execute curation (async)
+            final_response = await self.curation_agent.execute(
                 request=request,
                 candidates=candidates,
                 execution_context=retrieval_output.execution_context,
@@ -261,11 +270,158 @@ class RecommendationAgent(BaseAgent):
             f"RECOMMENDATION COMPLETE\n"
             f"Total: {total_time}ms (planning: {planning_time}ms, "
             f"retrieval: {retrieval_time}ms, curation: {curation_time}ms)\n"
-            f"Books: {len(candidates)} â†’ {len(final_response.book_recommendations)}\n"
+            f"Books: {len(candidates)} -> {len(final_response.book_recommendations)}\n"
             f"{'=' * 60}\n"
         )
 
         return final_response
+
+    async def execute_stream(self, request: AgentRequest) -> AsyncGenerator[StreamChunk, None]:
+        """
+        Execute three-stage pipeline with streaming output.
+
+        Yields:
+            StreamChunk objects with types:
+            - "status": Progress updates from each stage
+            - "token": Individual words from curation prose
+            - "complete": Final result with book IDs from citations
+        """
+        append_chatbot_log(
+            f"\n{'=' * 60}\n"
+            f"RECOMMENDATION ORCHESTRATOR STREAMING\n"
+            f"Query: {request.user_text[:100]}...\n"
+            f"{'=' * 60}"
+        )
+
+        start_time = time.time()
+
+        try:
+            # ============================================================
+            # STAGE 1: PLANNING
+            # ============================================================
+            yield StreamChunk(type="status", content="Analyzing your request...")
+
+            append_chatbot_log("\n=== STAGE 1: PLANNING ===")
+            planning_start = time.time()
+
+            # Determine available retrieval tools
+            available_tools = [
+                "book_semantic_search",
+                "subject_hybrid_pool",
+                "subject_id_search",
+                "popular_books",
+            ]
+            if self._has_als_recs:
+                available_tools.insert(0, "als_recs")
+
+            planner_input = PlannerInput(
+                query=request.user_text,
+                has_als_recs_available=self._has_als_recs,
+                allow_profile=self._allow_profile,
+                available_retrieval_tools=available_tools,
+            )
+
+            # Execute planner (will be async if planner is async)
+            if hasattr(self.planner_agent.execute, "__call__"):
+                # Check if it's a coroutine
+                import inspect
+
+                if inspect.iscoroutinefunction(self.planner_agent.execute):
+                    strategy = await self.planner_agent.execute(planner_input)
+                else:
+                    strategy = self.planner_agent.execute(planner_input)
+            else:
+                strategy = self.planner_agent.execute(planner_input)
+
+            planning_time = int((time.time() - planning_start) * 1000)
+
+            append_chatbot_log(
+                f"Planning: {planning_time}ms\n"
+                f"Strategy: {strategy.reasoning[:150]}...\n"
+                f"Recommended: {', '.join(strategy.recommended_tools)}"
+            )
+
+            # ============================================================
+            # STAGE 2: RETRIEVAL
+            # ============================================================
+            yield StreamChunk(type="status", content="Gathering book candidates...")
+
+            append_chatbot_log("\n=== STAGE 2: RETRIEVAL ===")
+            retrieval_start = time.time()
+
+            retrieval_input = RetrievalInput(
+                query=request.user_text,
+                strategy=strategy,
+                profile_data=strategy.profile_data,
+            )
+
+            # Execute retrieval (async, non-blocking)
+            retrieval_output = await self.retrieval_agent.execute(retrieval_input)
+
+            # Convert candidates
+            candidates = self.result_processor._build_recommendations_from_objects(
+                retrieval_output.candidates
+            )
+            execution_context = retrieval_output.execution_context
+
+            retrieval_time = int((time.time() - retrieval_start) * 1000)
+
+            append_chatbot_log(f"Retrieval: {len(candidates)} candidates in {retrieval_time}ms")
+
+            # Check if we got any candidates
+            if not candidates:
+                append_chatbot_log("[NO CANDIDATES] Returning empty results")
+                yield StreamChunk(
+                    type="complete",
+                    data={
+                        "target": "recsys",
+                        "success": False,
+                        "text": "I couldn't find books matching your request.",
+                        "book_ids": [],
+                        "elapsed_ms": int((time.time() - start_time) * 1000),
+                    },
+                )
+                return
+
+            # ============================================================
+            # STAGE 3: CURATION
+            # ============================================================
+            append_chatbot_log("\n=== STAGE 3: CURATION ===")
+            curation_start = time.time()
+
+            # Stream tokens from curation
+            async for chunk in self.curation_agent.execute_stream(
+                request=request,
+                candidates=candidates,
+                execution_context=execution_context,
+            ):
+                # Forward all chunks (status, tokens, complete)
+                yield chunk
+
+            curation_time = int((time.time() - curation_start) * 1000)
+            total_time = planning_time + retrieval_time + curation_time
+
+            append_chatbot_log(
+                f"\n{'=' * 60}\n"
+                f"RECOMMENDATION COMPLETE (STREAMING)\n"
+                f"Total: {total_time}ms\n"
+                f"{'=' * 60}\n"
+            )
+
+        except Exception as e:
+            append_chatbot_log(f"[ORCHESTRATOR ERROR] {type(e).__name__}: {e}")
+
+            # Yield error completion
+            yield StreamChunk(
+                type="complete",
+                data={
+                    "target": "recsys",
+                    "success": False,
+                    "text": "I encountered an error generating recommendations.",
+                    "error": str(e),
+                    "elapsed_ms": int((time.time() - start_time) * 1000),
+                },
+            )
 
     # ================================================================
     # FALLBACK HANDLERS
