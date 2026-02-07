@@ -53,7 +53,7 @@ class PlannerAgent:
         self._has_als_recs_available = has_als_recs_available
         self._allow_profile = allow_profile
 
-    def execute(self, planner_input: PlannerInput) -> PlannerStrategy:
+    async def execute(self, planner_input: PlannerInput) -> PlannerStrategy:
         """
         Analyze query and determine retrieval strategy.
 
@@ -98,7 +98,7 @@ class PlannerAgent:
 
         # Step 3: Single LLM call
         try:
-            response = self.llm.invoke([HumanMessage(content=prompt)])
+            response = await self.llm.ainvoke([HumanMessage(content=prompt)])
             response_text = response.content if hasattr(response, "content") else str(response)
 
             # Log raw response for debugging
