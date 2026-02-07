@@ -8,6 +8,7 @@ import time
 import threading
 from typing import List, Optional, AsyncGenerator
 from abc import abstractmethod
+import asyncio
 
 from langchain_core.messages import BaseMessage, SystemMessage, HumanMessage, AIMessage
 from langgraph.prebuilt import create_react_agent
@@ -81,9 +82,9 @@ class BaseLangGraphAgent(BaseAgent):
         Initialize base agent.
 
         Args:
-            configuration: Agent configuration with LLM tier, timeout, etc.
-            ctx_user: User context for tools (optional)
-            ctx_db: Database session for tools (optional)
+                configuration: Agent configuration with LLM tier, timeout, etc.
+                ctx_user: User context for tools (optional)
+                ctx_db: Database session for tools (optional)
         """
         super().__init__(configuration)
 
@@ -125,11 +126,11 @@ class BaseLangGraphAgent(BaseAgent):
         4. Current query (always last)
 
         Args:
-            request: Agent request with query and history
-            **context: Additional context passed to _add_context_messages()
+                request: Agent request with query and history
+                **context: Additional context passed to _add_context_messages()
 
         Returns:
-            List of messages for the agent
+                List of messages for the agent
         """
         messages = []
 
@@ -156,10 +157,10 @@ class BaseLangGraphAgent(BaseAgent):
         Examples: strategy from planner, current execution state, etc.
 
         Args:
-            **context: Arbitrary context passed from execute method
+                **context: Arbitrary context passed from execute method
 
         Returns:
-            List of context messages (default: empty)
+                List of context messages (default: empty)
         """
         return []
 
@@ -168,10 +169,10 @@ class BaseLangGraphAgent(BaseAgent):
         Convert conversation history to message format.
 
         Args:
-            history: List of turns with 'u' (user) and 'a' (assistant) keys
+                history: List of turns with 'u' (user) and 'a' (assistant) keys
 
         Returns:
-            List of messages (last 3 turns)
+                List of messages (last 3 turns)
         """
         messages = []
         for turn in history[-3:]:
@@ -185,16 +186,16 @@ class BaseLangGraphAgent(BaseAgent):
     # SYNCHRONOUS EXECUTION
     # ============================================================================
 
-    def execute(self, request: AgentRequest, **context) -> AgentResponse:
+    async def execute(self, request: AgentRequest, **context) -> AgentResponse:
         """
-        Execute agent synchronously.
+        Execute agent asynchronously (non-blocking).
 
         Args:
-            request: Agent request with query and history
-            **context: Additional context passed to message builder
+                request: Agent request with query and history
+                **context: Additional context passed to message builder
 
         Returns:
-            Agent response with result
+                Agent response with result
         """
         append_chatbot_log(
             f"\n{'=' * 60}\n"
@@ -214,9 +215,10 @@ class BaseLangGraphAgent(BaseAgent):
         )
 
         try:
-            # Execute with timeout
-            result = run_with_timeout(
-                self.graph.invoke, self.configuration.timeout_seconds, {"messages": messages}
+            # Execute with timeout (non-blocking)
+            result = await asyncio.wait_for(
+                self.graph.ainvoke({"messages": messages}),
+                timeout=self.configuration.timeout_seconds,
             )
 
             # Extract final message
@@ -241,9 +243,9 @@ class BaseLangGraphAgent(BaseAgent):
 
             return response
 
-        except TimeoutException as e:
-            append_chatbot_log(f"[TIMEOUT] {e}")
-            state.mark_failed(str(e))
+        except asyncio.TimeoutError:
+            append_chatbot_log(f"[TIMEOUT] Exceeded {self.configuration.timeout_seconds}s")
+            state.mark_failed("Timeout")
 
             return AgentResponse(
                 text="I'm taking too long to respond. Please try rephrasing your request.",
@@ -281,11 +283,11 @@ class BaseLangGraphAgent(BaseAgent):
         - "complete": Final result with metadata
 
         Args:
-            request: Agent request with query and history
-            **context: Additional context passed to message builder
+                request: Agent request with query and history
+                **context: Additional context passed to message builder
 
         Yields:
-            StreamChunk objects representing progress
+                StreamChunk objects representing progress
         """
         append_chatbot_log(
             f"\n{'=' * 60}\n"
@@ -407,11 +409,11 @@ class BaseLangGraphAgent(BaseAgent):
         Override for additional customization beyond tool metadata.
 
         Args:
-            tool_name: Name of tool being called
-            args: Arguments passed to tool
+                tool_name: Name of tool being called
+                args: Arguments passed to tool
 
         Returns:
-            Status message to display
+                Status message to display
         """
         # Find tool object by name
         tool = next((t for t in self.tools if t.name == tool_name), None)
@@ -447,7 +449,7 @@ class BaseLangGraphAgent(BaseAgent):
         Get system prompt for this agent.
 
         Returns:
-            System prompt as string
+                System prompt as string
         """
         pass
 
@@ -457,11 +459,11 @@ class BaseLangGraphAgent(BaseAgent):
         Create tool registry for this agent.
 
         Args:
-            ctx_user: User context (optional)
-            ctx_db: Database session (optional)
+                ctx_user: User context (optional)
+                ctx_db: Database session (optional)
 
         Returns:
-            Configured ToolRegistry instance
+                Configured ToolRegistry instance
         """
         pass
 
@@ -471,7 +473,7 @@ class BaseLangGraphAgent(BaseAgent):
         Get target category for this agent (e.g., "docs", "recsys", "respond").
 
         Returns:
-            Target category string
+                Target category string
         """
         pass
 
@@ -484,10 +486,10 @@ class BaseLangGraphAgent(BaseAgent):
         Extract tool call information from agent event.
 
         Args:
-            event: Event dict from graph.astream()
+                event: Event dict from graph.astream()
 
         Returns:
-            Tool call dict with 'name' and 'args', or None
+                Tool call dict with 'name' and 'args', or None
         """
         messages = event.get("agent", {}).get("messages", [])
         if not messages:
@@ -504,10 +506,10 @@ class BaseLangGraphAgent(BaseAgent):
         Extract final response text from agent event.
 
         Args:
-            event: Event dict from graph.astream()
+                event: Event dict from graph.astream()
 
         Returns:
-            Response text, or None
+                Response text, or None
         """
         messages = event.get("agent", {}).get("messages", [])
         if not messages:
@@ -526,10 +528,10 @@ class BaseLangGraphAgent(BaseAgent):
         Tokenize text for word-by-word streaming.
 
         Args:
-            text: Text to tokenize
+                text: Text to tokenize
 
         Returns:
-            List of tokens (words with spaces)
+                List of tokens (words with spaces)
         """
         words = text.split()
         tokens = []
