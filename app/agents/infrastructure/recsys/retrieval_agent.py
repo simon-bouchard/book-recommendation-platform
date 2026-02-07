@@ -5,24 +5,27 @@ Second stage of multi-agent recommendation pipeline.
 """
 
 import json
-from typing import Optional
+from typing import List
+import time
+
+from langchain_core.messages import HumanMessage
 
 from app.agents.domain.entities import (
     AgentConfiguration,
     AgentCapability,
     AgentRequest,
-    AgentResponse,
-    AgentExecutionState,
 )
 from app.agents.domain.recsys_schemas import (
     RetrievalInput,
     RetrievalOutput,
     ExecutionContext,
+    ToolExecutionSummary,
 )
-from app.agents.prompts.loader import read_prompt
+from app.agents.infrastructure.base_langgraph_agent import BaseLangGraphAgent
 from app.agents.tools.registry import InternalToolGates, ToolRegistry
+from app.agents.prompts.loader import read_prompt
 from app.agents.logging import append_chatbot_log
-from ..base_langgraph_agent import BaseLangGraphAgent
+from app.agents.domain.entities import AgentExecutionState, ExecutionStatus
 
 
 class RetrievalAgent(BaseLangGraphAgent):
@@ -35,8 +38,8 @@ class RetrievalAgent(BaseLangGraphAgent):
     - Applies fallback logic when primary tools underperform
     - Stops when 60-120 candidates gathered or all tools exhausted
 
-    Uses large-tier LLM (405B) with max 6 iterations for adaptive execution.
-    This is a TACTICAL agent - follows strategy but adapts to execution reality.
+    Uses native function calling with adaptive ReAct loop.
+    Inherits streaming support from BaseLangGraphAgent.
     """
 
     def __init__(
@@ -68,7 +71,7 @@ class RetrievalAgent(BaseLangGraphAgent):
                     "popular_books",
                 ]
             ),
-            llm_tier="large",  # Need strong reasoning for adaptive execution
+            llm_tier="large",
             timeout_seconds=60,
             max_iterations=6,  # Enough for primary + fallback + refinement
         )
@@ -86,7 +89,7 @@ class RetrievalAgent(BaseLangGraphAgent):
         Create registry with ONLY retrieval tools.
 
         Context tools (user_profile, recent_interactions) are NOT available here -
-        those are for PlannerAgent only. Uses for_retrieval() factory.
+        those are for PlannerAgent only.
         """
         gates = InternalToolGates(
             user_num_ratings=self._user_num_ratings,
@@ -101,167 +104,156 @@ class RetrievalAgent(BaseLangGraphAgent):
         )
 
     def _get_system_prompt(self) -> str:
-        """Load candidate generator system prompt."""
+        """Load retrieval system prompt."""
         return read_prompt("recsys.retrieval.md")
 
     def _get_target_category(self) -> str:
         """Target category for agent adapter."""
-        return "recsys_generator"
+        return "recsys_retrieval"
 
-    def _build_current_situation(self, state: AgentExecutionState) -> str:
+    def _get_start_status(self) -> str:
+        """Initial status when retrieval starts."""
+        return "Gathering book candidates..."
+
+    def _add_context_messages(self, **context) -> List:
         """
-        Build tactical situation description with strategy and execution feedback.
+        Inject strategy and progress tracking into message history.
 
-        Shows:
-        - Original query
-        - Strategy from Planner
-        - Execution history (what tools called, how many books)
-        - Current candidate count
-        - Adaptive guidance (continue / try fallback / stop)
+        Args:
+            **context: Must contain 'strategy' and 'profile_data'
+
+        Returns:
+            List containing HumanMessage with strategy and progress
         """
-        # Extract strategy and execution state
-        strategy = state.intermediate_outputs.get("strategy")
-        profile_data = state.intermediate_outputs.get("profile_data")
-        candidates = state.intermediate_outputs.get("book_objects", [])
-        tool_execs = state.tool_executions
+        strategy = context.get("strategy")
+        profile_data = context.get("profile_data")
+        current_state = context.get("current_state")
 
-        # Build situation description
-        situation_parts = [
-            "# Current Retrieval Status",
-            "",
-            f"**Query**: {state.input_text}",
-            "",
-        ]
+        if not strategy:
+            return []
 
-        # Show strategy from Planner
-        if strategy:
-            situation_parts.extend(
-                [
-                    "**Strategy from Planner**:",
-                    f"- Recommended tools: {', '.join(strategy.recommended_tools)}",
-                    f"- Fallback tools: {', '.join(strategy.fallback_tools)}",
-                    f"- Reasoning: {strategy.reasoning}",
-                    "",
-                ]
-            )
+        # Build context sections
+        context_parts = ["# Retrieval Strategy", ""]
 
-            # Show profile data if available
-            if profile_data:
-                situation_parts.append(f"- Profile data available: {json.dumps(profile_data)}")
-                situation_parts.append("")
+        # Strategy from Planner
+        context_parts.extend(
+            [
+                f"**Recommended Tools**: {', '.join(strategy.recommended_tools)}",
+                f"**Fallback Tools**: {', '.join(strategy.fallback_tools)}",
+                f"**Reasoning**: {strategy.reasoning}",
+                "",
+            ]
+        )
 
-        # Show execution history
-        if tool_execs:
-            situation_parts.append("**Tools Executed So Far**:")
-            for i, exec_record in enumerate(tool_execs, 1):
-                book_count = (
-                    len([b for b in candidates if b.get("tool_source") == exec_record.tool_name])
-                    if candidates
-                    else 0
-                )
-                status = "âœ“" if exec_record.succeeded else "âœ—"
-                situation_parts.append(
-                    f"{i}. {status} {exec_record.tool_name}({exec_record.arguments}) "
-                    f"â†’ {book_count} books"
-                )
-            situation_parts.append("")
+        # Profile data if available
+        if profile_data:
+            context_parts.append(f"**Profile Data**: {json.dumps(profile_data)}")
+            context_parts.append("")
 
-        # Show current candidate pool status
-        total_candidates = len(candidates)
-        situation_parts.append(f"**Current Candidate Pool**: {total_candidates} books")
-        situation_parts.append("")
+        # Progress tracking (if state available)
+        if current_state:
+            book_objects = current_state.intermediate_outputs.get("book_objects", [])
+            tool_execs = current_state.tool_executions
 
-        # Provide adaptive guidance
-        situation_parts.append("**Next Steps**:")
+            if tool_execs:
+                context_parts.append("**Tools Executed So Far**:")
+                for exec_record in tool_execs:
+                    status = "Success" if exec_record.succeeded else "Failed"
+                    context_parts.append(f"- {exec_record.tool_name}: {status}")
+                context_parts.append("")
 
-        if total_candidates >= 120:
-            situation_parts.append("âœ“ Sufficient candidates (120+) - consider stopping")
-        elif total_candidates >= 60:
-            situation_parts.append("âœ“ Good candidate count (60+) - can stop or refine")
-        elif total_candidates >= 30:
-            situation_parts.append("âš  Moderate candidates (30-59) - may need more tools")
-        else:
-            situation_parts.append("âš  Low candidates (<30) - try fallback tools if available")
+            context_parts.append(f"**Current Candidates**: {len(book_objects)} books")
+            context_parts.append("")
 
-        # Check if all tools have been tried
-        if strategy:
-            all_tools = set(strategy.recommended_tools + strategy.fallback_tools)
-            tried_tools = {exec.tool_name for exec in tool_execs}
-            remaining_tools = all_tools - tried_tools
+        # Stopping criteria reminder
+        context_parts.extend(
+            [
+                "**Your Goal**: Gather 60-120 book candidates",
+                "**When to Stop**:",
+                "- You have 60-120 candidates (IDEAL)",
+                "- You have 120+ candidates (sufficient, stop immediately)",
+                "- All recommended AND fallback tools have been tried",
+                "",
+                "When stopping, respond with ONLY: 'Complete: [N] candidates gathered.'",
+            ]
+        )
 
-            if remaining_tools:
-                situation_parts.append(f"- Remaining tools: {', '.join(remaining_tools)}")
-            else:
-                situation_parts.append("- All recommended/fallback tools have been tried")
+        context_message = "\n".join(context_parts)
+        return [HumanMessage(content=context_message)]
 
-        return "\n".join(situation_parts)
-
-    def execute(self, generator_input: RetrievalInput) -> RetrievalOutput:
+    async def execute(self, retrieval_input: RetrievalInput) -> RetrievalOutput:
         """
-        Execute retrieval strategy and gather candidates.
+        Execute retrieval strategy and gather candidates asynchronously.
 
         Process:
-        1. Inject strategy into agent state
-        2. Run guided ReAct loop
-        3. Extract candidates and build execution context
+        1. Inject strategy into context
+        2. Run guided ReAct loop (non-blocking)
+        3. Extract candidates even if agent times out or fails
         4. Return output for CurationAgent
 
         Args:
-            generator_input: Strategy and query from PlannerAgent
+            retrieval_input: Strategy and query from PlannerAgent
 
         Returns:
-            RetrievalOutput with 60-120 candidates and context
-
-        Raises:
-            RuntimeError: If agent execution fails
+            RetrievalOutput with candidates and execution context
+            Always returns candidates even on partial failure
         """
         append_chatbot_log(
             f"\n{'=' * 60}\n"
             f"RETRIEVAL AGENT EXECUTION\n"
-            f"Query: {generator_input.query}\n"
-            f"Strategy: {generator_input.strategy.reasoning}\n"
+            f"Query: {retrieval_input.query}\n"
+            f"Strategy: {retrieval_input.strategy.reasoning[:100]}...\n"
             f"{'=' * 60}"
         )
 
         # Build agent request
         request = AgentRequest(
-            user_text=generator_input.query,
+            user_text=retrieval_input.query,
             conversation_history=[],
         )
 
-        # Create initial state with strategy injected
-        initial_state = AgentExecutionState(
-            input_text=generator_input.query,
-            conversation_history=[],
+        # Build messages with strategy context
+        messages = self._build_messages(
+            request,
+            strategy=retrieval_input.strategy,
+            profile_data=retrieval_input.profile_data,
         )
 
-        # Inject strategy and profile data into intermediate outputs
-        initial_state.intermediate_outputs["strategy"] = generator_input.strategy
-        initial_state.intermediate_outputs["profile_data"] = generator_input.profile_data
-
-        # Execute ReAct loop with base agent
+        # Execute graph asynchronously (non-blocking)
         try:
-            response = self._execute_with_initial_state(request, initial_state)
+            start_time = time.time()
+
+            result = await self.graph.ainvoke({"messages": messages})
+
+            state = self._extract_execution_state(result, retrieval_input.query, start_time)
+
         except Exception as e:
-            append_chatbot_log(f"Generator execution failed: {e}")
-            raise RuntimeError(f"RetrievalAgent execution failed: {e}") from e
+            append_chatbot_log(f"[RETRIEVAL ERROR] {e}")
+            # Create minimal fallback state
 
-        # Extract candidates from execution state
-        candidates = response.execution_state.intermediate_outputs.get("book_objects", [])
+            state = AgentExecutionState(
+                input_text=retrieval_input.query,
+                status=ExecutionStatus.FAILED,
+                error_message=str(e),
+            )
 
-        # Build execution context for Curator
-        tools_used = [exec.tool_name for exec in response.execution_state.tool_executions]
+        # Extract candidates from execution state (even on failure/timeout)
+        candidates = state.intermediate_outputs.get("book_objects", [])
+
+        append_chatbot_log(
+            f"Retrieval complete: {len(candidates)} candidates gathered (status: {state.status})"
+        )
+
+        # Build execution context for Curation
+        tools_used = [exec.tool_name for exec in state.tool_executions]
 
         execution_context = ExecutionContext(
-            planner_reasoning=generator_input.strategy.reasoning,
+            planner_reasoning=retrieval_input.strategy.reasoning,
             tools_used=tools_used,
-            profile_data=generator_input.profile_data,
+            profile_data=retrieval_input.profile_data,
         )
 
-        # Build lightweight tool execution summaries for testing/debugging
-        # Only includes arguments (no result data) to minimize overhead
-        from app.agents.domain.recsys_schemas import ToolExecutionSummary
-
+        # Build lightweight tool execution summaries
         tool_execution_summaries = [
             ToolExecutionSummary(
                 tool_name=exec.tool_name,
@@ -269,62 +261,140 @@ class RetrievalAgent(BaseLangGraphAgent):
                 succeeded=exec.succeeded,
                 execution_time_ms=exec.execution_time_ms,
             )
-            for exec in response.execution_state.tool_executions
+            for exec in state.tool_executions
         ]
 
         # Build output
         output = RetrievalOutput(
             candidates=candidates,
             execution_context=execution_context,
-            reasoning=self._build_reasoning_summary(response.execution_state),
-            tool_executions=tool_execution_summaries,  # NEW: for testing
+            reasoning=self._build_reasoning_summary(state),
+            tool_executions=tool_execution_summaries,
         )
 
         append_chatbot_log(
-            f"Generator complete: {len(candidates)} candidates, {len(tools_used)} tools used"
+            f"Retrieval output: {len(candidates)} candidates, {len(tools_used)} tools used"
         )
 
         return output
 
-    def _execute_with_initial_state(
-        self, request: AgentRequest, initial_state: AgentExecutionState
-    ) -> AgentResponse:
+    def _extract_execution_state(self, result: dict, query: str, start_time: float):
         """
-        Execute agent with pre-populated initial state.
+        Extract execution state from graph result.
 
-        This is a workaround since BaseLangGraphAgent.execute() doesn't
-        accept initial_state parameter. We temporarily inject state before
-        graph execution.
+        Args:
+            result: Graph execution result with messages
+            query: Original query
+            start_time: Execution start time
+
+        Returns:
+            AgentExecutionState with tool executions and book objects
         """
-        # Store original execute method
-        original_graph_invoke = self.graph.invoke
+        from app.agents.domain.entities import (
+            AgentExecutionState,
+            ExecutionStatus,
+            ToolExecution,
+        )
+        import time
 
-        # Wrap graph invoke to use our initial state
-        def invoke_with_state(state_or_dict):
-            # Convert AgentExecutionState to dict if needed
-            from dataclasses import asdict
+        state = AgentExecutionState(
+            input_text=query,
+            conversation_history=[],
+            status=ExecutionStatus.COMPLETED,
+        )
+        state.start_time = start_time
+        state.end_time = time.time()
 
-            if isinstance(state_or_dict, AgentExecutionState):
-                state_dict = asdict(state_or_dict)
-            else:
-                state_dict = state_or_dict
+        # Extract messages from graph result
+        messages = result.get("messages", [])
 
-            # Override with our initial state values
-            merged = {**state_dict}
-            merged["intermediate_outputs"] = initial_state.intermediate_outputs
-            return original_graph_invoke(merged)
+        # Extract tool executions by pairing tool calls with tool results
+        tool_executions = []
+        for i, msg in enumerate(messages):
+            # AI message with tool calls
+            if hasattr(msg, "tool_calls") and msg.tool_calls:
+                for tool_call in msg.tool_calls:
+                    tool_id = tool_call.get("id")
+                    tool_name = tool_call.get("name", "")
+                    tool_args = tool_call.get("args", {})
 
-        # Temporarily replace invoke method
-        self.graph.invoke = invoke_with_state
+                    # Find corresponding tool result in next messages
+                    tool_result = None
+                    succeeded = False
+                    for next_msg in messages[i + 1 :]:
+                        if hasattr(next_msg, "tool_call_id") and next_msg.tool_call_id == tool_id:
+                            tool_result = next_msg.content
+                            succeeded = True
+                            break
 
-        try:
-            # Call base execute
-            return super().execute(request)
-        finally:
-            # Restore original invoke
-            self.graph.invoke = original_graph_invoke
+                    tool_exec = ToolExecution(
+                        tool_name=tool_name,
+                        arguments=tool_args,
+                        result=tool_result,
+                        succeeded=succeeded,
+                        execution_time_ms=0,  # Graph doesn't track individual timings
+                    )
+                    tool_executions.append(tool_exec)
 
-    def _build_reasoning_summary(self, state: AgentExecutionState) -> str:
+        state.tool_executions = tool_executions
+
+        # Use result processor to extract and build book recommendations
+        books = self.result_processor.extract_book_recommendations(state)
+
+        # Convert to dicts for RetrievalOutput compatibility
+        book_objects = []
+        for book in books:
+            if hasattr(book, "to_dict"):
+                book_objects.append(book.to_dict())
+            elif hasattr(book, "__dict__"):
+                book_objects.append(book.__dict__)
+
+        state.intermediate_outputs["book_objects"] = book_objects
+
+        return state
+
+        # Extract candidates from execution state (even on failure/timeout)
+        candidates = state.intermediate_outputs.get("book_objects", [])
+
+        append_chatbot_log(
+            f"Retrieval complete: {len(candidates)} candidates gathered (status: {state.status})"
+        )
+
+        # Build execution context for Curation
+        tools_used = [exec.tool_name for exec in state.tool_executions]
+
+        execution_context = ExecutionContext(
+            planner_reasoning=retrieval_input.strategy.reasoning,
+            tools_used=tools_used,
+            profile_data=retrieval_input.profile_data,
+        )
+
+        # Build lightweight tool execution summaries
+        tool_execution_summaries = [
+            ToolExecutionSummary(
+                tool_name=exec.tool_name,
+                arguments=exec.arguments,
+                succeeded=exec.succeeded,
+                execution_time_ms=exec.execution_time_ms,
+            )
+            for exec in state.tool_executions
+        ]
+
+        # Build output
+        output = RetrievalOutput(
+            candidates=candidates,
+            execution_context=execution_context,
+            reasoning=self._build_reasoning_summary(state),
+            tool_executions=tool_execution_summaries,
+        )
+
+        append_chatbot_log(
+            f"Retrieval output: {len(candidates)} candidates, {len(tools_used)} tools used"
+        )
+
+        return output
+
+    def _build_reasoning_summary(self, state) -> str:
         """
         Build human-readable summary of execution decisions.
 
@@ -346,17 +416,24 @@ class RetrievalAgent(BaseLangGraphAgent):
                 if exec.succeeded:
                     summary_parts.append(f"  - {exec.tool_name}: success")
                 else:
-                    summary_parts.append(f"  - {exec.tool_name}: failed ({exec.error})")
+                    error_msg = exec.error[:50] if exec.error else "unknown error"
+                    summary_parts.append(f"  - {exec.tool_name}: failed ({error_msg})")
 
         # Summary of results
         summary_parts.append(f"Gathered {len(candidates)} candidate books.")
 
         # Stopping reason
-        if len(candidates) >= 60:
+        from app.agents.domain.entities import ExecutionStatus
+
+        if state.status == ExecutionStatus.FAILED:
+            summary_parts.append("Stopped: execution error.")
+        elif state.status == ExecutionStatus.TIMEOUT:
+            summary_parts.append("Stopped: timeout reached.")
+        elif len(candidates) >= 60:
             summary_parts.append("Stopped: sufficient candidates for curation.")
-        elif len(candidates) < 60 and len(tool_execs) >= 4:
+        elif len(tool_execs) >= 4:
             summary_parts.append("Stopped: exhausted available tools.")
         else:
-            summary_parts.append("Stopped: execution limit reached.")
+            summary_parts.append("Stopped: iteration limit reached.")
 
         return " ".join(summary_parts)
