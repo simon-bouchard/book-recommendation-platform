@@ -318,25 +318,28 @@ class RetrievalAgent(BaseLangGraphAgent):
                     tool_name = tool_call.get("name", "")
                     tool_args = tool_call.get("args", {})
 
-                    # Find corresponding tool result in next messages
                     tool_result = None
-                    succeeded = False
+                    tool_error = None
                     for next_msg in messages[i + 1 :]:
                         if hasattr(next_msg, "tool_call_id") and next_msg.tool_call_id == tool_id:
                             tool_result = next_msg.content
-                            succeeded = True
+                            if not tool_result:
+                                tool_error = "No result returned"
                             break
+
+                    if tool_result is None:
+                        tool_error = "Tool result not found in message history"
 
                     tool_exec = ToolExecution(
                         tool_name=tool_name,
                         arguments=tool_args,
                         result=tool_result,
-                        succeeded=succeeded,
-                        execution_time_ms=0,  # Graph doesn't track individual timings
+                        error=tool_error,
+                        execution_time_ms=0,
                     )
                     tool_executions.append(tool_exec)
 
-        state.tool_executions = tool_executions
+                    state.tool_executions = tool_executions
 
         # Use result processor to extract and build book recommendations
         books = self.result_processor.extract_book_recommendations(state)
@@ -427,8 +430,6 @@ class RetrievalAgent(BaseLangGraphAgent):
 
         if state.status == ExecutionStatus.FAILED:
             summary_parts.append("Stopped: execution error.")
-        elif state.status == ExecutionStatus.TIMEOUT:
-            summary_parts.append("Stopped: timeout reached.")
         elif len(candidates) >= 60:
             summary_parts.append("Stopped: sufficient candidates for curation.")
         elif len(tool_execs) >= 4:
