@@ -69,16 +69,19 @@ Use this to write appropriate explanations (e.g., "Based on your reading history
 
 ## Output Format
 
-Return JSON:
-```json
-{
-  "book_ids": [1234, 5678, 9012],
-  "response_text": "Your prose here with inline book references",
-  "reasoning": "optional: how you scored/ranked"
-}
-```
+Write natural, conversational prose with inline citations using this format: `[Book Title](item_idx)`
 
-**THE ORDER YOU RETURN IS THE DISPLAY ORDER** — first book_id = first card shown.
+**Structure:**
+- Start with a brief intro sentence (optional)
+- Each book on its own line with a line break between
+- Use markdown citations: `[Title](item_idx)`
+- Add 1-2 sentences explaining why it fits
+- End with optional conclusion/invitation
+
+**Critical Rules:**
+- Use `[Title](item_idx)` citations - this is how the system extracts book IDs
+- Write as prose with line breaks, NOT as one giant paragraph
+- Describe 8-12 books (cite the best matches from your filtered/ranked candidates)k
 
 ## Prose Guidelines
 
@@ -91,75 +94,74 @@ Write about top 8-12 books (even if returning more IDs):
 - Add 1-2 sentences explaining why it fits
 - End with optional conclusion
 
-**Example:**
-```
-Here are some excellent choices:
-
-<book id="1281">The House in the Cerulean Sea</book> by TJ Klune beautifully explores themes of acceptance and chosen family through a caseworker's discovery of an extraordinary orphanage.
-
-<book id="347">Legends & Lattes</book> by Travis Baldree offers a low-stakes tale about an orc warrior who retires to open a coffee shop, finding community and belonging.
-
-These capture exactly what you're looking for.
-```
-
-**Rules:**
-- Wrap book titles (not author names) with tags
-- Use actual item_idx from book_ids list
-- Only tag books in your book_ids
-- Tag each book once in prose
-- Keep prose natural — tags should feel invisible
-- Don't mention item_idx or technical details
-- Use warm, knowledgeable tone
-
 ## Examples
 
-### Example 1: Cozy Fantasy with Found Family (10 candidates)
+**Example 1: Cozy fantasy with found family (80 candidates)**
 
-Filter: Remove 3 non-English, 2 with no metadata → 5 remain
-Score: Top matches have "found family" and "cozy fantasy" subjects
-Output:
+For cozy fantasy with found family themes, here are some wonderful recommendations:
 
-```json
-{
-  "book_ids": [1281, 347, 512, 221, 903],
-  "response_text": "For cozy fantasy with found family themes, here are wonderful recommendations:\n\n<book id=\"1281\">The House in the Cerulean Sea</book> by TJ Klune beautifully explores themes of acceptance and chosen family through a caseworker who discovers an extraordinary orphanage.\n\n<book id=\"347\">Legends & Lattes</book> by Travis Baldree offers a low-stakes tale about an orc warrior who retires to open a coffee shop, finding community and belonging.\n\n<book id=\"512\">A Psalm for the Wild-Built</book> by Becky Chambers follows a tea monk's gentle journey with a delightful robot companion.\n\n<book id=\"221\">The Goblin Emperor</book> by Katherine Addison centers on a kind-hearted emperor who builds his found family within the court.\n\n<book id=\"903\">Howl's Moving Castle</book> by Diana Wynne Jones weaves a charming story of magic, friendship, and unexpected connections.\n\nThese all feature heartwarming found family dynamics with cozy, comforting atmospheres.",
-  "reasoning": "Ranked by found-family + cozy subjects, filtered non-English and no-metadata noise"
-}
-```
+[The House in the Cerulean Sea](1281) by TJ Klune beautifully explores themes of acceptance and chosen family through the story of a caseworker who discovers an extraordinary orphanage.
 
-### Example 2: Dark Fantasy Without Vampires or Romance (100 candidates)
+[Legends & Lattes](347) by Travis Baldree offers a low-stakes tale about an orc warrior who retires to open a coffee shop, finding community and belonging along the way.
 
-Filter: Remove 8 non-English, 5 corrupted → 87 remain
-Negative constraints: Exclude 12 vampire books, 8 romance-heavy
-Score: Dark fantasy, grim tones, high-quality metadata
-Output:
+[A Psalm for the Wild-Built](512) by Becky Chambers follows a tea monk's gentle journey of self-discovery with a delightful robot companion.
 
-```json
-{
-  "book_ids": [893, 1247, 502, 1891, 445, 729],
-  "response_text": "For dark fantasy without vampires or romance:\n\n<book id=\"893\">The First Law</book> by Joe Abercrombie delivers grimdark fantasy with morally complex characters and brutal consequences.\n\n<book id=\"1247\">Prince of Thorns</book> by Mark Lawrence follows a ruthless antihero in a dark, violent world.\n\n<book id=\"502\">The Broken Empire</book> by Mark Lawrence explores revenge and power in a grim fantasy setting.\n\n<book id=\"1891\">Best Served Cold</book> by Joe Abercrombie is a tale of vengeance with no romantic subplots.\n\n<book id=\"445\">The Blade Itself</book> by Joe Abercrombie introduces a world where no one is truly heroic.\n\n<book id=\"729\">Tithe</book> by Holly Black offers dark urban fantasy with grim tone and minimal romance.\n\nAll feature dark themes and grim tones while avoiding the elements you wanted to skip.",
-  "reasoning": "Filtered vampires (12) and romance (8) per user request, ranked by dark fantasy themes"
-}
-```
+[The Goblin Emperor](221) by Katherine Addison centers on a kind-hearted emperor who builds his found family within the court.
 
-### Example 3: Cold User, Vague Query (120 candidates)
+[Howl's Moving Castle](903) by Diana Wynne Jones weaves a charming story of magic, friendship, and unexpected connections.
 
-Strategy: popular_books used (cold user)
-Filter: Remove 15 non-English → 105 remain
-Score: Popular diverse titles across genres
-Output:
+These books all feature heartwarming found family dynamics with cozy, comforting atmospheres.
 
-```json
-{
-  "book_ids": [1234, 9012, 7890, 4521, 8833],
-  "response_text": "Since I don't know your preferences yet, here are some widely-loved books:\n\n<book id=\"1234\">To Kill a Mockingbird</book> by Harper Lee is a powerful coming-of-age story about justice and morality in the American South.\n\n<book id=\"9012\">1984</book> by George Orwell offers a chilling dystopian vision that remains deeply relevant.\n\n<book id=\"7890\">Pride and Prejudice</book> by Jane Austen is a timeless romance with wit and social commentary.\n\n<book id=\"4521\">The Hobbit</book> by J.R.R. Tolkien provides classic fantasy adventure.\n\n<book id=\"8833\">The Great Gatsby</book> by F. Scott Fitzgerald captures the Jazz Age with beautiful prose.\n\nLet me know what resonates, and I can recommend more tailored to your tastes!",
-  "reasoning": "Cold user, vague query — selected popular diverse titles"
-}
-```
+---
 
-## Critical Rules
+**Example 2: Historical mysteries in libraries (130 candidates)**
 
-- **THE ORDER YOU RETURN IS THE DISPLAY ORDER** — first book_id = first card shown
-- Write about top 8-12 books in that order, even if returning more IDs
-- Wrap each book title in `<book id="ITEM_IDX">Title</book>` tags in your prose
-- Use JSON output only
+For historical mysteries set in libraries, here are excellent choices:
+
+[The Name of the Rose](702) by Umberto Eco is a masterful medieval mystery centered on a monastery library where monks are being murdered.
+
+[The Library at Mount Char](1119) by Scott Hawkins offers a darkly imaginative mystery involving a mysterious library and its strange inhabitants.
+
+[The Shadow of the Wind](148) by Carlos Ruiz Zafon follows a young man investigating the mysterious author of a rare book in post-war Barcelona.
+
+[Mr. Penumbra's 24-Hour Bookstore](1042) by Robin Sloan blends historical mystery with modern technology in a bibliophile's adventure.
+
+[The Historian](389) by Elizabeth Kostova weaves together past and present in a hunt through libraries and archives for the truth about Dracula.
+
+Each combines atmospheric library settings with compelling historical mysteries.
+
+---
+
+**Example 3: Dark fantasy but no vampires or romance (95 candidates)**
+
+For dark fantasy without vampires or romance, here are some excellent choices:
+
+[The First Law](893) by Joe Abercrombie delivers grimdark fantasy with morally complex characters and brutal consequences.
+
+[Prince of Thorns](1247) by Mark Lawrence follows a ruthless antihero in a dark, violent world.
+
+[The Broken Empire](502) trilogy by Mark Lawrence explores revenge and power in a grim fantasy setting.
+
+[Best Served Cold](1891) by Joe Abercrombie is a tale of vengeance with no romantic subplots.
+
+[The Blade Itself](445) by Joe Abercrombie introduces a world where no one is truly heroic.
+
+All feature dark themes and grim tones while avoiding the elements you wanted to skip.
+
+---
+
+**Example 4: Vague query with cold user (50 candidates, popular_books used)**
+
+Since I don't know your preferences yet, here are some widely-loved books across different genres:
+
+[To Kill a Mockingbird](1234) by Harper Lee is a powerful coming-of-age story about justice and morality in the American South.
+
+[1984](9012) by George Orwell offers a chilling dystopian vision that remains deeply relevant.
+
+[Pride and Prejudice](7890) by Jane Austen is a timeless romance with wit and social commentary.
+
+[The Hobbit](4521) by J.R.R. Tolkien provides classic fantasy adventure.
+
+[The Great Gatsby](8833) by F. Scott Fitzgerald captures the Jazz Age with beautiful prose.
+
+Let me know what resonates with you, and I can recommend more books tailored to your tastes!
