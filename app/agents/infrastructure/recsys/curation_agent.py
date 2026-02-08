@@ -7,6 +7,7 @@ Stage 3 of three-stage recommendation pipeline (Planner -> Retrieval -> Curation
 import json
 import re
 from typing import List, Dict, AsyncGenerator
+import os
 
 from langchain_core.messages import HumanMessage
 
@@ -23,7 +24,7 @@ from app.agents.schemas import StreamChunk
 from app.agents.tools.registry import ToolRegistry, InternalToolGates
 from app.agents.prompts.loader import read_prompt
 from app.agents.logging import append_chatbot_log, log_data_transform, is_debug_mode
-from app.agents.logging_modes import should_log_component
+from app.agents.logging_modes import should_log_component, LoggingConfig
 
 
 class CurationAgent(BaseLangGraphAgent):
@@ -195,6 +196,13 @@ CRITICAL OUTPUT FORMAT:
         # Parse citations to extract book IDs and build ordered list
         book_ids = self._extract_book_ids_from_citations(response.text)
         ordered_books = self._order_books_by_citations(candidates, book_ids)
+
+        if is_debug_mode():
+            candidate_ids = [c.item_idx for c in candidates[:10]]
+            append_chatbot_log(f"DEBUG - Cited IDs: {book_ids}")
+            append_chatbot_log(f"DEBUG - First 10 candidate IDs: {candidate_ids}")
+            append_chatbot_log(f"DEBUG - Matched: {len(ordered_books)}/{len(book_ids)}")
+            append_chatbot_log(f"DEBUG - Reponse: {response}")
 
         append_chatbot_log(f"Citations: {len(book_ids)} unique books referenced in prose")
 
