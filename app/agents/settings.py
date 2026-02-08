@@ -20,9 +20,7 @@ class ChatSettings(BaseSettings):
     chat_local_tz: str = "America/Toronto"
 
     # Feature flags
-    enable_inline_book_refs: bool = (
-        os.getenv("ENABLE_INLINE_BOOK_REFS", "true").lower() == "true"
-    )
+    enable_inline_book_refs: bool = os.getenv("ENABLE_INLINE_BOOK_REFS", "true").lower() == "true"
 
     # LLM selection (provider decided by environment)
     llm_provider: str = os.getenv("LLM_PROVIDER", "deepinfra")  # "deepinfra" | "openai"
@@ -33,16 +31,10 @@ class ChatSettings(BaseSettings):
 
     # DeepInfra (OpenAI-compatible API)
     deepinfra_api_key: Optional[str] = os.getenv("DEEPINFRA_API_KEY")
-    deepinfra_base_url: str = os.getenv(
-        "DEEPINFRA_BASE_URL", "https://api.deepinfra.com/v1/openai"
-    )
+    deepinfra_base_url: str = os.getenv("DEEPINFRA_BASE_URL", "https://api.deepinfra.com/v1/openai")
 
-    llm_model_small: str = os.getenv(
-        "LLM_MODEL_SMALL", "meta-llama/Meta-Llama-3.1-8B-Instruct"
-    )
-    llm_model_medium: str = os.getenv(
-        "LLM_MODEL_MEDIUM", "meta-llama/Meta-Llama-3.1-70B-Instruct"
-    )
+    llm_model_small: str = os.getenv("LLM_MODEL_SMALL", "meta-llama/Meta-Llama-3.1-8B-Instruct")
+    llm_model_medium: str = os.getenv("LLM_MODEL_MEDIUM", "meta-llama/Meta-Llama-3.1-70B-Instruct")
     llm_model_large: str = os.getenv("LLM_MODEL_LARGE", "openai/gpt-4")
 
     # Embedding hook (callable: List[str] -> np.ndarray [n, d])
@@ -121,6 +113,7 @@ def get_llm(
     max_tokens: Optional[int] = None,
     seed: Optional[int] = None,
     json_mode: bool = False,
+    max_retries: int = 6,
     model_kwargs: Optional[Dict[str, Any]] = None,
 ):
     """
@@ -142,9 +135,7 @@ def get_llm(
 
     # Defensive guard: blow up early if something is off
     if not isinstance(selected_model, str) or selected_model is str:
-        raise TypeError(
-            f"Resolved model must be a string, got: {type(resolved)!r} ({resolved!r})"
-        )
+        raise TypeError(f"Resolved model must be a string, got: {type(resolved)!r} ({resolved!r})")
 
     # Identify if this looks like an OpenAI-family model
     wants_openai = selected_model.startswith(("gpt-", "o3", "openai/"))
@@ -172,6 +163,7 @@ def get_llm(
         "model": selected_model,
         "temperature": float(temperature),
         "timeout": int(timeout),
+        "max_retries": int(max_retries),
         "api_key": api_key,
         "base_url": base_url,
     }
