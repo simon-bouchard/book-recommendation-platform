@@ -26,6 +26,7 @@ from app.agents.tools.registry import InternalToolGates, ToolRegistry
 from app.agents.prompts.loader import read_prompt
 from app.agents.logging import append_chatbot_log
 from app.agents.domain.entities import AgentExecutionState, ExecutionStatus
+from app.agents.utils.retrieval_logging_callback import RetrievalLoggingCallback
 
 
 class RetrievalAgent(BaseLangGraphAgent):
@@ -219,11 +220,15 @@ class RetrievalAgent(BaseLangGraphAgent):
             profile_data=retrieval_input.profile_data,
         )
 
+        logging_callback = RetrievalLoggingCallback()
+
         # Execute graph asynchronously (non-blocking)
         try:
             start_time = time.time()
 
-            result = await self.graph.ainvoke({"messages": messages})
+            result = await self.graph.ainvoke(
+                {"messages": messages}, config={"callbacks": [logging_callback]}
+            )
 
             state = self._extract_execution_state(result, retrieval_input.query, start_time)
 
@@ -270,10 +275,6 @@ class RetrievalAgent(BaseLangGraphAgent):
             execution_context=execution_context,
             reasoning=self._build_reasoning_summary(state),
             tool_executions=tool_execution_summaries,
-        )
-
-        append_chatbot_log(
-            f"Retrieval output: {len(candidates)} candidates, {len(tools_used)} tools used"
         )
 
         return output
@@ -356,47 +357,6 @@ class RetrievalAgent(BaseLangGraphAgent):
 
         return state
 
-        # Extract candidates from execution state (even on failure/timeout)
-        candidates = state.intermediate_outputs.get("book_objects", [])
-
-        append_chatbot_log(
-            f"Retrieval complete: {len(candidates)} candidates gathered (status: {state.status})"
-        )
-
-        # Build execution context for Curation
-        tools_used = [exec.tool_name for exec in state.tool_executions]
-
-        execution_context = ExecutionContext(
-            planner_reasoning=retrieval_input.strategy.reasoning,
-            tools_used=tools_used,
-            profile_data=retrieval_input.profile_data,
-        )
-
-        # Build lightweight tool execution summaries
-        tool_execution_summaries = [
-            ToolExecutionSummary(
-                tool_name=exec.tool_name,
-                arguments=exec.arguments,
-                succeeded=exec.succeeded,
-                execution_time_ms=exec.execution_time_ms,
-            )
-            for exec in state.tool_executions
-        ]
-
-        # Build output
-        output = RetrievalOutput(
-            candidates=candidates,
-            execution_context=execution_context,
-            reasoning=self._build_reasoning_summary(state),
-            tool_executions=tool_execution_summaries,
-        )
-
-        append_chatbot_log(
-            f"Retrieval output: {len(candidates)} candidates, {len(tools_used)} tools used"
-        )
-
-        return output
-
     def _build_reasoning_summary(self, state) -> str:
         """
         Build human-readable summary of execution decisions.
@@ -437,4 +397,45 @@ class RetrievalAgent(BaseLangGraphAgent):
         else:
             summary_parts.append("Stopped: iteration limit reached.")
 
-        return " ".join(summary_parts)
+         # Extract candidates from execution state (even on failure/timeout)
+        candidates = state.intermediate_outputs.get("book_objects", [])
+
+        append_chatbot_log(
+            f"Retrieval complete: {len(candidates)} candidates gathered (status: {state.status})"
+        )
+
+        # Build execution context for Curation
+        tools_used = [exec.tool_name for exec in state.tool_executions]
+
+        execution_context = ExecutionContext(
+            planner_reasoning=retrieval_input.strategy.reasoning,
+            tools_used=tools_used,
+            profile_data=retrieval_input.profile_data,
+        )
+
+        # Build lightweight tool execution summaries
+        tool_execution_summaries = [
+            ToolExecutionSummary(
+                tool_name=exec.tool_name,
+                arguments=exec.arguments,
+                succeeded=exec.succeeded,
+                execution_time_ms=exec.execution_time_ms,
+            )
+            for exec in state.tool_executions
+        ]
+
+        # Build output
+        output = RetrievalOutput(
+            candidates=candidates,
+            execution_context=execution_context,
+            reasoning=self._build_reasoning_summary(state),
+            tool_executions=tool_execution_summaries,
+        )
+
+        append_chatbot_log(
+            f"Retrieval output: {len(candidates)} candidates, {len(tools_used)} tools used"
+        )
+
+        return output
+
+       return " ".join(summary_parts)
