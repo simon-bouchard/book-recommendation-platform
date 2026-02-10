@@ -179,10 +179,6 @@ CRITICAL OUTPUT FORMAT:
 
         # Log stats in verbose mode
         if should_log_component("verbose"):
-            rich_count = sum(
-                1 for c in candidates if hasattr(c, "has_rich_metadata") and c.has_rich_metadata()
-            )
-            append_chatbot_log(f"Metadata: {rich_count}/{len(candidates)} with enrichment")
             if execution_context.tools_used:
                 append_chatbot_log(f"Tools: {', '.join(execution_context.tools_used)}")
 
@@ -202,7 +198,7 @@ CRITICAL OUTPUT FORMAT:
             append_chatbot_log(f"DEBUG - Cited IDs: {book_ids}")
             append_chatbot_log(f"DEBUG - First 10 candidate IDs: {candidate_ids}")
             append_chatbot_log(f"DEBUG - Matched: {len(ordered_books)}/{len(book_ids)}")
-            append_chatbot_log(f"DEBUG - Reponse: {response}")
+            append_chatbot_log(f"DEBUG - Reponse: {response.text[:500]}")
 
         append_chatbot_log(f"Citations: {len(book_ids)} unique books referenced in prose")
 
