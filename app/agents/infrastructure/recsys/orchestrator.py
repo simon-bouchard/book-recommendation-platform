@@ -218,12 +218,6 @@ class RecommendationAgent(BaseAgent):
             append_chatbot_log("[NO CANDIDATES] Returning empty results response")
             return self._no_candidates_fallback(request)
 
-        # Log candidate quality
-        rich_metadata_count = sum(
-            1 for c in candidates if hasattr(c, "has_rich_metadata") and c.has_rich_metadata()
-        )
-        append_chatbot_log(f"Metadata: {rich_metadata_count}/{len(candidates)} with enrichment")
-
         # ============================================================
         # STAGE 3: CURATION
         # ============================================================
