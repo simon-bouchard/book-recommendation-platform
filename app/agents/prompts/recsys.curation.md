@@ -47,8 +47,6 @@ Check query for exclusions:
 - "avoid sad endings" → exclude tragedies
 - "nothing too dark" → exclude dark/grim tones
 
-Log what you filtered.
-
 ## Relevance Scoring
 
 Weight these factors:
@@ -81,7 +79,7 @@ Write natural, conversational prose with inline citations using this format: `[B
 **Critical Rules:**
 - Use `[Title](item_idx)` citations - this is how the system extracts book IDs
 - Write as prose with line breaks, NOT as one giant paragraph
-- Describe 8-12 books (cite the best matches from your filtered/ranked candidates)k
+- Describe 8-12 books (cite the best matches from your filtered/ranked candidates)
 
 ## Prose Guidelines
 
