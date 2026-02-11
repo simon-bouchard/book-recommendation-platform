@@ -397,45 +397,4 @@ class RetrievalAgent(BaseLangGraphAgent):
         else:
             summary_parts.append("Stopped: iteration limit reached.")
 
-         # Extract candidates from execution state (even on failure/timeout)
-        candidates = state.intermediate_outputs.get("book_objects", [])
-
-        append_chatbot_log(
-            f"Retrieval complete: {len(candidates)} candidates gathered (status: {state.status})"
-        )
-
-        # Build execution context for Curation
-        tools_used = [exec.tool_name for exec in state.tool_executions]
-
-        execution_context = ExecutionContext(
-            planner_reasoning=retrieval_input.strategy.reasoning,
-            tools_used=tools_used,
-            profile_data=retrieval_input.profile_data,
-        )
-
-        # Build lightweight tool execution summaries
-        tool_execution_summaries = [
-            ToolExecutionSummary(
-                tool_name=exec.tool_name,
-                arguments=exec.arguments,
-                succeeded=exec.succeeded,
-                execution_time_ms=exec.execution_time_ms,
-            )
-            for exec in state.tool_executions
-        ]
-
-        # Build output
-        output = RetrievalOutput(
-            candidates=candidates,
-            execution_context=execution_context,
-            reasoning=self._build_reasoning_summary(state),
-            tool_executions=tool_execution_summaries,
-        )
-
-        append_chatbot_log(
-            f"Retrieval output: {len(candidates)} candidates, {len(tools_used)} tools used"
-        )
-
-        return output
-
-       return " ".join(summary_parts)
+        return " ".join(summary_parts)
