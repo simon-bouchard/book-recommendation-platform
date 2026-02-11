@@ -193,14 +193,26 @@ CRITICAL OUTPUT FORMAT:
         book_ids = self._extract_book_ids_from_citations(response.text)
         ordered_books = self._order_books_by_citations(candidates, book_ids)
 
+        # Validate that cited books were in retrieved candidates
+        candidate_ids_set = {c.item_idx for c in candidates}
+        valid_citations = [bid for bid in book_ids if bid in candidate_ids_set]
+        invalid_citations = [bid for bid in book_ids if bid not in candidate_ids_set]
+
+        # Log validation results
+        append_chatbot_log(
+            f"Citations: {len(book_ids)} unique books referenced "
+            f"({len(valid_citations)} valid, {len(invalid_citations)} invalid)"
+        )
+
+        if invalid_citations:
+            append_chatbot_log(f"⚠️  WARNING: Cited books NOT in candidates: {invalid_citations}")
+
         if is_debug_mode():
             candidate_ids = [c.item_idx for c in candidates[:10]]
-            append_chatbot_log(f"DEBUG - Cited IDs: {book_ids}")
+            append_chatbot_log(f"DEBUG - All cited IDs: {book_ids}")
+            append_chatbot_log(f"DEBUG - Valid cited IDs: {valid_citations}")
             append_chatbot_log(f"DEBUG - First 10 candidate IDs: {candidate_ids}")
-            append_chatbot_log(f"DEBUG - Matched: {len(ordered_books)}/{len(book_ids)}")
-            append_chatbot_log(f"DEBUG - Reponse: {response.text[:500]}")
-
-        append_chatbot_log(f"Citations: {len(book_ids)} unique books referenced in prose")
+            append_chatbot_log(f"DEBUG - Response preview: {response.text[:500]}")
 
         # Update response with ordered books
         response.book_recommendations = ordered_books
@@ -250,7 +262,27 @@ CRITICAL OUTPUT FORMAT:
                 full_text = "".join(accumulated_text)
                 book_ids = self._extract_book_ids_from_citations(full_text)
 
-                append_chatbot_log(f"Citations: {len(book_ids)} books cited in prose")
+                # Validate citations against candidates
+                candidate_ids_set = {c.item_idx for c in candidates}
+                valid_citations = [bid for bid in book_ids if bid in candidate_ids_set]
+                invalid_citations = [bid for bid in book_ids if bid not in candidate_ids_set]
+
+                append_chatbot_log(
+                    f"Citations: {len(book_ids)} books cited "
+                    f"({len(valid_citations)} valid, {len(invalid_citations)} invalid)"
+                )
+
+                if invalid_citations:
+                    append_chatbot_log(
+                        f"⚠️  WARNING: Cited books NOT in candidates: {invalid_citations}"
+                    )
+
+                if is_debug_mode():
+                    candidate_ids = [c.item_idx for c in candidates[:10]]
+                    append_chatbot_log(f"DEBUG - All cited IDs: {book_ids}")
+                    append_chatbot_log(f"DEBUG - Valid cited IDs: {valid_citations}")
+                    append_chatbot_log(f"DEBUG - First 10 candidate IDs: {candidate_ids}")
+                    append_chatbot_log(f"DEBUG - Response preview: {full_text[:500]}")
 
                 # Update completion data with book IDs
                 chunk.data["book_ids"] = book_ids
