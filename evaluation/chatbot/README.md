@@ -55,14 +55,14 @@ Don't compare with previous evaluation runs (only show latest).
   🎯 EVALUATION DASHBOARD SUMMARY
 ================================================================================
 
-Agent                Pass Rate       Tests        Status         
+Agent                Pass Rate       Tests        Status
 --------------------------------------------------------------------------------
-web                  50.0%           4/8          ⚠️  Needs Work 
-recommendation       70.6%           12/17        ⚠️  Needs Work 
-docs                 75.0%           6/8          ⚠️  Needs Work 
-router               100.0%          20/20        ✅ Perfect      
-router_history       100.0%          16/16        ✅ Perfect      
-response             100.0%          7/7          ✅ Perfect      
+web                  50.0%           4/8          ⚠️  Needs Work
+recommendation       70.6%           12/17        ⚠️  Needs Work
+docs                 75.0%           6/8          ⚠️  Needs Work
+router               100.0%          20/20        ✅ Perfect
+router_history       100.0%          16/16        ✅ Perfect
+response             100.0%          7/7          ✅ Perfect
 --------------------------------------------------------------------------------
 
 💡 Priority Recommendations:
@@ -89,6 +89,57 @@ evaluation/chatbot/
 ```
 
 The script automatically finds the latest eval file for each agent based on timestamp.
+
+## Shared Utilities: `eval_utils.py`
+
+### Overview
+
+The `evaluation/chatbot/eval_utils.py` module provides shared utilities for all agent evaluation scripts. This eliminates code duplication and ensures consistent behavior across all evaluations.
+
+### `execute_with_streaming()`
+
+The primary utility is the `execute_with_streaming()` helper function, which handles async streaming execution for agents.
+
+**Purpose:**
+- Executes agents using their `execute_stream()` method
+- Accumulates streamed text chunks
+- Reconstructs full `AgentResponse` from streaming chunks
+- Converts tool calls to `ToolExecution` objects
+- Makes streaming transparent to evaluation logic
+
+**Usage:**
+
+```python
+from evaluation.chatbot.eval_utils import execute_with_streaming
+
+async def evaluate(test_cases, agent):
+    for test in test_cases:
+        request = AgentRequest(user_text=test["query"], ...)
+
+        # Execute with streaming - returns complete AgentResponse
+        response = await execute_with_streaming(agent, request)
+
+        # Now work with full response as if using sync execute()
+        print(response.text)
+        print(response.execution_state.tool_executions)
+```
+
+**Benefits:**
+- **DRY**: Single implementation shared across all evaluation scripts
+- **Consistency**: Identical streaming behavior for all agents
+- **Maintainability**: Bug fixes apply to all evaluations automatically
+- **Simplicity**: Evaluation scripts focus on validation logic, not streaming mechanics
+
+**Alternative: Sync Execution**
+
+If you don't need to test streaming behavior, agents also support direct async execution:
+
+```python
+# Direct async execution (no streaming)
+response = await agent.execute(request)
+```
+
+Both approaches return the same `AgentResponse` structure with identical fields.
 
 ## Supported Agents
 
