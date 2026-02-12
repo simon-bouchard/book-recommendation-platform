@@ -96,8 +96,16 @@ async def execute_with_streaming(agent: BaseLangGraphAgent, request: AgentReques
     )
 
     # Reconstruct full response
+    accumulated_text = "".join(text_chunks) if text_chunks else final_data.get("text", "")
+
+    # Strip query prefix if present (LangGraph sometimes echoes the query)
+    # Pattern: query text appears at start without separator
+    query_text = request.user_text
+    if accumulated_text.startswith(query_text):
+        accumulated_text = accumulated_text[len(query_text) :].lstrip()
+
     response = AgentResponse(
-        text="".join(text_chunks) if text_chunks else final_data.get("text", ""),
+        text=accumulated_text,
         success=final_data.get("success", True),
         target_category=final_data.get("target", "respond"),
         execution_state=exec_state,
