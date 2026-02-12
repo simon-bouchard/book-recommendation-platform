@@ -18,59 +18,8 @@ from app.agents.infrastructure.web_agent import WebAgent
 from app.agents.domain.entities import AgentRequest, ExecutionContext, AgentResponse
 from app.agents.logging import capture_agent_console_and_httpx
 
-
-async def execute_with_streaming(agent: WebAgent, request: AgentRequest) -> AgentResponse:
-    """
-    Execute agent with streaming and reconstruct response.
-    Makes streaming transparent to evaluation logic.
-
-    Args:
-        agent: WebAgent instance
-        request: AgentRequest to execute
-
-    Returns:
-        AgentResponse with accumulated text and metadata
-    """
-    text_chunks = []
-    final_data = None
-
-    async for chunk in agent.execute_stream(request):
-        if chunk.type == "token":
-            text_chunks.append(chunk.content)
-        elif chunk.type == "complete":
-            final_data = chunk.data
-
-    if not final_data:
-        raise RuntimeError("Streaming completed without final chunk")
-
-    # Get tool calls from final_data (BaseLangGraphAgent puts them here)
-    tool_calls_raw = final_data.get("tool_calls", [])
-
-    # Convert dict format to ToolExecution objects for compatibility
-    from app.agents.domain.entities import ToolExecution
-
-    tool_executions = [
-        ToolExecution(tool_name=tc["tool_name"], arguments=tc["arguments"], result=tc["result"])
-        for tc in tool_calls_raw
-    ]
-
-    # Build execution state with tool executions
-    from app.agents.domain.entities import AgentExecutionState, ExecutionStatus
-
-    exec_state = AgentExecutionState(
-        input_text=request.user_text,
-        conversation_history=request.conversation_history,
-        status=ExecutionStatus.COMPLETED if final_data.get("success") else ExecutionStatus.FAILED,
-        tool_executions=tool_executions,
-    )
-
-    response = AgentResponse(
-        text="".join(text_chunks) if text_chunks else final_data.get("text", ""),
-        success=final_data.get("success", True),
-        execution_state=exec_state,
-    )
-
-    return response
+# Import shared streaming helper
+from evaluation.chatbot.eval_utils import execute_with_streaming
 
 
 def load_test_cases(json_path: Path) -> List[Dict]:
