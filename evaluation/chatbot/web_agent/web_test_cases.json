@@ -1,50 +1,50 @@
 [
-  {
-    "query": "What are the best books of 2024?",
-    "recency_expected": true,
-    "tool_required": true,
-    "rationale": "Needs current information, must search web"
-  },
-  {
-    "query": "What new fantasy books came out in 2025?",
-    "recency_expected": true,
-    "tool_required": true,
-    "rationale": "Needs current information, must search web"
-  },
-  {
-    "query": "What's Brandon Sanderson's latest book?",
-    "recency_expected": true,
-    "tool_required": true,
-    "rationale": "Latest information changes, must search web"
-  },
-  {
-    "query": "Tell me about recent science fiction releases",
-    "recency_expected": true,
-    "tool_required": true,
-    "rationale": "Recent releases require web search"
-  },
-  {
-    "query": "What are the current bestsellers?",
-    "recency_expected": true,
-    "tool_required": true,
-    "rationale": "Current bestsellers change weekly, must search web"
-  },
-  {
-    "query": "What books won the 2024 Booker Prize?",
-    "recency_expected": true,
-    "tool_required": true,
-    "rationale": "Specific 2024 event, must search web"
-  },
-  {
-    "query": "Tell me about Stephen King's writing style",
-    "recency_expected": false,
-    "tool_required": false,
-    "rationale": "Stable knowledge, can answer from training data"
-  },
-  {
-    "query": "What is the Dune series about?",
-    "recency_expected": false,
-    "tool_required": false,
-    "rationale": "Stable knowledge, can answer from training data"
-  }
+    {
+        "query": "What are the best books of 2024?",
+        "recency_expected": false,
+        "tool_required": true,
+        "rationale": "Needs current information, must search web"
+    },
+    {
+        "query": "What new fantasy books came out in 2025?",
+        "recency_expected": true,
+        "tool_required": true,
+        "rationale": "Needs current information, must search web"
+    },
+    {
+        "query": "What's Brandon Sanderson's latest book?",
+        "recency_expected": true,
+        "tool_required": true,
+        "rationale": "Latest information changes, must search web"
+    },
+    {
+        "query": "Tell me about recent science fiction releases",
+        "recency_expected": true,
+        "tool_required": true,
+        "rationale": "Recent releases require web search"
+    },
+    {
+        "query": "What are the current bestsellers?",
+        "recency_expected": true,
+        "tool_required": true,
+        "rationale": "Current bestsellers change weekly, must search web"
+    },
+    {
+        "query": "What books won the 2024 Booker Prize?",
+        "recency_expected": true,
+        "tool_required": true,
+        "rationale": "Specific 2024 event, must search web"
+    },
+    {
+        "query": "Tell me about Stephen King's writing style",
+        "recency_expected": false,
+        "tool_required": false,
+        "rationale": "Stable knowledge, can answer from training data"
+    },
+    {
+        "query": "What is the Dune series about?",
+        "recency_expected": false,
+        "tool_required": false,
+        "rationale": "Stable knowledge, can answer from training data"
+    }
 ]
