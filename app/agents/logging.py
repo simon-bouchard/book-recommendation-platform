@@ -88,16 +88,11 @@ _LOGGER_NAMES_TO_CAPTURE: List[str] = [
     "langchain_core",
     "langchain_community",
     "httpx",
-    "httpcore",
     "openai",
     "urllib3",
     "agent",
     "agent.input",
     "chatbot",
-    "primp",
-    "rquest",
-    "ddgs",
-    "cookie_store",
 ]
 
 
@@ -465,7 +460,32 @@ def is_debug_mode() -> bool:
     return os.getenv("LOG_PROMPT", "0").lower() in ("1", "true", "yes")
 
 
+def suppress_noisy_loggers():
+    """Suppress DEBUG logs from noisy third-party libraries."""
+    noisy_loggers = [
+        "httpcore",
+        "httpcore.http11",
+        "primp",
+        "primp.utils",
+        "rquest",
+        "rquest.connect",
+        "rquest.util.client.connect.dns",
+        "rquest.util.client.connect.http",
+        "rquest.util.client.pool",
+        "rquest.client.http",
+        "ddgs",
+        "ddgs.ddgs",
+        "cookie_store",
+        "cookie_store.cookie_store",
+    ]
+
+    for logger_name in noisy_loggers:
+        logging.getLogger(logger_name).setLevel(logging.WARNING)
+
+
 # Re-export everything from the original module
+suppress_noisy_loggers()
+
 __all__ = [
     "append_chatbot_log",
     "LogCallbackHandler",
