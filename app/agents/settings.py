@@ -114,6 +114,7 @@ def get_llm(
     seed: Optional[int] = None,
     json_mode: bool = False,
     max_retries: int = 6,
+    streaming: bool = True,
     model_kwargs: Optional[Dict[str, Any]] = None,
 ):
     """
@@ -166,6 +167,7 @@ def get_llm(
         "max_retries": int(max_retries),
         "api_key": api_key,
         "base_url": base_url,
+        "streaming": streaming,
     }
 
     if max_tokens is not None:
