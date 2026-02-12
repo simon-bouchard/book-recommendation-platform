@@ -157,17 +157,22 @@ def judge_answer_quality(
 
     Pass = both scores = 1
     """
+    # Get current date for temporal context
+    current_date = datetime.now().strftime("%A, %B %d, %Y")
+
     recency_instruction = ""
     if recency_expected:
-        recency_instruction = """
-2. RECENCY: Does the response contain current/recent information (2024-2025)?
-   - 1 = Yes, references recent information with dates/specifics
+        recency_instruction = f"""
+2. RECENCY: Does the response contain current/recent information?
+   - 1 = Yes, references recent information with dates/specifics appropriate for {current_date}
    - 0 = No, information seems outdated or lacks temporal specificity"""
     else:
         recency_instruction = """
 2. RECENCY: Not applicable for this query (automatically set to 1)"""
 
-    judge_prompt = f"""Query: {query}
+    judge_prompt = f"""Current date: {current_date}
+
+Query: {query}
 
 Agent Response:
 {response_text}
