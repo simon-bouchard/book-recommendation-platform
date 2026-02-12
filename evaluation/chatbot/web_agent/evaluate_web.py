@@ -181,7 +181,7 @@ Evaluate the agent's response with binary scoring:
 
 1. RELEVANCE: Does the response properly address the query?
    - 1 = Yes, directly addresses the query
-   - 0 = No, off-topic or doesn't answer
+   - 0 = No, off-topic doesn't answer, or merely provides links/sources without meaningful synthesis
 
 {recency_instruction}
 
