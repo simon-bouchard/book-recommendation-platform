@@ -4,6 +4,10 @@ Web search agent using BaseLangGraphAgent.
 Performs external web searches and synthesizes information with citations.
 """
 
+from datetime import datetime
+from typing import List
+from langchain_core.messages import BaseMessage, SystemMessage
+
 from app.agents.infrastructure.base_langgraph_agent import BaseLangGraphAgent
 from app.agents.domain.entities import AgentConfiguration, AgentCapability
 from app.agents.prompts.loader import read_prompt
@@ -67,6 +71,18 @@ class WebAgent(BaseLangGraphAgent):
             context=False,
             gates=InternalToolGates(),
         )
+
+    def _add_context_messages(self, **context) -> List[BaseMessage]:
+        """
+        Add current date context for temporal awareness.
+
+        Helps agent determine when to use web search vs training data.
+
+        Returns:
+            List containing current date context message
+        """
+        current_date = datetime.now().strftime("%A, %B %d, %Y")
+        return [SystemMessage(content=f"Current date: {current_date}")]
 
     def _get_target_category(self) -> str:
         """
