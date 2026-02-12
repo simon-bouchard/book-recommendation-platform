@@ -31,7 +31,7 @@ class DocsAgent(BaseLangGraphAgent):
             policy_name="docs.system.md",
             capabilities=frozenset([AgentCapability.DOCUMENT_SEARCH]),
             allowed_tools=frozenset(["help_read"]),
-            llm_tier="medium",
+            llm_tier="large",
             timeout_seconds=30,
             max_iterations=5,
         )
