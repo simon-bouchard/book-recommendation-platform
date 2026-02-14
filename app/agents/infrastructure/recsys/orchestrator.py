@@ -6,6 +6,7 @@ Orchestrates the complete pipeline with both sync and streaming execution.
 
 from typing import Optional, Any, AsyncGenerator
 import time
+import inspect
 
 from app.agents.domain.entities import (
     AgentRequest,
@@ -159,7 +160,6 @@ class RecommendationAgent(BaseAgent):
             )
 
             # Execute planner (await if async)
-            import inspect
 
             if inspect.iscoroutinefunction(self.planner_agent.execute):
                 strategy = await self.planner_agent.execute(planner_input)
@@ -318,7 +318,6 @@ class RecommendationAgent(BaseAgent):
             # Execute planner (will be async if planner is async)
             if hasattr(self.planner_agent.execute, "__call__"):
                 # Check if it's a coroutine
-                import inspect
 
                 if inspect.iscoroutinefunction(self.planner_agent.execute):
                     strategy = await self.planner_agent.execute(planner_input)
