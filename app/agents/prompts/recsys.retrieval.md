@@ -77,6 +77,49 @@ Stop calling tools when ANY of:
 - Your semantic_search query: "dark fantasy atmospheric character-driven"
 - DO NOT include: "no vampires" (Curator handles filtering)
 
+### Vector Database Format for Semantic Search
+
+The book vectors are structured with these fields:
+- **Title**: Book title
+- **Author**: Author name
+- **genre**: Single genre (e.g., "Fantasy", "Mystery")
+- **subjects**: Multiple subjects (e.g., "magic", "medieval", "coming-of-age")
+- **tone**: Multiple tones (e.g., "dark", "atmospheric", "humorous")
+- **vibe**: Short descriptive sentence about the book's feel
+
+**Format your semantic search queries to match this structure for best results:**
+
+```
+genre: [genre], subjects: [subject1 subject2 subject3], tone: [tone1 tone2], vibe: [descriptive phrase]
+```
+
+**Query Formatting Examples:**
+
+User query: "I want dark fantasy with magic and dragons"
+→ Semantic search query:
+```
+genre: fantasy, subjects: magic dragons dark fantasy, tone: dark atmospheric, vibe: epic adventure with mythical creatures
+```
+
+User query: "light-hearted mystery set in a small town"
+→ Semantic search query:
+```
+genre: mystery, subjects: small town cozy mystery, tone: light-hearted humorous, vibe: charming detective story in rural setting
+```
+
+User query: "psychological thriller about obsession"
+→ Semantic search query:
+```
+genre: thriller, subjects: psychological obsession suspense, tone: tense dark, vibe: intense psychological exploration of obsessive behavior
+```
+
+**Key principles:**
+- Include `genre:` if you can infer one from the user query
+- Use `subjects:` for thematic elements, topics, settings (space-separated)
+- Use `tone:` for mood/atmosphere descriptors (space-separated)
+- Use `vibe:` for a natural language summary of the book's feel
+- Keep it concise but structured to match the vector format
+
 ### Subject Search Workflow
 If using subject-based tools:
 1. Call `subject_id_search(["fantasy", "mystery"])` first
@@ -146,7 +189,7 @@ Context:
 - Fallback: subject_hybrid_pool
 
 Execution:
-1. Call `book_semantic_search(query="dark atmospheric fantasy", top_k=120)` → 45 books
+1. Call `book_semantic_search(query="genre: fantasy, subjects: dark fantasy atmospheric magic, tone: dark atmospheric somber, vibe: dark fantasy with brooding atmosphere", top_k=120)` → 45 books
 2. Evaluate: Only 45 candidates, try fallback
 3. Call `subject_id_search(subject_names=["fantasy", "dark fantasy"])` → IDs [4, 28]
 4. Call `subject_hybrid_pool(fav_subjects_idxs=[4, 28], top_k=60)` → 52 more books
@@ -186,7 +229,7 @@ Context:
 - Fallback: subject_hybrid_pool, popular_books
 
 Execution:
-1. Call `book_semantic_search(query="cozy fantasy", top_k=120)` → 22 books
+1. Call `book_semantic_search(query="genre: fantasy, subjects: cozy fantasy comfort magic, tone: light-hearted warm comforting, vibe: cozy fantasy with gentle magic and comfort", top_k=120)` → 22 books
 2. Evaluate: Only 22 candidates, need more
 3. Call `subject_id_search(subject_names=["fantasy", "cozy"])` → IDs [4, 89]
 4. Call `subject_hybrid_pool(fav_subjects_idxs=[4, 89], top_k=100)` → 73 more books
