@@ -5,6 +5,10 @@ from typing import Any, Dict, Optional
 from sentence_transformers import SentenceTransformer
 import numpy as np
 from langchain_openai import ChatOpenAI
+import httpx
+import logging
+
+logger = logging.getLogger(__name__)
 
 
 class ChatSettings(BaseSettings):
@@ -109,7 +113,7 @@ def get_llm(
     *,
     tier: Optional[str] = None,
     temperature: float = 0.0,
-    timeout: int = 30,
+    timeout: int = 120,  # Increased to accommodate retry backoff (was 30s)
     max_tokens: Optional[int] = None,
     seed: Optional[int] = None,
     json_mode: bool = False,
@@ -120,6 +124,12 @@ def get_llm(
     """
     Return a LangChain Chat model for the active provider.
     Auto-routes provider if the selected model clearly belongs to OpenAI.
+
+    Retry Behavior:
+    - Automatically retries on rate limits (429) and transient errors (500, 502, 503)
+    - Uses exponential backoff: ~2s, 4s, 8s, 16s, 32s, 64s between retries
+    - Timeout increased to 120s to accommodate full retry cycle (6 retries can take ~126s)
+    - Set max_retries=0 to disable retries, or max_retries=2 for faster failure
     """
     p = get_provider()
 
@@ -159,15 +169,42 @@ def get_llm(
             # No OpenAI key, stay on DeepInfra but pick a valid DeepInfra model
             selected_model = p["default_model"]
 
+    # Configure timeout for retries
+    # With exponential backoff, 6 retries can take: 2 + 4 + 8 + 16 + 32 + 64 = 126s
+    # Add buffer for actual request time
+    effective_timeout = timeout
+    if max_retries > 0 and effective_timeout < 120:
+        effective_timeout = 120
+
+    # Create httpx client with retry-friendly configuration
+    # The OpenAI SDK will use this client and respect max_retries parameter
+    http_client = httpx.Client(
+        timeout=httpx.Timeout(
+            effective_timeout,
+            connect=10.0,  # Connection timeout
+            read=effective_timeout,  # Read timeout (for long responses)
+            write=10.0,  # Write timeout
+            pool=5.0,  # Pool timeout
+        ),
+        limits=httpx.Limits(
+            max_keepalive_connections=10,
+            max_connections=20,
+            keepalive_expiry=30.0,
+        ),
+    )
+
     # Assemble base args
     init_kwargs: Dict[str, Any] = {
         "model": selected_model,
         "temperature": float(temperature),
-        "timeout": int(timeout),
-        "max_retries": int(max_retries),
+        "timeout": effective_timeout,
+        "max_retries": int(
+            max_retries
+        ),  # OpenAI SDK handles exponential backoff for 429, 500, 502, 503
         "api_key": api_key,
         "base_url": base_url,
         "streaming": streaming,
+        "http_client": http_client,  # Use our configured client with appropriate timeouts
     }
 
     if max_tokens is not None:
