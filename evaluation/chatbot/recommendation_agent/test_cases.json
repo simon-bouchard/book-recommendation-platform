@@ -9,6 +9,15 @@
 				"allow_profile": true,
 				"is_warm": true
 			},
+			"planner_strategy": {
+				"recommended_tools": [
+					"als_recs"
+				],
+				"fallback_tools": [
+					"popular_books"
+				],
+				"reasoning": "Warm user with vague query - use collaborative filtering based on reading history"
+			},
 			"expected_tools": {
 				"should_use_user_profile": true,
 				"profile_before_retrieval": true,
@@ -28,6 +37,15 @@
 				"allow_profile": false,
 				"is_warm": true
 			},
+			"planner_strategy": {
+				"recommended_tools": [
+					"als_recs"
+				],
+				"fallback_tools": [
+					"popular_books"
+				],
+				"reasoning": "Warm user with vague query, no profile - use ALS collaborative filtering"
+			},
 			"expected_tools": {
 				"should_use_user_profile": false,
 				"should_use_any_retrieval_tool": true
@@ -45,6 +63,15 @@
 				"num_ratings": 12,
 				"allow_profile": true,
 				"is_warm": true
+			},
+			"planner_strategy": {
+				"recommended_tools": [
+					"book_semantic_search"
+				],
+				"fallback_tools": [
+					"popular_books"
+				],
+				"reasoning": "Descriptive query with specific atmosphere and tone - use semantic search with structured format"
 			},
 			"expected_tools": {
 				"should_use_semantic_search": true,
@@ -64,6 +91,15 @@
 				"allow_profile": false,
 				"is_warm": true
 			},
+			"planner_strategy": {
+				"recommended_tools": [
+					"book_semantic_search"
+				],
+				"fallback_tools": [
+					"popular_books"
+				],
+				"reasoning": "Descriptive query with specific tone and vibe - use semantic search"
+			},
 			"expected_tools": {
 				"should_use_semantic_search": true,
 				"should_not_use_profile": true
@@ -82,6 +118,16 @@
 				"allow_profile": false,
 				"is_warm": true
 			},
+			"planner_strategy": {
+				"recommended_tools": [
+					"subject_id_search",
+					"subject_hybrid_pool"
+				],
+				"fallback_tools": [
+					"popular_books"
+				],
+				"reasoning": "Genre query - resolve subject name to ID via subject_id_search, then retrieve via subject_hybrid_pool"
+			},
 			"expected_tools": {
 				"should_use_subject_search": true
 			},
@@ -98,6 +144,15 @@
 				"num_ratings": 12,
 				"allow_profile": false,
 				"is_warm": true
+			},
+			"planner_strategy": {
+				"recommended_tools": [
+					"book_semantic_search"
+				],
+				"fallback_tools": [
+					"popular_books"
+				],
+				"reasoning": "Descriptive query with multiple facets (genre + themes) - use semantic search"
 			},
 			"expected_tools": {
 				"should_use_semantic_search": true
@@ -118,6 +173,15 @@
 				"allow_profile": true,
 				"is_warm": false
 			},
+			"planner_strategy": {
+				"recommended_tools": [
+					"subject_hybrid_pool"
+				],
+				"fallback_tools": [
+					"popular_books"
+				],
+				"reasoning": "Cold user with vague query but has profile - use subject_hybrid_pool with auto-fetched favorite subjects"
+			},
 			"expected_tools": {
 				"should_use_user_profile": true,
 				"should_use_any_retrieval_tool": true,
@@ -137,6 +201,13 @@
 				"num_ratings": 0,
 				"allow_profile": false,
 				"is_warm": false
+			},
+			"planner_strategy": {
+				"recommended_tools": [
+					"popular_books"
+				],
+				"fallback_tools": [],
+				"reasoning": "New user with vague query and no profile - recommend popular books"
 			},
 			"expected_tools": {
 				"should_use_user_profile": false,
@@ -159,6 +230,15 @@
 				"allow_profile": false,
 				"is_warm": false
 			},
+			"planner_strategy": {
+				"recommended_tools": [
+					"book_semantic_search"
+				],
+				"fallback_tools": [
+					"popular_books"
+				],
+				"reasoning": "Descriptive query with specific attributes - use semantic search"
+			},
 			"expected_tools": {
 				"should_use_semantic_search": true,
 				"should_not_use_profile": true
@@ -177,6 +257,15 @@
 				"allow_profile": true,
 				"is_warm": false
 			},
+			"planner_strategy": {
+				"recommended_tools": [
+					"book_semantic_search"
+				],
+				"fallback_tools": [
+					"popular_books"
+				],
+				"reasoning": "Descriptive query with pace/tone attributes - use semantic search"
+			},
 			"expected_tools": {
 				"should_use_semantic_search": true,
 				"should_not_use_profile": true
@@ -194,6 +283,16 @@
 				"num_ratings": 0,
 				"allow_profile": false,
 				"is_warm": false
+			},
+			"planner_strategy": {
+				"recommended_tools": [
+					"subject_id_search",
+					"subject_hybrid_pool"
+				],
+				"fallback_tools": [
+					"popular_books"
+				],
+				"reasoning": "Genre query from new user - resolve romance subject and retrieve via subject_hybrid_pool"
 			},
 			"expected_tools": {
 				"should_use_subject_search": true
@@ -214,6 +313,15 @@
 				"allow_profile": false,
 				"is_warm": true
 			},
+			"planner_strategy": {
+				"recommended_tools": [
+					"als_recs"
+				],
+				"fallback_tools": [
+					"popular_books"
+				],
+				"reasoning": "Warm user with vague query - use ALS collaborative filtering"
+			},
 			"expected_tools": {
 				"should_use_any_retrieval_tool": true
 			},
@@ -231,6 +339,15 @@
 				"allow_profile": false,
 				"is_warm": true
 			},
+			"planner_strategy": {
+				"recommended_tools": [
+					"book_semantic_search"
+				],
+				"fallback_tools": [
+					"popular_books"
+				],
+				"reasoning": "Descriptive query with atmosphere - use semantic search with structured format"
+			},
 			"expected_tools": {
 				"should_use_semantic_search": true
 			},
@@ -241,12 +358,21 @@
 		},
 		{
 			"name": "retrieval_uses_fallback_when_needed",
-			"query": "books about extremely specific obscure topic",
+			"query": "books about competitive stone skipping tournaments and the physics of water surface angles",
 			"user_id": 278859,
 			"user_state": {
 				"num_ratings": 12,
 				"allow_profile": false,
 				"is_warm": true
+			},
+			"planner_strategy": {
+				"recommended_tools": [
+					"book_semantic_search"
+				],
+				"fallback_tools": [
+					"popular_books"
+				],
+				"reasoning": "Highly specific niche query - semantic search may return few results, fallback to popular books acceptable"
 			},
 			"expected_tools": {
 				"should_use_any_retrieval_tool": true
@@ -264,6 +390,16 @@
 				"num_ratings": 12,
 				"allow_profile": false,
 				"is_warm": true
+			},
+			"planner_strategy": {
+				"recommended_tools": [
+					"subject_id_search",
+					"subject_hybrid_pool"
+				],
+				"fallback_tools": [
+					"popular_books"
+				],
+				"reasoning": "Genre query - resolve mystery subject and retrieve via subject_hybrid_pool"
 			},
 			"expected_tools": {
 				"should_use_subject_search": true
@@ -283,6 +419,16 @@
 				"allow_profile": false,
 				"is_warm": false
 			},
+			"planner_strategy": {
+				"recommended_tools": [
+					"subject_id_search",
+					"subject_hybrid_pool"
+				],
+				"fallback_tools": [
+					"popular_books"
+				],
+				"reasoning": "Genre query - resolve fantasy subject and retrieve via subject_hybrid_pool"
+			},
 			"expected_tools": {
 				"should_use_subject_search": true
 			},
@@ -300,6 +446,16 @@
 				"num_ratings": 0,
 				"allow_profile": false,
 				"is_warm": false
+			},
+			"planner_strategy": {
+				"recommended_tools": [
+					"subject_id_search",
+					"subject_hybrid_pool"
+				],
+				"fallback_tools": [
+					"popular_books"
+				],
+				"reasoning": "Genre query - resolve romance subject and retrieve via subject_hybrid_pool"
 			},
 			"expected_tools": {
 				"should_use_subject_search": true
@@ -319,6 +475,15 @@
 				"allow_profile": true,
 				"is_warm": true
 			},
+			"planner_strategy": {
+				"recommended_tools": [
+					"subject_hybrid_pool"
+				],
+				"fallback_tools": [
+					"popular_books"
+				],
+				"reasoning": "Vague query with profile - use subject_hybrid_pool with auto-fetched favorite subjects"
+			},
 			"expected_tools": {
 				"can_use_subject_hybrid_auto_fetch": true
 			},
@@ -336,6 +501,13 @@
 				"num_ratings": 0,
 				"allow_profile": false,
 				"is_warm": false
+			},
+			"planner_strategy": {
+				"recommended_tools": [
+					"popular_books"
+				],
+				"fallback_tools": [],
+				"reasoning": "New user with vague query, no subjects - recommend popular books, should NOT use subject_hybrid_pool"
 			},
 			"expected_tools": {
 				"should_not_use_subject_hybrid_pool": true
@@ -503,6 +675,15 @@
 				"allow_profile": false,
 				"is_warm": true
 			},
+			"planner_strategy": {
+				"recommended_tools": [
+					"book_semantic_search"
+				],
+				"fallback_tools": [
+					"popular_books"
+				],
+				"reasoning": "Very detailed descriptive query with multiple specific attributes - use semantic search"
+			},
 			"expected_tools": {
 				"should_use_semantic_search": true
 			},
@@ -520,6 +701,16 @@
 				"num_ratings": 0,
 				"allow_profile": false,
 				"is_warm": false
+			},
+			"planner_strategy": {
+				"recommended_tools": [
+					"subject_id_search",
+					"subject_hybrid_pool"
+				],
+				"fallback_tools": [
+					"popular_books"
+				],
+				"reasoning": "Genre query from new user - must use subject_id_search to resolve fantasy, then retrieve via subject_hybrid_pool"
 			},
 			"expected_tools": {
 				"should_use_subject_search": true
