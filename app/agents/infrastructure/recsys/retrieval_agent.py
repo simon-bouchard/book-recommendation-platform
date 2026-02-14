@@ -14,6 +14,9 @@ from app.agents.domain.entities import (
     AgentConfiguration,
     AgentCapability,
     AgentRequest,
+    AgentExecutionState,
+    ExecutionStatus,
+    ToolExecution,
 )
 from app.agents.domain.recsys_schemas import (
     RetrievalInput,
@@ -25,7 +28,6 @@ from app.agents.infrastructure.base_langgraph_agent import BaseLangGraphAgent
 from app.agents.tools.registry import InternalToolGates, ToolRegistry
 from app.agents.prompts.loader import read_prompt
 from app.agents.logging import append_chatbot_log
-from app.agents.domain.entities import AgentExecutionState, ExecutionStatus
 from app.agents.utils.retrieval_logging_callback import RetrievalLoggingCallback
 
 
@@ -291,13 +293,6 @@ class RetrievalAgent(BaseLangGraphAgent):
         Returns:
             AgentExecutionState with tool executions and book objects
         """
-        from app.agents.domain.entities import (
-            AgentExecutionState,
-            ExecutionStatus,
-            ToolExecution,
-        )
-        import time
-
         state = AgentExecutionState(
             input_text=query,
             conversation_history=[],
@@ -386,7 +381,6 @@ class RetrievalAgent(BaseLangGraphAgent):
         summary_parts.append(f"Gathered {len(candidates)} candidate books.")
 
         # Stopping reason
-        from app.agents.domain.entities import ExecutionStatus
 
         if state.status == ExecutionStatus.FAILED:
             summary_parts.append("Stopped: execution error.")
