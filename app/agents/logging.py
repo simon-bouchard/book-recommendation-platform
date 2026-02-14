@@ -401,18 +401,18 @@ def log_data_transform(
     Shows how data changes between stages for debugging.
 
     Args:
-        stage: Name of the transformation stage
-        input_data: Data before transformation
-        output_data: Data after transformation
-        description: Optional description of what's happening
+            stage: Name of the transformation stage
+            input_data: Data before transformation
+            output_data: Data after transformation
+            description: Optional description of what's happening
 
     Usage:
-        log_data_transform(
-            "tool_to_BookRecommendation",
-            raw_tool_results[:3],  # Sample
-            recommendations[:3],
-            f"Built {len(recommendations)} BookRecommendation objects"
-        )
+            log_data_transform(
+                    "tool_to_BookRecommendation",
+                    raw_tool_results[:3],  # Sample
+                    recommendations[:3],
+                    f"Built {len(recommendations)} BookRecommendation objects"
+            )
     """
     # Only log in DEBUG mode
     if not os.getenv("LOG_PROMPT", "0").lower() in ("1", "true", "yes"):
@@ -477,6 +477,13 @@ def suppress_noisy_loggers():
         "ddgs.ddgs",
         "cookie_store",
         "cookie_store.cookie_store",
+        "urllib3",
+        "urllib3.connectionpool",
+        "sentence_transformers",
+        "sentence_transformers.SentenceTransformer",
+        "openai",
+        "openai._base_client",
+        "httpx",
     ]
 
     for logger_name in noisy_loggers:
