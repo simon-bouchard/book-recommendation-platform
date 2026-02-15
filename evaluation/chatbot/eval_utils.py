@@ -22,7 +22,9 @@ from app.agents.domain.entities import (
 from app.agents.infrastructure.base_langgraph_agent import BaseLangGraphAgent
 
 
-async def execute_with_streaming(agent: BaseLangGraphAgent, request: AgentRequest) -> AgentResponse:
+async def execute_with_streaming(
+    agent: BaseLangGraphAgent, request: AgentRequest, **context
+) -> AgentResponse:
     """
     Execute agent with streaming and reconstruct full response.
 
@@ -62,7 +64,7 @@ async def execute_with_streaming(agent: BaseLangGraphAgent, request: AgentReques
     final_data = None
 
     # Consume the stream
-    async for chunk in agent.execute_stream(request):
+    async for chunk in agent.execute_stream(request, **context):
         if chunk.type == "token":
             text_chunks.append(chunk.content)
         elif chunk.type == "complete":
