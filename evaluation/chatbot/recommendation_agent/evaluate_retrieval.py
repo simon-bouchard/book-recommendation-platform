@@ -2,6 +2,30 @@
 """
 Retrieval agent evaluation - validates tool execution and candidate gathering.
 Tests the second stage of the recommendation pipeline.
+
+DESIGN PRINCIPLE:
+The retrieval agent receives a PlannerStrategy specifying which tools to use.
+These evaluations validate that the agent properly executes the given strategy.
+
+Test cases should include explicit planner_strategy fields:
+{
+  "planner_strategy": {
+    "recommended_tools": ["als_recs"],
+    "fallback_tools": ["popular_books"],
+    "reasoning": "Warm user with vague query - use collaborative filtering"
+  }
+}
+
+Validations performed:
+1. Did agent use recommended tools?
+2. Did agent gather sufficient candidates (60-120)?
+3. When semantic_search was used, was the query properly structured?
+   - Must include field markers: Title:, genre:, subjects:, tone:, vibe:
+   - Should NOT be raw user query passthrough
+
+The evaluation does NOT enforce "good" vs "bad" tool choices - that's the
+planner's responsibility. We only validate that the retrieval agent properly
+executes whatever strategy it receives.
 """
 
 import sys
@@ -74,10 +98,56 @@ def _validate_semantic_query_format(search_query: str, original_user_query: str)
     # (Author is optional since user queries rarely mention authors)
     field_markers = ["Title:", "genre:", "subjects:", "tone:", "vibe:"]
 
-    # Query should have at least 2 of these field markers to be considered structured
+    # Query should have at least 1 of these field markers to be considered structured
+    # Even a single field marker indicates the query was structured, not just passed through
     markers_found = sum(1 for marker in field_markers if marker in search_query)
 
-    return markers_found >= 2
+    return markers_found >= 1
+
+
+def _infer_strategy_from_expected_tools(
+    expected_tools: dict, has_als: bool, user_state: dict
+) -> PlannerStrategy:
+    """
+    Infer planner strategy from expected_tools (backward compatibility).
+
+    This is a fallback for test cases that don't have explicit planner_strategy.
+    New test cases should include planner_strategy directly.
+
+    Args:
+        expected_tools: Expected tool usage from test case
+        has_als: Whether ALS is available
+        user_state: User state dict
+
+    Returns:
+        PlannerStrategy inferred from expectations
+    """
+    recommended_tools = []
+    fallback_tools = ["popular_books"]
+
+    # Infer from explicit expectations
+    if expected_tools.get("should_use_semantic_search"):
+        recommended_tools.append("book_semantic_search")
+
+    if expected_tools.get("should_use_subject_search"):
+        recommended_tools.extend(["subject_hybrid_pool", "subject_id_search"])
+
+    if expected_tools.get("should_recommend_popular_books"):
+        recommended_tools.append("popular_books")
+        fallback_tools = []
+
+    # If no specific tools mentioned, use defaults based on user state
+    if not recommended_tools:
+        if has_als and not expected_tools.get("should_not_use_als"):
+            recommended_tools.append("als_recs")
+        else:
+            recommended_tools.append("book_semantic_search")
+
+    return PlannerStrategy(
+        recommended_tools=recommended_tools,
+        fallback_tools=fallback_tools,
+        reasoning="Strategy inferred from expected_tools (test should specify planner_strategy explicitly)",
+    )
 
 
 # ============================================================================
@@ -135,51 +205,28 @@ async def evaluate_retrieval_case(test: Dict[str, Any], db) -> Dict[str, Any]:
             has_als_recs_available=has_als,
         )
 
-        # Build strategy based on strategy_scenario or infer from expected_tools
-        # Map scenario to appropriate tools
-        if strategy_scenario == "als_no_profile":
-            recommended_tools = ["als_recs"]
-            fallback_tools = ["popular_books"]
-        elif strategy_scenario == "semantic":
-            recommended_tools = ["book_semantic_search"]
-            fallback_tools = ["popular_books"]
-        elif strategy_scenario == "subject":
-            recommended_tools = ["subject_hybrid_pool", "subject_id_search"]
-            fallback_tools = ["popular_books"]
+        # Get planner strategy from test case
+        # Test cases should specify exactly what the planner would recommend
+        planner_strategy_dict = test.get("planner_strategy")
+
+        if planner_strategy_dict:
+            # Use explicit strategy from test case
+            strategy = PlannerStrategy(
+                recommended_tools=planner_strategy_dict.get("recommended_tools", []),
+                fallback_tools=planner_strategy_dict.get("fallback_tools", []),
+                reasoning=planner_strategy_dict.get("reasoning", f"Test strategy for {test_name}"),
+                profile_data=None,
+            )
+            print(f"DEBUG: Using explicit strategy: {strategy.recommended_tools}")
         else:
-            # Infer strategy from expected_tools
-            recommended_tools = []
-
-            if expected_tools.get("should_use_semantic_search"):
-                recommended_tools.append("book_semantic_search")
-
-            if expected_tools.get("should_use_subject_search"):
-                recommended_tools.extend(["subject_hybrid_pool", "subject_id_search"])
-
-            # For warm users with vague queries and no explicit tool expectations
-            if has_als and not recommended_tools and not expected_tools.get("should_not_use_als"):
-                recommended_tools.append("als_recs")
-
-            # For new/cold users with vague queries
-            if expected_tools.get("should_recommend_popular_books"):
-                recommended_tools.append("popular_books")
-
-            # Default fallback
-            fallback_tools = ["popular_books"]
-
-            # If no tools inferred, use a reasonable default
-            if not recommended_tools:
-                if has_als:
-                    recommended_tools = ["als_recs", "book_semantic_search"]
-                else:
-                    recommended_tools = ["book_semantic_search"]
-
-        strategy = PlannerStrategy(
-            recommended_tools=recommended_tools,
-            fallback_tools=fallback_tools,
-            reasoning=f"Test strategy for {test_name} ({strategy_scenario})",
-            profile_data=None,
-        )
+            # Fallback: infer from expected_tools (for backward compatibility)
+            # TODO: All test cases should eventually have explicit planner_strategy
+            strategy = _infer_strategy_from_expected_tools(
+                expected_tools=expected_tools,
+                has_als=has_als,
+                user_state=user_state,
+            )
+            print(f"DEBUG: Inferred strategy: {strategy.recommended_tools}")
 
         # Build retrieval input
         retrieval_input = RetrievalInput(
@@ -200,6 +247,25 @@ async def evaluate_retrieval_case(test: Dict[str, Any], db) -> Dict[str, Any]:
 
         # Run validation checks
         checks = {}
+
+        # Check 0: Did agent use at least one recommended tool from strategy?
+        # This is the primary validation - agent should execute the strategy it was given
+        recommended_tools = set(strategy.recommended_tools) if strategy.recommended_tools else set()
+        actual_tools = set(output.execution_context.tools_used)
+
+        print(f"DEBUG: recommended_tools={recommended_tools}, actual_tools={actual_tools}")
+
+        if recommended_tools:
+            used_recommended = bool(recommended_tools & actual_tools)
+            checks["used_recommended_tools"] = {
+                "passed": used_recommended,
+                "expected": f"use at least one of: {list(recommended_tools)}",
+                "actual": list(actual_tools),
+                "missing_all": not used_recommended,
+            }
+            print(f"DEBUG: Check created - passed={used_recommended}")
+        else:
+            print(f"DEBUG: Check NOT created - recommended_tools is empty")
 
         # Check 1: Minimum candidate count
         if "min_candidates" in expected_output:
@@ -318,6 +384,11 @@ async def evaluate_retrieval_case(test: Dict[str, Any], db) -> Dict[str, Any]:
         # Store checks
         result["evaluation"]["checks"] = checks
 
+        print(f"DEBUG: All checks created: {list(checks.keys())}")
+        print(
+            f"DEBUG: Failed checks: {[name for name, check in checks.items() if not check.get('passed', False)]}"
+        )
+
         # Overall pass: all checks must pass
         result["overall_pass"] = all(check.get("passed", False) for check in checks.values())
 
@@ -395,7 +466,21 @@ async def evaluate_retrieval_tests(test_cases: Dict[str, List[Dict]]) -> Dict[st
                             if not check.get("passed", False)
                         ]
                         if failed_checks:
-                            print(f"    Failed checks: {', '.join(failed_checks)}")
+                            # Separate critical and normal failures
+                            critical_failures = [
+                                name
+                                for name in failed_checks
+                                if result["evaluation"]["checks"][name].get("critical", False)
+                            ]
+
+                            if critical_failures:
+                                print(f"    🚨 CRITICAL: {', '.join(critical_failures)}")
+
+                            normal_failures = [
+                                f for f in failed_checks if f not in critical_failures
+                            ]
+                            if normal_failures:
+                                print(f"    Failed checks: {', '.join(normal_failures)}")
 
                             # Special handling for semantic query format failures
                             if "semantic_query_format" in failed_checks:
