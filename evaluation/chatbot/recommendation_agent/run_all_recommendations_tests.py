@@ -41,6 +41,13 @@ def merge_results(
     """
     Merge results from all 4 evaluation stages into unified result structure.
 
+    Aggregates:
+    - Individual test results
+    - Category statistics
+    - Evaluation type statistics
+    - Check-level statistics (which checks are failing)
+    - Query-level statistics (how many queries pass all checks)
+
     Args:
         planner_results: Results from evaluate_planner_tests()
         retrieval_results: Results from evaluate_retrieval_tests()
@@ -48,7 +55,7 @@ def merge_results(
         integration_results: Results from evaluate_integration_tests()
 
     Returns:
-        Merged results dict matching dashboard expectations
+        Merged results dict matching dashboard expectations with check-level stats
     """
     # Merge all test results
     all_results = []
@@ -75,16 +82,87 @@ def merge_results(
     total_passed = sum(1 for r in all_results if r.get("overall_pass", False))
     total_tests = len(all_results)
 
+    # Aggregate check-level statistics
+    check_stats = _aggregate_check_stats(all_results)
+    query_stats = _aggregate_query_stats(all_results)
+
     return {
         "results": all_results,
         "category_stats": category_stats,
         "eval_type_stats": eval_type_stats,
+        "check_stats": check_stats,
+        "query_stats": query_stats,
         "overall": {
             "passed": total_passed,
             "total": total_tests,
             "pass_rate": total_passed / total_tests if total_tests > 0 else 0,
         },
         "timestamp": datetime.now().isoformat(),
+    }
+
+
+def _aggregate_check_stats(all_results: List[Dict]) -> Dict[str, Any]:
+    """
+    Aggregate statistics for each individual check across all tests.
+
+    Shows which specific quality checks are systematically failing.
+
+    Returns:
+        Dict mapping check names to {passed, total, pass_rate, failed_queries}
+    """
+    check_stats = {}
+
+    for result in all_results:
+        if "evaluation" not in result or "checks" not in result["evaluation"]:
+            continue
+
+        query = result.get("query", result.get("name", "unknown"))
+
+        for check_name, check_data in result["evaluation"]["checks"].items():
+            if check_name not in check_stats:
+                check_stats[check_name] = {
+                    "passed": 0,
+                    "total": 0,
+                    "failed_queries": [],
+                }
+
+            check_stats[check_name]["total"] += 1
+
+            if check_data.get("passed", False):
+                check_stats[check_name]["passed"] += 1
+            else:
+                # Track which queries failed this check (limit to first 5)
+                if len(check_stats[check_name]["failed_queries"]) < 5:
+                    check_stats[check_name]["failed_queries"].append(query[:50])
+
+    # Calculate pass rates
+    for check_name, stats in check_stats.items():
+        stats["pass_rate"] = stats["passed"] / stats["total"] if stats["total"] > 0 else 0
+
+    return check_stats
+
+
+def _aggregate_query_stats(all_results: List[Dict]) -> Dict[str, Any]:
+    """
+    Aggregate query-level statistics.
+
+    Shows what percentage of queries pass ALL checks (perfect output).
+
+    Returns:
+        Dict with passed_all_checks, failed_one_or_more, total, perfect_rate
+    """
+    passed_all = 0
+    total = len(all_results)
+
+    for result in all_results:
+        if result.get("overall_pass", False):
+            passed_all += 1
+
+    return {
+        "passed_all_checks": passed_all,
+        "failed_one_or_more": total - passed_all,
+        "total": total,
+        "perfect_rate": passed_all / total if total > 0 else 0,
     }
 
 
