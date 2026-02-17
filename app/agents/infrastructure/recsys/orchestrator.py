@@ -388,6 +388,10 @@ class RecommendationAgent(BaseAgent):
                 candidates=candidates,
                 execution_context=execution_context,
             ):
+                # Add execution context to completion chunk for evaluation
+                if chunk.type == "complete" and execution_context:
+                    chunk.data["tools_used"] = execution_context.tools_used
+
                 # Forward all chunks (status, tokens, complete)
                 yield chunk
 
