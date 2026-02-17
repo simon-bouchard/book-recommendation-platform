@@ -26,7 +26,7 @@ suppress_noisy_loggers()
 eval_dir = Path(__file__).parent
 sys.path.insert(0, str(eval_dir))
 
-from shared_helpers import load_test_cases, print_results
+from shared_helpers import load_test_cases, print_results, save_results
 # Individual eval modules will be imported dynamically to avoid import issues
 
 
@@ -94,15 +94,25 @@ def merge_results(
 
 
 async def run_all_tests(
-    test_cases: Dict[str, List[Dict]], selected_stages: List[str] = None
+    test_cases: Dict[str, List[Dict]],
+    selected_stages: List[str] = None,
+    results_dir: Path = None,
 ) -> Dict[str, Any]:
     """
     Run all recommendation agent evaluation stages.
+
+    Saves both individual stage results and merged results with single timestamp:
+    - Individual: results/planner/planner_eval_{timestamp}.json
+    - Individual: results/retrieval/retrieval_eval_{timestamp}.json
+    - Individual: results/curation/curation_eval_{timestamp}.json
+    - Individual: results/integration/integration_eval_{timestamp}.json
+    - Merged: results/recommendation_eval_{timestamp}.json
 
     Args:
         test_cases: All test cases loaded from test_cases.json
         selected_stages: Optional list of stages to run ['planner', 'retrieval', 'curation', 'integration']
                         If None, runs all stages
+        results_dir: Directory to save results. If provided, saves stage results as they complete.
 
     Returns:
         Merged results from all stages
@@ -110,6 +120,9 @@ async def run_all_tests(
     stages = (
         selected_stages if selected_stages else ["planner", "retrieval", "curation", "integration"]
     )
+
+    # Generate single timestamp for all files
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
 
     results = {}
 
@@ -121,6 +134,15 @@ async def run_all_tests(
         from evaluate_planner import evaluate_planner_tests
 
         results["planner"] = await evaluate_planner_tests(test_cases)
+
+        # Save individual stage result
+        if results_dir:
+            save_results(
+                results["planner"],
+                results_dir / "planner",
+                stage_name="planner",
+                timestamp=timestamp,
+            )
     else:
         results["planner"] = {
             "results": [],
@@ -134,16 +156,18 @@ async def run_all_tests(
         print("\n" + "=" * 70)
         print("STAGE 2: RETRIEVAL EVALUATION")
         print("=" * 70)
-        # TODO: Import and run when evaluate_retrieval.py is created
-        # from evaluate_retrieval import evaluate_retrieval_tests
-        # results["retrieval"] = await evaluate_retrieval_tests(test_cases)
-        print("⚠️  Retrieval evaluation not yet implemented")
-        results["retrieval"] = {
-            "results": [],
-            "category_stats": {},
-            "eval_type_stats": {},
-            "overall": {"passed": 0, "total": 0, "pass_rate": 0},
-        }
+        from evaluate_retrieval import evaluate_retrieval_tests
+
+        results["retrieval"] = await evaluate_retrieval_tests(test_cases)
+
+        # Save individual stage result
+        if results_dir:
+            save_results(
+                results["retrieval"],
+                results_dir / "retrieval",
+                stage_name="retrieval",
+                timestamp=timestamp,
+            )
     else:
         results["retrieval"] = {
             "results": [],
@@ -157,16 +181,18 @@ async def run_all_tests(
         print("\n" + "=" * 70)
         print("STAGE 3: CURATION EVALUATION")
         print("=" * 70)
-        # TODO: Import and run when evaluate_curation.py is created
-        # from evaluate_curation import evaluate_curation_tests
-        # results["curation"] = await evaluate_curation_tests(test_cases)
-        print("⚠️  Curation evaluation not yet implemented")
-        results["curation"] = {
-            "results": [],
-            "category_stats": {},
-            "eval_type_stats": {},
-            "overall": {"passed": 0, "total": 0, "pass_rate": 0},
-        }
+        from evaluate_curation import evaluate_curation_tests
+
+        results["curation"] = await evaluate_curation_tests(test_cases)
+
+        # Save individual stage result
+        if results_dir:
+            save_results(
+                results["curation"],
+                results_dir / "curation",
+                stage_name="curation",
+                timestamp=timestamp,
+            )
     else:
         results["curation"] = {
             "results": [],
@@ -180,16 +206,18 @@ async def run_all_tests(
         print("\n" + "=" * 70)
         print("STAGE 4: INTEGRATION EVALUATION")
         print("=" * 70)
-        # TODO: Import and run when evaluate_integration.py is created
-        # from evaluate_integration import evaluate_integration_tests
-        # results["integration"] = await evaluate_integration_tests(test_cases)
-        print("⚠️  Integration evaluation not yet implemented")
-        results["integration"] = {
-            "results": [],
-            "category_stats": {},
-            "eval_type_stats": {},
-            "overall": {"passed": 0, "total": 0, "pass_rate": 0},
-        }
+        from evaluate_integration import evaluate_integration_tests
+
+        results["integration"] = await evaluate_integration_tests(test_cases)
+
+        # Save individual stage result
+        if results_dir:
+            save_results(
+                results["integration"],
+                results_dir / "integration",
+                stage_name="integration",
+                timestamp=timestamp,
+            )
     else:
         results["integration"] = {
             "results": [],
@@ -202,6 +230,10 @@ async def run_all_tests(
     merged = merge_results(
         results["planner"], results["retrieval"], results["curation"], results["integration"]
     )
+
+    # Save merged result (for dashboard)
+    if results_dir:
+        save_results(merged, results_dir, timestamp=timestamp)
 
     return merged
 
@@ -248,6 +280,7 @@ Examples:
 
     script_dir = Path(__file__).parent
     test_cases_path = script_dir / "test_cases.json"
+    classic_scenarios_path = script_dir / "integration_classic_scenarios.json"
     results_dir = script_dir / "results"
 
     print("=" * 70)
@@ -256,6 +289,12 @@ Examples:
     print("=" * 70)
     print("\nLoading test cases...")
     all_test_cases = load_test_cases(test_cases_path)
+
+    # Load classic scenarios if file exists
+    if classic_scenarios_path.exists():
+        classic_scenarios = load_test_cases(classic_scenarios_path)
+        all_test_cases.update(classic_scenarios)
+        print(f"Loaded {len(classic_scenarios)} classic scenario categories")
 
     # Filter categories if specified
     if args.categories:
@@ -280,42 +319,10 @@ Examples:
 
     print("Running evaluation...")
 
-    # Run async evaluation
-    eval_results = asyncio.run(run_all_tests(test_cases, stages_to_run))
+    # Run async evaluation (saves individual + merged results internally)
+    eval_results = asyncio.run(run_all_tests(test_cases, stages_to_run, results_dir))
 
     print_results(eval_results)
-
-    # Save results
-    results_dir.mkdir(parents=True, exist_ok=True)
-    stages_dir = results_dir / "stages"
-    stages_dir.mkdir(parents=True, exist_ok=True)
-
-    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-
-    # Save individual stage results to stages/ subdirectory (for debugging)
-    if "planner" in stages_to_run and results["planner"]["overall"]["total"] > 0:
-        with open(stages_dir / f"planner_eval_{timestamp}.json", "w") as f:
-            json.dump(results["planner"], f, indent=2)
-
-    if "retrieval" in stages_to_run and results["retrieval"]["overall"]["total"] > 0:
-        with open(stages_dir / f"retrieval_eval_{timestamp}.json", "w") as f:
-            json.dump(results["retrieval"], f, indent=2)
-
-    if "curation" in stages_to_run and results["curation"]["overall"]["total"] > 0:
-        with open(stages_dir / f"curation_eval_{timestamp}.json", "w") as f:
-            json.dump(results["curation"], f, indent=2)
-
-    if "integration" in stages_to_run and results["integration"]["overall"]["total"] > 0:
-        with open(stages_dir / f"integration_eval_{timestamp}.json", "w") as f:
-            json.dump(results["integration"], f, indent=2)
-
-    # Save combined results to main results/ directory (for dashboard)
-    output_file = results_dir / f"recommendation_eval_{timestamp}.json"
-    with open(output_file, "w") as f:
-        json.dump(eval_results, f, indent=2)
-
-    print(f"\nCombined results saved to: {output_file}")
-    print(f"Individual stage results saved to: {stages_dir}/")
 
 
 if __name__ == "__main__":
