@@ -496,20 +496,8 @@ Examples:
 
     print_results(eval_results)
 
-    # Save to stages subdirectory for standalone execution
-    stages_dir = results_dir / "stages"
-    stages_dir.mkdir(parents=True, exist_ok=True)
-
-    from datetime import datetime
-
-    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-    output_file = stages_dir / f"planner_eval_{timestamp}.json"
-
-    import json
-
-    with open(output_file, "w") as f:
-        json.dump(eval_results, f, indent=2)
-    print(f"\nResults saved to: {output_file}")
+    # Save to results/planner/ for standalone execution
+    save_results(eval_results, results_dir / "planner", stage_name="planner")
 
 
 if __name__ == "__main__":

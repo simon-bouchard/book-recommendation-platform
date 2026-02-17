@@ -25,7 +25,13 @@ from app.database import SessionLocal
 eval_dir = Path(__file__).parent
 sys.path.insert(0, str(eval_dir))
 
-from shared_helpers import get_user_by_id, validate_query, load_test_cases, print_results
+from shared_helpers import (
+    get_user_by_id,
+    validate_query,
+    load_test_cases,
+    print_results,
+    save_results,
+)
 from llm_judges import (
     llm_judge_genre_match,
     llm_judge_personalization_prose,
@@ -694,16 +700,8 @@ Examples:
             )
         print("=" * 70)
 
-    results_dir.mkdir(parents=True, exist_ok=True)
-    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-    output_file = results_dir / f"curation_eval_{timestamp}.json"
-
-    import json
-
-    with open(output_file, "w") as f:
-        json.dump(eval_results, f, indent=2)
-
-    print(f"\nResults saved to: {output_file}")
+    # Save to results/curation/ for standalone execution
+    save_results(eval_results, results_dir / "curation", stage_name="curation")
 
 
 if __name__ == "__main__":

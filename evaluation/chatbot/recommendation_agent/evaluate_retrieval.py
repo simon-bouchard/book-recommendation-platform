@@ -576,8 +576,8 @@ async def main_async():
     # Print results
     print_results(eval_results)
 
-    # Save results
-    save_results(eval_results, results_dir / "stages")
+    # Save to results/retrieval/ for standalone execution
+    save_results(eval_results, results_dir / "retrieval", stage_name="retrieval")
 
     # Return exit code
     return 0 if eval_results["overall"]["passed"] == eval_results["overall"]["total"] else 1

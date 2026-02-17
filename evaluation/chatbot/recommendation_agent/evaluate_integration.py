@@ -780,7 +780,9 @@ Examples:
     eval_results = asyncio.run(evaluate_integration_tests(test_cases))
 
     print_results(eval_results)
-    save_results(eval_results, results_dir)
+
+    # Save to results/integration/ for standalone execution
+    save_results(eval_results, results_dir / "integration", stage_name="integration")
 
 
 if __name__ == "__main__":
