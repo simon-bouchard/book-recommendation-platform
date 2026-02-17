@@ -30,7 +30,7 @@ class EvaluationRunner:
             "web": {"path": "web_agent/evaluate_web.py", "name": "Web Agent"},
             "response": {"path": "response_agent/evaluate_response.py", "name": "Response Agent"},
             "recommendation": {
-                "path": "recommendation_agent/evaluate_recommendation.py",
+                "path": "recommendation_agent/run_all_recommendation_tests.py",
                 "name": "Recommendation Agent",
             },
         }
