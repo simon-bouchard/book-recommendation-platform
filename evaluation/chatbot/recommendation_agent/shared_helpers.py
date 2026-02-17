@@ -213,18 +213,50 @@ def print_results(eval_results: Dict[str, Any]):
     print("\n" + "=" * 70)
 
 
-def save_results(eval_results: Dict[str, Any], output_dir: Path):
+def save_results(
+    eval_results: Dict[str, Any],
+    output_dir: Path,
+    stage_name: str = None,
+    timestamp: str = None,
+):
     """
     Save evaluation results to timestamped JSON file.
 
     Args:
-        eval_results: Results dictionary from evaluate_all()
+        eval_results: Results dictionary from evaluation
         output_dir: Directory to save results (will be created if needed)
+        stage_name: Optional stage name (e.g., 'planner', 'retrieval').
+                   If provided, saves as {stage_name}_eval_{timestamp}.json
+                   If None, saves as recommendation_eval_{timestamp}.json (merged)
+        timestamp: Optional timestamp string. If not provided, generates current timestamp.
+                  Allows run_all to use same timestamp for all files.
+
+    Examples:
+        # Individual stage (standalone run)
+        save_results(results, results_dir / "planner", stage_name="planner")
+        # → results/planner/planner_eval_20240216_143022.json
+
+        # Merged results (run_all)
+        save_results(merged, results_dir, timestamp="20240216_143022")
+        # → results/recommendation_eval_20240216_143022.json
+
+        # Individual stage with shared timestamp (run_all)
+        save_results(planner_results, results_dir / "planner", "planner", "20240216_143022")
+        # → results/planner/planner_eval_20240216_143022.json
     """
     output_dir.mkdir(parents=True, exist_ok=True)
 
-    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-    output_file = output_dir / f"recommendation_eval_{timestamp}.json"
+    # Generate or use provided timestamp
+    if timestamp is None:
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+
+    # Determine filename based on stage
+    if stage_name:
+        filename = f"{stage_name}_eval_{timestamp}.json"
+    else:
+        filename = f"recommendation_eval_{timestamp}.json"
+
+    output_file = output_dir / filename
 
     with open(output_file, "w") as f:
         json.dump(eval_results, f, indent=2)
