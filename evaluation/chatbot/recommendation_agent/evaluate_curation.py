@@ -515,7 +515,18 @@ async def evaluate_curation_tests(test_cases: Dict[str, List[Dict]]) -> Dict[str
         all_results = []
         category_stats = {}
 
+        # Curation test categories
+        CURATION_CATEGORIES = {
+            "curation_genre_matching",
+            "curation_personalization_prose",
+            "curation_false_personalization",
+        }
+
         for category, cases in test_cases.items():
+            # Skip non-curation categories
+            if category not in CURATION_CATEGORIES:
+                continue
+
             print(f"\nCategory: {category} ({len(cases)} tests)")
 
             category_results = []
@@ -534,6 +545,7 @@ async def evaluate_curation_tests(test_cases: Dict[str, List[Dict]]) -> Dict[str
                     test_type = "curation_prose"
                     result = await run_personalization_prose_test(test_case, db)
                 else:
+                    # This shouldn't happen given CURATION_CATEGORIES filter above
                     print(f"SKIP (unknown category: {category})")
                     continue
 
