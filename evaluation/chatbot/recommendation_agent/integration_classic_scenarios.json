@@ -1,0 +1,107 @@
+{
+	"integration_classic_scenarios": [
+		{
+			"name": "vague_warm_user_with_profile",
+			"description": "Warm user with vague query - should use ALS and mention reading history",
+			"query": "recommend something good for me to read",
+			"user_id": 278859,
+			"user_state": {
+				"num_ratings": 12,
+				"allow_profile": true,
+				"is_warm": true
+			},
+			"expected_behavior": {
+				"should_use_als": true,
+				"should_mention_reading_history": true,
+				"final_response_should_have_books": true
+			}
+		},
+		{
+			"name": "vague_cold_user_with_profile",
+			"description": "Cold user with profile, vague query - should use favorite subjects",
+			"query": "what's a good book to start with",
+			"user_id": 278857,
+			"user_state": {
+				"num_ratings": 1,
+				"allow_profile": true,
+				"is_warm": false
+			},
+			"expected_behavior": {
+				"should_use_subject_hybrid_pool": true,
+				"should_mention_favorite_genres": true,
+				"should_NOT_use_als": true,
+				"final_response_should_have_books": true
+			}
+		},
+		{
+			"name": "vague_new_user_no_profile",
+			"description": "New user, no profile, vague query - should use popular books",
+			"query": "recommend me something to read",
+			"user_id": 278867,
+			"user_state": {
+				"num_ratings": 0,
+				"allow_profile": false,
+				"is_warm": false
+			},
+			"expected_behavior": {
+				"should_use_popular_books": true,
+				"should_mention_popularity": true,
+				"should_NOT_use_als": true,
+				"should_NOT_use_subject_hybrid_pool": true,
+				"final_response_should_have_books": true
+			}
+		},
+		{
+			"name": "specific_single_subject_fantasy",
+			"description": "Genre query with 1-3 subjects - should use subject_id_search",
+			"query": "recommend fantasy novels",
+			"user_id": 278859,
+			"user_state": {
+				"num_ratings": 12,
+				"allow_profile": false,
+				"is_warm": true
+			},
+			"expected_behavior": {
+				"must_use_subject_id_search": true,
+				"should_use_subject_search_for_fantasy": true,
+				"should_NOT_use_als_or_profile": true,
+				"should_NOT_use_popular_books": true,
+				"final_response_should_have_books": true
+			}
+		},
+		{
+			"name": "specific_descriptive_short",
+			"description": "Short descriptive query with themes/tone - should use semantic search",
+			"query": "dark atmospheric mystery novels with psychological tension",
+			"user_id": 278859,
+			"user_state": {
+				"num_ratings": 12,
+				"allow_profile": false,
+				"is_warm": true
+			},
+			"expected_behavior": {
+				"should_use_semantic_search": true,
+				"should_address_query_elements": true,
+				"should_NOT_use_personalization": true,
+				"final_response_should_have_books": true
+			}
+		},
+		{
+			"name": "specific_descriptive_long",
+			"description": "Long multi-faceted descriptive query - should use semantic search",
+			"query": "I'm searching for a book that combines elements of magical realism with historical fiction set in a Latin American context featuring strong female protagonists who navigate complex family dynamics while dealing with supernatural elements that are woven seamlessly into everyday life with beautiful prose that is both lyrical and accessible",
+			"user_id": 278859,
+			"user_state": {
+				"num_ratings": 12,
+				"allow_profile": false,
+				"is_warm": true
+			},
+			"expected_behavior": {
+				"should_use_semantic_search": true,
+				"should_address_multiple_facets": true,
+				"should_NOT_use_personalization": true,
+				"final_response_should_have_books": true
+			}
+		}
+	]
+}

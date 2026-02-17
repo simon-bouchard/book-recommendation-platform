@@ -7,6 +7,8 @@ Provides judges for genre matching, personalization prose, prose reasoning quali
 import json
 from typing import Dict, List, Any, Optional
 
+from app.table_models import Book
+
 
 def llm_judge_prose_reasoning(response_text: str, judge_llm) -> Dict[str, Any]:
     """
@@ -181,8 +183,6 @@ def llm_judge_genre_match(books: List[Any], expected_genre: str, db, judge_llm) 
     Returns:
         Dict with verdict, passed status, reasoning, and violating books
     """
-    from app.table_models import Book
-
     book_ids = [book.item_idx for book in books]
     items = db.query(Book).filter(Book.item_idx.in_(book_ids)).all()
 

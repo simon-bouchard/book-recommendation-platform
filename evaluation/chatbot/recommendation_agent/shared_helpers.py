@@ -127,6 +127,68 @@ def print_results(eval_results: Dict[str, Any]):
             f"  {category:35s} [{eval_type:12s}] {stats['pass_rate']:>6.1%}  ({stats['passed']}/{stats['total']})"
         )
 
+    # ========================================================================
+    # CHECK-BASED STATS: Which quality dimensions are failing?
+    # ========================================================================
+    if "check_stats" in eval_results:
+        print("\n" + "=" * 70)
+        print("CHECK PASS RATES (Quality Dimensions)")
+        print("=" * 70)
+        print("Shows which quality checks are systematically failing\n")
+
+        # Sort checks by pass rate (worst first) to highlight problems
+        sorted_checks = sorted(eval_results["check_stats"].items(), key=lambda x: x[1]["pass_rate"])
+
+        for check_name, stats in sorted_checks:
+            pass_rate = stats["pass_rate"]
+            passed = stats["passed"]
+            total = stats["total"]
+
+            # Choose emoji based on pass rate
+            if pass_rate >= 0.8:
+                emoji = "✅"
+            elif pass_rate >= 0.5:
+                emoji = "⚠️ "
+            else:
+                emoji = "❌"
+
+            print(f"  {emoji} {check_name:40s} {pass_rate:>6.1%}  ({passed}/{total})")
+
+            # Show which queries failed this check (if any)
+            if stats["failed_queries"] and len(stats["failed_queries"]) <= 3:
+                failed_list = ", ".join(stats["failed_queries"])
+                print(f"     Failed on: {failed_list}")
+            elif stats["failed_queries"]:
+                print(f"     Failed on: {len(stats['failed_queries'])} queries")
+
+    # ========================================================================
+    # QUERY-BASED STATS: How many queries pass ALL checks?
+    # ========================================================================
+    if "query_stats" in eval_results:
+        print("\n" + "=" * 70)
+        print("QUERY PASS RATES (Overall Pipeline Health)")
+        print("=" * 70)
+        print("Shows what % of queries produce perfect output\n")
+
+        qstats = eval_results["query_stats"]
+        perfect_rate = qstats["perfect_rate"]
+
+        # Choose emoji based on perfect rate
+        if perfect_rate >= 0.8:
+            emoji = "✅"
+        elif perfect_rate >= 0.5:
+            emoji = "⚠️ "
+        else:
+            emoji = "❌"
+
+        print(
+            f"  {emoji} Passed all checks:    {qstats['passed_all_checks']:>3}/{qstats['total']}  ({perfect_rate:.1%})"
+        )
+        print(
+            f"  ❌ Failed 1+ checks:     {qstats['failed_one_or_more']:>3}/{qstats['total']}  ({1 - perfect_rate:.1%})"
+        )
+        print()
+
     # Failed cases detail
     failures = [r for r in eval_results["results"] if not r["overall_pass"]]
     if failures:
