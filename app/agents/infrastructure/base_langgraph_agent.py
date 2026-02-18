@@ -4,13 +4,18 @@ Base agent using LangGraph's prebuilt create_react_agent.
 Replaces custom ReAct implementation with ~150 lines of clean, maintainable code.
 """
 
-import time
 import threading
 from typing import List, Optional, AsyncGenerator, Dict
 from abc import abstractmethod
 import asyncio
 
-from langchain_core.messages import BaseMessage, SystemMessage, HumanMessage, AIMessage
+from langchain_core.messages import (
+    BaseMessage,
+    SystemMessage,
+    HumanMessage,
+    AIMessage,
+    AIMessageChunk,
+)
 from langgraph.prebuilt import create_react_agent
 
 from app.agents.domain.entities import (
@@ -83,9 +88,9 @@ class BaseLangGraphAgent(BaseAgent):
         Initialize base agent.
 
         Args:
-                                                                                                                                        configuration: Agent configuration with LLM tier, timeout, etc.
-                                                                                                                                        ctx_user: User context for tools (optional)
-                                                                                                                                        ctx_db: Database session for tools (optional)
+                                                                                                                                                                                                                                                                        configuration: Agent configuration with LLM tier, timeout, etc.
+                                                                                                                                                                                                                                                                        ctx_user: User context for tools (optional)
+                                                                                                                                                                                                                                                                        ctx_db: Database session for tools (optional)
         """
         super().__init__(configuration)
 
@@ -132,11 +137,11 @@ class BaseLangGraphAgent(BaseAgent):
         4. Current query (always last)
 
         Args:
-                                                                                                                                        request: Agent request with query and history
-                                                                                                                                        **context: Additional context passed to _add_context_messages()
+                                                                                                                                                                                                                                                                        request: Agent request with query and history
+                                                                                                                                                                                                                                                                        **context: Additional context passed to _add_context_messages()
 
         Returns:
-                                                                                                                                        List of messages for the agent
+                                                                                                                                                                                                                                                                        List of messages for the agent
         """
         messages = []
 
@@ -163,10 +168,10 @@ class BaseLangGraphAgent(BaseAgent):
         Examples: strategy from planner, current execution state, etc.
 
         Args:
-            **context: Arbitrary context passed from execute method
+                **context: Arbitrary context passed from execute method
 
         Returns:
-                        List of context messages (default: empty)
+                                        List of context messages (default: empty)
         """
         return []
 
@@ -197,11 +202,11 @@ class BaseLangGraphAgent(BaseAgent):
         Execute agent asynchronously (non-blocking).
 
         Args:
-                request: Agent request with query and history
-                **context: Additional context passed to message builder
+                        request: Agent request with query and history
+                        **context: Additional context passed to message builder
 
         Returns:
-                Agent response with result
+                        Agent response with result
         """
         append_chatbot_log(
             f"\n{'=' * 60}\n"
@@ -281,7 +286,18 @@ class BaseLangGraphAgent(BaseAgent):
         self, request: AgentRequest, **context
     ) -> AsyncGenerator[StreamChunk, None]:
         """
-        Execute agent with streaming output and tool tracking.
+        Execute agent with true token-by-token streaming and tool tracking.
+
+        Uses stream_mode=["messages", "values"] to get both:
+          - "messages": (AIMessageChunk, metadata) tuples for real-time token streaming
+          - "values":	full state snapshots after each node, used to extract the
+                                        complete tool call history for verification/evals (same data
+                                        as the old stream_mode="values" loop produced)
+
+        Chunk type contract:
+          - status:   progress updates (start, tool begin, tool complete)
+          - token:	  individual LLM output delta — only AIMessageChunk with prose content
+          - complete: final metadata including tool_calls reconstructed from full state
 
         Args:
                 request: Agent request with query and history
@@ -291,13 +307,12 @@ class BaseLangGraphAgent(BaseAgent):
                 StreamChunk objects with status updates, tokens, and completion
         """
         append_chatbot_log(
-            f"\n{'=' * 60}\n{self.__class__.__name__.upper()} STREAMING\nQuery: {request.user_text[:50]}...\n{'=' * 60}"
+            f"\n{'=' * 60}\n{self.__class__.__name__.upper()} STREAMING\n"
+            f"Query: {request.user_text[:50]}...\n{'=' * 60}"
         )
 
-        # Build messages
         messages = self._build_messages(request, **context)
 
-        # Create execution state for tracking
         state = AgentExecutionState(
             input_text=request.user_text,
             conversation_history=request.conversation_history,
@@ -305,74 +320,84 @@ class BaseLangGraphAgent(BaseAgent):
         )
 
         try:
-            # Initial status
             yield StreamChunk(type="status", content=self._get_start_status())
 
             accumulated_text = []
-            all_messages = []
             tool_in_progress = False
+            # Receives the full state snapshot after every node; the last one is
+            # post-completion and is equivalent to what stream_mode="values" gave us.
+            final_state_snapshot = {}
 
-            # Stream graph execution with full state each iteration
-            async for event in self.graph.astream({"messages": messages}, stream_mode="values"):
-                # Get complete message history from current state
-                all_messages = event.get("messages", [])
+            async for mode, data in self.graph.astream(
+                {"messages": messages},
+                stream_mode=["messages", "values"],
+            ):
+                if mode == "values":
+                    # Track latest full state — last one wins after the loop.
+                    # This preserves full tool call / ToolMessage history for
+                    # _extract_tool_calls_from_messages, identical to the old values loop.
+                    final_state_snapshot = data
 
-                if not all_messages:
-                    continue
+                elif mode == "messages":
+                    msg, metadata = data
 
-                last_msg = all_messages[-1]
+                    # --- AIMessageChunk: token-level deltas from the LLM ---
+                    # Must use isinstance, not duck-typing: AIMessage (full, non-chunk)
+                    # is also emitted in messages mode once the node finishes and would
+                    # duplicate the entire response if not explicitly excluded here.
+                    if isinstance(msg, AIMessageChunk):
+                        has_content = bool(msg.content)
+                        has_tool_chunks = bool(msg.tool_call_chunks)
 
-                # Tool about to be called
-                if hasattr(last_msg, "tool_calls") and last_msg.tool_calls:
-                    tool_name = last_msg.tool_calls[0].get("name", "")
-                    args = last_msg.tool_calls[0].get("args", {})
+                        if has_tool_chunks and not has_content:
+                            # LLM is streaming its tool-call decision.
+                            # The tool name is only present on the very first chunk;
+                            # subsequent chunks carry argument JSON fragments with name=None.
+                            first_chunk = msg.tool_call_chunks[0]
+                            tool_name = first_chunk.get("name") or ""
+                            if tool_name and not tool_in_progress:
+                                # args are not available yet — they stream in subsequent
+                                # chunks — so _get_tool_start_status receives {} here.
+                                status = self._get_tool_start_status(tool_name, {})
+                                yield StreamChunk(type="status", content=status)
+                                tool_in_progress = True
 
-                    # Get tool-specific status
-                    status = self._get_tool_start_status(tool_name, args)
-                    yield StreamChunk(type="status", content=status)
-                    tool_in_progress = True
-
-                # Tool execution completed (ToolMessage)
-                elif hasattr(last_msg, "tool_call_id"):
-                    if tool_in_progress:
-                        status = self._get_tool_complete_status()
-                        yield StreamChunk(type="status", content=status)
-                        tool_in_progress = False
-
-                # Final response text (AIMessage with content, no tool calls)
-                elif hasattr(last_msg, "content") and last_msg.content:
-                    content = str(last_msg.content).strip()
-
-                    # Only stream if substantial content
-                    if content and len(content) > 10:
-                        yield StreamChunk(type="status", content="Generating response...")
-
-                        # Stream tokens word-by-word
-                        words = content.split()
-                        for i, word in enumerate(words):
-                            token = word if i == len(words) - 1 else word + " "
-                            yield StreamChunk(type="token", content=token)
+                        elif has_content and not has_tool_chunks:
+                            # Prose delta — this is the content users read.
+                            token = str(msg.content)
                             accumulated_text.append(token)
+                            yield StreamChunk(type="token", content=token)
 
-            # Extract tool executions from final complete message history
+                    # --- ToolMessage: tool execution has completed ---
+                    elif hasattr(msg, "tool_call_id"):
+                        if tool_in_progress:
+                            yield StreamChunk(
+                                type="status", content=self._get_tool_complete_status()
+                            )
+                            tool_in_progress = False
+
+            # ------------------------------------------------------------------
+            # Post-loop: build completion chunk from final state snapshot.
+            # final_state_snapshot["messages"] is the identical full message list
+            # that stream_mode="values" used to populate all_messages — no changes
+            # needed to _extract_tool_calls_from_messages or any caller.
+            # ------------------------------------------------------------------
+            all_messages = final_state_snapshot.get("messages", [])
             tool_calls = self._extract_tool_calls_from_messages(all_messages)
 
-            # Mark success
             state.mark_completed()
 
-            # Fallback if no response
             if not accumulated_text:
-                accumulated_text = ["I couldn't generate a response."]
-                for token in accumulated_text:
-                    yield StreamChunk(type="token", content=token)
+                fallback = "I couldn't generate a response."
+                accumulated_text = [fallback]
+                yield StreamChunk(type="token", content=fallback)
 
-            # Yield completion with actual tool calls
             yield StreamChunk(
                 type="complete",
                 data={
                     "target": self._get_target_category(),
                     "success": True,
-                    "book_ids": [],  # Subclass can override to extract books
+                    "book_ids": [],
                     "tool_calls": tool_calls,
                     "citations": [],
                     "policy_version": self.configuration.policy_name,
@@ -384,7 +409,6 @@ class BaseLangGraphAgent(BaseAgent):
             append_chatbot_log(f"[STREAMING ERROR] {type(e).__name__}: {e}")
             state.mark_failed(str(e))
 
-            # Yield error completion
             yield StreamChunk(
                 type="complete",
                 data={
@@ -403,10 +427,10 @@ class BaseLangGraphAgent(BaseAgent):
         Extract tool calls with results from message history.
 
         Args:
-                        messages: List of messages from graph execution
+                                        messages: List of messages from graph execution
 
         Returns:
-                        List of dicts with tool_name, arguments, result
+                                        List of dicts with tool_name, arguments, result
         """
         # Build mapping of tool_call_id -> result
         tool_results = {}
@@ -461,11 +485,11 @@ class BaseLangGraphAgent(BaseAgent):
         Override for additional customization beyond tool metadata.
 
         Args:
-                                                                                                                                        tool_name: Name of tool being called
-                                                                                                                                        args: Arguments passed to tool
+                                                                                                                                                                                                                                                                        tool_name: Name of tool being called
+                                                                                                                                                                                                                                                                        args: Arguments passed to tool
 
         Returns:
-                                                                                                                                        Status message to display
+                                                                                                                                                                                                                                                                        Status message to display
         """
         # Find tool object by name
         tool = next((t for t in self.tools if t.name == tool_name), None)
@@ -501,7 +525,7 @@ class BaseLangGraphAgent(BaseAgent):
         Get system prompt for this agent.
 
         Returns:
-                                                                                                                                        System prompt as string
+                                                                                                                                                                                                                                                                        System prompt as string
         """
         pass
 
@@ -511,11 +535,11 @@ class BaseLangGraphAgent(BaseAgent):
         Create tool registry for this agent.
 
         Args:
-                                                                                                                                        ctx_user: User context (optional)
-                                                                                                                                        ctx_db: Database session (optional)
+                                                                                                                                                                                                                                                                        ctx_user: User context (optional)
+                                                                                                                                                                                                                                                                        ctx_db: Database session (optional)
 
         Returns:
-                                                                                                                                        Configured ToolRegistry instance
+                                                                                                                                                                                                                                                                        Configured ToolRegistry instance
         """
         pass
 
@@ -525,7 +549,7 @@ class BaseLangGraphAgent(BaseAgent):
         Get target category for this agent (e.g., "docs", "recsys", "respond").
 
         Returns:
-                                                                                                                                        Target category string
+                                                                                                                                                                                                                                                                        Target category string
         """
         pass
 
@@ -538,10 +562,10 @@ class BaseLangGraphAgent(BaseAgent):
         Extract tool call information from agent event.
 
         Args:
-                event: Event dict from graph.astream()
+                        event: Event dict from graph.astream()
 
         Returns:
-                Tool call dict with 'name' and 'args', or None
+                        Tool call dict with 'name' and 'args', or None
         """
         messages = event.get("agent", {}).get("messages", [])
         if not messages:
@@ -558,10 +582,10 @@ class BaseLangGraphAgent(BaseAgent):
         Extract final response text from agent event.
 
         Args:
-                event: Event dict from graph.astream()
+                        event: Event dict from graph.astream()
 
         Returns:
-                Response text, or None
+                        Response text, or None
         """
         messages = event.get("agent", {}).get("messages", [])
         if not messages:
@@ -580,10 +604,10 @@ class BaseLangGraphAgent(BaseAgent):
         Tokenize text for word-by-word streaming.
 
         Args:
-                text: Text to tokenize
+                        text: Text to tokenize
 
         Returns:
-                List of tokens (words with spaces)
+                        List of tokens (words with spaces)
         """
         words = text.split()
         tokens = []
