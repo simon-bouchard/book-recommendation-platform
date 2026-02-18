@@ -4,6 +4,7 @@ Curation agent evaluation suite.
 Tests genre filtering and personalization prose using isolated curation testing with mock candidates.
 """
 
+import re
 import sys
 import asyncio
 import argparse
@@ -40,6 +41,29 @@ from llm_judges import (
 )
 from test_data_factory import get_candidates, get_execution_context
 from evaluation.chatbot.eval_utils import execute_with_streaming
+
+# Regex matching the agent's citation format: [Book Title](item_idx)
+_CITATION_PATTERN = re.compile(r"\[([^\]]+)\]\((\d+)\)")
+
+
+def _extract_cited_ids(text: str) -> List[int]:
+    """
+    Extract unique book IDs from citation markup in response text.
+
+    Parses the same [Title](item_idx) format written by the curation agent,
+    preserving first-appearance order and deduplicating.
+
+    Args:
+        text: Raw response text containing inline citations
+
+    Returns:
+        Ordered list of unique integer book IDs
+    """
+    return list(
+        dict.fromkeys(  # deduplicate while preserving order
+            int(m.group(2)) for m in _CITATION_PATTERN.finditer(text)
+        )
+    )
 
 
 async def run_genre_matching_test(test_case: Dict, db) -> Dict[str, Any]:
@@ -125,10 +149,10 @@ async def run_genre_matching_test(test_case: Dict, db) -> Dict[str, Any]:
             "response_text_length": len(curation_output.text),
         }
 
-        # Validate citations against candidates (detect hallucinations)
-        cited_book_ids = curation_output.execution_state.intermediate_outputs.get(
-            "cited_book_ids", []
-        )
+        # Validate citations against candidates (detect hallucinations).
+        # Parse IDs directly from the response text using the same regex the agent uses,
+        # so the check is independent of any internal state the agent may or may not write.
+        cited_book_ids = _extract_cited_ids(curation_output.text)
         candidate_ids_set = {c.item_idx for c in candidates}
         invalid_citations = [bid for bid in cited_book_ids if bid not in candidate_ids_set]
 
@@ -358,10 +382,10 @@ async def run_personalization_prose_test(test_case: Dict, db) -> Dict[str, Any]:
             "response_length": len(response_text),
         }
 
-        # Validate citations against candidates (detect hallucinations)
-        cited_book_ids = curation_output.execution_state.intermediate_outputs.get(
-            "cited_book_ids", []
-        )
+        # Validate citations against candidates (detect hallucinations).
+        # Parse IDs directly from the response text using the same regex the agent uses,
+        # so the check is independent of any internal state the agent may or may not write.
+        cited_book_ids = _extract_cited_ids(response_text)
         candidate_ids_set = {c.item_idx for c in candidates}
         invalid_citations = [bid for bid in cited_book_ids if bid not in candidate_ids_set]
 

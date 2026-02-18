@@ -16,7 +16,7 @@ import sys
 import asyncio
 import argparse
 from pathlib import Path
-from typing import Dict, List, Any
+from typing import Dict, List, Any, Optional
 from datetime import datetime
 
 from app.agents.settings import get_llm
@@ -70,6 +70,7 @@ def evaluate_full_pipeline_quality(
     test_case: Dict[str, Any],
     execution_context=None,
     judge_llm=None,
+    invalid_citations: List[int] = None,
 ) -> Dict[str, Any]:
     """
     Evaluate quality of full pipeline execution.
@@ -93,6 +94,26 @@ def evaluate_full_pipeline_quality(
 
     expected_behavior = test_case.get("expected_behavior", {})
     query = test_case.get("query", "")
+
+    # ========================================================================
+    # QUALITY CHECK 0: NO HALLUCINATED CITATIONS
+    # ========================================================================
+
+    # invalid_citations contains IDs the LLM cited that were not in the
+    # candidate pool — these cause broken frontend links.
+    if invalid_citations is not None:
+        has_hallucinations = len(invalid_citations) > 0
+        results["checks"]["no_hallucinations"] = {
+            "expected": "all cited book IDs from candidate pool",
+            "actual": (
+                f"{len(invalid_citations)} invalid IDs: {invalid_citations}"
+                if has_hallucinations
+                else "all citations valid"
+            ),
+            "passed": not has_hallucinations,
+        }
+        if has_hallucinations:
+            results["all_passed"] = False
 
     # ========================================================================
     # QUALITY CHECK 1: BASIC OUTPUT QUALITY
@@ -431,15 +452,22 @@ async def run_integration_test(test_case: Dict, db) -> Dict[str, Any]:
         text_tokens = [c.content for c in chunks if c.type == "token"]
         response_text = "".join(text_tokens)
 
-        # Get book_ids from completion data (extracted from citations by curation)
+        # book_ids: ALL IDs the LLM cited in prose (may include hallucinated ones).
+        # books:    Only those that mapped back to a valid candidate in the pool.
+        # The difference is the set of hallucinated citations.
         book_ids = completion_data.get("book_ids", [])
+        valid_book_ids = {b["item_idx"] for b in completion_data.get("books", [])}
+        invalid_citations = [bid for bid in book_ids if bid not in valid_book_ids]
 
         # Create minimal BookRecommendation objects for evaluation
-        # The evaluation code expects book_recommendations, not just IDs
+        # The evaluation code expects book_recommendations, not just IDs.
+        # Exclude hallucinated IDs here — they have no backing data.
         from app.agents.domain.entities import AgentResponse, BookRecommendation
 
         book_recommendations = [
-            BookRecommendation(item_idx=book_id, title="", author="") for book_id in book_ids
+            BookRecommendation(item_idx=book_id, title="", author="")
+            for book_id in book_ids
+            if book_id in valid_book_ids
         ]
 
         final_response = AgentResponse(
@@ -494,7 +522,11 @@ async def run_integration_test(test_case: Dict, db) -> Dict[str, Any]:
 
         # Evaluate pipeline quality
         eval_result = evaluate_full_pipeline_quality(
-            final_response, test_case, execution_context, judge_llm
+            final_response,
+            test_case,
+            execution_context,
+            judge_llm,
+            invalid_citations=invalid_citations,
         )
         result["evaluation"] = eval_result
         result["overall_pass"] = eval_result["all_passed"]
