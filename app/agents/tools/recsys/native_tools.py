@@ -106,8 +106,11 @@ class InternalTools:
 
             # Get num_ratings from book metadata (always available, zero queries)
             num_ratings = 0
+            cover_id = None
             if item_idx in book_meta.index:
-                num_ratings = int(book_meta.loc[item_idx].get("book_num_ratings", 0))
+                row = book_meta.loc[item_idx]
+                num_ratings = int(row.get("book_num_ratings", 0))
+                cover_id = str(row["cover_id"]) if "cover_id" in row and row["cover_id"] else None
 
             # Build standardized dict - only include fields with content
             result = {
@@ -117,7 +120,7 @@ class InternalTools:
                 "author": book.get("author", ""),
                 "year": book.get("year"),
                 "num_ratings": num_ratings,
-                # Internal only (not sent to curation)
+                "cover_id": cover_id,
                 "score": book.get("score", 0.0),
             }
 
