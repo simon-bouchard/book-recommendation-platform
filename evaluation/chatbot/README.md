@@ -30,6 +30,8 @@ Shows detailed breakdown for each agent including:
 - Overall performance metrics
 - Category-by-category breakdown
 - Failed test details with reasons
+- Check-level statistics (recommendation agent): Shows which quality checks are failing
+- Query-level statistics (recommendation agent): Shows percentage of perfect outputs
 - Retrieval/quality metrics where applicable
 
 ### Custom Path
@@ -85,10 +87,16 @@ evaluation/chatbot/
 ├── response_agent/results/
 │   └── response_eval_*.json
 └── recommendation_agent/results/
-    └── recommendation_eval_*.json
+    ├── recommendation_eval_*.json          # Merged results (dashboard reads this)
+    ├── planner/planner_eval_*.json        # Individual stage (ignored by dashboard)
+    ├── retrieval/retrieval_eval_*.json    # Individual stage (ignored by dashboard)
+    ├── curation/curation_eval_*.json      # Individual stage (ignored by dashboard)
+    └── integration/integration_eval_*.json # Individual stage (ignored by dashboard)
 ```
 
 The script automatically finds the latest eval file for each agent based on timestamp.
+
+**Note**: For the recommendation agent, the dashboard reads only the merged `recommendation_eval_*.json` file at the top level of the results directory. Individual stage files in subdirectories are used for debugging but not displayed in the dashboard.
 
 ## Shared Utilities: `eval_utils.py`
 

@@ -244,43 +244,60 @@ The evaluation uses specific test users with known characteristics:
 export DATABASE_URL="postgresql://user:pass@host/db"
 ```
 
-### Run Evaluation
+### Run Full Evaluation Suite
+
+Run all 4 stages (planner, retrieval, curation, integration):
+
 ```bash
 cd evaluation/chatbot/recommendation_agent
 
-# Run all tests (default)
-python evaluate_recommendation.py
+# Run all stages
+python run_all_recommendation_tests.py
 
-# List available test categories
-python evaluate_recommendation.py --list-categories
+# Run specific stages only
+python run_all_recommendation_tests.py --stages planner retrieval
+python run_all_recommendation_tests.py --stages curation integration
 
-# Run specific categories
-python evaluate_recommendation.py --categories planner
-python evaluate_recommendation.py --categories planner retrieval
-python evaluate_recommendation.py --categories negative_constraints integration_high_impact
-
-# Run new tests
-python evaluate_recommendation.py --categories curation_genre_matching
-python evaluate_recommendation.py --categories curation_personalization_prose curation_false_personalization
+# Run specific test categories across all stages
+python run_all_recommendation_tests.py --categories tool_selection_warm_user retrieval_strategy_adherence
 
 # Output:
-# - Console: Real-time test results with pass/fail
-# - results/recommendation_eval_YYYYMMDD_HHMMSS.json: Detailed results
+# - Merged results: results/recommendation_eval_YYYYMMDD_HHMMSS.json
+# - Individual stage results: results/{stage}/{stage}_eval_YYYYMMDD_HHMMSS.json
 ```
 
-**Available categories:**
-- `tool_selection_warm_user` (6 tests) - Planner for warm users
-- `tool_selection_cold_user` (5 tests) - Planner for cold users
+### Run Individual Stage Evaluations
+
+Each stage can be run independently for faster debugging:
+
+```bash
+# Planner evaluation only
+python evaluate_planner.py
+python evaluate_planner.py --categories tool_selection_warm_user
+
+# Retrieval evaluation only
+python evaluate_retrieval.py
+
+# Curation evaluation only
+python evaluate_curation.py
+
+# Integration evaluation only
+python evaluate_integration.py
+
+# Output: results/{stage}/{stage}_eval_YYYYMMDD_HHMMSS.json
+```
+
+**Available test categories:**
+- `tool_selection_warm_user` (6 tests) - Planner: warm users
+- `tool_selection_cold_user` (5 tests) - Planner: cold users
 - `retrieval_strategy_adherence` (8 tests) - Retrieval execution
-- `curation_quality` (3 tests) - Basic curation structure
-- `curation_critical` (2 tests) - Critical curation validation
-- `curation_genre_matching` (2 tests) - Genre filtering
-- `curation_personalization_prose` (3 tests) - Personalization prose quality
-- `curation_false_personalization` (1 test) - False claim detection
-- `negative_constraints` (2 tests) - Constraint handling
-- `two_stage_integration` (4 tests) - Basic integration
-- `integration_high_impact` (2 tests) - Critical integration scenarios
-- `edge_cases` (3 tests) - Error handling
+- `curation_genre_matching` (2 tests) - Curation: genre filtering
+- `curation_personalization_prose` (3 tests) - Curation: personalization quality
+- `curation_false_personalization` (1 test) - Curation: false claim detection
+- `negative_constraints` (2 tests) - Integration: constraint handling
+- `integration_classic_scenarios` (6 tests) - Integration: end-to-end scenarios
+- `integration_high_impact` (2 tests) - Integration: critical scenarios
+- `edge_cases` (3 tests) - Integration: error handling
 
 ### Run All Agent Evaluations
 ```bash
@@ -329,7 +346,33 @@ Approximate costs per full evaluation run (41 tests):
 
 ## Results Format
 
-Results are saved to `results/recommendation_eval_TIMESTAMP.json`:
+### Directory Structure
+
+```
+evaluation/chatbot/recommendation_agent/results/
+├── recommendation_eval_20240216_143022.json      # Merged results (for dashboard)
+├── planner/
+│   └── planner_eval_20240216_143022.json        # Planner stage results
+├── retrieval/
+│   └── retrieval_eval_20240216_143022.json      # Retrieval stage results
+├── curation/
+│   └── curation_eval_20240216_143022.json       # Curation stage results
+└── integration/
+    └── integration_eval_20240216_143022.json    # Integration stage results
+```
+
+**Full suite run** (`run_all_recommendation_tests.py`):
+- Saves all files with same timestamp
+- Merged file used by dashboard
+- Individual files for debugging specific stages
+
+**Individual run** (e.g., `evaluate_planner.py`):
+- Saves only to `results/planner/planner_eval_{timestamp}.json`
+- Own timestamp, independent of other stages
+
+### Merged Results Structure
+
+The merged results file (`recommendation_eval_{timestamp}.json`) contains:
 
 ```json
 {
@@ -341,22 +384,51 @@ Results are saved to `results/recommendation_eval_TIMESTAMP.json`:
   "eval_type_stats": {
     "planner": {"passed": 10, "total": 11, "pass_rate": 0.909},
     "retrieval": {"passed": 7, "total": 8, "pass_rate": 0.875},
-    "curation": {"passed": 5, "total": 5, "pass_rate": 1.000},
     "curation_genre": {"passed": 2, "total": 2, "pass_rate": 1.000},
     "curation_prose": {"passed": 3, "total": 4, "pass_rate": 0.750},
-    "negative_constraints": {"passed": 2, "total": 2, "pass_rate": 1.000},
     "integration": {"passed": 7, "total": 9, "pass_rate": 0.778}
   },
   "category_stats": {
     "tool_selection_warm_user": {"passed": 5, "total": 6, "pass_rate": 0.833},
     "retrieval_strategy_adherence": {"passed": 7, "total": 8, "pass_rate": 0.875},
     "curation_genre_matching": {"passed": 2, "total": 2, "pass_rate": 1.000},
-    "curation_personalization_prose": {"passed": 2, "total": 3, "pass_rate": 0.667},
     ...
+  },
+  "check_stats": {
+    "warm_user_strategy": {
+      "passed": 5,
+      "total": 6,
+      "pass_rate": 0.833,
+      "failed_queries": ["vague_query_warm_no_profile"]
+    },
+    "subject_hybrid_pool_args_valid": {
+      "passed": 3,
+      "total": 5,
+      "pass_rate": 0.600,
+      "failed_queries": ["cold_user_vague_query", "genre_query_new_user"]
+    },
+    ...
+  },
+  "query_stats": {
+    "passed_all_checks": 32,
+    "failed_one_or_more": 9,
+    "total": 41,
+    "perfect_rate": 0.780
   },
   "results": [...]
 }
 ```
+
+### Check-Level Statistics
+
+The `check_stats` section shows which specific quality checks are systematically failing:
+- **Pass rate per check dimension** (e.g., tool selection, argument correctness, genre matching)
+- **Failed query tracking** (up to 5 examples per check)
+- **Systematic issue detection** (low pass rate = widespread problem)
+
+The `query_stats` section shows overall pipeline health:
+- **Perfect rate**: Percentage of queries that passed ALL checks
+- **Quality metric**: Goal is 100% of queries producing perfect output
 
 ## Database Requirements
 
@@ -475,6 +547,68 @@ Example (curation genre test):
 ```
 
 Then add corresponding scenario to `test_data_factory.py` if needed.
+
+## File Organization
+
+The evaluation suite uses a **modular architecture** with separate files for each evaluation stage:
+
+### Core Evaluation Files
+
+```
+evaluation/chatbot/recommendation_agent/
+├── run_all_recommendation_tests.py      # Orchestrator (runs all 4 stages)
+├── evaluate_planner.py                   # Planner stage evaluation
+├── evaluate_retrieval.py                 # Retrieval stage evaluation
+├── evaluate_curation.py                  # Curation stage evaluation
+├── evaluate_integration.py               # Integration stage evaluation
+├── shared_helpers.py                     # Shared utilities (DB, validation, formatting)
+├── test_data_factory.py                  # Mock data generators
+├── llm_judges.py                         # LLM-as-judge validation
+├── validate_queries.py                   # Query validation script
+├── test_cases.json                       # Test case definitions
+└── integration_classic_scenarios.json    # Integration test scenarios
+```
+
+### Shared Utilities (`shared_helpers.py`)
+
+Common functions used across all evaluation files:
+- `get_user_by_id(db, user_id)` - Fetch user and rating count
+- `validate_query(query)` - Validate non-empty queries
+- `load_test_cases(path)` - Load test cases from JSON
+- `print_results(eval_results)` - Display formatted results with check-level stats
+- `save_results(eval_results, output_dir, stage_name, timestamp)` - Save results with flexible naming
+
+### Execution Patterns
+
+**Full suite** (`run_all_recommendation_tests.py`):
+- Calls each stage's `evaluate_*_tests()` function
+- Aggregates check-level statistics across all stages
+- Saves individual stage results + merged results
+- All files share single timestamp for correlation
+
+**Individual stage** (e.g., `evaluate_planner.py`):
+- Filters to relevant test categories
+- Runs stage-specific evaluation logic
+- Saves only to stage subdirectory
+- Independent timestamp
+
+### Evaluation Functions
+
+Each evaluation file exports a pure evaluation function:
+```python
+# evaluate_planner.py
+async def evaluate_planner_tests(test_cases: Dict) -> Dict:
+    """Run planner tests and return results (no saving)."""
+
+# main()
+def main():
+    """CLI entry point - loads tests, runs evaluation, saves results."""
+```
+
+This pattern allows:
+- **Standalone execution**: `python evaluate_planner.py`
+- **Orchestrated execution**: `run_all_recommendation_tests.py` imports and calls functions
+- **Flexible testing**: Can run specific stages or full pipeline
 
 ## Integration with Dashboard
 
