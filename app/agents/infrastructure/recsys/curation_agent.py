@@ -262,6 +262,8 @@ CRITICAL OUTPUT FORMAT:
                 full_text = "".join(accumulated_text)
                 book_ids = self._extract_book_ids_from_citations(full_text)
 
+                candidate_map = {c.item_idx: c for c in candidates}
+
                 # Validate citations against candidates
                 candidate_ids_set = {c.item_idx for c in candidates}
                 valid_citations = [bid for bid in book_ids if bid in candidate_ids_set]
@@ -286,6 +288,17 @@ CRITICAL OUTPUT FORMAT:
 
                 # Update completion data with book IDs
                 chunk.data["book_ids"] = book_ids
+                chunk.data["books"] = [
+                    {
+                        "item_idx": c.item_idx,
+                        "title": c.title,
+                        "author": c.author,
+                        "cover_id": c.cover_id,
+                        "year": c.year,
+                    }
+                    for bid in book_ids
+                    if (c := candidate_map.get(bid)) is not None
+                ]
                 yield chunk
 
             # Pass through other chunks (status, etc.)
