@@ -79,28 +79,7 @@ class CurationAgent(BaseLangGraphAgent):
         """Load and adapt system prompt for citation-based output."""
         base_prompt = read_prompt("recsys.curation.md")
 
-        # Replace JSON output instructions with citation-based prose instructions
-        adapted_prompt = base_prompt.replace(
-            "## Output Format\n\nReturn JSON:",
-            "## Output Format\n\nWrite natural prose with inline citations:",
-        )
-
-        # Remove JSON-specific instructions
-        adapted_prompt = re.sub(r"```json.*?```", "", adapted_prompt, flags=re.DOTALL)
-
-        # Add citation format reminder
-        adapted_prompt += """
-
-CRITICAL OUTPUT FORMAT:
-- Write natural, conversational prose
-- Use markdown-style citations: [Book Title](item_idx)
-- Example: "I recommend [The Name of the Rose](702) by Umberto Eco for its masterful mystery."
-- DO NOT output JSON
-- DO NOT output book_ids list separately
-- The citations in your prose ARE the book recommendations
-"""
-
-        return adapted_prompt
+        return base_prompt
 
     def _get_target_category(self) -> str:
         """Return target category for curation responses."""
@@ -140,6 +119,8 @@ CRITICAL OUTPUT FORMAT:
         prepared_candidates = self._prepare_candidates(candidates)
         context_parts.append(f"CANDIDATES ({len(prepared_candidates)} books):")
         context_parts.append(json.dumps(prepared_candidates, indent=2, ensure_ascii=False))
+
+        append_chatbot_log(f"DEBUG first 3 candidates: {prepared_candidates[:3]}")
 
         # Create single context message
         context_content = "\n".join(context_parts)
