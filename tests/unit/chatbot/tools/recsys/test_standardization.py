@@ -1,306 +1,194 @@
 # tests/unit/chatbot/tools/recsys/test_standardization.py
 """
-Tests for the _standardize_tool_output() method in InternalTools.
-This method is responsible for normalizing all retrieval tool outputs to a consistent schema.
+Unit tests for InternalTools._standardize_tool_output().
+
+Tests the normalization logic that all retrieval tools pass results through.
+The only external dependency is load_book_meta(), which is mocked throughout.
 """
 
 import pytest
 from unittest.mock import patch
 from app.agents.tools.recsys.native_tools import InternalTools
 
+_PATCH_TARGET = "app.agents.tools.recsys.native_tools.load_book_meta"
+
+# ---------------------------------------------------------------------------
+# Helpers
+# ---------------------------------------------------------------------------
+
+EXPECTED_CORE_FIELDS = {"item_idx", "title", "author", "year", "num_ratings", "cover_id", "score"}
+
+
+def _make_tools(mock_book_meta, db=None):
+    """Return an InternalTools instance with load_book_meta patched."""
+    return InternalTools(current_user=None, db=db)
+
+
+# ---------------------------------------------------------------------------
+# Tests
+# ---------------------------------------------------------------------------
+
 
 class TestStandardizeToolOutput:
-    """Test the _standardize_tool_output method in isolation."""
+    """Tests for _standardize_tool_output() normalization logic."""
 
-    def test_adds_num_ratings_from_book_meta(
-        self,
-        internal_tools_factory,
-        mock_load_book_meta,
-        mock_db_session,
-    ):
-        """Should add num_ratings from book metadata."""
-        tools = internal_tools_factory(db=mock_db_session)
+    def test_empty_input_returns_empty_list(self, mock_book_meta):
+        """Empty input should return empty list without touching book_meta."""
+        with patch(_PATCH_TARGET, return_value=mock_book_meta):
+            tools = InternalTools(current_user=None, db=None)
+            result = tools._standardize_tool_output([])
 
-        raw_results = [
+        assert result == []
+
+    def test_error_dict_passes_through_unchanged(self, mock_book_meta):
+        """Dicts with 'error' key are included in output without modification."""
+        error_entry = {"error": "Something went wrong"}
+
+        with patch(_PATCH_TARGET, return_value=mock_book_meta):
+            tools = InternalTools(current_user=None, db=None)
+            result = tools._standardize_tool_output([error_entry])
+
+        assert len(result) == 1
+        assert result[0] == error_entry
+
+    def test_book_without_item_idx_is_skipped(self, mock_book_meta):
+        """Books missing item_idx are silently dropped."""
+        raw = [
+            {"title": "No ID Book", "author": "Unknown", "score": 0.5},
             {
                 "item_idx": 1,
                 "title": "The Great Gatsby",
                 "author": "F. Scott Fitzgerald",
-                "score": 0.95,
-            }
+                "score": 0.9,
+            },
         ]
 
-        standardized = tools._standardize_tool_output(raw_results)
+        with patch(_PATCH_TARGET, return_value=mock_book_meta):
+            tools = InternalTools(current_user=None, db=None)
+            result = tools._standardize_tool_output(raw)
 
-        assert len(standardized) == 1
-        assert standardized[0]["num_ratings"] == 100
+        assert len(result) == 1
+        assert result[0]["item_idx"] == 1
 
-    def test_resolves_tone_ids_to_names(
-        self,
-        internal_tools_factory,
-        mock_load_book_meta,
-        mock_db_session,
-        mock_tone_map,
-    ):
-        """Should convert tone_ids to tone names using database mapping."""
-        tools = internal_tools_factory(db=mock_db_session)
-
-        raw_results = [
+    def test_num_ratings_populated_from_book_meta(self, mock_book_meta):
+        """num_ratings should come from book_meta.book_num_ratings for known books."""
+        raw = [
             {
                 "item_idx": 1,
                 "title": "The Great Gatsby",
                 "author": "F. Scott Fitzgerald",
-                "tone_ids": [2, 4],
-                "score": 0.95,
-            }
+                "score": 0.9,
+            },
+            {"item_idx": 2, "title": "1984", "author": "George Orwell", "score": 0.8},
         ]
 
-        standardized = tools._standardize_tool_output(raw_results)
+        with patch(_PATCH_TARGET, return_value=mock_book_meta):
+            tools = InternalTools(current_user=None, db=None)
+            result = tools._standardize_tool_output(raw)
 
-        assert "tones" in standardized[0]
-        assert standardized[0]["tones"] == ["Dark", "Reflective"]
+        assert result[0]["num_ratings"] == 100
+        assert result[1]["num_ratings"] == 200
 
-    def test_excludes_empty_enrichment_fields(
-        self,
-        internal_tools_factory,
-        mock_load_book_meta,
-        mock_db_session,
-    ):
-        """Should not include enrichment fields when they're empty."""
-        tools = internal_tools_factory(db=mock_db_session)
+    def test_num_ratings_defaults_to_zero_for_unknown_book(self, mock_book_meta):
+        """Books not in book_meta index get num_ratings=0."""
+        raw = [{"item_idx": 999, "title": "Unknown Book", "author": "Ghost", "score": 0.5}]
 
-        raw_results = [
+        with patch(_PATCH_TARGET, return_value=mock_book_meta):
+            tools = InternalTools(current_user=None, db=None)
+            result = tools._standardize_tool_output(raw)
+
+        assert len(result) == 1
+        assert result[0]["num_ratings"] == 0
+
+    def test_cover_id_populated_from_book_meta(self, mock_book_meta):
+        """cover_id should be read from book_meta when present and truthy."""
+        raw = [
             {
                 "item_idx": 1,
                 "title": "The Great Gatsby",
                 "author": "F. Scott Fitzgerald",
-                "subjects": [],
-                "tone_ids": [],
-                "genre": "",
-                "vibe": "",
-                "score": 0.95,
+                "score": 0.9,
             }
         ]
 
-        standardized = tools._standardize_tool_output(raw_results)
+        with patch(_PATCH_TARGET, return_value=mock_book_meta):
+            tools = InternalTools(current_user=None, db=None)
+            result = tools._standardize_tool_output(raw)
 
-        assert "subjects" not in standardized[0]
-        assert "tones" not in standardized[0]
-        assert "genre" not in standardized[0]
-        assert "vibe" not in standardized[0]
+        assert result[0]["cover_id"] == "cov_1"
 
-    def test_includes_enrichment_when_present(
-        self,
-        internal_tools_factory,
-        mock_load_book_meta,
-        mock_db_session,
-    ):
-        """Should include enrichment fields when they have content."""
-        tools = internal_tools_factory(db=mock_db_session)
-
-        raw_results = [
-            {
-                "item_idx": 1,
-                "title": "The Great Gatsby",
-                "author": "F. Scott Fitzgerald",
-                "subjects": ["American Dream", "Jazz Age"],
-                "genre": "Literary Fiction",
-                "vibe": "Melancholic exploration of wealth",
-                "score": 0.95,
-            }
+    def test_cover_id_is_none_when_falsy_in_book_meta(self, mock_book_meta):
+        """cover_id should be None when book_meta has None or empty value."""
+        # item_idx 3 has cover_id=None in mock_book_meta
+        raw = [
+            {"item_idx": 3, "title": "To Kill a Mockingbird", "author": "Harper Lee", "score": 0.7}
         ]
 
-        standardized = tools._standardize_tool_output(raw_results)
+        with patch(_PATCH_TARGET, return_value=mock_book_meta):
+            tools = InternalTools(current_user=None, db=None)
+            result = tools._standardize_tool_output(raw)
 
-        assert standardized[0]["subjects"] == ["American Dream", "Jazz Age"]
-        assert standardized[0]["genre"] == "Literary Fiction"
-        assert standardized[0]["vibe"] == "Melancholic exploration of wealth"
+        assert result[0]["cover_id"] is None
 
-    def test_preserves_score_field(
-        self,
-        internal_tools_factory,
-        mock_load_book_meta,
-        mock_db_session,
-    ):
-        """Should keep score field for debugging purposes."""
-        tools = internal_tools_factory(db=mock_db_session)
+    def test_cover_id_is_none_for_unknown_book(self, mock_book_meta):
+        """Books not in book_meta index get cover_id=None."""
+        raw = [{"item_idx": 999, "title": "Unknown", "author": "Ghost", "score": 0.5}]
 
-        raw_results = [
-            {
-                "item_idx": 1,
-                "title": "The Great Gatsby",
-                "author": "F. Scott Fitzgerald",
-                "score": 0.95,
-            }
-        ]
+        with patch(_PATCH_TARGET, return_value=mock_book_meta):
+            tools = InternalTools(current_user=None, db=None)
+            result = tools._standardize_tool_output(raw)
 
-        standardized = tools._standardize_tool_output(raw_results)
+        assert result[0]["cover_id"] is None
 
-        assert standardized[0]["score"] == 0.95
-
-    def test_handles_missing_item_idx(
-        self,
-        internal_tools_factory,
-        mock_load_book_meta,
-        mock_db_session,
-    ):
-        """Should skip books without item_idx."""
-        tools = internal_tools_factory(db=mock_db_session)
-
-        raw_results = [
-            {"title": "Book Without ID", "author": "Unknown"},
-            {"item_idx": 1, "title": "Valid Book", "author": "Author"},
-        ]
-
-        standardized = tools._standardize_tool_output(raw_results)
-
-        assert len(standardized) == 1
-        assert standardized[0]["item_idx"] == 1
-
-    def test_handles_books_not_in_book_meta(
-        self,
-        internal_tools_factory,
-        mock_load_book_meta,
-        mock_db_session,
-    ):
-        """Should default num_ratings to 0 for unknown books."""
-        tools = internal_tools_factory(db=mock_db_session)
-
-        raw_results = [
-            {
-                "item_idx": 999,
-                "title": "Unknown Book",
-                "author": "Unknown Author",
-                "score": 0.5,
-            }
-        ]
-
-        standardized = tools._standardize_tool_output(raw_results)
-
-        assert standardized[0]["num_ratings"] == 0
-
-    def test_handles_missing_tone_ids(
-        self,
-        internal_tools_factory,
-        mock_load_book_meta,
-        mock_db_session,
-    ):
-        """Should not include tones field when tone_ids is empty or missing."""
-        tools = internal_tools_factory(db=mock_db_session)
-
-        raw_results = [
-            {
-                "item_idx": 1,
-                "title": "Book Without Tones",
-                "author": "Author",
-                "score": 0.8,
-            }
-        ]
-
-        standardized = tools._standardize_tool_output(raw_results)
-
-        assert "tones" not in standardized[0]
-
-    def test_filters_invalid_tone_ids(
-        self,
-        internal_tools_factory,
-        mock_load_book_meta,
-        mock_db_session,
-        mock_tone_map,
-    ):
-        """Should only include tones that exist in the tone map."""
-        tools = internal_tools_factory(db=mock_db_session)
-
-        raw_results = [
-            {
-                "item_idx": 1,
-                "title": "Book",
-                "author": "Author",
-                "tone_ids": [1, 999, 2],
-                "score": 0.8,
-            }
-        ]
-
-        standardized = tools._standardize_tool_output(raw_results)
-
-        assert standardized[0]["tones"] == ["Fast-paced", "Dark"]
-
-    def test_passes_through_error_dicts(
-        self,
-        internal_tools_factory,
-        mock_load_book_meta,
-        mock_db_session,
-    ):
-        """Should not modify dicts with 'error' key."""
-        tools = internal_tools_factory(db=mock_db_session)
-
-        raw_results = [
-            {"error": "Something went wrong"},
-            {"item_idx": 1, "title": "Valid Book", "author": "Author"},
-        ]
-
-        standardized = tools._standardize_tool_output(raw_results)
-
-        assert len(standardized) == 2
-        assert standardized[0] == {"error": "Something went wrong"}
-
-    def test_handles_empty_results(
-        self,
-        internal_tools_factory,
-        mock_load_book_meta,
-        mock_db_session,
-    ):
-        """Should return empty list for empty input."""
-        tools = internal_tools_factory(db=mock_db_session)
-
-        standardized = tools._standardize_tool_output([])
-
-        assert standardized == []
-
-    def test_preserves_core_metadata_fields(
-        self,
-        internal_tools_factory,
-        mock_load_book_meta,
-        mock_db_session,
-    ):
-        """Should always include core fields: item_idx, title, author, year, num_ratings."""
-        tools = internal_tools_factory(db=mock_db_session)
-
-        raw_results = [
+    def test_output_contains_exactly_core_fields(self, mock_book_meta):
+        """Output dicts should contain exactly the expected core fields — no extras."""
+        raw = [
             {
                 "item_idx": 1,
                 "title": "The Great Gatsby",
                 "author": "F. Scott Fitzgerald",
                 "year": 1925,
-                "score": 0.95,
+                "score": 0.9,
+                "subjects": ["Jazz Age"],
+                "vibe": "Melancholic",
             }
         ]
 
-        standardized = tools._standardize_tool_output(raw_results)
+        with patch(_PATCH_TARGET, return_value=mock_book_meta):
+            tools = InternalTools(current_user=None, db=None)
+            result = tools._standardize_tool_output(raw)
 
-        assert "item_idx" in standardized[0]
-        assert "title" in standardized[0]
-        assert "author" in standardized[0]
-        assert "year" in standardized[0]
-        assert "num_ratings" in standardized[0]
-        assert "score" in standardized[0]
+        assert set(result[0].keys()) == EXPECTED_CORE_FIELDS
 
-    def test_tone_map_caching(
-        self,
-        internal_tools_factory,
-        mock_db_session,
-        mock_load_book_meta,
-    ):
-        """Should cache tone map after first database query."""
-        tools = internal_tools_factory(db=mock_db_session)
-
-        raw_results = [
-            {"item_idx": 1, "title": "Book 1", "author": "Author", "tone_ids": [1, 2]},
-            {"item_idx": 2, "title": "Book 2", "author": "Author", "tone_ids": [3, 4]},
+    def test_score_preserved_from_input(self, mock_book_meta):
+        """score field should be carried through unchanged."""
+        raw = [
+            {
+                "item_idx": 1,
+                "title": "The Great Gatsby",
+                "author": "F. Scott Fitzgerald",
+                "score": 0.87654,
+            }
         ]
 
-        tools._standardize_tool_output(raw_results)
-        tools._standardize_tool_output(raw_results)
+        with patch(_PATCH_TARGET, return_value=mock_book_meta):
+            tools = InternalTools(current_user=None, db=None)
+            result = tools._standardize_tool_output(raw)
 
-        # Database query should only be called once
-        assert mock_db_session.query.call_count == 1
+        assert result[0]["score"] == 0.87654
+
+    def test_mixed_valid_error_and_missing_id(self, mock_book_meta):
+        """Valid books, error dicts, and missing-id books are all handled correctly together."""
+        raw = [
+            {"error": "fetch failed"},
+            {"title": "No ID", "score": 0.3},
+            {"item_idx": 2, "title": "1984", "author": "George Orwell", "score": 0.92},
+        ]
+
+        with patch(_PATCH_TARGET, return_value=mock_book_meta):
+            tools = InternalTools(current_user=None, db=None)
+            result = tools._standardize_tool_output(raw)
+
+        assert len(result) == 2
+        assert result[0] == {"error": "fetch failed"}
+        assert result[1]["item_idx"] == 2

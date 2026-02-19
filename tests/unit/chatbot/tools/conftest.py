@@ -15,15 +15,17 @@ def mock_book_meta():
     """
     Mock book metadata DataFrame.
 
-    Returns a DataFrame with core book information used by standardization logic.
-    Index is item_idx, which is what the code looks up.
+    Matches the real book_meta schema used by _standardize_tool_output():
+    index is item_idx, columns include book_num_ratings and cover_id.
     """
     df = pd.DataFrame(
         {
             "title": ["The Great Gatsby", "1984", "To Kill a Mockingbird"],
-            "author_name": ["F. Scott Fitzgerald", "George Orwell", "Harper Lee"],
-            "first_publication_year": [1925, 1949, 1960],
+            "author": ["F. Scott Fitzgerald", "George Orwell", "Harper Lee"],
+            "year": [1925, 1949, 1960],
             "book_num_ratings": [100, 200, 150],
+            "cover_id": ["cov_1", "cov_2", None],
+            "bayes": [4.5, 4.3, 4.1],
         }
     )
     df.index = pd.Index([1, 2, 3], name="item_idx")
@@ -56,7 +58,6 @@ def mock_db_session(mock_tone_map):
     """
     session = Mock(spec=Session)
 
-    # Mock the tone query
     tone_query = MagicMock()
     tone_results = [(tid, name) for tid, name in mock_tone_map.items()]
     tone_query.all.return_value = tone_results
