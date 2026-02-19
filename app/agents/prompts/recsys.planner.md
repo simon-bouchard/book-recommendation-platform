@@ -62,7 +62,7 @@ If profile has recent_interactions but NO favorite_subjects:
 
 If NO profile data:
   Primary: popular_books
-  Fallback: book_semantic_search
+  Fallback: subject_id_search, subject_hybrid_pool
 ```
 
 ---
@@ -223,7 +223,7 @@ Return your strategy as a JSON object:
 
 **Ex 5: Vague, no ALS, no profile** | Query: "something interesting" | ALS: No | Profile: None
 ```json
-{"recommended_tools": ["popular_books"], "fallback_tools": ["book_semantic_search"], "reasoning": "Vague query without ALS or profile - popular books as safe default", "negative_constraints": null}
+{"recommended_tools": ["popular_books"], "fallback_tools": ["subject_id_search", "subject_hybrid_pool"], "reasoning": "Vague query without ALS or profile - popular books as safe default", "negative_constraints": null}
 ```
 
 **Ex 6: Descriptive** | Query: "dark atmospheric thriller in small town" | ALS: Yes
