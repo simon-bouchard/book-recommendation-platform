@@ -5,7 +5,7 @@ Replaces custom ReAct implementation with ~150 lines of clean, maintainable code
 """
 
 import threading
-from typing import List, Optional, AsyncGenerator, Dict
+from typing import List, Optional, AsyncGenerator, Dict, Any
 from abc import abstractmethod
 import asyncio
 
@@ -83,43 +83,42 @@ class BaseLangGraphAgent(BaseAgent):
     - _get_target_category() -> str
     """
 
-    def __init__(self, configuration: AgentConfiguration, ctx_user=None, ctx_db=None):
-        """
-        Initialize base agent.
-
-        Args:
-                                                                                                                                                                                                                                                                        configuration: Agent configuration with LLM tier, timeout, etc.
-                                                                                                                                                                                                                                                                        ctx_user: User context for tools (optional)
-                                                                                                                                                                                                                                                                        ctx_db: Database session for tools (optional)
-        """
+    def __init__(
+        self,
+        configuration: AgentConfiguration,
+        mode: str = "stream",
+        ctx_user=None,
+        ctx_db=None,
+    ):
         super().__init__(configuration)
 
-        # Initialize LLM (native function calling, no JSON mode)
+        self.mode = mode
+
         self.llm = get_llm(
             tier=configuration.llm_tier,
+            json_mode=(mode == "json"),
             temperature=0.0,
+            streaming=(mode == "stream"),
             timeout=configuration.timeout_seconds,
-            streaming=True,
         )
 
-        # Initialize tool registry and get native tool functions
         self.tool_registry = self._create_tool_registry(ctx_user, ctx_db)
         self.tools = self.tool_registry.get_tools()
 
         if self.configuration.allowed_tools:
             self.tools = [t for t in self.tools if t.name in self.configuration.allowed_tools]
 
-        # Result processor
         self.result_processor = StandardResultProcessor()
 
-        llm_with_tools = self.llm.bind_tools(self.tools) if self.tools else self.llm
-
-        # Create ReAct agent using prebuilt
-        self.graph = create_react_agent(llm_with_tools, self.tools)
+        # ReAct graph only needed in stream mode
+        if mode == "stream":
+            llm_with_tools = self.llm.bind_tools(self.tools) if self.tools else self.llm
+            self.graph = create_react_agent(llm_with_tools, self.tools)
+        else:
+            self.graph = None
 
         append_chatbot_log(
-            f"Initialized {self.__class__.__name__} with {len(self.tools)} tools "
-            f"using prebuilt ReAct agent"
+            f"Initialized {self.__class__.__name__} with {len(self.tools)} tools (mode={mode})"
         )
 
     # ============================================================================
@@ -137,11 +136,11 @@ class BaseLangGraphAgent(BaseAgent):
         4. Current query (always last)
 
         Args:
-                                                                                                                                                                                                                                                                        request: Agent request with query and history
-                                                                                                                                                                                                                                                                        **context: Additional context passed to _add_context_messages()
+           request: Agent request with query and history
+           **context: Additional context passed to _add_context_messages()
 
         Returns:
-                                                                                                                                                                                                                                                                        List of messages for the agent
+           List of messages for the agent
         """
         messages = []
 
@@ -168,10 +167,10 @@ class BaseLangGraphAgent(BaseAgent):
         Examples: strategy from planner, current execution state, etc.
 
         Args:
-                **context: Arbitrary context passed from execute method
+                        **context: Arbitrary context passed from execute method
 
         Returns:
-                                        List of context messages (default: empty)
+           List of context messages (default: empty)
         """
         return []
 
@@ -197,86 +196,40 @@ class BaseLangGraphAgent(BaseAgent):
     # SYNCHRONOUS EXECUTION
     # ============================================================================
 
-    async def execute(self, request: AgentRequest, **context) -> AgentResponse:
+    async def execute_json(self, request: AgentRequest, response_model: type, **context) -> Any:
         """
-        Execute agent asynchronously (non-blocking).
+        Execute a single structured LLM call without a ReAct loop.
+
+        Only available in json mode. Builds messages via the standard
+        _build_messages() pipeline so subclass context injection works
+        identically to stream mode.
 
         Args:
                         request: Agent request with query and history
-                        **context: Additional context passed to message builder
+                        response_model: Pydantic model to validate and parse the response into
+                        **context: Additional context passed to _add_context_messages()
 
         Returns:
-                        Agent response with result
-        """
-        append_chatbot_log(
-            f"\n{'=' * 60}\n"
-            f"{self.__class__.__name__.upper()} EXECUTION\n"
-            f"Query: {request.user_text[:100]}...\n"
-            f"{'=' * 60}"
-        )
+                        Validated instance of response_model
 
-        # Build messages
+        Raises:
+                        RuntimeError: If called on a stream-mode agent
+                        ValidationError: If response cannot be parsed into response_model
+        """
+        if self.mode != "json":
+            raise RuntimeError(
+                f"{self.__class__.__name__}.execute_json() called but agent is in '{self.mode}' mode"
+            )
+
         messages = self._build_messages(request, **context)
 
-        # Create execution state for tracking
-        state = AgentExecutionState(
-            input_text=request.user_text,
-            conversation_history=request.conversation_history,
-            status=ExecutionStatus.RUNNING,
-        )
-
         try:
-            # Execute with timeout (non-blocking)
-            result = await asyncio.wait_for(
-                self.graph.ainvoke({"messages": messages}),
-                timeout=self.configuration.timeout_seconds,
-            )
-
-            # Extract final message
-            final_messages = result.get("messages", [])
-            if final_messages:
-                final_text = final_messages[-1].content
-            else:
-                final_text = "I couldn't generate a response."
-
-            state.mark_completed()
-
-            # Build response
-            response = AgentResponse(
-                text=final_text,
-                target_category=self._get_target_category(),
-                success=True,
-                execution_state=state,
-                policy_version=self.configuration.policy_name,
-            )
-
-            append_chatbot_log(f"COMPLETE: {state.execution_time_ms}ms\n{'=' * 60}\n")
-
-            return response
-
-        except asyncio.TimeoutError:
-            append_chatbot_log(f"[TIMEOUT] Exceeded {self.configuration.timeout_seconds}s")
-            state.mark_failed("Timeout")
-
-            return AgentResponse(
-                text="I'm taking too long to respond. Please try rephrasing your request.",
-                target_category=self._get_target_category(),
-                success=False,
-                execution_state=state,
-                policy_version=self.configuration.policy_name,
-            )
+            response = await self.llm.ainvoke(messages)
+            return response_model.model_validate_json(response.content)
 
         except Exception as e:
-            append_chatbot_log(f"[ERROR] {type(e).__name__}: {e}")
-            state.mark_failed(str(e))
-
-            return AgentResponse(
-                text="I encountered an error processing your request.",
-                target_category=self._get_target_category(),
-                success=False,
-                execution_state=state,
-                policy_version=self.configuration.policy_name,
-            )
+            append_chatbot_log(f"[JSON EXECUTE ERROR] {type(e).__name__}: {e}")
+            raise
 
     # ============================================================================
     # STREAMING EXECUTION
@@ -291,8 +244,7 @@ class BaseLangGraphAgent(BaseAgent):
         Uses stream_mode=["messages", "values"] to get both:
           - "messages": (AIMessageChunk, metadata) tuples for real-time token streaming
           - "values":	full state snapshots after each node, used to extract the
-                                        complete tool call history for verification/evals (same data
-                                        as the old stream_mode="values" loop produced)
+        complete tool call history for verification/evals (same data as the old stream_mode="values" loop produced)
 
         Chunk type contract:
           - status:   progress updates (start, tool begin, tool complete)
@@ -300,12 +252,17 @@ class BaseLangGraphAgent(BaseAgent):
           - complete: final metadata including tool_calls reconstructed from full state
 
         Args:
-                request: Agent request with query and history
-                **context: Additional context passed to message builder
+                                                                        request: Agent request with query and history
+                                                                        **context: Additional context passed to message builder
 
         Yields:
-                StreamChunk objects with status updates, tokens, and completion
+                                                                        StreamChunk objects with status updates, tokens, and completion
         """
+        if self.mode != "stream":
+            raise RuntimeError(
+                f"{self.__class__.__name__}.execute_stream() called but agent is in '{self.mode}' mode"
+            )
+
         append_chatbot_log(
             f"\n{'=' * 60}\n{self.__class__.__name__.upper()} STREAMING\n"
             f"Query: {request.user_text[:50]}...\n{'=' * 60}"
@@ -427,10 +384,10 @@ class BaseLangGraphAgent(BaseAgent):
         Extract tool calls with results from message history.
 
         Args:
-                                        messages: List of messages from graph execution
+                        messages: List of messages from graph execution
 
         Returns:
-                                        List of dicts with tool_name, arguments, result
+                        List of dicts with tool_name, arguments, result
         """
         # Build mapping of tool_call_id -> result
         tool_results = {}
@@ -485,11 +442,11 @@ class BaseLangGraphAgent(BaseAgent):
         Override for additional customization beyond tool metadata.
 
         Args:
-                                                                                                                                                                                                                                                                        tool_name: Name of tool being called
-                                                                                                                                                                                                                                                                        args: Arguments passed to tool
+                        tool_name: Name of tool being called
+                        args: Arguments passed to tool
 
         Returns:
-                                                                                                                                                                                                                                                                        Status message to display
+                        Status message to display
         """
         # Find tool object by name
         tool = next((t for t in self.tools if t.name == tool_name), None)
@@ -525,7 +482,7 @@ class BaseLangGraphAgent(BaseAgent):
         Get system prompt for this agent.
 
         Returns:
-                                                                                                                                                                                                                                                                        System prompt as string
+                        System prompt as string
         """
         pass
 
@@ -535,11 +492,11 @@ class BaseLangGraphAgent(BaseAgent):
         Create tool registry for this agent.
 
         Args:
-                                                                                                                                                                                                                                                                        ctx_user: User context (optional)
-                                                                                                                                                                                                                                                                        ctx_db: Database session (optional)
+                        ctx_user: User context (optional)
+                        ctx_db: Database session (optional)
 
         Returns:
-                                                                                                                                                                                                                                                                        Configured ToolRegistry instance
+                        Configured ToolRegistry instance
         """
         pass
 
@@ -549,7 +506,7 @@ class BaseLangGraphAgent(BaseAgent):
         Get target category for this agent (e.g., "docs", "recsys", "respond").
 
         Returns:
-                                                                                                                                                                                                                                                                        Target category string
+                        Target category string
         """
         pass
 
