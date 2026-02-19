@@ -26,6 +26,7 @@ from app.agents.logging import append_chatbot_log
 from .planner_agent import PlannerAgent
 from .retrieval_agent import RetrievalAgent
 from .curation_agent import CurationAgent
+from .selection_agent import SelectionAgent
 
 
 class RecommendationAgent(BaseAgent):
@@ -48,6 +49,7 @@ class RecommendationAgent(BaseAgent):
         allow_profile: bool = False,
         planner_agent: Optional["PlannerAgent"] = None,
         retrieval_agent: Optional["RetrievalAgent"] = None,
+        selection_agent: Optional["SelectionAgent"] = None,
         curation_agent: Optional["CurationAgent"] = None,
     ):
         """
@@ -107,6 +109,8 @@ class RecommendationAgent(BaseAgent):
                 has_als_recs_available=self._has_als_recs,
             )
         )
+
+        self.selection_agent = selection_agent if selection_agent is not None else SelectionAgent()
 
         self.curation_agent = curation_agent if curation_agent is not None else CurationAgent()
 
@@ -358,7 +362,6 @@ class RecommendationAgent(BaseAgent):
             execution_context = retrieval_output.execution_context
 
             retrieval_time = int((time.time() - retrieval_start) * 1000)
-
             append_chatbot_log(f"Retrieval: {len(candidates)} candidates in {retrieval_time}ms")
 
             # Check if we got any candidates
@@ -377,33 +380,47 @@ class RecommendationAgent(BaseAgent):
                 return
 
             # ============================================================
-            # STAGE 3: CURATION
+            # STAGE 3: SELECTION
             # ============================================================
-            append_chatbot_log("\n=== STAGE 3: CURATION ===")
-            curation_start = time.time()
+            yield StreamChunk(type="status", content="Selecting best matches...")
 
-            # Stream tokens from curation
-            async for chunk in self.curation_agent.execute_stream(
+            append_chatbot_log("\n=== STAGE 3: SELECTION ===")
+            selection_start = time.time()
+
+            selected_candidates = await self.selection_agent.execute(
                 request=request,
                 candidates=candidates,
                 execution_context=execution_context,
+            )
+
+            selection_time = int((time.time() - selection_start) * 1000)
+            append_chatbot_log(f"Selection: {len(selected_candidates)} books in {selection_time}ms")
+
+            if not selected_candidates:
+                yield StreamChunk(
+                    type="complete",
+                    data={
+                        "target": "recsys",
+                        "success": False,
+                        "text": "I couldn't find books matching your request.",
+                        "book_ids": [],
+                        "elapsed_ms": int((time.time() - start_time) * 1000),
+                    },
+                )
+                return
+
+            # ============================================================
+            # STAGE 4: CURATION
+            # ============================================================
+            # CurationAgent now receives only confirmed, ranked books — no selection needed
+            async for chunk in self.curation_agent.execute_stream(
+                request=request,
+                candidates=selected_candidates,  # pre-validated subset, not full pool
+                execution_context=execution_context,
             ):
-                # Add execution context to completion chunk for evaluation
                 if chunk.type == "complete" and execution_context:
                     chunk.data["tools_used"] = execution_context.tools_used
-
-                # Forward all chunks (status, tokens, complete)
                 yield chunk
-
-            curation_time = int((time.time() - curation_start) * 1000)
-            total_time = planning_time + retrieval_time + curation_time
-
-            append_chatbot_log(
-                f"\n{'=' * 60}\n"
-                f"RECOMMENDATION COMPLETE (STREAMING)\n"
-                f"Total: {total_time}ms\n"
-                f"{'=' * 60}\n"
-            )
 
         except Exception as e:
             append_chatbot_log(f"[ORCHESTRATOR ERROR] {type(e).__name__}: {e}")
