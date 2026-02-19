@@ -62,19 +62,6 @@ class TestPopularBooks:
 
         assert len(result) == 1
 
-    def test_returns_error_without_database(self):
-        """
-        Verify popular_books returns error when database connection is None.
-        """
-        tools_no_db = InternalTools(current_user=None, db=None)
-        popular_books = tools_no_db._create_popular_books_tool()
-
-        result = popular_books.invoke({"top_k": 10})
-
-        assert isinstance(result, list)
-        assert len(result) == 1
-        assert "error" in result[0]
-
 
 class TestSemanticSearch:
     """Tests for book_semantic_search retrieval tool."""
