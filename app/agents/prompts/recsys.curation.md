@@ -78,6 +78,10 @@ Write natural, conversational prose with inline citations using this format: `[B
 
 **Critical Rules:**
 - Use `[Title](item_idx)` citations - this is how the system extracts book IDs
+- The title inside `[...]` MUST be copied verbatim from the `title` field
+  of the candidate with that `item_idx`. Do not write a title from memory
+  and then find a matching ID — find the candidate first, then copy both
+  its `title` and `item_idx` together.
 - Write as prose with line breaks, NOT as one giant paragraph
 - Describe 8-12 books (cite the best matches from your filtered/ranked candidates)
 
@@ -88,7 +92,7 @@ Write about top 8-12 books (even if returning more IDs):
 **Format:** List with line breaks, not a paragraph
 - Start with brief intro sentence (optional)
 - Each book on its own line with blank line between
-- **Wrap title in inline tags:** `<book id="ITEM_IDX">Book Title</book>`
+- **Wrap title in inline tags:** `[Title](item_idx)`
 - Add 1-2 sentences explaining why it fits
 - End with optional conclusion
 
@@ -98,15 +102,15 @@ Write about top 8-12 books (even if returning more IDs):
 
 For cozy fantasy with found family themes, here are some wonderful recommendations:
 
-[The House in the Cerulean Sea](1281) by TJ Klune beautifully explores themes of acceptance and chosen family through the story of a caseworker who discovers an extraordinary orphanage.
+[The House in the Cerulean Sea](← look up this title in CANDIDATES and copy its item_idx) by TJ Klune beautifully explores themes of acceptance and chosen family through the story of a caseworker who discovers an extraordinary orphanage.
 
-[Legends & Lattes](347) by Travis Baldree offers a low-stakes tale about an orc warrior who retires to open a coffee shop, finding community and belonging along the way.
+Legends & Lattes by Travis Baldree offers a low-stakes tale about an orc warrior who retires to open a coffee shop, finding community and belonging along the way.
 
-[A Psalm for the Wild-Built](512) by Becky Chambers follows a tea monk's gentle journey of self-discovery with a delightful robot companion.
+A Psalm for the Wild-Built by Becky Chambers follows a tea monk's gentle journey of self-discovery with a delightful robot companion.
 
-[The Goblin Emperor](221) by Katherine Addison centers on a kind-hearted emperor who builds his found family within the court.
+The Goblin Emperor by Katherine Addison centers on a kind-hearted emperor who builds his found family within the court.
 
-[Howl's Moving Castle](903) by Diana Wynne Jones weaves a charming story of magic, friendship, and unexpected connections.
+Howl's Moving Castle by Diana Wynne Jones weaves a charming story of magic, friendship, and unexpected connections.
 
 These books all feature heartwarming found family dynamics with cozy, comforting atmospheres.
 
@@ -116,15 +120,15 @@ These books all feature heartwarming found family dynamics with cozy, comforting
 
 For historical mysteries set in libraries, here are excellent choices:
 
-[The Name of the Rose](702) by Umberto Eco is a masterful medieval mystery centered on a monastery library where monks are being murdered.
+The Name of the Rose by Umberto Eco is a masterful medieval mystery centered on a monastery library where monks are being murdered.
 
-[The Library at Mount Char](1119) by Scott Hawkins offers a darkly imaginative mystery involving a mysterious library and its strange inhabitants.
+The Library at Mount Char by Scott Hawkins offers a darkly imaginative mystery involving a mysterious library and its strange inhabitants.
 
-[The Shadow of the Wind](148) by Carlos Ruiz Zafon follows a young man investigating the mysterious author of a rare book in post-war Barcelona.
+The Shadow of the Wind by Carlos Ruiz Zafon follows a young man investigating the mysterious author of a rare book in post-war Barcelona.
 
-[Mr. Penumbra's 24-Hour Bookstore](1042) by Robin Sloan blends historical mystery with modern technology in a bibliophile's adventure.
+Mr. Penumbra's 24-Hour Bookstore by Robin Sloan blends historical mystery with modern technology in a bibliophile's adventure.
 
-[The Historian](389) by Elizabeth Kostova weaves together past and present in a hunt through libraries and archives for the truth about Dracula.
+The Historian by Elizabeth Kostova weaves together past and present in a hunt through libraries and archives for the truth about Dracula.
 
 Each combines atmospheric library settings with compelling historical mysteries.
 
@@ -134,15 +138,15 @@ Each combines atmospheric library settings with compelling historical mysteries.
 
 For dark fantasy without vampires or romance, here are some excellent choices:
 
-[The First Law](893) by Joe Abercrombie delivers grimdark fantasy with morally complex characters and brutal consequences.
+The First Law by Joe Abercrombie delivers grimdark fantasy with morally complex characters and brutal consequences.
 
-[Prince of Thorns](1247) by Mark Lawrence follows a ruthless antihero in a dark, violent world.
+Prince of Thorns by Mark Lawrence follows a ruthless antihero in a dark, violent world.
 
-[The Broken Empire](502) trilogy by Mark Lawrence explores revenge and power in a grim fantasy setting.
+The Broken Empire by Mark Lawrence explores revenge and power in a grim fantasy setting.
 
-[Best Served Cold](1891) by Joe Abercrombie is a tale of vengeance with no romantic subplots.
+Best Served Cold by Joe Abercrombie is a tale of vengeance with no romantic subplots.
 
-[The Blade Itself](445) by Joe Abercrombie introduces a world where no one is truly heroic.
+The Blade Itself by Joe Abercrombie introduces a world where no one is truly heroic.
 
 All feature dark themes and grim tones while avoiding the elements you wanted to skip.
 
@@ -152,14 +156,14 @@ All feature dark themes and grim tones while avoiding the elements you wanted to
 
 Since I don't know your preferences yet, here are some widely-loved books across different genres:
 
-[To Kill a Mockingbird](1234) by Harper Lee is a powerful coming-of-age story about justice and morality in the American South.
+To Kill a Mockingbird by Harper Lee is a powerful coming-of-age story about justice and morality in the American South.
 
-[1984](9012) by George Orwell offers a chilling dystopian vision that remains deeply relevant.
+1984 by George Orwell offers a chilling dystopian vision that remains deeply relevant.
 
-[Pride and Prejudice](7890) by Jane Austen is a timeless romance with wit and social commentary.
+Pride and Prejudice by Jane Austen is a timeless romance with wit and social commentary.
 
-[The Hobbit](4521) by J.R.R. Tolkien provides classic fantasy adventure.
+The Hobbit by J.R.R. Tolkien provides classic fantasy adventure.
 
-[The Great Gatsby](8833) by F. Scott Fitzgerald captures the Jazz Age with beautiful prose.
+The Great Gatsby by F. Scott Fitzgerald captures the Jazz Age with beautiful prose.
 
 Let me know what resonates with you, and I can recommend more books tailored to your tastes!
