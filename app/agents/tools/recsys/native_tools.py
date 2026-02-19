@@ -51,7 +51,7 @@ class InternalTools:
         Single query returns ~36 rows (all tones in ontology).
 
         Returns:
-                Dictionary mapping tone_id (int) to tone name (str)
+                        Dictionary mapping tone_id (int) to tone name (str)
         """
         if self._tone_map is None and self.db:
             from app.table_models import Tone
@@ -81,10 +81,10 @@ class InternalTools:
         4. Exclude empty enrichment fields to reduce token usage
 
         Args:
-                raw_results: Raw output from service or searcher
+                        raw_results: Raw output from service or searcher
 
         Returns:
-                Standardized list of book dicts with consistent schema
+                        Standardized list of book dicts with consistent schema
         """
         if not raw_results:
             return []
@@ -101,7 +101,7 @@ class InternalTools:
                 continue
 
             item_idx = book.get("item_idx")
-            if not item_idx:
+            if item_idx is None:
                 continue
 
             # Get num_ratings from book metadata (always available, zero queries)
@@ -136,7 +136,7 @@ class InternalTools:
         They do NOT retrieve books.
 
         Returns:
-                List of context tools (empty if profile not allowed)
+                        List of context tools (empty if profile not allowed)
         """
         if not self.allow_profile or not self.current_user or not self.db:
             return []
@@ -151,10 +151,10 @@ class InternalTools:
         All tools return standardized output format.
 
         Args:
-                is_warm: Whether user has enough ratings for collaborative filtering
+                        is_warm: Whether user has enough ratings for collaborative filtering
 
         Returns:
-                List of retrieval tools
+                        List of retrieval tools
         """
         tools = []
 
@@ -181,10 +181,10 @@ class InternalTools:
         This method is kept for backward compatibility.
 
         Args:
-                is_warm: Whether user has enough ratings for warm recommendations
+                        is_warm: Whether user has enough ratings for warm recommendations
 
         Returns:
-                List of all available tools
+                        List of all available tools
         """
         tools = []
 
@@ -214,12 +214,12 @@ class InternalTools:
             Works for both authenticated and anonymous users.
 
             Args:
-                    query: Natural language search query
-                    top_k: Number of results to return
-                    filters: Optional dict with 'subjects' list for filtering
+                            query: Natural language search query
+                            top_k: Number of results to return
+                            filters: Optional dict with 'subjects' list for filtering
 
             Returns:
-                    Standardized list of books with enrichment metadata
+                            Standardized list of books with enrichment metadata
             """
             top_k = max(1, min(500, top_k))
 
@@ -264,10 +264,10 @@ class InternalTools:
             Returns basic metadata (title, author, year, num_ratings).
 
             Args:
-                    top_k: Number of recommendations to return
+                            top_k: Number of recommendations to return
 
             Returns:
-                    Standardized list of recommended books with basic metadata
+                            Standardized list of recommended books with basic metadata
             """
             if not self.current_user or not self.db:
                 return [{"error": "ALS recommendations require authentication"}]
@@ -322,12 +322,12 @@ class InternalTools:
             Returns basic metadata (title, author, year, num_ratings).
 
             Args:
-                    fav_subjects_idxs: List of subject indices. If empty, uses current user's favorites.
-                    top_k: Number of recommendations to return
-                    subject_weight: Weight for subject similarity (0-1), rest is popularity
+                            fav_subjects_idxs: List of subject indices. If empty, uses current user's favorites.
+                            top_k: Number of recommendations to return
+                            subject_weight: Weight for subject similarity (0-1), rest is popularity
 
             Returns:
-                    Standardized list of recommended books with basic metadata
+                            Standardized list of recommended books with basic metadata
             """
             if not self.db:
                 return [{"error": "Subject hybrid requires database connection"}]
@@ -397,11 +397,11 @@ class InternalTools:
             Returns subject_idx, subject name, and match score.
 
             Args:
-                    phrases: List of subject phrases to resolve
-                    top_k: Number of matches per phrase
+                            phrases: List of subject phrases to resolve
+                            top_k: Number of matches per phrase
 
             Returns:
-                    List of dicts with phrase and candidates
+                            List of dicts with phrase and candidates
             """
             if not self.db:
                 return [{"error": "Subject ID search requires database"}]
@@ -422,17 +422,16 @@ class InternalTools:
         return subject_id_search
 
     def _create_popular_books_tool(self) -> Callable:
-        """Get popular books ranked by Bayesian average rating."""
+        """Get popular books ranked by precomputed Bayesian score."""
 
         @tool
         def popular_books(top_k: int = 100) -> list[dict]:
             """
             Get popular books ranked by Bayesian average rating.
 
-            Use for cold users with vague queries when no other context available.
-            Returns books sorted by rating quality + popularity.
+            Use for cold users with vague queries when no other context is available.
+            Returns books sorted by rating quality and popularity.
             Works for both authenticated and anonymous users.
-            Returns basic metadata (title, author, year, num_ratings).
 
             Args:
                     top_k: Number of popular books to return
@@ -440,45 +439,36 @@ class InternalTools:
             Returns:
                     Standardized list of popular books with basic metadata
             """
-            if not self.db:
-                return [{"error": "Popular books requires database connection"}]
+            from models.data.loaders import load_book_meta
+            from models.data.queries import get_read_books
 
             top_k = max(1, min(500, top_k))
 
             try:
-                # Create user for popularity fallback
-                # For anonymous: use None values
-                # For authenticated: use real user
-                if self.current_user:
-                    domain_user = self._to_domain_user(self.current_user)
-                else:
-                    # Anonymous user - popularity generator doesn't need user data
-                    from models.core.constants import PAD_IDX
+                # Already sorted by Bayesian score descending at load time
+                book_meta = load_book_meta(use_cache=True)
 
-                    domain_user = User(user_id=-1, fav_subjects=[PAD_IDX])
+                # Filter out books the user has already read
+                if self.current_user and self.db:
+                    user_id = getattr(self.current_user, "user_id", None)
+                    if user_id:
+                        read_ids = get_read_books(user_id, self.db)
+                        book_meta = book_meta[~book_meta.index.isin(read_ids)]
 
-                # Use new recommendation service
-                # The service will automatically use popularity generator
-                # when user has no preferences (which is true for anonymous users)
-                service = RecommendationService()
-                config = RecommendationConfig(k=top_k, mode="auto")
+                top_books = book_meta.head(top_k)
 
-                recommendations = service.recommend(domain_user, config, self.db)
-
-                # Convert RecommendedBook objects to dicts
-                raw_results = [
+                results = [
                     {
-                        "item_idx": rec.item_idx,
-                        "title": rec.title,
-                        "author": rec.author,
-                        "year": rec.year,
-                        "score": rec.score,
-                        "num_ratings": rec.num_ratings,
+                        "item_idx": int(item_idx),
+                        "title": str(row["title"]),
+                        "author": str(row["author"]) if row.get("author") else "",
+                        "year": int(row["year"]) if row.get("year") else None,
+                        "score": float(row["bayes"]),
                     }
-                    for rec in recommendations
+                    for item_idx, row in top_books.iterrows()
                 ]
 
-                return self._standardize_tool_output(raw_results)
+                return self._standardize_tool_output(results)
 
             except Exception as e:
                 return [{"error": f"Popular books failed: {e}"}]
@@ -498,10 +488,10 @@ class InternalTools:
             of book IDs to show the user.
 
             Args:
-                    book_ids: List of item_idx values to return
+                            book_ids: List of item_idx values to return
 
             Returns:
-                    Dictionary with deduplicated book_ids list
+                            Dictionary with deduplicated book_ids list
             """
             # Deduplicate while preserving order
             seen = set()
@@ -530,10 +520,10 @@ class InternalTools:
             Requires: User consent for profile access.
 
             Args:
-                    limit: Maximum number of subjects to return (max 5)
+                            limit: Maximum number of subjects to return (max 5)
 
             Returns:
-                    Dictionary with fav_subjects list
+                            Dictionary with fav_subjects list
             """
             if not self.current_user or not self.db:
                 return {"error": "User profile requires authentication"}
@@ -561,11 +551,11 @@ class InternalTools:
             Requires: User consent for profile access.
 
             Args:
-                    limit: Maximum number of interactions (max 5)
-                    include_comments: Whether to include user comments
+                            limit: Maximum number of interactions (max 5)
+                            include_comments: Whether to include user comments
 
             Returns:
-                    Dictionary with interactions list
+                            Dictionary with interactions list
             """
             if not self.current_user or not self.db:
                 return {"error": "Recent interactions requires authentication"}
@@ -601,10 +591,10 @@ class InternalTools:
         Convert ORM user to domain User object.
 
         Args:
-                orm_user: SQLAlchemy User object
+                        orm_user: SQLAlchemy User object
 
         Returns:
-                Domain User object with favorite subjects
+                        Domain User object with favorite subjects
         """
         from models.core.constants import PAD_IDX
 
@@ -631,10 +621,10 @@ class InternalTools:
         Used for subject_hybrid when we need to create a user with specific subjects.
 
         Args:
-                subject_indices: List of subject indices
+                        subject_indices: List of subject indices
 
         Returns:
-                Domain User object
+                        Domain User object
         """
         # Use a temporary user ID (negative to avoid collision)
         # The service layer doesn't need a real user_id for cold recommendations
