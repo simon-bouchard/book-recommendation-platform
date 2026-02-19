@@ -31,6 +31,17 @@ from app.agents.logging import append_chatbot_log
 from app.agents.utils.retrieval_logging_callback import RetrievalLoggingCallback
 
 
+_BOOK_RETRIEVAL_TOOLS = frozenset(
+    {
+        "book_semantic_search",
+        "als_recs",
+        "subject_hybrid_pool",
+        "subject_id_search",
+        "popular_books",
+    }
+)
+
+
 class RetrievalAgent(BaseLangGraphAgent):
     """
     Strategy execution and candidate gathering agent.
@@ -56,10 +67,10 @@ class RetrievalAgent(BaseLangGraphAgent):
         Initialize RetrievalAgent.
 
         Args:
-            current_user: Current user object (for retrieval tools)
-            db: Database session (for retrieval tools)
-            user_num_ratings: Number of ratings user has
-            has_als_recs_available: Whether ALS collaborative filtering is available
+                current_user: Current user object (for retrieval tools)
+                db: Database session (for retrieval tools)
+                user_num_ratings: Number of ratings user has
+                has_als_recs_available: Whether ALS collaborative filtering is available
         """
         # Build configuration
         configuration = AgentConfiguration(
@@ -123,10 +134,10 @@ class RetrievalAgent(BaseLangGraphAgent):
         Inject strategy and progress tracking into message history.
 
         Args:
-            **context: Must contain 'strategy' and 'profile_data'
+                **context: Must contain 'strategy' and 'profile_data'
 
         Returns:
-            List containing HumanMessage with strategy and progress
+                List containing HumanMessage with strategy and progress
         """
         strategy = context.get("strategy")
         profile_data = context.get("profile_data")
@@ -195,11 +206,11 @@ class RetrievalAgent(BaseLangGraphAgent):
         4. Return output for CurationAgent
 
         Args:
-            retrieval_input: Strategy and query from PlannerAgent
+                retrieval_input: Strategy and query from PlannerAgent
 
         Returns:
-            RetrievalOutput with candidates and execution context
-            Always returns candidates even on partial failure
+                RetrievalOutput with candidates and execution context
+                Always returns candidates even on partial failure
         """
         append_chatbot_log(
             f"\n{'=' * 60}\n"
@@ -281,18 +292,17 @@ class RetrievalAgent(BaseLangGraphAgent):
 
         return output
 
+    _BOOK_RETRIEVAL_TOOLS = frozenset(
+        {
+            "book_semantic_search",
+            "als_recs",
+            "subject_hybrid_pool",
+            "subject_id_search",
+            "popular_books",
+        }
+    )
+
     def _extract_execution_state(self, result: dict, query: str, start_time: float):
-        """
-        Extract execution state from graph result.
-
-        Args:
-            result: Graph execution result with messages
-            query: Original query
-            start_time: Execution start time
-
-        Returns:
-            AgentExecutionState with tool executions and book objects
-        """
         state = AgentExecutionState(
             input_text=query,
             conversation_history=[],
@@ -301,54 +311,73 @@ class RetrievalAgent(BaseLangGraphAgent):
         state.start_time = start_time
         state.end_time = time.time()
 
-        # Extract messages from graph result
         messages = result.get("messages", [])
 
-        # Extract tool executions by pairing tool calls with tool results
+        # Pair tool calls with their results
         tool_executions = []
         for i, msg in enumerate(messages):
-            # AI message with tool calls
-            if hasattr(msg, "tool_calls") and msg.tool_calls:
-                for tool_call in msg.tool_calls:
-                    tool_id = tool_call.get("id")
-                    tool_name = tool_call.get("name", "")
-                    tool_args = tool_call.get("args", {})
+            if not (hasattr(msg, "tool_calls") and msg.tool_calls):
+                continue
+            for tool_call in msg.tool_calls:
+                tool_id = tool_call.get("id")
+                tool_name = tool_call.get("name", "")
+                tool_args = tool_call.get("args", {})
 
-                    tool_result = None
-                    tool_error = None
-                    for next_msg in messages[i + 1 :]:
-                        if hasattr(next_msg, "tool_call_id") and next_msg.tool_call_id == tool_id:
-                            tool_result = next_msg.content
-                            if not tool_result:
-                                tool_error = "No result returned"
-                            break
+                tool_result = None
+                tool_error = None
+                for next_msg in messages[i + 1 :]:
+                    if hasattr(next_msg, "tool_call_id") and next_msg.tool_call_id == tool_id:
+                        tool_result = next_msg.content
+                        if not tool_result:
+                            tool_error = "No result returned"
+                        break
 
-                    if tool_result is None:
-                        tool_error = "Tool result not found in message history"
+                if tool_result is None:
+                    tool_error = "Tool result not found in message history"
 
-                    tool_exec = ToolExecution(
+                tool_executions.append(
+                    ToolExecution(
                         tool_name=tool_name,
                         arguments=tool_args,
                         result=tool_result,
                         error=tool_error,
                         execution_time_ms=0,
                     )
-                    tool_executions.append(tool_exec)
+                )
 
-                    state.tool_executions = tool_executions
+        state.tool_executions = tool_executions
 
-        # Use result processor to extract and build book recommendations
-        books = self.result_processor.extract_book_recommendations(state)
-
-        # Convert to dicts for RetrievalOutput compatibility
+        # Parse full book metadata directly from retrieval tool results
         book_objects = []
-        for book in books:
-            if hasattr(book, "to_dict"):
-                book_objects.append(book.to_dict())
-            elif hasattr(book, "__dict__"):
-                book_objects.append(book.__dict__)
+        seen_ids = set()
+
+        for exec_record in tool_executions:
+            if exec_record.tool_name not in _BOOK_RETRIEVAL_TOOLS:
+                continue
+            if exec_record.error or not exec_record.result:
+                continue
+            try:
+                data = json.loads(exec_record.result)
+                if not isinstance(data, list):
+                    continue
+                for book in data:
+                    if not isinstance(book, dict):
+                        continue
+                    if "error" in book:
+                        continue
+                    item_idx = book.get("item_idx")
+                    if item_idx is None or item_idx in seen_ids:
+                        continue
+                    seen_ids.add(item_idx)
+                    book_objects.append(book)
+            except (json.JSONDecodeError, TypeError):
+                append_chatbot_log(
+                    f"[RETRIEVAL WARNING] Could not parse result for {exec_record.tool_name}"
+                )
 
         state.intermediate_outputs["book_objects"] = book_objects
+
+        append_chatbot_log(f"Extracted {len(book_objects)} book candidates with full metadata")
 
         return state
 
@@ -357,10 +386,10 @@ class RetrievalAgent(BaseLangGraphAgent):
         Build human-readable summary of execution decisions.
 
         Args:
-            state: Final execution state
+                state: Final execution state
 
         Returns:
-            Summary string explaining what happened
+                Summary string explaining what happened
         """
         candidates = state.intermediate_outputs.get("book_objects", [])
         tool_execs = state.tool_executions
