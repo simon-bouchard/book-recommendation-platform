@@ -420,6 +420,7 @@ class RecommendationAgent(BaseAgent):
             ):
                 if chunk.type == "complete" and execution_context:
                     chunk.data["tools_used"] = execution_context.tools_used
+                    chunk.data["selection_count"] = len(selected_candidates)
                 yield chunk
 
         except Exception as e:
