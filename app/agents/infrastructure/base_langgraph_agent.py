@@ -252,11 +252,11 @@ class BaseLangGraphAgent(BaseAgent):
           - complete: final metadata including tool_calls reconstructed from full state
 
         Args:
-                                                                        request: Agent request with query and history
-                                                                        **context: Additional context passed to message builder
+            request: Agent request with query and history
+            **context: Additional context passed to message builder
 
         Yields:
-                                                                        StreamChunk objects with status updates, tokens, and completion
+            StreamChunk objects with status updates, tokens, and completion
         """
         if self.mode != "stream":
             raise RuntimeError(
@@ -384,10 +384,10 @@ class BaseLangGraphAgent(BaseAgent):
         Extract tool calls with results from message history.
 
         Args:
-                        messages: List of messages from graph execution
+            messages: List of messages from graph execution
 
         Returns:
-                        List of dicts with tool_name, arguments, result
+            List of dicts with tool_name, arguments, result
         """
         # Build mapping of tool_call_id -> result
         tool_results = {}
@@ -442,11 +442,11 @@ class BaseLangGraphAgent(BaseAgent):
         Override for additional customization beyond tool metadata.
 
         Args:
-                        tool_name: Name of tool being called
-                        args: Arguments passed to tool
+            tool_name: Name of tool being called
+            args: Arguments passed to tool
 
         Returns:
-                        Status message to display
+            Status message to display
         """
         # Find tool object by name
         tool = next((t for t in self.tools if t.name == tool_name), None)
@@ -482,7 +482,7 @@ class BaseLangGraphAgent(BaseAgent):
         Get system prompt for this agent.
 
         Returns:
-                        System prompt as string
+            System prompt as string
         """
         pass
 
@@ -492,11 +492,11 @@ class BaseLangGraphAgent(BaseAgent):
         Create tool registry for this agent.
 
         Args:
-                        ctx_user: User context (optional)
-                        ctx_db: Database session (optional)
+            ctx_user: User context (optional)
+            ctx_db: Database session (optional)
 
         Returns:
-                        Configured ToolRegistry instance
+            Configured ToolRegistry instance
         """
         pass
 
@@ -506,7 +506,7 @@ class BaseLangGraphAgent(BaseAgent):
         Get target category for this agent (e.g., "docs", "recsys", "respond").
 
         Returns:
-                        Target category string
+            Target category string
         """
         pass
 
@@ -519,10 +519,10 @@ class BaseLangGraphAgent(BaseAgent):
         Extract tool call information from agent event.
 
         Args:
-                        event: Event dict from graph.astream()
+            event: Event dict from graph.astream()
 
         Returns:
-                        Tool call dict with 'name' and 'args', or None
+            Tool call dict with 'name' and 'args', or None
         """
         messages = event.get("agent", {}).get("messages", [])
         if not messages:
@@ -539,10 +539,10 @@ class BaseLangGraphAgent(BaseAgent):
         Extract final response text from agent event.
 
         Args:
-                        event: Event dict from graph.astream()
+            event: Event dict from graph.astream()
 
         Returns:
-                        Response text, or None
+            Response text, or None
         """
         messages = event.get("agent", {}).get("messages", [])
         if not messages:
@@ -561,10 +561,10 @@ class BaseLangGraphAgent(BaseAgent):
         Tokenize text for word-by-word streaming.
 
         Args:
-                        text: Text to tokenize
+            text: Text to tokenize
 
         Returns:
-                        List of tokens (words with spaces)
+            List of tokens (words with spaces)
         """
         words = text.split()
         tokens = []
