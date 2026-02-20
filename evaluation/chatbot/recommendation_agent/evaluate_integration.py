@@ -1,7 +1,7 @@
 # evaluation/chatbot/recommendation_agent/evaluate_integration.py
 """
 Integration evaluation for full recommendation pipeline quality.
-Evaluates Planner → Retrieval → Curation end-to-end behavior and output quality.
+Evaluates Planner → Retrieval → Selection → Curation end-to-end behavior and output quality.
 
 EVAL FOCUS (not testing):
 - Strategic quality: Does the pipeline make good decisions?
@@ -483,6 +483,7 @@ async def run_integration_test(test_case: Dict, db) -> Dict[str, Any]:
             "success": final_response.success,
             "book_count": len(book_recommendations),
             "text_length": len(response_text),
+            "selection_count": completion_data.get("selection_count"),
         }
 
         # Extract execution context from completion data
@@ -609,6 +610,8 @@ async def evaluate_integration_tests(test_cases: Dict[str, List[Dict]]) -> Dict[
                     pipeline = result["pipeline"]
                     print(f"\n  Pipeline executed successfully:")
                     print(f"  - Books: {pipeline['book_count']}")
+                    if pipeline.get("selection_count") is not None:
+                        print(f"  - Selected: {pipeline['selection_count']} (after SelectionAgent)")
                     print(f"  - Prose length: {pipeline['text_length']} chars")
                     if "tools_used" in pipeline:
                         print(f"  - Tools: {', '.join(pipeline['tools_used'])}")
@@ -803,7 +806,7 @@ Examples:
     print(f"Loaded {total_cases} test cases across {len(test_cases)} categories")
 
     print("\n📊 Testing with REAL database connection and LLM judges")
-    print("   Full pipeline: Planner → Retrieval → Curation")
+    print("   Full pipeline: Planner → Retrieval → Selection → Curation")
     print("   Quality focus: Strategic decisions + Output quality + Semantic validation\n")
 
     print("Running evaluation...")

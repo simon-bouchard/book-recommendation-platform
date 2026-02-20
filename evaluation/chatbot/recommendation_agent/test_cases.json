@@ -953,5 +953,92 @@
 				"llm_judge_needed": true
 			}
 		}
+	],
+	"selection_genre_matching": [
+		{
+			"name": "genre_match_fantasy",
+			"query": "recommend fantasy books",
+			"user_id": 278859,
+			"user_state": {
+				"num_ratings": 12,
+				"allow_profile": false,
+				"is_warm": true
+			},
+			"test_scenario": "genre_fantasy",
+			"context_scenario": "subject",
+			"expected_genre": "fantasy",
+			"expected_selection": {
+				"should_filter_wrong_genre": true,
+				"llm_judge_needed": true,
+				"min_selected_books": 6,
+				"min_genre_match_rate": 0.8
+			}
+		},
+		{
+			"name": "genre_match_historical_fiction",
+			"query": "recommend historical fiction",
+			"user_id": 278859,
+			"user_state": {
+				"num_ratings": 12,
+				"allow_profile": false,
+				"is_warm": true
+			},
+			"test_scenario": "genre_historical",
+			"context_scenario": "subject",
+			"expected_genre": "historical fiction",
+			"expected_selection": {
+				"should_filter_wrong_genre": true,
+				"llm_judge_needed": true,
+				"min_selected_books": 6,
+				"min_genre_match_rate": 0.8
+			}
+		}
+	],
+	"selection_negative_constraints": [
+		{
+			"name": "negative_constraint_cozy_excluded",
+			"query": "recommend mystery novels but NOT cozy mysteries",
+			"user_id": 278859,
+			"user_state": {
+				"num_ratings": 12,
+				"allow_profile": false,
+				"is_warm": true
+			},
+			"test_scenario": "negative_cozy",
+			"context_scenario": "negative",
+			"negative_constraints": [
+				"cozy mystery",
+				"cozy mysteries",
+				"cozy"
+			],
+			"expected_selection": {
+				"should_filter_cozy_books": true,
+				"llm_judge_needed": true,
+				"min_selected_books": 6
+			}
+		},
+		{
+			"name": "negative_constraint_serial_killer_excluded",
+			"query": "recommend thriller books but nothing about serial killers or forensics",
+			"user_id": 278859,
+			"user_state": {
+				"num_ratings": 12,
+				"allow_profile": false,
+				"is_warm": true
+			},
+			"test_scenario": "negative_serial_killer",
+			"context_scenario": "negative",
+			"negative_constraints": [
+				"serial killer",
+				"serial killers",
+				"forensics",
+				"forensic"
+			],
+			"expected_selection": {
+				"should_filter_serial_killer_books": true,
+				"llm_judge_needed": true,
+				"min_selected_books": 6
+			}
+		}
 	]
 }

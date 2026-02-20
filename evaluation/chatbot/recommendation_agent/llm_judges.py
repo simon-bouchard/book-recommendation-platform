@@ -262,6 +262,102 @@ CRITERIA FOR PASSING:
         }
 
 
+def llm_judge_negative_constraint_filtering(
+    books: List[Any],
+    negative_constraints: List[str],
+    db,
+    judge_llm,
+) -> Dict[str, Any]:
+    """
+    Use LLM-as-judge to verify no selected book matches an excluded constraint.
+
+    Args:
+        books: List of selected BookRecommendation objects
+        negative_constraints: Terms the user explicitly excluded (e.g., ["cozy", "cozy mystery"])
+        db: Database session to fetch book details
+        judge_llm: LLM instance for judging
+
+    Returns:
+        Dict with verdict, passed status, reasoning, violating_books, and violation_count
+    """
+    book_ids = [book.item_idx for book in books]
+    items = db.query(Book).filter(Book.item_idx.in_(book_ids)).all()
+
+    book_details = []
+    for item in items:
+        author_name = item.author.name if item.author else "Unknown"
+        subject_names = [bs.subject.subject for bs in item.subjects] if item.subjects else []
+        book_details.append(
+            {
+                "id": item.item_idx,
+                "title": item.title,
+                "author": author_name,
+                "subjects": subject_names,
+                "description": item.description[:200] if item.description else "No description",
+            }
+        )
+
+    constraints_str = ", ".join(f'"{c}"' for c in negative_constraints)
+
+    judge_prompt = f"""You are evaluating a book recommendation system's negative constraint filtering.
+
+USER EXCLUDED THESE TERMS: {constraints_str}
+
+SELECTED BOOKS:
+{json.dumps(book_details, indent=2)}
+
+TASK:
+Determine whether any of these books clearly match the excluded terms.
+Check titles, subjects, and descriptions for evidence of the constraint.
+A book "matches" only if there is clear evidence — do not penalise tangential overlap.
+
+Return JSON:
+{{
+    "passed": true/false,
+    "verdict": "brief summary of findings",
+    "reasoning": "detailed explanation of what you checked and why each decision was made",
+    "violating_books": [
+        {{"id": 123, "title": "Book Title", "reason": "why it matches the excluded constraint"}}
+    ],
+    "violation_count": 0
+}}
+
+CRITERIA FOR PASSING:
+- No selected book clearly matches any of the excluded terms
+- Minor thematic overlap is acceptable; only flag clear matches
+"""
+
+    try:
+        response = judge_llm.invoke([{"role": "user", "content": judge_prompt}])
+
+        content = response.content if hasattr(response, "content") else str(response)
+        if "```json" in content:
+            content = content.split("```json")[1].split("```")[0]
+        elif "```" in content:
+            content = content.split("```")[1].split("```")[0]
+        content = content.strip()
+
+        result = json.loads(content)
+
+        result.setdefault("passed", False)
+        result.setdefault("verdict", "Unknown")
+        result.setdefault("reasoning", "No reasoning provided")
+        result.setdefault("violating_books", [])
+        result.setdefault("violation_count", len(result["violating_books"]))
+
+        return result
+
+    except Exception as e:
+        return {
+            "passed": False,
+            "verdict": "Judge evaluation failed",
+            "reasoning": f"Error during LLM judge evaluation: {str(e)}",
+            "violating_books": [],
+            "violation_count": 0,
+            "error": str(e),
+        }
+
+
 def llm_judge_personalization_prose(
     response_text: str, execution_context, judge_llm, expect_no_personalization: bool = False
 ) -> Dict[str, Any]:
