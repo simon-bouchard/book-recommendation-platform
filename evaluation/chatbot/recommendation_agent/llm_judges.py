@@ -10,42 +10,75 @@ from typing import Dict, List, Any, Optional
 from app.table_models import Book
 
 
-def llm_judge_prose_reasoning(response_text: str, judge_llm) -> Dict[str, Any]:
+def llm_judge_prose_reasoning(
+    response_text: str, judge_llm, query_type: str = "specific"
+) -> Dict[str, Any]:
     """
-    Use LLM-as-judge to verify prose explains WHY books are recommended.
+    Use LLM-as-judge to verify prose quality, with criteria branching on query type.
+
+    For specific queries (descriptive/genre), prose must explain why each book fits
+    the request — referencing the query's themes, tone, or constraints.
+
+    For vague queries ("recommend me something"), the user has given no constraints
+    to match against, so prose must instead be vivid and specific enough for the
+    user to self-select. A generic one-line summary fails in both modes.
 
     Args:
         response_text: Curation agent's prose explanation
         judge_llm: LLM instance for judging
+        query_type: "specific" (descriptive/genre) or "vague" (open-ended).
+            Defaults to "specific" for backward compatibility.
 
     Returns:
         Dict with verdict, passed status, reasoning, and issues found
     """
+    if query_type == "vague":
+        criteria = """QUERY TYPE: VAGUE (open-ended request, no specific constraints)
+
+The user gave an open-ended request so there is nothing to match against.
+Instead, the prose must help the user decide whether each book sounds appealing.
+
+CRITERIA FOR PASSING:
+- Each book is described vividly enough for a reader to self-select
+- Descriptions convey tone, pacing, or who the book is for — not just plot
+- No book is dismissed in a single generic sentence ("A classic thriller set in Paris")
+
+EXAMPLES:
+BAD  — "A gripping thriller set in Paris." (too generic — tells the user nothing)
+BAD  — "A classic novel exploring themes of family." (meaningless without specifics)
+GOOD — "A slow-burn psychological thriller with an unreliable narrator — ideal if you enjoy stories where you're never quite sure what's real."
+GOOD — "Dense, idea-driven sci-fi that rewards patient readers; big-picture philosophy wrapped in an adventure plot.\""""
+    else:
+        criteria = """QUERY TYPE: SPECIFIC (descriptive or genre query with stated constraints)
+
+The user made a specific request with themes, tone, genre, or mood. The prose must
+explain why each book fits that request — not just describe what the book is about.
+
+CRITERIA FOR PASSING:
+- Most citations lead with fit, then use description to support it
+- Prose references at least some of the query's stated attributes (genre, mood, themes, tone)
+- Generic plot summaries that ignore the query do not pass
+
+EXAMPLES:
+BAD  — "A fantasy novel about a young wizard who attends a magical school." (describes the book, ignores the query)
+BAD  — "A classic mystery." (too vague — says nothing about query fit)
+GOOD — "Matches your request for atmospheric mystery — the isolated setting and unreliable narrator create exactly the psychological tension you asked for."
+GOOD — "Fits the dark, brooding tone you described, with morally grey characters and a world that feels genuinely threatening.\""""
+
     judge_prompt = f"""You are evaluating a book recommendation system's prose quality.
 
 AGENT'S PROSE RESPONSE:
 {response_text}
 
-EVALUATION CRITERIA:
-The prose should explain WHY each book is recommended, not just list titles.
-- Good: "I recommend [Book Title] for its dark atmospheric tone that matches..."
-- Good: "[Book Title] excels in character development with..."
-- Bad: "Here are some books: [Book1], [Book2], [Book3]."
-- Bad: Just listing titles without any reasoning
+{criteria}
 
 Return JSON:
 {{
     "passed": true/false,
     "verdict": "summary of findings",
-    "reasoning": "detailed explanation of whether prose provides reasoning for recommendations",
+    "reasoning": "detailed explanation of whether prose meets the criteria above",
     "issues": ["list of problems if any"]
-}}
-
-CRITERIA FOR PASSING:
-- Most book citations include reasoning (why this book matches the request)
-- Prose provides value beyond just listing titles
-- Each recommendation has some explanation of its relevance
-"""
+}}"""
 
     try:
         response = judge_llm.invoke([{"role": "user", "content": judge_prompt}])

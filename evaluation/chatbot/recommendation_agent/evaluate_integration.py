@@ -287,10 +287,18 @@ def evaluate_full_pipeline_quality(
     # Only run LLM judges if we have prose and a judge LLM
     if judge_llm and has_prose:
         # Judge 1: Prose Reasoning Quality
-        # Does prose explain WHY books are recommended?
-        prose_judge = llm_judge_prose_reasoning(response.text, judge_llm)
+        # Criteria branch on query_type: "specific" expects fit explanations
+        # referencing query elements; "vague" expects vivid descriptions that
+        # help users self-select. Defaults to "specific" for test cases without
+        # a query_type field (stricter standard is the safer default).
+        query_type = test_case.get("query_type", "specific")
+        prose_judge = llm_judge_prose_reasoning(response.text, judge_llm, query_type=query_type)
         results["checks"]["prose_explains_reasoning"] = {
-            "expected": "prose explains why books are recommended",
+            "expected": (
+                "prose describes books vividly to aid self-selection"
+                if query_type == "vague"
+                else "prose explains why books fit the query"
+            ),
             "actual": prose_judge.get("verdict", "Unknown"),
             "passed": prose_judge.get("passed", False),
             "judge_reasoning": prose_judge.get("reasoning", ""),
