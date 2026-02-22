@@ -223,29 +223,29 @@ def get_candidates(scenario: str, db, **kwargs) -> Dict[str, Any]:
             "wrong_genre_count": len(wrong_books),
         }
 
-    elif scenario == "genre_historical":
+    elif scenario == "genre_science_fiction":
         subject_tool = registry.get_tool("subject_hybrid_pool")
-        historical_books = subject_tool.invoke(
+        scifi_books = subject_tool.invoke(
             {
                 "top_k": 40,
-                "fav_subjects_idxs": [1669, 1415],
+                "fav_subjects_idxs": [2922],
                 "weight": 0.7,
             }
         )
 
         semantic_tool = registry.get_tool("book_semantic_search")
         wrong_books = semantic_tool.invoke(
-            {"query": "science fiction fantasy space alien dragon magic", "top_k": 20}
+            {"query": "cozy mystery romance historical drama family saga", "top_k": 20}
         )
 
-        all_books = historical_books + wrong_books
+        all_books = scifi_books + wrong_books
         random.shuffle(all_books)
 
         return {
             "books": all_books,
             "tools_used": ["subject_hybrid_pool", "book_semantic_search"],
-            "query_used": "historical fiction",
-            "correct_genre_count": len(historical_books),
+            "query_used": "science fiction",
+            "correct_genre_count": len(scifi_books),
             "wrong_genre_count": len(wrong_books),
         }
 

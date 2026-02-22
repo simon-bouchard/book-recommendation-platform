@@ -654,6 +654,7 @@
 	"edge_cases": [
 		{
 			"name": "empty_query",
+			"query_type": "vague",
 			"query": "",
 			"user_id": 278867,
 			"user_state": {
@@ -668,6 +669,7 @@
 		},
 		{
 			"name": "very_long_descriptive_query",
+			"query_type": "specific",
 			"query": "I'm searching for a book that combines elements of magical realism with historical fiction set in a Latin American context featuring strong female protagonists who navigate complex family dynamics while dealing with supernatural elements that are woven seamlessly into everyday life with beautiful prose that is both lyrical and accessible exploring themes of memory identity and the passage of time across generations",
 			"user_id": 278859,
 			"user_state": {
@@ -695,6 +697,7 @@
 		},
 		{
 			"name": "bug_test_genre_query_new_user",
+			"query_type": "specific",
 			"query": "recommend fantasy books",
 			"user_id": 278867,
 			"user_state": {
@@ -814,6 +817,7 @@
 	"integration_high_impact": [
 		{
 			"name": "genre_query_overrides_personalization",
+			"query_type": "specific",
 			"query": "recommend fantasy novels",
 			"user_id": 278859,
 			"user_state": {
@@ -830,6 +834,7 @@
 		},
 		{
 			"name": "cold_user_genre_must_use_subjects",
+			"query_type": "specific",
 			"query": "recommend horror books",
 			"user_id": 278857,
 			"user_state": {
@@ -975,17 +980,17 @@
 			}
 		},
 		{
-			"name": "genre_match_historical_fiction",
-			"query": "recommend historical fiction",
+			"name": "genre_match_science_fiction",
+			"query": "recommend science fiction books",
 			"user_id": 278859,
 			"user_state": {
 				"num_ratings": 12,
 				"allow_profile": false,
 				"is_warm": true
 			},
-			"test_scenario": "genre_historical",
+			"test_scenario": "genre_science_fiction",
 			"context_scenario": "subject",
-			"expected_genre": "historical fiction",
+			"expected_genre": "science fiction",
 			"expected_selection": {
 				"should_filter_wrong_genre": true,
 				"llm_judge_needed": true,
