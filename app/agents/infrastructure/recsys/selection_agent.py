@@ -164,12 +164,17 @@ class SelectionAgent(BaseLangGraphAgent):
             execution_context=execution_context,
         )
 
-        # Validate every returned ID against the candidate pool
-        valid = []
-        invalid = []
+        # Validate every returned ID against the candidate pool, deduplicating in one pass
+        seen: set = set()
+        valid: list = []
+        invalid: list = []
+        duplicates: list = []
         for item_idx in result.selected_ids:
-            if item_idx in candidate_map:
+            if item_idx in seen:
+                duplicates.append(item_idx)
+            elif item_idx in candidate_map:
                 valid.append(item_idx)
+                seen.add(item_idx)
             else:
                 invalid.append(item_idx)
 
@@ -177,12 +182,17 @@ class SelectionAgent(BaseLangGraphAgent):
             append_chatbot_log(
                 f"[SELECTION WARNING] {len(invalid)} IDs not in candidates, dropping: {invalid}"
             )
+        if duplicates:
+            append_chatbot_log(
+                f"[SELECTION WARNING] {len(duplicates)} duplicate IDs dropped: {duplicates}"
+            )
 
         # Enforce 6-30 range after validation
-        valid = valid[:30]
+        valid = valid[:15]
 
         append_chatbot_log(
-            f"Selection complete: {len(valid)} books selected ({len(invalid)} invalid IDs dropped)"
+            f"Selection complete: {len(valid)} books selected "
+            f"({len(invalid)} invalid, {len(duplicates)} duplicates dropped)"
         )
 
         return [candidate_map[item_idx] for item_idx in valid]
