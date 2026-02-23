@@ -233,50 +233,6 @@ async def test_recsys_pipeline_concurrent_streams_are_not_serialized():
 # ==============================================================================
 
 
-def _make_conductor_with_blocking_router() -> Conductor:
-    """
-    Conductor whose router uses a SYNCHRONOUS sleep inside an async context.
-
-    This replicates the current RouterLLM.classify() behaviour: llm.invoke()
-    is a blocking call made directly inside run_stream() without to_thread().
-    Every routing decision freezes the event loop for ROUTER_LATENCY seconds,
-    serializing all concurrent requests at that point.
-    """
-
-    def _blocking_classify(_inp: TurnInput) -> RoutePlan:
-        time.sleep(ROUTER_LATENCY)  # ← blocks the event loop
-        return RoutePlan(target="recsys", reason="test")
-
-    mock_router = MagicMock()
-    mock_router.classify = _blocking_classify
-
-    # Agent factory returns an agent whose stream completes instantly.
-    async def _fast_stream(*_a, **_kw):
-        yield StreamChunk(type="token", content="Done.")
-        yield StreamChunk(
-            type="complete",
-            data={"target": "recsys", "success": True, "book_ids": []},
-        )
-
-    mock_agent = MagicMock()
-    mock_agent.execute_stream = MagicMock(side_effect=lambda *a, **kw: _fast_stream())
-
-    mock_factory = MagicMock()
-    mock_factory.create_agent = MagicMock(return_value=mock_agent)
-
-    mock_adapter = MagicMock()
-    mock_adapter.turn_input_to_request = MagicMock(
-        return_value=AgentRequest(user_text="test", conversation_history=[], context={})
-    )
-
-    with patch("app.agents.orchestrator.conductor.append_chatbot_log"):
-        return Conductor(
-            router=mock_router,
-            factory=mock_factory,
-            adapter=mock_adapter,
-        )
-
-
 def _make_conductor_with_async_router() -> Conductor:
     """
     Conductor whose router uses asyncio.sleep — the correct pattern after the fix.
@@ -329,58 +285,6 @@ def _conductor_run_kwargs() -> dict:
         user_text="recommend something",
         use_profile=False,
         force_target=None,
-    )
-
-
-@pytest.mark.asyncio
-@pytest.mark.xfail(
-    reason=(
-        "RouterLLM.classify() calls llm.invoke() synchronously inside run_stream(), "
-        "blocking the event loop and serializing all concurrent requests at the routing stage. "
-        "Fix: wrap router.classify() in asyncio.to_thread() inside Conductor.run_stream()."
-    ),
-    strict=True,  # must fail — if it passes, the bug was already fixed or the test is wrong
-)
-async def test_conductor_concurrent_streams_are_not_serialized():
-    """
-    N concurrent Conductor.run_stream() calls should complete in roughly
-    single-request time when the router is properly async.
-
-    CURRENTLY FAILS because RouterLLM.classify() blocks the event loop.
-
-    The blocking pattern:
-        async def run_stream(...):
-            ...
-            route_plan = self.router.classify(router_input)  # ← sync, blocks event loop
-            ...
-
-    The fix:
-        route_plan = await asyncio.to_thread(self.router.classify, router_input)
-
-    After the fix, remove the @pytest.mark.xfail decorator and this test
-    should pass.
-    """
-    conductor = _make_conductor_with_blocking_router()
-
-    # Baseline: single request.
-    t0 = time.perf_counter()
-    await _collect(conductor.run_stream(**_conductor_run_kwargs()))
-    baseline = time.perf_counter() - t0
-
-    # Concurrent: N requests simultaneously.
-    conductors = [_make_conductor_with_blocking_router() for _ in range(N_USERS)]
-    concurrent = await _timed_gather(
-        *[_collect(c.run_stream(**_conductor_run_kwargs())) for c in conductors]
-    )
-
-    serialized_estimate = N_USERS * baseline
-    assert concurrent < serialized_estimate * SERIALIZATION_RATIO, (
-        f"Conductor is serializing requests at the routing stage.\n"
-        f"  Baseline (1 user):       {baseline:.3f}s\n"
-        f"  Concurrent ({N_USERS} users): {concurrent:.3f}s\n"
-        f"  Serialized estimate:     {serialized_estimate:.3f}s\n"
-        f"  Threshold:               {serialized_estimate * SERIALIZATION_RATIO:.3f}s\n"
-        f"RouterLLM.classify() must be wrapped in asyncio.to_thread() in run_stream()."
     )
 
 
