@@ -4,10 +4,11 @@ from __future__ import annotations
 import json
 import re
 from typing import Any, Dict, List, Optional
+import asyncio
 
 from app.agents.prompts.loader import read_prompt
 from app.agents.settings import get_llm
-from app.agents.schemas import RoutePlan, TurnInput 
+from app.agents.schemas import RoutePlan, TurnInput
 from app.agents.logging import capture_agent_console_and_httpx
 
 ALLOWED_TARGETS = {"recsys", "web", "docs", "respond"}
@@ -45,24 +46,28 @@ class RouterLLM:
     def __init__(self, llm_client: Optional[Any] = None) -> None:
         """
         Loads the router system prompt and obtains an LLM instance.
-        
+
         Args:
-            llm_client: Optional LLM client for dependency injection (testing)
+                llm_client: Optional LLM client for dependency injection (testing)
         """
         self.system_prompt = read_prompt("router.system.md")
-        self.llm = llm_client if llm_client is not None else get_llm(
-            tier="medium", json_mode=True, temperature=0, timeout=15
+        self.llm = (
+            llm_client
+            if llm_client is not None
+            else get_llm(tier="medium", json_mode=True, temperature=0, timeout=15)
         )
 
-    def _chat(self, messages: List[Dict[str, str]]) -> str:
+    async def _chat(self, messages: List[Dict[str, str]]) -> str:
         """
         Sends messages to the LLM and returns the assistant string content.
         Supports LangChain-style .invoke or a callable returning a response object or string.
         """
         llm = self.llm
         with capture_agent_console_and_httpx():
-            if hasattr(llm, "invoke"):
-                resp = llm.invoke(messages)
+            if hasattr(llm, "ainvoke"):
+                resp = await llm.ainvoke(messages)
+            elif hasattr(llm, "invoke"):
+                resp = await asyncio.to_thread(llm.invoke, messages)
             elif callable(llm):
                 resp = llm(messages)
             else:
@@ -95,7 +100,7 @@ class RouterLLM:
             reason = "router: no reason provided"
         return RoutePlan(target=target, reason=reason)
 
-    def _repair_retry(self, user_text: str, prior_output: str) -> Optional[RoutePlan]:
+    async def _repair_retry(self, user_text: str, prior_output: str) -> Optional[RoutePlan]:
         """
         Performs a single repair retry focused on output formatting.
         Asks the model to return strict JSON with only the required fields.
@@ -113,11 +118,11 @@ class RouterLLM:
             },
             {"role": "assistant", "content": prior_output or ""},
         ]
-        content = self._chat(messages)
+        content = await self._chat(messages)
         obj = _extract_first_json_block(content)
         return self._validate(obj) if obj is not None else None
 
-    def classify(self, inp: TurnInput) -> RoutePlan:
+    async def classify(self, inp: TurnInput) -> RoutePlan:
         """
         Routes a single user message to one target branch.
         Accepts TurnInput for a uniform contract.
@@ -127,12 +132,12 @@ class RouterLLM:
             {"role": "system", "content": self.system_prompt},
             {"role": "user", "content": user_text},
         ]
-        content = self._chat(messages)
+        content = await self._chat(messages)
         obj = _extract_first_json_block(content)
         plan = self._validate(obj) if obj is not None else None
         if plan is not None:
             return plan
-        repaired = self._repair_retry(user_text, content or "")
+        repaired = await self._repair_retry(user_text, content or "")
         if repaired is not None:
             return repaired
         return RoutePlan(target="respond", reason="router: parse-failed-after-retry")

@@ -7,6 +7,7 @@ Routes requests to appropriate agents and returns standardized results.
 from __future__ import annotations
 from typing import Any, Optional, List, AsyncGenerator
 import time
+import asyncio
 
 from app.agents.schemas import AgentResult, TurnInput, Target, StreamChunk
 from app.agents.orchestrator.router import RouterLLM
@@ -95,7 +96,7 @@ class Conductor:
                 router_input: TurnInput = make_router_input(
                     history, user_text, k_user=router_k_user
                 )
-                route_plan = self.router.classify(router_input)
+                route_plan = await self.router.classify(router_input)
                 target = route_plan.target
                 reason = route_plan.reason
                 append_chatbot_log(f"Routing: target={target}, reason={reason[:100]}")
