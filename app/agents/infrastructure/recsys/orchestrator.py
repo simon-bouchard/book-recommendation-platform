@@ -1,43 +1,61 @@
 # app/agents/infrastructure/recsys/orchestrator.py
 """
-Three-stage recommendation agent: Planning -> Retrieval -> Curation
-Orchestrates the complete pipeline with both sync and streaming execution.
+Four-stage recommendation pipeline: Planning → Retrieval → Selection → Curation.
+Streaming-first execution with independent per-stage fallback recovery.
 """
 
-from typing import Optional, Any, AsyncGenerator
+import asyncio
+from typing import Optional, Any, AsyncGenerator, List
 import time
-import inspect
 
 from app.agents.domain.entities import (
     AgentRequest,
-    AgentResponse,
     AgentConfiguration,
     AgentCapability,
+    BookRecommendation,
 )
 from app.agents.domain.recsys_schemas import (
     PlannerInput,
+    PlannerStrategy,
     RetrievalInput,
+    RetrievalOutput,
+    ExecutionContext,
 )
 from app.agents.domain.interfaces import BaseAgent
 from app.agents.domain.services import StandardResultProcessor
 from app.agents.schemas import StreamChunk
+from app.agents.tools.registry import ToolRegistry, InternalToolGates
 from app.agents.logging import append_chatbot_log
 
 from .planner_agent import PlannerAgent
 from .retrieval_agent import RetrievalAgent
-from .curation_agent import CurationAgent
 from .selection_agent import SelectionAgent
+from .curation_agent import CurationAgent
 
 
 class RecommendationAgent(BaseAgent):
     """
-    Orchestrates three-stage recommendation pipeline.
+    Orchestrates the four-stage recommendation pipeline.
 
-    Stage 1 (PlannerAgent): Analyze query and determine strategy
-    Stage 2 (RetrievalAgent): Execute strategy, gather 60-120 candidates
-    Stage 3 (CurationAgent): Rank, filter, and generate prose with citations
+    Stage 1 (PlannerAgent):   Analyze query and determine retrieval strategy.
+    Stage 2 (RetrievalAgent): Execute strategy, gather 60–120 candidate books.
+    Stage 3 (SelectionAgent): Filter and rank candidates to a validated 6–30 subset.
+    Stage 4 (CurationAgent):  Write personalized prose with inline citations (streaming).
 
-    Supports both synchronous and streaming execution.
+    Each stage has an independent fallback so a single failure does not
+    cascade to the user. Only Curation output is streamed; earlier stages
+    complete fully before the next begins.
+
+    Failure contract:
+        Planning failure  → hardcoded strategy (ALS for warm, popular_books for cold),
+                            pipeline continues.
+        Retrieval failure → single direct tool call bypassing the agent,
+                            pipeline continues.
+        No candidates     → terminal error chunk, pipeline stops.
+        Selection failure → top-10 raw candidates forwarded to Curation,
+                            pipeline continues.
+        Curation failure  → fallback prose built from candidates, sent as a
+                            single token chunk for minimal time-to-first-token.
     """
 
     def __init__(
@@ -56,16 +74,16 @@ class RecommendationAgent(BaseAgent):
         Initialize orchestrator with context for sub-agents.
 
         Args:
-            current_user: Current user object (for internal tools)
-            db: Database session (for internal tools)
-            user_num_ratings: Number of ratings user has made
-            warm_threshold: Minimum ratings for "warm" user status
-            allow_profile: Whether user granted profile access consent
-            planner_agent: Optional planner instance (for testing)
-            retrieval_agent: Optional retrieval instance (for testing)
-            curation_agent: Optional curation instance (for testing)
+            current_user: SQLAlchemy user object (for retrieval tools).
+            db: SQLAlchemy session (for retrieval tools).
+            user_num_ratings: Number of ratings the user has made.
+            warm_threshold: Minimum ratings for warm-user status (ALS eligible).
+            allow_profile: Whether the user granted profile-access consent.
+            planner_agent: Override PlannerAgent (primarily for testing).
+            retrieval_agent: Override RetrievalAgent (primarily for testing).
+            selection_agent: Override SelectionAgent (primarily for testing).
+            curation_agent: Override CurationAgent (primarily for testing).
         """
-        # Build configuration for metadata
         configuration = AgentConfiguration(
             policy_name="recsys.orchestrator",
             capabilities=frozenset([AgentCapability.INTERNAL_TOOLS]),
@@ -73,440 +91,392 @@ class RecommendationAgent(BaseAgent):
             timeout_seconds=120,
             max_iterations=0,
         )
-
         super().__init__(configuration)
 
-        # Store context
         self._current_user = current_user
         self._db = db
         self._user_num_ratings = user_num_ratings or 0
         self._warm_threshold = warm_threshold
         self._allow_profile = allow_profile
-
-        # Determine if ALS is available
         self._has_als_recs = self._user_num_ratings >= warm_threshold
 
-        # Initialize sub-agents (use injected OR create default)
-        self.planner_agent = (
-            planner_agent
-            if planner_agent is not None
-            else PlannerAgent(
-                current_user=current_user,
-                db=db,
-                user_num_ratings=self._user_num_ratings,
-                has_als_recs_available=self._has_als_recs,
-                allow_profile=allow_profile,
-            )
+        self.planner_agent = planner_agent or PlannerAgent(
+            current_user=current_user,
+            db=db,
+            user_num_ratings=self._user_num_ratings,
+            has_als_recs_available=self._has_als_recs,
+            allow_profile=allow_profile,
         )
-
-        self.retrieval_agent = (
-            retrieval_agent
-            if retrieval_agent is not None
-            else RetrievalAgent(
-                current_user=current_user,
-                db=db,
-                user_num_ratings=self._user_num_ratings,
-                has_als_recs_available=self._has_als_recs,
-            )
+        self.retrieval_agent = retrieval_agent or RetrievalAgent(
+            current_user=current_user,
+            db=db,
+            user_num_ratings=self._user_num_ratings,
+            has_als_recs_available=self._has_als_recs,
         )
-
-        self.selection_agent = selection_agent if selection_agent is not None else SelectionAgent()
-
-        self.curation_agent = curation_agent if curation_agent is not None else CurationAgent()
-
-        # Service for converting tool results to BookRecommendations
+        self.selection_agent = selection_agent or SelectionAgent()
+        self.curation_agent = curation_agent or CurationAgent()
         self.result_processor = StandardResultProcessor()
 
         append_chatbot_log(
-            f"Initialized RecommendationAgent orchestrator "
-            f"(warm={self._has_als_recs}, profile={allow_profile})"
+            f"Initialized RecommendationAgent (warm={self._has_als_recs}, profile={allow_profile})"
         )
 
-    async def execute(self, request: AgentRequest) -> AgentResponse:
+    # ================================================================
+    # PRIMARY ENTRY POINT
+    # ================================================================
+
+    async def execute_stream(self, request: AgentRequest) -> AsyncGenerator[StreamChunk, None]:
         """
-        Execute three-stage recommendation pipeline asynchronously.
+        Execute the four-stage pipeline with streaming output.
+
+        Yields StreamChunk objects in this order:
+            status  — one per stage transition (always yielded).
+            token   — individual LLM prose tokens from Curation, or a single
+                      fallback string when Curation fails.
+            complete — exactly one final chunk with book_ids and metadata.
 
         Args:
-            request: User request with query and context
-
-        Returns:
-            Final agent response with ordered books and prose
+            request: User request carrying the query and conversation history.
         """
-        append_chatbot_log(
-            f"\n{'=' * 60}\n"
-            f"RECOMMENDATION ORCHESTRATOR START\n"
-            f"Query: {request.user_text[:100]}...\n"
-            f"{'=' * 60}"
-        )
+        start_time = time.time()
 
         # ============================================================
         # STAGE 1: PLANNING
         # ============================================================
-        append_chatbot_log("\n=== STAGE 1: PLANNING ===")
-        planning_start = time.time()
+        yield StreamChunk(type="status", content="Analyzing your request...")
+
+        available_tools = [
+            "book_semantic_search",
+            "subject_hybrid_pool",
+            "subject_id_search",
+            "popular_books",
+        ]
+        if self._has_als_recs:
+            available_tools.insert(0, "als_recs")
+
+        planner_input = PlannerInput(
+            query=request.user_text,
+            has_als_recs_available=self._has_als_recs,
+            allow_profile=self._allow_profile,
+            available_retrieval_tools=available_tools,
+        )
 
         try:
-            # Determine available retrieval tools
-            available_tools = [
-                "book_semantic_search",
-                "subject_hybrid_pool",
-                "subject_id_search",
-                "popular_books",
-            ]
-            if self._has_als_recs:
-                available_tools.insert(0, "als_recs")
-
-            planner_input = PlannerInput(
-                query=request.user_text,
-                has_als_recs_available=self._has_als_recs,
-                allow_profile=self._allow_profile,
-                available_retrieval_tools=available_tools,
-            )
-
-            # Execute planner (await if async)
-
-            if inspect.iscoroutinefunction(self.planner_agent.execute):
-                strategy = await self.planner_agent.execute(planner_input)
-            else:
-                strategy = self.planner_agent.execute(planner_input)
-
-        except Exception as e:
-            planning_time = int((time.time() - planning_start) * 1000)
-            append_chatbot_log(f"[PLANNING ERROR after {planning_time}ms] {e}")
-            return self._planning_error_fallback(request, str(e))
-
-        planning_time = int((time.time() - planning_start) * 1000)
-
-        append_chatbot_log(
-            f"Planning: {planning_time}ms\n"
-            f"Strategy: {strategy.reasoning[:150]}...\n"
-            f"Recommended: {', '.join(strategy.recommended_tools)}\n"
-            f"Fallback: {', '.join(strategy.fallback_tools)}"
-        )
-
-        # ============================================================
-        # STAGE 2: RETRIEVAL (CANDIDATE GENERATION)
-        # ============================================================
-        append_chatbot_log("\n=== STAGE 2: RETRIEVAL ===")
-        retrieval_start = time.time()
-
-        try:
-            retrieval_input = RetrievalInput(
-                query=request.user_text,
-                strategy=strategy,
-                profile_data=strategy.profile_data,
-            )
-
-            # Execute retrieval (async)
-            retrieval_output = await self.retrieval_agent.execute(retrieval_input)
-
-        except Exception as e:
-            retrieval_time = int((time.time() - retrieval_start) * 1000)
-            append_chatbot_log(f"[RETRIEVAL ERROR after {retrieval_time}ms] {e}")
-            return self._retrieval_error_fallback(request, str(e))
-
-        retrieval_time = int((time.time() - retrieval_start) * 1000)
-
-        # Convert candidates (dicts) to BookRecommendations
-        candidates = self.result_processor._build_recommendations_from_objects(
-            retrieval_output.candidates
-        )
-
-        append_chatbot_log(
-            f"Retrieval: {len(candidates)} candidates in {retrieval_time}ms\n"
-            f"Tools used: {', '.join(retrieval_output.execution_context.tools_used)}"
-        )
-
-        # Check if we got any candidates
-        if not candidates:
-            append_chatbot_log("[NO CANDIDATES] Returning empty results response")
-            return self._no_candidates_fallback(request)
-
-        # ============================================================
-        # STAGE 3: CURATION
-        # ============================================================
-        append_chatbot_log("\n=== STAGE 3: CURATION ===")
-        curation_start = time.time()
-
-        try:
-            # Execute curation (async)
-            final_response = await self.curation_agent.execute(
-                request=request,
-                candidates=candidates,
-                execution_context=retrieval_output.execution_context,
-            )
-
-        except Exception as e:
-            curation_time = int((time.time() - curation_start) * 1000)
-            append_chatbot_log(f"[CURATION ERROR after {curation_time}ms] {e}")
-            return self._curation_error_fallback(request, candidates, str(e))
-
-        curation_time = int((time.time() - curation_start) * 1000)
-
-        # ============================================================
-        # VALIDATION
-        # ============================================================
-
-        # Basic sanity check
-        if not final_response.book_recommendations:
-            append_chatbot_log("[VALIDATION ERROR] Curation returned no books, using fallback")
-            return self._curation_empty_fallback(request, candidates)
-
-        if not final_response.text or len(final_response.text.strip()) < 10:
-            append_chatbot_log(
-                "[VALIDATION WARNING] Curation returned minimal text, but proceeding"
-            )
-
-        # Log final stats
-        total_time = planning_time + retrieval_time + curation_time
-
-        append_chatbot_log(
-            f"Curation: {len(final_response.book_recommendations)} books in {curation_time}ms"
-        )
-        append_chatbot_log(
-            f"\n{'=' * 60}\n"
-            f"RECOMMENDATION COMPLETE\n"
-            f"Total: {total_time}ms (planning: {planning_time}ms, "
-            f"retrieval: {retrieval_time}ms, curation: {curation_time}ms)\n"
-            f"Books: {len(candidates)} -> {len(final_response.book_recommendations)}\n"
-            f"{'=' * 60}\n"
-        )
-
-        return final_response
-
-    async def execute_stream(self, request: AgentRequest) -> AsyncGenerator[StreamChunk, None]:
-        """
-        Execute three-stage pipeline with streaming output.
-
-        Yields:
-            StreamChunk objects with types:
-            - "status": Progress updates from each stage
-            - "token": Individual words from curation prose
-            - "complete": Final result with book IDs from citations
-        """
-        append_chatbot_log(
-            f"\n{'=' * 60}\n"
-            f"RECOMMENDATION ORCHESTRATOR STREAMING\n"
-            f"Query: {request.user_text[:100]}...\n"
-            f"{'=' * 60}"
-        )
-
-        start_time = time.time()
-
-        try:
-            # ============================================================
-            # STAGE 1: PLANNING
-            # ============================================================
-            yield StreamChunk(type="status", content="Analyzing your request...")
-
             append_chatbot_log("\n=== STAGE 1: PLANNING ===")
             planning_start = time.time()
 
-            # Determine available retrieval tools
-            available_tools = [
-                "book_semantic_search",
-                "subject_hybrid_pool",
-                "subject_id_search",
-                "popular_books",
-            ]
-            if self._has_als_recs:
-                available_tools.insert(0, "als_recs")
-
-            planner_input = PlannerInput(
-                query=request.user_text,
-                has_als_recs_available=self._has_als_recs,
-                allow_profile=self._allow_profile,
-                available_retrieval_tools=available_tools,
-            )
-
-            # Execute planner (will be async if planner is async)
-            if hasattr(self.planner_agent.execute, "__call__"):
-                # Check if it's a coroutine
-
-                if inspect.iscoroutinefunction(self.planner_agent.execute):
-                    strategy = await self.planner_agent.execute(planner_input)
-                else:
-                    strategy = self.planner_agent.execute(planner_input)
-            else:
-                strategy = self.planner_agent.execute(planner_input)
-
-            planning_time = int((time.time() - planning_start) * 1000)
+            strategy = await self.planner_agent.execute(planner_input)
 
             append_chatbot_log(
-                f"Planning: {planning_time}ms\n"
-                f"Strategy: {strategy.reasoning[:150]}...\n"
-                f"Recommended: {', '.join(strategy.recommended_tools)}"
+                f"Planning: {int((time.time() - planning_start) * 1000)}ms | "
+                f"Recommended: {strategy.recommended_tools} | "
+                f"Fallback: {strategy.fallback_tools}"
             )
 
-            # ============================================================
-            # STAGE 2: RETRIEVAL
-            # ============================================================
-            yield StreamChunk(type="status", content="Gathering book candidates...")
+        except Exception as e:
+            append_chatbot_log(
+                f"[PLANNING FAILED] {type(e).__name__}: {e} — using hardcoded fallback strategy"
+            )
+            strategy = self._build_fallback_strategy()
 
+        # ============================================================
+        # STAGE 2: RETRIEVAL
+        # ============================================================
+        yield StreamChunk(type="status", content="Gathering book candidates...")
+
+        retrieval_input = RetrievalInput(
+            query=request.user_text,
+            strategy=strategy,
+            profile_data=strategy.profile_data,
+        )
+
+        try:
             append_chatbot_log("\n=== STAGE 2: RETRIEVAL ===")
             retrieval_start = time.time()
 
-            retrieval_input = RetrievalInput(
-                query=request.user_text,
-                strategy=strategy,
-                profile_data=strategy.profile_data,
-            )
-
-            # Execute retrieval (async, non-blocking)
             retrieval_output = await self.retrieval_agent.execute(retrieval_input)
-
-            # Convert candidates
             candidates = self.result_processor._build_recommendations_from_objects(
                 retrieval_output.candidates
             )
             execution_context = retrieval_output.execution_context
 
-            retrieval_time = int((time.time() - retrieval_start) * 1000)
-            append_chatbot_log(f"Retrieval: {len(candidates)} candidates in {retrieval_time}ms")
+            append_chatbot_log(
+                f"Retrieval: {int((time.time() - retrieval_start) * 1000)}ms | "
+                f"{len(candidates)} candidates | "
+                f"Tools: {execution_context.tools_used}"
+            )
 
-            # Check if we got any candidates
-            if not candidates:
-                append_chatbot_log("[NO CANDIDATES] Returning empty results")
-                yield StreamChunk(
-                    type="complete",
-                    data={
-                        "target": "recsys",
-                        "success": False,
-                        "text": "I couldn't find books matching your request.",
-                        "book_ids": [],
-                        "elapsed_ms": int((time.time() - start_time) * 1000),
-                    },
+        except Exception as e:
+            append_chatbot_log(
+                f"[RETRIEVAL FAILED] {type(e).__name__}: {e} — attempting direct tool fallback"
+            )
+            try:
+                retrieval_output = await self._retrieve_fallback_candidates()
+                candidates = self.result_processor._build_recommendations_from_objects(
+                    retrieval_output.candidates
+                )
+                execution_context = retrieval_output.execution_context
+
+                append_chatbot_log(
+                    f"Retrieval fallback: {len(candidates)} candidates via "
+                    f"{execution_context.tools_used}"
+                )
+
+            except Exception as fallback_err:
+                append_chatbot_log(f"[RETRIEVAL FALLBACK FAILED] {fallback_err}")
+                yield self._error_complete_chunk(
+                    "I'm having trouble finding book recommendations right now. Please try again.",
+                    start_time,
                 )
                 return
 
-            # ============================================================
-            # STAGE 3: SELECTION
-            # ============================================================
-            yield StreamChunk(type="status", content="Selecting best matches...")
+        if not candidates:
+            append_chatbot_log("[NO CANDIDATES] Returning empty results response")
+            yield self._no_candidates_complete_chunk(request.user_text, start_time)
+            return
 
-            append_chatbot_log("\n=== STAGE 3: SELECTION ===")
-            selection_start = time.time()
+        # ============================================================
+        # STAGE 3: SELECTION
+        # ============================================================
+        yield StreamChunk(type="status", content="Selecting best matches...")
 
-            selected_candidates = await self.selection_agent.execute(
+        append_chatbot_log("\n=== STAGE 3: SELECTION ===")
+        selection_start = time.time()
+        selected_candidates: Optional[List[BookRecommendation]] = None
+
+        try:
+            result = await self.selection_agent.execute(
                 request=request,
                 candidates=candidates,
                 execution_context=execution_context,
             )
+            if result:
+                selected_candidates = result
 
-            selection_time = int((time.time() - selection_start) * 1000)
-            append_chatbot_log(f"Selection: {len(selected_candidates)} books in {selection_time}ms")
+        except Exception as e:
+            append_chatbot_log(
+                f"[SELECTION FAILED] {type(e).__name__}: {e} — falling back to top-10 candidates"
+            )
 
-            if not selected_candidates:
-                yield StreamChunk(
-                    type="complete",
-                    data={
-                        "target": "recsys",
-                        "success": False,
-                        "text": "I couldn't find books matching your request.",
-                        "book_ids": [],
-                        "elapsed_ms": int((time.time() - start_time) * 1000),
-                    },
-                )
-                return
+        if not selected_candidates:
+            append_chatbot_log("Selection fallback: forwarding top-10 raw candidates to curation")
+            selected_candidates = candidates[:10]
+        else:
+            append_chatbot_log(
+                f"Selection: {int((time.time() - selection_start) * 1000)}ms | "
+                f"{len(selected_candidates)} books selected"
+            )
 
-            # ============================================================
-            # STAGE 4: CURATION
-            # ============================================================
-            # CurationAgent now receives only confirmed, ranked books — no selection needed
+        # ============================================================
+        # STAGE 4: CURATION
+        # ============================================================
+        append_chatbot_log("\n=== STAGE 4: CURATION ===")
+
+        curation_tokens_sent = 0
+        curation_complete_sent = False
+
+        try:
             async for chunk in self.curation_agent.execute_stream(
                 request=request,
-                candidates=selected_candidates,  # pre-validated subset, not full pool
+                candidates=selected_candidates,
                 execution_context=execution_context,
             ):
-                if chunk.type == "complete" and execution_context:
+                if chunk.type == "token":
+                    curation_tokens_sent += 1
+
+                elif chunk.type == "complete":
+                    # Annotate with upstream metadata before forwarding.
                     chunk.data["tools_used"] = execution_context.tools_used
                     chunk.data["selection_count"] = len(selected_candidates)
+                    curation_complete_sent = True
+
                 yield chunk
 
         except Exception as e:
-            append_chatbot_log(f"[ORCHESTRATOR ERROR] {type(e).__name__}: {e}")
-
-            # Yield error completion
-            yield StreamChunk(
-                type="complete",
-                data={
-                    "target": "recsys",
-                    "success": False,
-                    "text": "I encountered an error generating recommendations.",
-                    "error": str(e),
-                    "elapsed_ms": int((time.time() - start_time) * 1000),
-                },
+            append_chatbot_log(
+                f"[CURATION FAILED] {type(e).__name__}: {e} — yielding fallback prose"
             )
 
+            # Only send fallback text if no tokens reached the client yet.
+            if not curation_tokens_sent:
+                fallback_text = self._build_curation_fallback_text(selected_candidates)
+                yield StreamChunk(type="token", content=fallback_text)
+
+            # Always close the stream with a complete chunk.
+            if not curation_complete_sent:
+                yield self._curation_fallback_complete_chunk(
+                    selected_candidates, execution_context, start_time
+                )
+
     # ================================================================
-    # FALLBACK HANDLERS
+    # FALLBACK HELPERS
     # ================================================================
 
-    def _planning_error_fallback(self, request: AgentRequest, error_msg: str) -> AgentResponse:
-        """Fallback when planning stage fails."""
-        return AgentResponse(
-            text="I'm having trouble analyzing your request. Please try rephrasing your query.",
-            target_category="recsys",
-            success=False,
-            policy_version="recsys.orchestrator.planning_error",
+    def _build_fallback_strategy(self) -> PlannerStrategy:
+        """
+        Hardcoded strategy used when PlannerAgent fails.
+
+        Warm users (ALS available) are directed to collaborative filtering.
+        Cold users fall back to popular books.
+        Profile data is always omitted — a fallback should be simple and fast.
+        """
+        if self._has_als_recs:
+            return PlannerStrategy(
+                recommended_tools=["als_recs"],
+                fallback_tools=["popular_books"],
+                reasoning="Hardcoded fallback — planning stage unavailable",
+                profile_data=None,
+            )
+        return PlannerStrategy(
+            recommended_tools=["popular_books"],
+            fallback_tools=["book_semantic_search"],
+            reasoning="Hardcoded fallback — planning stage unavailable, cold user",
+            profile_data=None,
         )
 
-    def _retrieval_error_fallback(self, request: AgentRequest, error_msg: str) -> AgentResponse:
-        """Fallback when retrieval stage fails."""
-        return AgentResponse(
-            text="I'm having trouble finding book recommendations right now. Please try again.",
-            target_category="recsys",
-            success=False,
-            policy_version="recsys.orchestrator.retrieval_error",
+    async def _retrieve_fallback_candidates(self) -> RetrievalOutput:
+        """
+        Bypass RetrievalAgent and call a single retrieval tool directly.
+
+        Uses ALS for warm users (personalized), popular_books for cold users.
+        tool.invoke() is synchronous; asyncio.to_thread() prevents blocking
+        the event loop while the tool query runs.
+
+        Returns:
+            RetrievalOutput with raw candidates and a minimal execution context.
+
+        Raises:
+            RuntimeError: If the target fallback tool is not available in the registry.
+        """
+        gates = InternalToolGates(
+            user_num_ratings=self._user_num_ratings,
+            warm_threshold=self._warm_threshold,
+            profile_allowed=False,
+        )
+        registry = ToolRegistry.for_retrieval(
+            gates=gates,
+            ctx_user=self._current_user,
+            ctx_db=self._db,
         )
 
-    def _no_candidates_fallback(self, request: AgentRequest) -> AgentResponse:
-        """Fallback when retrieval returns no candidates."""
-        # Check if query mentions dates/years
-        query_lower = request.user_text.lower()
-        has_year = any(str(year) in query_lower for year in range(2004, 2026))
+        tool_name = "als_recs" if self._has_als_recs else "popular_books"
+        tool = registry.get_tool(tool_name)
 
-        if has_year or "recent" in query_lower or "new" in query_lower:
+        if tool is None:
+            raise RuntimeError(f"Fallback tool '{tool_name}' not available in registry")
+
+        raw = await asyncio.to_thread(tool.invoke, {"top_k": 60})
+
+        return RetrievalOutput(
+            candidates=raw if isinstance(raw, list) else [],
+            execution_context=ExecutionContext(
+                planner_reasoning="Retrieval fallback — agent unavailable",
+                tools_used=[tool_name],
+                profile_data=None,
+            ),
+            reasoning=f"Retrieval fallback: called {tool_name} directly.",
+        )
+
+    def _build_curation_fallback_text(self, candidates: List[BookRecommendation]) -> str:
+        """
+        Build minimal recommendation prose when CurationAgent fails.
+
+        Deliberately uses the [Title](item_idx) citation format so the
+        frontend can still render book cards from the plain-text output.
+
+        Args:
+            candidates: Books to list (the selected subset, or top-10 raw).
+
+        Returns:
+            Formatted multi-line recommendation string.
+        """
+        lines = ["Here are some book recommendations:\n"]
+        for book in candidates:
+            author_part = f" by {book.author}" if book.author else ""
+            lines.append(f"[{book.title}]({book.item_idx}){author_part}")
+        return "\n".join(lines)
+
+    def _error_complete_chunk(self, message: str, start_time: float) -> StreamChunk:
+        """
+        Build a terminal error complete chunk for hard failures (e.g. retrieval total failure).
+        """
+        return StreamChunk(
+            type="complete",
+            data={
+                "target": "recsys",
+                "success": False,
+                "text": message,
+                "book_ids": [],
+                "elapsed_ms": int((time.time() - start_time) * 1000),
+            },
+        )
+
+    def _no_candidates_complete_chunk(self, query: str, start_time: float) -> StreamChunk:
+        """
+        Build a terminal complete chunk when retrieval returns no candidates.
+
+        If the query references a year (2004–2025) or recency keywords,
+        includes a catalog-limit hint (catalog ends at 2004).
+        """
+        query_lower = query.lower()
+        mentions_recent = any(str(year) in query_lower for year in range(2004, 2026)) or any(
+            w in query_lower for w in ("recent", "new", "latest")
+        )
+
+        if mentions_recent:
             text = (
                 "Our catalog only includes books published before 2004. "
                 "Try searching for older books in similar genres or themes?"
             )
         else:
             text = (
-                "I couldn't find books matching your specific request in our catalog. "
+                "I couldn't find books matching your request in our catalog. "
                 "Try broader search terms or different subjects?"
             )
 
-        return AgentResponse(
-            text=text,
-            target_category="recsys",
-            success=False,
-            policy_version="recsys.orchestrator.no_candidates",
+        return StreamChunk(
+            type="complete",
+            data={
+                "target": "recsys",
+                "success": False,
+                "text": text,
+                "book_ids": [],
+                "elapsed_ms": int((time.time() - start_time) * 1000),
+            },
         )
 
-    def _curation_error_fallback(
-        self, request: AgentRequest, candidates: list, error_msg: str
-    ) -> AgentResponse:
-        """Fallback when curation stage fails - return top candidates without prose."""
-        # Take top 10 candidates as fallback
-        top_books = candidates[:10]
+    def _curation_fallback_complete_chunk(
+        self,
+        candidates: List[BookRecommendation],
+        execution_context: ExecutionContext,
+        start_time: float,
+    ) -> StreamChunk:
+        """
+        Build the complete chunk for the curation fallback path.
 
-        return AgentResponse(
-            text="Here are some book recommendations (I had trouble generating descriptions):",
-            target_category="recsys",
-            success=True,
-            book_recommendations=top_books,
-            policy_version="recsys.orchestrator.curation_error",
-        )
-
-    def _curation_empty_fallback(self, request: AgentRequest, candidates: list) -> AgentResponse:
-        """Fallback when curation returns empty results - return top candidates."""
-        top_books = candidates[:10]
-
-        return AgentResponse(
-            text="Here are some book recommendations for you:",
-            target_category="recsys",
-            success=True,
-            book_recommendations=top_books,
-            policy_version="recsys.orchestrator.curation_empty",
+        Book IDs are taken directly from the candidates list since we wrote
+        the citations ourselves in _build_curation_fallback_text().
+        """
+        book_ids = [c.item_idx for c in candidates]
+        books = [
+            {
+                "item_idx": c.item_idx,
+                "title": c.title,
+                "author": c.author,
+                "cover_id": c.cover_id,
+                "year": c.year,
+            }
+            for c in candidates
+        ]
+        return StreamChunk(
+            type="complete",
+            data={
+                "target": "recsys",
+                "success": False,
+                "book_ids": book_ids,
+                "books": books,
+                "tools_used": execution_context.tools_used,
+                "selection_count": len(candidates),
+                "elapsed_ms": int((time.time() - start_time) * 1000),
+            },
         )
