@@ -1,1204 +1,1038 @@
 # tests/integration/chatbot/agents/recommendation/test_pipeline_integration.py
 """
-Integration tests for RecommendationAgent's three-stage pipeline.
-Tests data flow through Planner → Retrieval → Curation using mocked sub-agents.
+Integration tests for the four-stage RecommendationAgent pipeline.
+
+All tests drive execute_stream() and assert on the StreamChunk sequence.
+Sub-agents are replaced with mocks from conftest.py — no LLM calls or
+database queries are made.
+
+Chunk collection pattern used throughout:
+    chunks, complete, tokens, statuses = await _run(agent, request)
 """
 
 import pytest
-from unittest.mock import Mock
+from unittest.mock import AsyncMock, patch, MagicMock
+from typing import List, Tuple
 
 from app.agents.infrastructure.recsys.orchestrator import RecommendationAgent
-from app.agents.domain.entities import (
-    AgentRequest,
-    AgentResponse,
-    AgentExecutionState,
-    ExecutionStatus,
+from app.agents.domain.entities import AgentRequest, BookRecommendation
+from app.agents.domain.recsys_schemas import (
+    PlannerInput,
+    RetrievalInput,
+    RetrievalOutput,
+    ExecutionContext,
+    PlannerStrategy,
 )
-from app.agents.domain.recsys_schemas import PlannerInput, RetrievalInput, ExecutionContext
+from app.agents.schemas import StreamChunk
+
+
+# ==============================================================================
+# Test Helpers
+# ==============================================================================
+
+
+async def _run(
+    agent: RecommendationAgent,
+    request: AgentRequest,
+) -> Tuple[List[StreamChunk], StreamChunk, List[StreamChunk], List[StreamChunk]]:
+    """
+    Drive execute_stream() and partition the resulting chunks.
+
+    Returns:
+        (all_chunks, complete_chunk, token_chunks, status_chunks)
+
+    Raises:
+        AssertionError: If the pipeline does not emit exactly one complete chunk.
+    """
+    chunks: List[StreamChunk] = []
+    async for chunk in agent.execute_stream(request):
+        chunks.append(chunk)
+
+    complete_chunks = [c for c in chunks if c.type == "complete"]
+    assert len(complete_chunks) == 1, (
+        f"Pipeline must emit exactly one complete chunk, got {len(complete_chunks)}"
+    )
+    return (
+        chunks,
+        complete_chunks[0],
+        [c for c in chunks if c.type == "token"],
+        [c for c in chunks if c.type == "status"],
+    )
+
+
+def _request(query: str = "recommend something", history: list | None = None) -> AgentRequest:
+    """Minimal AgentRequest for test use."""
+    return AgentRequest(
+        user_text=query,
+        conversation_history=history or [],
+        context={"profile_allowed": False},
+    )
+
+
+def _agent(
+    mock_planner,
+    mock_retrieval,
+    mock_selection,
+    mock_curation,
+    *,
+    num_ratings: int = 15,
+    allow_profile: bool = False,
+    current_user=None,
+    db=None,
+) -> RecommendationAgent:
+    """Build a RecommendationAgent with all four sub-agents injected."""
+    return RecommendationAgent(
+        current_user=current_user,
+        db=db,
+        user_num_ratings=num_ratings,
+        allow_profile=allow_profile,
+        planner_agent=mock_planner,
+        retrieval_agent=mock_retrieval,
+        selection_agent=mock_selection,
+        curation_agent=mock_curation,
+    )
+
+
+# ==============================================================================
+# TestStageTransitions
+# ==============================================================================
 
 
 class TestStageTransitions:
-    """
-    Verify data flows correctly between pipeline stages.
+    """Verify data flows correctly from one stage to the next."""
 
-    Tests that outputs from one stage become inputs to the next stage,
-    and that all necessary data is preserved through the pipeline.
-    """
-
-    def test_planner_strategy_reaches_retrieval(
+    @pytest.mark.asyncio
+    async def test_planner_strategy_reaches_retrieval(
         self,
-        db_session,
-        test_user_warm,
         mock_planner_builder,
         mock_retrieval_builder,
+        mock_selection_builder,
         mock_curation_builder,
         strategy_factory,
     ):
-        """
-        Verify PlannerStrategy output becomes RetrievalInput.
-
-        PlannerAgent returns a strategy → RetrievalAgent receives it.
-        """
-        # Configure planner with known strategy
-        custom_strategy = strategy_factory.custom_strategy(
-            recommended_tools=["als_recommendations"],
+        """PlannerAgent output becomes the strategy field of RetrievalInput."""
+        known_strategy = strategy_factory.custom_strategy(
+            recommended_tools=["als_recs"],
             fallback_tools=["popular_books"],
-            reasoning="Test reasoning",
-            profile_data=None,
+            reasoning="Known test reasoning",
         )
-        mock_planner = mock_planner_builder.returns_strategy(custom_strategy).build()
+        mock_planner = mock_planner_builder.returns_strategy(known_strategy).build()
         mock_retrieval = mock_retrieval_builder.returns_batch(60).build()
+        mock_selection = mock_selection_builder.returns_batch(10).build()
         mock_curation = mock_curation_builder.returns_success_with_books(5).build()
 
-        # Create agent with mocked sub-agents
-        agent = RecommendationAgent(
-            current_user=test_user_warm,
-            db=db_session,
-            user_num_ratings=15,
-            allow_profile=False,
-            planner_agent=mock_planner,
-            retrieval_agent=mock_retrieval,
-            curation_agent=mock_curation,
-        )
+        agent = _agent(mock_planner, mock_retrieval, mock_selection, mock_curation)
+        await _run(agent, _request("recommend books"))
 
-        # Execute pipeline
-        request = AgentRequest(
-            user_text="recommend something good",
-            conversation_history=[],
-            context={
-                "profile_allowed": False,
-                "num_ratings": 15,
-                "conv_id": "test_123",
-                "uid": test_user_warm.user_id,
-            },
-        )
-        result = agent.execute(request)
+        assert mock_retrieval.execute.called
+        retrieval_input: RetrievalInput = mock_retrieval.execute.call_args[0][0]
+        assert isinstance(retrieval_input, RetrievalInput)
+        assert retrieval_input.strategy is known_strategy
+        assert retrieval_input.query == "recommend books"
 
-        # Verify planner was called
-        assert mock_planner.execute.called, "Planner should be called"
-
-        # Verify retrieval received the strategy from planner
-        assert mock_retrieval.execute.called, "Retrieval should be called"
-        retrieval_input = mock_retrieval.execute.call_args[0][0]
-
-        assert isinstance(retrieval_input, RetrievalInput), (
-            "Retrieval should receive RetrievalInput"
-        )
-        assert retrieval_input.strategy == custom_strategy, (
-            "Retrieval should receive planner's strategy"
-        )
-        assert retrieval_input.query == "recommend something good", (
-            "Original query should be passed to retrieval"
-        )
-
-    def test_retrieval_candidates_reach_curation(
+    @pytest.mark.asyncio
+    async def test_retrieval_candidates_reach_selection(
         self,
-        db_session,
-        test_user_warm,
         mock_planner_builder,
         mock_retrieval_builder,
+        mock_selection_builder,
         mock_curation_builder,
         candidate_factory,
     ):
         """
-        Verify Retrieval candidates become curation input.
+        Full retrieval pool (as BookRecommendation objects) is passed to SelectionAgent.
 
-        RetrievalAgent returns candidates → CurationAgent receives them.
+        The orchestrator converts raw dicts to BookRecommendation via result_processor
+        before calling selection; we verify count and item_idx are preserved.
         """
-        # Configure retrieval with known candidates
-        test_candidates = candidate_factory.create_batch(60)
+        raw_candidates = candidate_factory.create_batch(60, start_idx=10000)
         mock_planner = mock_planner_builder.returns_warm_user_strategy().build()
-        mock_retrieval = mock_retrieval_builder.returns_candidates(test_candidates).build()
+        mock_retrieval = mock_retrieval_builder.returns_candidates(raw_candidates).build()
+        mock_selection = mock_selection_builder.returns_batch(10).build()
         mock_curation = mock_curation_builder.returns_success_with_books(5).build()
 
-        agent = RecommendationAgent(
-            current_user=test_user_warm,
-            db=db_session,
-            user_num_ratings=15,
-            allow_profile=False,
-            planner_agent=mock_planner,
-            retrieval_agent=mock_retrieval,
-            curation_agent=mock_curation,
-        )
+        agent = _agent(mock_planner, mock_retrieval, mock_selection, mock_curation)
+        await _run(agent, _request())
 
-        request = AgentRequest(
-            user_text="recommend mystery novels",
-            conversation_history=[],
-            context={"profile_allowed": False, "num_ratings": 15},
-        )
-        result = agent.execute(request)
+        assert mock_selection.execute.called
+        call_kwargs = mock_selection.execute.call_args.kwargs
+        selection_candidates: List[BookRecommendation] = call_kwargs["candidates"]
 
-        # Verify curation received the candidates from retrieval
-        assert mock_curation.execute.called, "Curation should be called"
-        curation_candidates = mock_curation.execute.call_args.kwargs["candidates"]
+        assert len(selection_candidates) == 60
+        assert selection_candidates[0].item_idx == 10000
 
-        assert len(curation_candidates) == 60, (
-            f"Curation should receive all 60 candidates, got {len(curation_candidates)}"
-        )
-        # Verify same candidates (by comparing first item)
-        # Note: test_candidates are dicts, curation_candidates are BookRecommendation objects
-        assert curation_candidates[0].item_idx == test_candidates[0]["item_idx"], (
-            "Candidates should be preserved from retrieval to curation"
-        )
-
-    def test_execution_context_assembled_correctly(
+    @pytest.mark.asyncio
+    async def test_selection_output_reaches_curation(
         self,
-        db_session,
-        test_user_warm,
         mock_planner_builder,
         mock_retrieval_builder,
+        mock_selection_builder,
+        mock_curation_builder,
+        candidate_factory,
+    ):
+        """
+        SelectionAgent output (filtered subset) is what CurationAgent receives.
+
+        Retrieval returns 60 books; selection returns 10 specific ones; curation
+        must receive those 10 — not the full 60.
+        """
+        selected = candidate_factory.create_book_recommendations(10, start_idx=20000)
+        mock_planner = mock_planner_builder.returns_warm_user_strategy().build()
+        mock_retrieval = mock_retrieval_builder.returns_batch(60).build()
+        mock_selection = mock_selection_builder.returns_books(selected).build()
+
+        # Track candidates received by curation
+        received_by_curation: List[List[BookRecommendation]] = []
+
+        async def _curation_stream(*args, **kwargs):
+            received_by_curation.append(kwargs.get("candidates", []))
+            yield StreamChunk(type="status", content="Curating...")
+            yield StreamChunk(type="token", content="Here are your books.")
+            yield StreamChunk(
+                type="complete",
+                data={
+                    "target": "recsys",
+                    "success": True,
+                    "book_ids": [c.item_idx for c in kwargs.get("candidates", [])],
+                    "tool_calls": [],
+                    "elapsed_ms": 50,
+                },
+            )
+
+        mock_curation = MagicMock()
+        mock_curation.execute_stream = MagicMock(
+            side_effect=lambda *a, **kw: _curation_stream(*a, **kw)
+        )
+
+        agent = _agent(mock_planner, mock_retrieval, mock_selection, mock_curation)
+        await _run(agent, _request())
+
+        assert len(received_by_curation) == 1
+        curation_input = received_by_curation[0]
+        assert len(curation_input) == 10
+        assert all(c.item_idx >= 20000 for c in curation_input), (
+            "Curation should receive selection output, not the raw retrieval pool"
+        )
+
+    @pytest.mark.asyncio
+    async def test_execution_context_assembled_correctly(
+        self,
+        mock_planner_builder,
+        mock_retrieval_builder,
+        mock_selection_builder,
         mock_curation_builder,
         strategy_factory,
     ):
-        """
-        Verify ExecutionContext has all required fields.
-
-        ExecutionContext should include:
-        - planner_reasoning
-        - tools_used
-        - profile_data (if applicable)
-        """
-        # Configure with known data
-        custom_strategy = strategy_factory.custom_strategy(
-            recommended_tools=["als_recommendations"],
+        """ExecutionContext passed to selection and curation includes planner reasoning."""
+        known_strategy = strategy_factory.custom_strategy(
+            recommended_tools=["als_recs"],
             fallback_tools=["popular_books"],
             reasoning="Using ALS for warm user",
-            profile_data=None,
         )
-        mock_planner = mock_planner_builder.returns_strategy(custom_strategy).build()
-        mock_retrieval = mock_retrieval_builder.returns_batch(60, "als_recommendations").build()
-        mock_curation = mock_curation_builder.returns_success_with_books(5).build()
+        mock_planner = mock_planner_builder.returns_strategy(known_strategy).build()
+        mock_retrieval = mock_retrieval_builder.returns_batch(60, source_tool="als_recs").build()
+        mock_selection = mock_selection_builder.returns_batch(10).build()
 
-        agent = RecommendationAgent(
-            current_user=test_user_warm,
-            db=db_session,
-            user_num_ratings=15,
-            allow_profile=False,
-            planner_agent=mock_planner,
-            retrieval_agent=mock_retrieval,
-            curation_agent=mock_curation,
-        )
+        received_contexts: List[ExecutionContext] = []
 
-        request = AgentRequest(
-            user_text="test query",
-            conversation_history=[],
-            context={"profile_allowed": False, "num_ratings": 15},
-        )
-        result = agent.execute(request)
+        async def _curation_stream(*args, **kwargs):
+            received_contexts.append(kwargs.get("execution_context"))
+            yield StreamChunk(type="token", content="Books.")
+            yield StreamChunk(
+                type="complete",
+                data={"target": "recsys", "success": True, "book_ids": [], "elapsed_ms": 50},
+            )
 
-        # Verify curation received ExecutionContext
-        assert mock_curation.execute.called, "Curation should be called"
-        execution_context = mock_curation.execute.call_args.kwargs["execution_context"]
-
-        assert isinstance(execution_context, ExecutionContext), (
-            "Curation should receive ExecutionContext"
-        )
-        assert execution_context.planner_reasoning == "Using ALS for warm user", (
-            "ExecutionContext should have planner reasoning"
-        )
-        assert len(execution_context.tools_used) > 0, (
-            "ExecutionContext should have tools_used from retrieval"
+        mock_curation = MagicMock()
+        mock_curation.execute_stream = MagicMock(
+            side_effect=lambda *a, **kw: _curation_stream(*a, **kw)
         )
 
-    def test_profile_data_flows_through_all_stages(
+        agent = _agent(mock_planner, mock_retrieval, mock_selection, mock_curation)
+        await _run(agent, _request())
+
+        assert len(received_contexts) == 1
+        ctx = received_contexts[0]
+        assert isinstance(ctx, ExecutionContext)
+        assert ctx.planner_reasoning == "Using ALS for warm user"
+        assert "als_recs" in ctx.tools_used
+
+    @pytest.mark.asyncio
+    async def test_profile_data_flows_through_all_stages(
         self,
-        db_session,
-        test_user_with_profile,
         mock_planner_builder,
         mock_retrieval_builder,
+        mock_selection_builder,
         mock_curation_builder,
         strategy_factory,
     ):
-        """
-        Verify profile data preserved through pipeline.
-
-        Planner fetches profile → strategy contains it → retrieval receives it →
-        curation receives it in ExecutionContext.
-        """
-        # Configure planner to return strategy with profile
-        profile_data = {
-            "user_profile": {
-                "favorite_subjects": [12, 45, 78],
-            }
-        }
+        """Profile data set by planner propagates to retrieval and into ExecutionContext."""
+        profile_data = {"user_profile": {"favorite_subjects": [12, 45, 78]}}
         strategy_with_profile = strategy_factory.cold_user_with_profile_strategy(profile_data)
         mock_planner = mock_planner_builder.returns_strategy(strategy_with_profile).build()
         mock_retrieval = mock_retrieval_builder.returns_batch(60).build()
-        mock_curation = mock_curation_builder.returns_success_with_books(5).build()
+        mock_selection = mock_selection_builder.returns_batch(10).build()
 
-        agent = RecommendationAgent(
-            current_user=test_user_with_profile,
-            db=db_session,
-            user_num_ratings=3,  # Cold user
-            allow_profile=True,  # Profile allowed
-            planner_agent=mock_planner,
-            retrieval_agent=mock_retrieval,
-            curation_agent=mock_curation,
+        received_contexts: List[ExecutionContext] = []
+
+        async def _curation_stream(*args, **kwargs):
+            received_contexts.append(kwargs.get("execution_context"))
+            yield StreamChunk(type="token", content="Books.")
+            yield StreamChunk(
+                type="complete",
+                data={"target": "recsys", "success": True, "book_ids": [], "elapsed_ms": 50},
+            )
+
+        mock_curation = MagicMock()
+        mock_curation.execute_stream = MagicMock(
+            side_effect=lambda *a, **kw: _curation_stream(*a, **kw)
         )
 
-        request = AgentRequest(
-            user_text="suggest a book",
-            conversation_history=[],
-            context={"profile_allowed": True, "num_ratings": 3},
+        agent = _agent(
+            mock_planner,
+            mock_retrieval,
+            mock_selection,
+            mock_curation,
+            num_ratings=3,
+            allow_profile=True,
         )
-        result = agent.execute(request)
+        await _run(agent, _request("suggest a book"))
 
-        # Verify profile data reached retrieval
-        retrieval_input = mock_retrieval.execute.call_args[0][0]
-        assert retrieval_input.profile_data == profile_data, "Profile data should reach retrieval"
+        # Profile data reached retrieval
+        retrieval_input: RetrievalInput = mock_retrieval.execute.call_args[0][0]
+        assert retrieval_input.profile_data == profile_data
 
-        # Verify profile data reached curation
-        execution_context = mock_curation.execute.call_args.kwargs["execution_context"]
-        assert execution_context.profile_data == profile_data, (
-            "Profile data should reach curation in ExecutionContext"
-        )
+        # Profile data reached curation via ExecutionContext
+        assert len(received_contexts) == 1
+        assert received_contexts[0].profile_data == profile_data
 
-    def test_candidate_metadata_preserved(
+    @pytest.mark.asyncio
+    async def test_candidate_metadata_preserved_through_pipeline(
         self,
-        db_session,
-        test_user_warm,
         mock_planner_builder,
         mock_retrieval_builder,
+        mock_selection_builder,
         mock_curation_builder,
         candidate_factory,
     ):
-        """
-        Verify book metadata survives Retrieval → Curation.
-
-        Candidates have item_idx, title, author, year - all should be preserved.
-        """
-        # Create candidates with specific metadata
-        test_candidates = [
+        """Book title, author, and year survive the dict→BookRecommendation conversion."""
+        raw_candidates = [
             candidate_factory.create_with_metadata(
                 item_idx=12345,
                 title="The Three-Body Problem",
                 author="Cixin Liu",
                 year=2008,
             ),
-            candidate_factory.create_with_metadata(
-                item_idx=12346,
-                title="Foundation",
-                author="Isaac Asimov",
-                year=1951,
-            ),
         ]
         mock_planner = mock_planner_builder.returns_warm_user_strategy().build()
-        mock_retrieval = mock_retrieval_builder.returns_candidates(test_candidates).build()
-        mock_curation = mock_curation_builder.returns_success_with_books(2).build()
+        mock_retrieval = mock_retrieval_builder.returns_candidates(raw_candidates).build()
+        # Pass through unchanged (return the single book as selected)
+        mock_selection = mock_selection_builder.returns_batch(1, start_idx=12345).build()
+        mock_curation = mock_curation_builder.returns_success_with_books(1).build()
 
-        agent = RecommendationAgent(
-            current_user=test_user_warm,
-            db=db_session,
-            user_num_ratings=15,
-            allow_profile=False,
-            planner_agent=mock_planner,
-            retrieval_agent=mock_retrieval,
-            curation_agent=mock_curation,
+        received: List[List[BookRecommendation]] = []
+
+        async def _capture_stream(*args, **kwargs):
+            received.append(list(kwargs.get("candidates", [])))
+            yield StreamChunk(type="token", content="A book.")
+            yield StreamChunk(
+                type="complete",
+                data={"target": "recsys", "success": True, "book_ids": [], "elapsed_ms": 50},
+            )
+
+        mock_curation_capture = MagicMock()
+        mock_curation_capture.execute_stream = MagicMock(
+            side_effect=lambda *a, **kw: _capture_stream(*a, **kw)
         )
 
-        request = AgentRequest(
-            user_text="recommend sci-fi",
-            conversation_history=[],
-            context={"profile_allowed": False, "num_ratings": 15},
-        )
-        result = agent.execute(request)
+        # We want to assert metadata on selection input since selection receives the converted objects
+        agent = _agent(mock_planner, mock_retrieval, mock_selection, mock_curation_capture)
+        await _run(agent, _request())
 
-        # Verify curation received full metadata
-        curation_candidates = mock_curation.execute.call_args.kwargs["candidates"]
+        assert mock_selection.execute.called
+        selection_candidates = mock_selection.execute.call_args.kwargs["candidates"]
+        book = selection_candidates[0]
+        assert book.item_idx == 12345
+        assert book.title == "The Three-Body Problem"
+        assert book.author == "Cixin Liu"
+        assert book.year == 2008
 
-        assert len(curation_candidates) == 2, "Should have 2 candidates"
 
-        # Check first candidate
-        candidate_1 = curation_candidates[0]
-        assert candidate_1.item_idx == 12345, "item_idx should be preserved"
-        assert candidate_1.title == "The Three-Body Problem", "title should be preserved"
-        assert candidate_1.author == "Cixin Liu", "author should be preserved"
-        assert candidate_1.year == 2008, "year should be preserved"
-
-    def test_book_ids_survive_full_pipeline(
-        self,
-        db_session,
-        test_user_warm,
-        mock_planner_builder,
-        mock_retrieval_builder,
-        mock_curation_builder,
-    ):
-        """
-        Verify final book IDs match curation output.
-
-        CurationAgent returns BookRecommendation list → AgentResponse.book_recommendations
-        → Final output has matching item_idx values.
-        """
-        mock_planner = mock_planner_builder.returns_warm_user_strategy().build()
-        mock_retrieval = mock_retrieval_builder.returns_batch(60).build()
-        # Curation returns 5 books
-        mock_curation = mock_curation_builder.returns_success_with_books(5).build()
-
-        agent = RecommendationAgent(
-            current_user=test_user_warm,
-            db=db_session,
-            user_num_ratings=15,
-            allow_profile=False,
-            planner_agent=mock_planner,
-            retrieval_agent=mock_retrieval,
-            curation_agent=mock_curation,
-        )
-
-        request = AgentRequest(
-            user_text="recommend books",
-            conversation_history=[],
-            context={"profile_allowed": False, "num_ratings": 15},
-        )
-        result = agent.execute(request)
-
-        # Verify final response has book_recommendations
-        assert isinstance(result, AgentResponse), "Should return AgentResponse"
-        assert result.success, "Pipeline should complete successfully"
-        assert result.book_recommendations is not None, "Should have book_recommendations"
-        assert len(result.book_recommendations) == 5, (
-            f"Should have 5 books from curation, got {len(result.book_recommendations)}"
-        )
-
-        # Verify book IDs are integers
-        for book in result.book_recommendations:
-            assert isinstance(book.item_idx, int), f"book_id {book.item_idx} should be integer"
+# ==============================================================================
+# TestParameterPropagation
+# ==============================================================================
 
 
 class TestParameterPropagation:
-    """
-    Verify parameters correctly configure each pipeline stage.
+    """Verify user context parameters configure each stage correctly."""
 
-    Tests that user context (num_ratings, profile access, etc.) reaches
-    all sub-agents and affects their behavior appropriately.
-    """
-
-    def test_cold_user_parameters_reach_all_stages(
+    @pytest.mark.asyncio
+    async def test_warm_user_has_als_available(
         self,
-        db_session,
-        test_user_cold,
         mock_planner_builder,
         mock_retrieval_builder,
+        mock_selection_builder,
         mock_curation_builder,
     ):
-        """
-        Verify cold user status (num_ratings < 10) reaches all stages.
+        """Warm user (num_ratings >= 10) gives planner als_recs in available tools."""
+        mock_planner = mock_planner_builder.returns_warm_user_strategy().build()
+        mock_retrieval = mock_retrieval_builder.returns_batch(60).build()
+        mock_selection = mock_selection_builder.returns_batch(10).build()
+        mock_curation = mock_curation_builder.returns_success_with_books(5).build()
 
-        Cold users cannot use ALS → planner should know this.
-        """
+        agent = _agent(mock_planner, mock_retrieval, mock_selection, mock_curation, num_ratings=15)
+        await _run(agent, _request())
+
+        planner_input: PlannerInput = mock_planner.execute.call_args[0][0]
+        assert planner_input.has_als_recs_available is True
+        assert "als_recs" in planner_input.available_retrieval_tools
+
+    @pytest.mark.asyncio
+    async def test_cold_user_has_no_als(
+        self,
+        mock_planner_builder,
+        mock_retrieval_builder,
+        mock_selection_builder,
+        mock_curation_builder,
+    ):
+        """Cold user (num_ratings < 10) does not have als_recs in available tools."""
         mock_planner = mock_planner_builder.returns_cold_descriptive_strategy().build()
-        mock_retrieval = mock_retrieval_builder.returns_batch(60, "book_semantic_search").build()
+        mock_retrieval = mock_retrieval_builder.returns_batch(
+            60, source_tool="book_semantic_search"
+        ).build()
+        mock_selection = mock_selection_builder.returns_batch(10).build()
         mock_curation = mock_curation_builder.returns_success_with_books(5).build()
 
-        agent = RecommendationAgent(
-            current_user=test_user_cold,
-            db=db_session,
-            user_num_ratings=3,  # Cold user
-            allow_profile=False,
-            planner_agent=mock_planner,
-            retrieval_agent=mock_retrieval,
-            curation_agent=mock_curation,
-        )
+        agent = _agent(mock_planner, mock_retrieval, mock_selection, mock_curation, num_ratings=3)
+        await _run(agent, _request())
 
-        request = AgentRequest(
-            user_text="dark atmospheric mystery",
-            conversation_history=[],
-            context={"profile_allowed": False, "num_ratings": 3},
-        )
-        result = agent.execute(request)
+        planner_input: PlannerInput = mock_planner.execute.call_args[0][0]
+        assert planner_input.has_als_recs_available is False
+        assert "als_recs" not in planner_input.available_retrieval_tools
 
-        # Verify planner received cold user context
-        assert mock_planner.execute.called, "Planner should be called"
-        planner_input = mock_planner.execute.call_args[0][0]
-        assert isinstance(planner_input, PlannerInput), "Should receive PlannerInput"
-        assert planner_input.has_als_recs_available is False, (
-            "Cold user should not have ALS available"
-        )
-
-        # Pipeline should complete successfully
-        assert result.success, "Cold user pipeline should complete"
-        assert len(result.book_recommendations) == 5, "Should return recommendations"
-
-    def test_warm_user_parameters_reach_all_stages(
+    @pytest.mark.asyncio
+    async def test_none_num_ratings_treated_as_cold(
         self,
-        db_session,
-        test_user_warm,
         mock_planner_builder,
         mock_retrieval_builder,
+        mock_selection_builder,
         mock_curation_builder,
     ):
-        """
-        Verify warm user status (num_ratings >= 10) reaches all stages.
-
-        Warm users can use ALS → planner should know this.
-        """
-        mock_planner = mock_planner_builder.returns_warm_user_strategy().build()
-        mock_retrieval = mock_retrieval_builder.returns_batch(60, "als_recommendations").build()
+        """user_num_ratings=None defaults to 0 (cold user, no ALS)."""
+        mock_planner = mock_planner_builder.returns_cold_descriptive_strategy().build()
+        mock_retrieval = mock_retrieval_builder.returns_batch(60).build()
+        mock_selection = mock_selection_builder.returns_batch(10).build()
         mock_curation = mock_curation_builder.returns_success_with_books(5).build()
 
-        agent = RecommendationAgent(
-            current_user=test_user_warm,
-            db=db_session,
-            user_num_ratings=15,  # Warm user
-            allow_profile=False,
-            planner_agent=mock_planner,
-            retrieval_agent=mock_retrieval,
-            curation_agent=mock_curation,
+        agent = _agent(
+            mock_planner, mock_retrieval, mock_selection, mock_curation, num_ratings=None
         )
+        await _run(agent, _request())
 
-        request = AgentRequest(
-            user_text="recommend something",
-            conversation_history=[],
-            context={"profile_allowed": False, "num_ratings": 15},
-        )
-        result = agent.execute(request)
+        assert agent._has_als_recs is False
+        planner_input: PlannerInput = mock_planner.execute.call_args[0][0]
+        assert planner_input.has_als_recs_available is False
 
-        # Verify planner received warm user context
-        planner_input = mock_planner.execute.call_args[0][0]
-        assert planner_input.has_als_recs_available is True, "Warm user should have ALS available"
-
-        # Pipeline should complete successfully
-        assert result.success, "Warm user pipeline should complete"
-
-    def test_profile_access_flag_propagates(
+    @pytest.mark.asyncio
+    async def test_allow_profile_propagates_to_planner(
         self,
-        db_session,
-        test_user_with_profile,
         mock_planner_builder,
         mock_retrieval_builder,
+        mock_selection_builder,
         mock_curation_builder,
     ):
-        """
-        Verify allow_profile flag reaches planner.
-
-        Privacy-critical: planner must respect profile access permission.
-        """
+        """allow_profile flag reaches PlannerInput.allow_profile."""
         mock_planner = mock_planner_builder.returns_warm_user_strategy().build()
         mock_retrieval = mock_retrieval_builder.returns_batch(60).build()
+        mock_selection = mock_selection_builder.returns_batch(10).build()
         mock_curation = mock_curation_builder.returns_success_with_books(5).build()
 
-        # Test with profile ALLOWED
-        agent_with_profile = RecommendationAgent(
-            current_user=test_user_with_profile,
-            db=db_session,
-            user_num_ratings=15,
-            allow_profile=True,  # Profile allowed
-            planner_agent=mock_planner,
-            retrieval_agent=mock_retrieval,
-            curation_agent=mock_curation,
+        agent = _agent(
+            mock_planner, mock_retrieval, mock_selection, mock_curation, allow_profile=True
         )
+        await _run(agent, _request())
 
-        request = AgentRequest(
-            user_text="suggest a book",
-            conversation_history=[],
-            context={"profile_allowed": True, "num_ratings": 15},
-        )
-        result = agent_with_profile.execute(request)
+        planner_input: PlannerInput = mock_planner.execute.call_args[0][0]
+        assert planner_input.allow_profile is True
 
-        # Verify planner received allow_profile=True
-        planner_input = mock_planner.execute.call_args[0][0]
-        assert planner_input.allow_profile is True, "Profile access should be True"
 
-        # Reset mock
-        mock_planner.execute.reset_mock()
-
-        # Test with profile DENIED
-        agent_no_profile = RecommendationAgent(
-            current_user=test_user_with_profile,
-            db=db_session,
-            user_num_ratings=15,
-            allow_profile=False,  # Profile denied
-            planner_agent=mock_planner,
-            retrieval_agent=mock_retrieval,
-            curation_agent=mock_curation,
-        )
-
-        request_no_profile = AgentRequest(
-            user_text="suggest a book",
-            conversation_history=[],
-            context={"profile_allowed": False, "num_ratings": 15},
-        )
-        result_no_profile = agent_no_profile.execute(request_no_profile)
-
-        # Verify planner received allow_profile=False
-        planner_input_no_profile = mock_planner.execute.call_args[0][0]
-        assert planner_input_no_profile.allow_profile is False, "Profile access should be False"
-
-    def test_optional_parameters_handled(
-        self,
-        db_session,
-        test_user_warm,
-        mock_planner_builder,
-        mock_retrieval_builder,
-        mock_curation_builder,
-    ):
-        """
-        Verify pipeline handles None for optional parameters.
-
-        Some parameters may be None - system should handle gracefully.
-        """
-        mock_planner = mock_planner_builder.returns_warm_user_strategy().build()
-        mock_retrieval = mock_retrieval_builder.returns_batch(60).build()
-        mock_curation = mock_curation_builder.returns_success_with_books(5).build()
-
-        # Create agent with minimal parameters
-        agent = RecommendationAgent(
-            current_user=test_user_warm,
-            db=db_session,
-            user_num_ratings=None,  # Should default to 0
-            allow_profile=False,
-            planner_agent=mock_planner,
-            retrieval_agent=mock_retrieval,
-            curation_agent=mock_curation,
-        )
-
-        request = AgentRequest(
-            user_text="test query",
-            conversation_history=[],
-            context={},
-        )
-        result = agent.execute(request)
-
-        # Should complete without crashing
-        assert isinstance(result, AgentResponse), "Should return AgentResponse"
-        assert result.text, "Should have response text"
+# ==============================================================================
+# TestErrorHandling  (fallback tests)
+# ==============================================================================
 
 
 class TestErrorHandling:
     """
-    Verify pipeline handles failures gracefully at each stage.
+    Verify each stage's fallback is triggered and the pipeline still completes.
 
-    Tests that errors in one stage don't crash the system and that
-    appropriate fallback logic is triggered.
+    The invariant under test in every case: execute_stream() always emits
+    exactly one complete chunk regardless of which stage fails.
     """
 
-    def test_planner_failure_uses_fallback_strategy(
+    # ------------------------------------------------------------------
+    # Planning fallback
+    # ------------------------------------------------------------------
+
+    @pytest.mark.asyncio
+    async def test_planning_failure_pipeline_still_completes(
         self,
-        db_session,
-        test_user_warm,
         mock_planner_builder,
         mock_retrieval_builder,
+        mock_selection_builder,
         mock_curation_builder,
     ):
         """
-        Verify planner failure triggers fallback strategy.
-
-        If planner fails, orchestrator should use hardcoded fallback.
+        When PlannerAgent raises, the orchestrator falls back to a hardcoded
+        strategy and the pipeline continues through all remaining stages.
         """
-        # Configure planner to raise error
-        mock_planner = mock_planner_builder.raises_error(
-            RuntimeError("Planner LLM failure")
+        mock_planner = mock_planner_builder.raises_error(RuntimeError("LLM timeout")).build()
+        mock_retrieval = mock_retrieval_builder.returns_batch(60).build()
+        mock_selection = mock_selection_builder.returns_batch(10).build()
+        mock_curation = mock_curation_builder.returns_success_with_books(5).build()
+
+        agent = _agent(mock_planner, mock_retrieval, mock_selection, mock_curation)
+        _, complete, _, _ = await _run(agent, _request("recommend books"))
+
+        # Pipeline must complete successfully despite planner failure
+        assert complete.data["success"] is True
+        # Retrieval and selection must still be called
+        assert mock_retrieval.execute.called
+        assert mock_selection.execute.called
+
+    @pytest.mark.asyncio
+    async def test_planning_failure_warm_user_uses_als_strategy(
+        self,
+        mock_planner_builder,
+        mock_retrieval_builder,
+        mock_selection_builder,
+        mock_curation_builder,
+    ):
+        """
+        Hardcoded fallback for a warm user recommends als_recs as primary tool.
+        RetrievalAgent receives that strategy.
+        """
+        mock_planner = mock_planner_builder.raises_error(Exception("timeout")).build()
+        mock_retrieval = mock_retrieval_builder.returns_batch(60).build()
+        mock_selection = mock_selection_builder.returns_batch(10).build()
+        mock_curation = mock_curation_builder.returns_success_with_books(5).build()
+
+        agent = _agent(mock_planner, mock_retrieval, mock_selection, mock_curation, num_ratings=15)
+        await _run(agent, _request())
+
+        retrieval_input: RetrievalInput = mock_retrieval.execute.call_args[0][0]
+        assert retrieval_input.strategy.recommended_tools == ["als_recs"]
+        assert retrieval_input.strategy.fallback_tools == ["popular_books"]
+
+    @pytest.mark.asyncio
+    async def test_planning_failure_cold_user_uses_popular_books_strategy(
+        self,
+        mock_planner_builder,
+        mock_retrieval_builder,
+        mock_selection_builder,
+        mock_curation_builder,
+    ):
+        """
+        Hardcoded fallback for a cold user (no ALS) uses popular_books as primary.
+        """
+        mock_planner = mock_planner_builder.raises_error(Exception("timeout")).build()
+        mock_retrieval = mock_retrieval_builder.returns_batch(
+            60, source_tool="popular_books"
         ).build()
-        mock_retrieval = mock_retrieval_builder.returns_batch(60).build()
+        mock_selection = mock_selection_builder.returns_batch(10).build()
         mock_curation = mock_curation_builder.returns_success_with_books(5).build()
 
-        agent = RecommendationAgent(
-            current_user=test_user_warm,
-            db=db_session,
-            user_num_ratings=15,
-            allow_profile=False,
-            planner_agent=mock_planner,
-            retrieval_agent=mock_retrieval,
-            curation_agent=mock_curation,
-        )
+        agent = _agent(mock_planner, mock_retrieval, mock_selection, mock_curation, num_ratings=3)
+        await _run(agent, _request())
 
-        request = AgentRequest(
-            user_text="recommend books",
-            conversation_history=[],
-            context={"profile_allowed": False, "num_ratings": 15},
-        )
-        result = agent.execute(request)
+        retrieval_input: RetrievalInput = mock_retrieval.execute.call_args[0][0]
+        assert retrieval_input.strategy.recommended_tools == ["popular_books"]
 
-        # Should complete with fallback strategy (not crash)
-        assert isinstance(result, AgentResponse), "Should return AgentResponse"
-        # Retrieval and curation should still be called with fallback
-        assert mock_retrieval.execute.called or not result.success, (
-            "Should use fallback strategy or return error"
-        )
+    # ------------------------------------------------------------------
+    # Retrieval fallback
+    # ------------------------------------------------------------------
 
-    def test_retrieval_failure_returns_error_response(
+    @pytest.mark.asyncio
+    async def test_retrieval_failure_invokes_direct_tool_fallback(
         self,
-        db_session,
-        test_user_warm,
         mock_planner_builder,
         mock_retrieval_builder,
+        mock_selection_builder,
+        mock_curation_builder,
+        candidate_factory,
+    ):
+        """
+        When RetrievalAgent raises, orchestrator calls _retrieve_fallback_candidates()
+        directly. The pipeline continues and completes successfully.
+        """
+        fallback_candidates = candidate_factory.create_batch(30, start_idx=99000)
+        fallback_output = RetrievalOutput(
+            candidates=fallback_candidates,
+            execution_context=ExecutionContext(
+                planner_reasoning="Retrieval fallback",
+                tools_used=["als_recs"],
+            ),
+            reasoning="Direct fallback call",
+        )
+
+        mock_planner = mock_planner_builder.returns_warm_user_strategy().build()
+        mock_retrieval = mock_retrieval_builder.raises_error(
+            RuntimeError("RetrievalAgent LLM failure")
+        ).build()
+        mock_selection = mock_selection_builder.returns_batch(10).build()
+        mock_curation = mock_curation_builder.returns_success_with_books(5).build()
+
+        agent = _agent(mock_planner, mock_retrieval, mock_selection, mock_curation)
+
+        # Patch the internal fallback method so no real tool calls are made
+        with patch.object(
+            agent, "_retrieve_fallback_candidates", new=AsyncMock(return_value=fallback_output)
+        ) as mock_fallback:
+            _, complete, _, _ = await _run(agent, _request("recommend books"))
+
+        assert mock_fallback.called, "_retrieve_fallback_candidates should be invoked"
+        assert complete.data["success"] is True
+        assert mock_selection.execute.called
+
+    @pytest.mark.asyncio
+    async def test_retrieval_total_failure_yields_error_complete_chunk(
+        self,
+        mock_planner_builder,
+        mock_retrieval_builder,
+        mock_selection_builder,
         mock_curation_builder,
     ):
         """
-        Verify retrieval failure (no candidates) returns error response.
-
-        If retrieval returns 0 candidates, pipeline should return helpful error.
+        When both RetrievalAgent and _retrieve_fallback_candidates fail,
+        the pipeline emits a terminal error complete chunk and stops.
+        Selection and curation must not be called.
         """
         mock_planner = mock_planner_builder.returns_warm_user_strategy().build()
-        # Configure retrieval to return empty candidates
+        mock_retrieval = mock_retrieval_builder.raises_error(
+            RuntimeError("RetrievalAgent failure")
+        ).build()
+        mock_selection = mock_selection_builder.returns_batch(10).build()
+        mock_curation = mock_curation_builder.returns_success_with_books(5).build()
+
+        agent = _agent(mock_planner, mock_retrieval, mock_selection, mock_curation)
+
+        with patch.object(
+            agent,
+            "_retrieve_fallback_candidates",
+            new=AsyncMock(side_effect=RuntimeError("Fallback tool also unavailable")),
+        ):
+            _, complete, _, _ = await _run(agent, _request())
+
+        assert complete.data["success"] is False
+        assert not mock_selection.execute.called
+        assert not mock_curation.execute_stream.called
+
+    # ------------------------------------------------------------------
+    # No candidates
+    # ------------------------------------------------------------------
+
+    @pytest.mark.asyncio
+    async def test_no_candidates_yields_terminal_error_chunk(
+        self,
+        mock_planner_builder,
+        mock_retrieval_builder,
+        mock_selection_builder,
+        mock_curation_builder,
+    ):
+        """
+        When retrieval returns zero candidates, pipeline stops with a
+        success=False complete chunk. Selection and curation are not called.
+        """
+        mock_planner = mock_planner_builder.returns_warm_user_strategy().build()
         mock_retrieval = mock_retrieval_builder.returns_empty().build()
+        mock_selection = mock_selection_builder.returns_batch(10).build()
         mock_curation = mock_curation_builder.returns_success_with_books(5).build()
 
-        agent = RecommendationAgent(
-            current_user=test_user_warm,
-            db=db_session,
-            user_num_ratings=15,
-            allow_profile=False,
-            planner_agent=mock_planner,
-            retrieval_agent=mock_retrieval,
-            curation_agent=mock_curation,
-        )
+        agent = _agent(mock_planner, mock_retrieval, mock_selection, mock_curation)
+        _, complete, _, _ = await _run(agent, _request("some obscure query xyz123"))
 
-        request = AgentRequest(
-            user_text="books about xyz123 nonexistent topic",
-            conversation_history=[],
-            context={"profile_allowed": False, "num_ratings": 15},
-        )
-        result = agent.execute(request)
+        assert complete.data["success"] is False
+        assert complete.data["book_ids"] == []
+        assert not mock_selection.execute.called
+        assert not mock_curation.execute_stream.called
 
-        # Should return error response (not crash)
-        assert isinstance(result, AgentResponse), "Should return AgentResponse"
-        # Either success=False or has error message
-        if not result.success:
-            assert result.text, "Error response should have message"
-        # Curation should NOT be called (no candidates to curate)
-        # Note: orchestrator might still call curation with empty list, so we check result
-
-    def test_curation_failure_returns_fallback_response(
+    @pytest.mark.asyncio
+    async def test_no_candidates_with_year_query_includes_catalog_hint(
         self,
-        db_session,
-        test_user_warm,
         mock_planner_builder,
         mock_retrieval_builder,
+        mock_selection_builder,
         mock_curation_builder,
     ):
         """
-        Verify curation failure returns fallback response.
-
-        If curation fails, orchestrator should return simple list or error.
+        When the query contains a recent year and there are no candidates,
+        the error message mentions the catalog cutoff.
         """
         mock_planner = mock_planner_builder.returns_warm_user_strategy().build()
+        mock_retrieval = mock_retrieval_builder.returns_empty().build()
+        mock_selection = mock_selection_builder.returns_batch(10).build()
+        mock_curation = mock_curation_builder.returns_success_with_books(5).build()
+
+        agent = _agent(mock_planner, mock_retrieval, mock_selection, mock_curation)
+        _, complete, _, _ = await _run(agent, _request("books published in 2022"))
+
+        assert complete.data["success"] is False
+        assert "2004" in complete.data["text"], (
+            "Error message should mention catalog cutoff year for recency queries"
+        )
+
+    @pytest.mark.asyncio
+    async def test_no_candidates_with_recent_keyword_includes_catalog_hint(
+        self,
+        mock_planner_builder,
+        mock_retrieval_builder,
+        mock_selection_builder,
+        mock_curation_builder,
+    ):
+        """Query containing 'recent' also triggers the catalog-limit hint."""
+        mock_planner = mock_planner_builder.returns_warm_user_strategy().build()
+        mock_retrieval = mock_retrieval_builder.returns_empty().build()
+        mock_selection = mock_selection_builder.returns_batch(10).build()
+        mock_curation = mock_curation_builder.returns_success_with_books(5).build()
+
+        agent = _agent(mock_planner, mock_retrieval, mock_selection, mock_curation)
+        _, complete, _, _ = await _run(agent, _request("recent sci-fi novels"))
+
+        assert complete.data["success"] is False
+        assert "2004" in complete.data["text"]
+
+    # ------------------------------------------------------------------
+    # Selection fallback
+    # ------------------------------------------------------------------
+
+    @pytest.mark.asyncio
+    async def test_selection_failure_forwards_top10_to_curation(
+        self,
+        mock_planner_builder,
+        mock_retrieval_builder,
+        mock_selection_builder,
+        mock_curation_builder,
+        candidate_factory,
+    ):
+        """
+        When SelectionAgent raises, the orchestrator forwards the first 10
+        candidates from the retrieval pool directly to CurationAgent.
+        """
+        raw_candidates = candidate_factory.create_batch(60, start_idx=10000)
+        mock_planner = mock_planner_builder.returns_warm_user_strategy().build()
+        mock_retrieval = mock_retrieval_builder.returns_candidates(raw_candidates).build()
+        mock_selection = mock_selection_builder.raises_error(
+            RuntimeError("SelectionAgent LLM failure")
+        ).build()
+
+        received_by_curation: List[List[BookRecommendation]] = []
+
+        async def _curation_stream(*args, **kwargs):
+            received_by_curation.append(list(kwargs.get("candidates", [])))
+            yield StreamChunk(type="token", content="Books.")
+            yield StreamChunk(
+                type="complete",
+                data={"target": "recsys", "success": True, "book_ids": [], "elapsed_ms": 50},
+            )
+
+        mock_curation = MagicMock()
+        mock_curation.execute_stream = MagicMock(
+            side_effect=lambda *a, **kw: _curation_stream(*a, **kw)
+        )
+
+        agent = _agent(mock_planner, mock_retrieval, mock_selection, mock_curation)
+        _, complete, _, _ = await _run(agent, _request())
+
+        # Curation must still be called
+        assert len(received_by_curation) == 1
+        fallback_candidates = received_by_curation[0]
+        assert len(fallback_candidates) == 10, (
+            f"Selection fallback should forward top-10, got {len(fallback_candidates)}"
+        )
+        # They should be the first 10 from the retrieval pool
+        assert fallback_candidates[0].item_idx == 10000
+
+    @pytest.mark.asyncio
+    async def test_selection_empty_result_forwards_top10_to_curation(
+        self,
+        mock_planner_builder,
+        mock_retrieval_builder,
+        mock_selection_builder,
+        mock_curation_builder,
+        candidate_factory,
+    ):
+        """
+        When SelectionAgent returns an empty list (no books pass its filter),
+        the orchestrator also falls back to the top-10 retrieval candidates.
+        """
+        raw_candidates = candidate_factory.create_batch(60, start_idx=30000)
+        mock_planner = mock_planner_builder.returns_warm_user_strategy().build()
+        mock_retrieval = mock_retrieval_builder.returns_candidates(raw_candidates).build()
+        mock_selection = mock_selection_builder.returns_empty().build()
+
+        received_by_curation: List[List[BookRecommendation]] = []
+
+        async def _curation_stream(*args, **kwargs):
+            received_by_curation.append(list(kwargs.get("candidates", [])))
+            yield StreamChunk(type="token", content="Books.")
+            yield StreamChunk(
+                type="complete",
+                data={"target": "recsys", "success": True, "book_ids": [], "elapsed_ms": 50},
+            )
+
+        mock_curation = MagicMock()
+        mock_curation.execute_stream = MagicMock(
+            side_effect=lambda *a, **kw: _curation_stream(*a, **kw)
+        )
+
+        agent = _agent(mock_planner, mock_retrieval, mock_selection, mock_curation)
+        await _run(agent, _request())
+
+        assert len(received_by_curation) == 1
+        assert len(received_by_curation[0]) == 10
+
+    # ------------------------------------------------------------------
+    # Curation fallback
+    # ------------------------------------------------------------------
+
+    @pytest.mark.asyncio
+    async def test_curation_failure_yields_fallback_prose_token(
+        self,
+        mock_planner_builder,
+        mock_retrieval_builder,
+        mock_selection_builder,
+        mock_curation_builder,
+        candidate_factory,
+    ):
+        """
+        When CurationAgent.execute_stream() raises, the orchestrator emits a
+        single token chunk containing markdown-formatted prose and then closes
+        the stream with a complete chunk.
+        """
+        selected = candidate_factory.create_book_recommendations(5, start_idx=50000)
+        mock_planner = mock_planner_builder.returns_warm_user_strategy().build()
         mock_retrieval = mock_retrieval_builder.returns_batch(60).build()
-        # Configure curation to raise error
-        mock_curation = mock_curation_builder.raises_error(
+        mock_selection = mock_selection_builder.returns_books(selected).build()
+        mock_curation = mock_curation_builder.raises_error_on_stream(
             RuntimeError("Curation LLM failure")
         ).build()
 
-        agent = RecommendationAgent(
-            current_user=test_user_warm,
-            db=db_session,
-            user_num_ratings=15,
-            allow_profile=False,
-            planner_agent=mock_planner,
-            retrieval_agent=mock_retrieval,
-            curation_agent=mock_curation,
-        )
+        agent = _agent(mock_planner, mock_retrieval, mock_selection, mock_curation)
+        _, complete, tokens, _ = await _run(agent, _request())
 
-        request = AgentRequest(
-            user_text="recommend books",
-            conversation_history=[],
-            context={"profile_allowed": False, "num_ratings": 15},
-        )
-        result = agent.execute(request)
+        assert len(tokens) >= 1, "Fallback prose must be emitted as at least one token chunk"
+        full_text = "".join(c.content for c in tokens)
+        assert "Here are some book recommendations" in full_text
 
-        # Should return some response (not crash)
-        assert isinstance(result, AgentResponse), "Should return AgentResponse"
-        # May or may not succeed depending on fallback logic
-        assert result.text, "Should have response text even on failure"
-
-    def test_zero_candidates_from_retrieval_handled(
+    @pytest.mark.asyncio
+    async def test_curation_failure_complete_chunk_has_book_ids(
         self,
-        db_session,
-        test_user_warm,
         mock_planner_builder,
         mock_retrieval_builder,
+        mock_selection_builder,
         mock_curation_builder,
+        candidate_factory,
     ):
         """
-        Verify empty candidate list triggers no_candidates fallback.
-
-        If retrieval returns 0 candidates, orchestrator should return
-        informative error with policy_version="recsys.orchestrator.no_candidates".
+        The complete chunk after a curation failure must contain the book_ids
+        taken from the selected candidates, so the frontend can render book cards.
         """
-        mock_planner = mock_planner_builder.returns_warm_user_strategy().build()
-        # Configure retrieval to return empty list
-        mock_retrieval = mock_retrieval_builder.returns_empty().build()
-        mock_curation = mock_curation_builder.returns_success_with_books(5).build()
+        selected = candidate_factory.create_book_recommendations(5, start_idx=50000)
+        expected_ids = [c.item_idx for c in selected]
 
-        agent = RecommendationAgent(
-            current_user=test_user_warm,
-            db=db_session,
-            user_num_ratings=15,
-            allow_profile=False,
-            planner_agent=mock_planner,
-            retrieval_agent=mock_retrieval,
-            curation_agent=mock_curation,
-        )
-
-        request = AgentRequest(
-            user_text="extremely specific nonexistent topic xyz123",
-            conversation_history=[],
-            context={"profile_allowed": False, "num_ratings": 15},
-        )
-        result = agent.execute(request)
-
-        # Verify no_candidates fallback triggered
-        assert isinstance(result, AgentResponse), "Should return AgentResponse"
-        assert result.success is False, "Should indicate failure when no candidates"
-        assert result.policy_version == "recsys.orchestrator.no_candidates", (
-            "Should use no_candidates policy version"
-        )
-        assert len(result.text) > 0, "Should have informative error message"
-        # Curation should NOT be called (no candidates to curate)
-        assert not mock_curation.execute.called, "Curation should not be called with no candidates"
-
-    def test_curation_returns_empty_books_handled(
-        self,
-        db_session,
-        test_user_warm,
-        mock_planner_builder,
-        mock_retrieval_builder,
-        mock_curation_builder,
-    ):
-        """
-        Verify curation returning empty book list is handled gracefully.
-
-        If curation returns empty book_recommendations, orchestrator should
-        return top candidates from pool with policy_version="recsys.orchestrator.curation_empty".
-        """
         mock_planner = mock_planner_builder.returns_warm_user_strategy().build()
         mock_retrieval = mock_retrieval_builder.returns_batch(60).build()
+        mock_selection = mock_selection_builder.returns_books(selected).build()
+        mock_curation = mock_curation_builder.raises_error_on_stream(
+            RuntimeError("Curation LLM failure")
+        ).build()
 
-        # Configure curation to return response with empty books
-        empty_response = AgentResponse(
-            text="Here are some recommendations",
-            target_category="recsys",
-            success=True,
-            book_recommendations=[],  # Empty list!
-            execution_state=AgentExecutionState(
-                status=ExecutionStatus.COMPLETED,
-                input_text="",
+        agent = _agent(mock_planner, mock_retrieval, mock_selection, mock_curation)
+        _, complete, _, _ = await _run(agent, _request())
+
+        assert sorted(complete.data["book_ids"]) == sorted(expected_ids)
+
+    @pytest.mark.asyncio
+    async def test_curation_failure_complete_chunk_marks_success_false(
+        self,
+        mock_planner_builder,
+        mock_retrieval_builder,
+        mock_selection_builder,
+        mock_curation_builder,
+    ):
+        """Complete chunk on curation failure must have success=False (degraded mode)."""
+        mock_planner = mock_planner_builder.returns_warm_user_strategy().build()
+        mock_retrieval = mock_retrieval_builder.returns_batch(60).build()
+        mock_selection = mock_selection_builder.returns_batch(10).build()
+        mock_curation = mock_curation_builder.raises_error_on_stream(
+            RuntimeError("Curation LLM failure")
+        ).build()
+
+        agent = _agent(mock_planner, mock_retrieval, mock_selection, mock_curation)
+        _, complete, _, _ = await _run(agent, _request())
+
+        assert complete.data["success"] is False
+
+    @pytest.mark.asyncio
+    async def test_curation_failure_fallback_prose_contains_titles(
+        self,
+        mock_planner_builder,
+        mock_retrieval_builder,
+        mock_selection_builder,
+        mock_curation_builder,
+        candidate_factory,
+    ):
+        """
+        The fallback prose token includes book titles and authors so the
+        response is human-readable without the frontend rendering book cards.
+        """
+        selected = [
+            BookRecommendation(item_idx=1001, title="Dune", author="Frank Herbert", year=1965),
+            BookRecommendation(
+                item_idx=1002, title="Neuromancer", author="William Gibson", year=1984
             ),
-            policy_version="recsys.curation.v1",
-        )
-        mock_curation = mock_curation_builder.returns_response(empty_response).build()
-
-        agent = RecommendationAgent(
-            current_user=test_user_warm,
-            db=db_session,
-            user_num_ratings=15,
-            allow_profile=False,
-            planner_agent=mock_planner,
-            retrieval_agent=mock_retrieval,
-            curation_agent=mock_curation,
-        )
-
-        request = AgentRequest(
-            user_text="recommend books",
-            conversation_history=[],
-            context={"profile_allowed": False, "num_ratings": 15},
-        )
-        result = agent.execute(request)
-
-        # Verify curation_empty fallback triggered
-        assert isinstance(result, AgentResponse), "Should return AgentResponse"
-        assert result.success is True, "Should still succeed with fallback"
-        assert result.policy_version == "recsys.orchestrator.curation_empty", (
-            "Should use curation_empty policy version"
-        )
-        assert len(result.book_recommendations) > 0, (
-            "Should return top candidates from pool as fallback"
-        )
-        assert len(result.book_recommendations) <= 10, (
-            "Should return at most 10 fallback candidates"
-        )
-
-    def test_orchestrator_timeout_boundary(
-        self,
-        db_session,
-        test_user_warm,
-        mock_planner_builder,
-        mock_retrieval_builder,
-        mock_curation_builder,
-    ):
-        """
-        Verify orchestrator has 120s timeout configuration.
-
-        Tests that timeout setting exists and is properly configured.
-        We don't actually wait 120s, just verify the configuration.
-        """
+        ]
         mock_planner = mock_planner_builder.returns_warm_user_strategy().build()
         mock_retrieval = mock_retrieval_builder.returns_batch(60).build()
-        mock_curation = mock_curation_builder.returns_success_with_books(5).build()
+        mock_selection = mock_selection_builder.returns_books(selected).build()
+        mock_curation = mock_curation_builder.raises_error_on_stream(
+            RuntimeError("Curation failure")
+        ).build()
 
-        agent = RecommendationAgent(
-            current_user=test_user_warm,
-            db=db_session,
-            user_num_ratings=15,
-            allow_profile=False,
-            planner_agent=mock_planner,
-            retrieval_agent=mock_retrieval,
-            curation_agent=mock_curation,
-        )
+        agent = _agent(mock_planner, mock_retrieval, mock_selection, mock_curation)
+        _, _, tokens, _ = await _run(agent, _request())
 
-        # Verify timeout configuration exists
-        assert hasattr(agent, "configuration"), "Agent should have configuration"
-        assert hasattr(agent.configuration, "timeout_seconds"), (
-            "Configuration should have timeout_seconds"
-        )
-        assert agent.configuration.timeout_seconds == 120, (
-            "Orchestrator should have 120s timeout for all three stages"
-        )
+        full_text = "".join(c.content for c in tokens)
+        assert "Dune" in full_text
+        assert "Frank Herbert" in full_text
+        assert "Neuromancer" in full_text
 
-    def test_database_none_handled_gracefully(
-        self,
-        mock_planner_builder,
-        mock_retrieval_builder,
-        mock_curation_builder,
-    ):
-        """
-        Verify db=None is handled gracefully.
 
-        Some tools require database, but system shouldn't crash if missing.
-        """
-        mock_planner = mock_planner_builder.returns_warm_user_strategy().build()
-        mock_retrieval = mock_retrieval_builder.returns_batch(60).build()
-        mock_curation = mock_curation_builder.returns_success_with_books(5).build()
-
-        agent = RecommendationAgent(
-            current_user=None,
-            db=None,  # No database
-            user_num_ratings=10,
-            allow_profile=False,
-            planner_agent=mock_planner,
-            retrieval_agent=mock_retrieval,
-            curation_agent=mock_curation,
-        )
-
-        request = AgentRequest(
-            user_text="recommend books",
-            conversation_history=[],
-            context={"profile_allowed": False, "num_ratings": 10},
-        )
-        result = agent.execute(request)
-
-        # Should return response (may succeed or fail depending on tools needed)
-        assert isinstance(result, AgentResponse), "Should return AgentResponse"
-        assert result.text, "Should have response text"
-
-    def test_invalid_input_doesnt_crash(
-        self,
-        db_session,
-        test_user_warm,
-        mock_planner_builder,
-        mock_retrieval_builder,
-        mock_curation_builder,
-    ):
-        """
-        Verify invalid/malformed input doesn't crash pipeline.
-
-        Edge case: empty query, missing context fields, etc.
-        """
-        mock_planner = mock_planner_builder.returns_warm_user_strategy().build()
-        mock_retrieval = mock_retrieval_builder.returns_batch(60).build()
-        mock_curation = mock_curation_builder.returns_success_with_books(5).build()
-
-        agent = RecommendationAgent(
-            current_user=test_user_warm,
-            db=db_session,
-            user_num_ratings=15,
-            allow_profile=False,
-            planner_agent=mock_planner,
-            retrieval_agent=mock_retrieval,
-            curation_agent=mock_curation,
-        )
-
-        # Empty query
-        request = AgentRequest(
-            user_text="",
-            conversation_history=[],
-            context={},
-        )
-        result = agent.execute(request)
-
-        # Should return some response (not crash)
-        assert isinstance(result, AgentResponse), "Should return AgentResponse for empty query"
-        assert result.text, "Should have response text"
+# ==============================================================================
+# TestFullPipelineFlow
+# ==============================================================================
 
 
 class TestFullPipelineFlow:
-    """
-    Verify end-to-end pipeline execution for common scenarios.
+    """End-to-end chunk sequence checks for the happy path."""
 
-    Tests that the complete pipeline works correctly for typical use cases:
-    warm users, cold users, profile usage, etc.
-    """
-
-    def test_warm_user_vague_query_complete_flow(
+    @pytest.mark.asyncio
+    async def test_chunk_sequence_order(
         self,
-        db_session,
-        test_user_warm,
         mock_planner_builder,
         mock_retrieval_builder,
+        mock_selection_builder,
         mock_curation_builder,
     ):
         """
-        Test complete pipeline for warm user with vague query.
+        Verify status chunks appear before token chunks and complete is last.
 
-        Expected flow:
-        Planner → ALS strategy
-        Retrieval → 60+ ALS candidates
-        Curation → 5 final books
+        Expected order: status(s)... → token(s)... → complete
         """
         mock_planner = mock_planner_builder.returns_warm_user_strategy().build()
-        mock_retrieval = mock_retrieval_builder.returns_batch(60, "als_recommendations").build()
+        mock_retrieval = mock_retrieval_builder.returns_batch(60).build()
+        mock_selection = mock_selection_builder.returns_batch(10).build()
         mock_curation = mock_curation_builder.returns_success_with_books(5).build()
 
-        agent = RecommendationAgent(
-            current_user=test_user_warm,
-            db=db_session,
-            user_num_ratings=15,
-            allow_profile=False,
-            planner_agent=mock_planner,
-            retrieval_agent=mock_retrieval,
-            curation_agent=mock_curation,
-        )
+        agent = _agent(mock_planner, mock_retrieval, mock_selection, mock_curation)
+        chunks, complete, tokens, statuses = await _run(agent, _request())
 
-        request = AgentRequest(
-            user_text="recommend something",
-            conversation_history=[],
-            context={"profile_allowed": False, "num_ratings": 15},
-        )
-        result = agent.execute(request)
+        assert len(statuses) >= 1, "At least one status chunk should be emitted"
+        assert len(tokens) >= 1, "At least one token chunk should be emitted"
+        assert chunks[-1].type == "complete", "Complete chunk must be last"
 
-        # Verify complete flow
-        assert mock_planner.execute.called, "Planner should be called"
-        assert mock_retrieval.execute.called, "Retrieval should be called"
-        assert mock_curation.execute.called, "Curation should be called"
+        # All status chunks should come before the first token
+        if tokens:
+            first_token_idx = chunks.index(tokens[0])
+            for status in statuses:
+                assert chunks.index(status) < first_token_idx, (
+                    "Status chunks should precede token chunks"
+                )
 
-        # Verify final result
-        assert result.success, "Pipeline should complete successfully"
-        assert len(result.book_recommendations) == 5, "Should return 5 final books"
-        assert result.text, "Should have response text"
-        assert result.policy_version, "Should have policy version"
-
-    def test_cold_user_descriptive_query_complete_flow(
+    @pytest.mark.asyncio
+    async def test_complete_chunk_has_book_ids(
         self,
-        db_session,
-        test_user_cold,
         mock_planner_builder,
         mock_retrieval_builder,
+        mock_selection_builder,
+        mock_curation_builder,
+    ):
+        """Complete chunk must include book_ids so the frontend can render cards."""
+        mock_planner = mock_planner_builder.returns_warm_user_strategy().build()
+        mock_retrieval = mock_retrieval_builder.returns_batch(60).build()
+        mock_selection = mock_selection_builder.returns_batch(10).build()
+        mock_curation = mock_curation_builder.returns_success_with_books(5).build()
+
+        agent = _agent(mock_planner, mock_retrieval, mock_selection, mock_curation)
+        _, complete, _, _ = await _run(agent, _request())
+
+        assert "book_ids" in complete.data
+        assert isinstance(complete.data["book_ids"], list)
+        assert len(complete.data["book_ids"]) > 0
+        assert all(isinstance(bid, int) for bid in complete.data["book_ids"])
+
+    @pytest.mark.asyncio
+    async def test_complete_chunk_annotated_with_tools_used(
+        self,
+        mock_planner_builder,
+        mock_retrieval_builder,
+        mock_selection_builder,
         mock_curation_builder,
     ):
         """
-        Test complete pipeline for cold user with descriptive query.
-
-        Expected flow:
-        Planner → semantic search strategy
-        Retrieval → semantic candidates
-        Curation → 5 final books
+        The orchestrator annotates the complete chunk with tools_used from
+        the ExecutionContext so callers can audit what retrieval method was used.
         """
+        mock_planner = mock_planner_builder.returns_warm_user_strategy().build()
+        mock_retrieval = mock_retrieval_builder.returns_batch(60, source_tool="als_recs").build()
+        mock_selection = mock_selection_builder.returns_batch(10).build()
+        mock_curation = mock_curation_builder.returns_success_with_books(5).build()
+
+        agent = _agent(mock_planner, mock_retrieval, mock_selection, mock_curation, num_ratings=15)
+        _, complete, _, _ = await _run(agent, _request())
+
+        assert "tools_used" in complete.data
+        assert "als_recs" in complete.data["tools_used"]
+
+    @pytest.mark.asyncio
+    async def test_warm_user_complete_flow(
+        self,
+        mock_planner_builder,
+        mock_retrieval_builder,
+        mock_selection_builder,
+        mock_curation_builder,
+    ):
+        """Full happy-path: warm user → all four stages called → success."""
+        mock_planner = mock_planner_builder.returns_warm_user_strategy().build()
+        mock_retrieval = mock_retrieval_builder.returns_batch(60, source_tool="als_recs").build()
+        mock_selection = mock_selection_builder.returns_batch(10).build()
+        mock_curation = mock_curation_builder.returns_success_with_books(5).build()
+
+        agent = _agent(mock_planner, mock_retrieval, mock_selection, mock_curation, num_ratings=15)
+        _, complete, _, _ = await _run(agent, _request("recommend something"))
+
+        assert mock_planner.execute.called
+        assert mock_retrieval.execute.called
+        assert mock_selection.execute.called
+        assert mock_curation.execute_stream.called
+        assert complete.data["success"] is True
+
+    @pytest.mark.asyncio
+    async def test_cold_user_complete_flow(
+        self,
+        mock_planner_builder,
+        mock_retrieval_builder,
+        mock_selection_builder,
+        mock_curation_builder,
+    ):
+        """Full happy-path: cold user → semantic search strategy → success."""
         mock_planner = mock_planner_builder.returns_cold_descriptive_strategy().build()
-        mock_retrieval = mock_retrieval_builder.returns_batch(60, "book_semantic_search").build()
+        mock_retrieval = mock_retrieval_builder.returns_batch(
+            60, source_tool="book_semantic_search"
+        ).build()
+        mock_selection = mock_selection_builder.returns_batch(10).build()
         mock_curation = mock_curation_builder.returns_success_with_books(5).build()
 
-        agent = RecommendationAgent(
-            current_user=test_user_cold,
-            db=db_session,
-            user_num_ratings=3,
-            allow_profile=False,
-            planner_agent=mock_planner,
-            retrieval_agent=mock_retrieval,
-            curation_agent=mock_curation,
-        )
+        agent = _agent(mock_planner, mock_retrieval, mock_selection, mock_curation, num_ratings=3)
+        _, complete, _, _ = await _run(agent, _request("dark atmospheric mystery"))
 
-        request = AgentRequest(
-            user_text="dark atmospheric mystery",
-            conversation_history=[],
-            context={"profile_allowed": False, "num_ratings": 3},
-        )
-        result = agent.execute(request)
-
-        # Verify complete flow
-        assert mock_planner.execute.called, "Planner should be called"
-        assert mock_retrieval.execute.called, "Retrieval should be called"
-        assert mock_curation.execute.called, "Curation should be called"
-
-        # Verify final result
-        assert result.success, "Pipeline should complete successfully"
-        assert len(result.book_recommendations) == 5, "Should return 5 final books"
-
-    def test_cold_user_with_profile_complete_flow(
-        self,
-        db_session,
-        test_user_with_profile,
-        mock_planner_builder,
-        mock_retrieval_builder,
-        mock_curation_builder,
-        strategy_factory,
-    ):
-        """
-        Test complete pipeline for cold user with profile.
-
-        Expected flow:
-        Planner → fetch profile → subject-based strategy
-        Retrieval → subject candidates
-        Curation → 5 final books
-        """
-        profile_data = {"user_profile": {"favorite_subjects": [12, 45, 78]}}
-        strategy_with_profile = strategy_factory.cold_user_with_profile_strategy(profile_data)
-        mock_planner = mock_planner_builder.returns_strategy(strategy_with_profile).build()
-        mock_retrieval = mock_retrieval_builder.returns_batch(60, "subject_hybrid_pool").build()
-        mock_curation = mock_curation_builder.returns_success_with_books(5).build()
-
-        agent = RecommendationAgent(
-            current_user=test_user_with_profile,
-            db=db_session,
-            user_num_ratings=3,
-            allow_profile=True,  # Profile allowed
-            planner_agent=mock_planner,
-            retrieval_agent=mock_retrieval,
-            curation_agent=mock_curation,
-        )
-
-        request = AgentRequest(
-            user_text="suggest a book",
-            conversation_history=[],
-            context={"profile_allowed": True, "num_ratings": 3},
-        )
-        result = agent.execute(request)
-
-        # Verify complete flow
-        assert mock_planner.execute.called, "Planner should be called"
-        assert mock_retrieval.execute.called, "Retrieval should be called"
-        assert mock_curation.execute.called, "Curation should be called"
-
-        # Verify profile data was used
-        retrieval_input = mock_retrieval.execute.call_args[0][0]
-        assert retrieval_input.profile_data == profile_data, (
-            "Profile data should be passed to retrieval"
-        )
-
-        # Verify final result
-        assert result.success, "Pipeline should complete successfully"
-        assert len(result.book_recommendations) == 5, "Should return 5 final books"
-
-    def test_empty_query_handled(
-        self,
-        db_session,
-        test_user_warm,
-        mock_planner_builder,
-        mock_retrieval_builder,
-        mock_curation_builder,
-    ):
-        """
-        Verify empty query doesn't break pipeline.
-
-        Edge case: user submits empty string.
-        """
-        mock_planner = mock_planner_builder.returns_warm_user_strategy().build()
-        mock_retrieval = mock_retrieval_builder.returns_batch(60).build()
-        mock_curation = mock_curation_builder.returns_success_with_books(5).build()
-
-        agent = RecommendationAgent(
-            current_user=test_user_warm,
-            db=db_session,
-            user_num_ratings=15,
-            allow_profile=False,
-            planner_agent=mock_planner,
-            retrieval_agent=mock_retrieval,
-            curation_agent=mock_curation,
-        )
-
-        request = AgentRequest(
-            user_text="",  # Empty query
-            conversation_history=[],
-            context={"profile_allowed": False, "num_ratings": 15},
-        )
-        result = agent.execute(request)
-
-        # Should handle gracefully
-        assert isinstance(result, AgentResponse), "Should return AgentResponse"
-        assert result.text, "Should have response text"
-
-    def test_very_long_query_handled(
-        self,
-        db_session,
-        test_user_warm,
-        mock_planner_builder,
-        mock_retrieval_builder,
-        mock_curation_builder,
-    ):
-        """
-        Verify very long query doesn't break pipeline.
-
-        Edge case: query with 1000+ words.
-        """
-        mock_planner = mock_planner_builder.returns_warm_user_strategy().build()
-        mock_retrieval = mock_retrieval_builder.returns_batch(60).build()
-        mock_curation = mock_curation_builder.returns_success_with_books(5).build()
-
-        agent = RecommendationAgent(
-            current_user=test_user_warm,
-            db=db_session,
-            user_num_ratings=15,
-            allow_profile=False,
-            planner_agent=mock_planner,
-            retrieval_agent=mock_retrieval,
-            curation_agent=mock_curation,
-        )
-
-        # Generate very long query
-        long_query = " ".join(["word"] * 1000)
-
-        request = AgentRequest(
-            user_text=long_query,
-            conversation_history=[],
-            context={"profile_allowed": False, "num_ratings": 15},
-        )
-        result = agent.execute(request)
-
-        # Should handle gracefully (may truncate)
-        assert isinstance(result, AgentResponse), "Should return AgentResponse"
-        assert result.text, "Should have response text"
-
-    def test_first_turn_no_history_through_pipeline(
-        self,
-        db_session,
-        test_user_warm,
-        mock_planner_builder,
-        mock_retrieval_builder,
-        mock_curation_builder,
-    ):
-        """
-        Verify empty conversation history (first turn) works correctly.
-
-        Tests that conversation_history=[] is handled properly by all stages.
-        This is the typical first interaction with the system.
-        """
-        mock_planner = mock_planner_builder.returns_warm_user_strategy().build()
-        mock_retrieval = mock_retrieval_builder.returns_batch(60).build()
-        mock_curation = mock_curation_builder.returns_success_with_books(5).build()
-
-        agent = RecommendationAgent(
-            current_user=test_user_warm,
-            db=db_session,
-            user_num_ratings=15,
-            allow_profile=False,
-            planner_agent=mock_planner,
-            retrieval_agent=mock_retrieval,
-            curation_agent=mock_curation,
-        )
-
-        # First turn - no history
-        request = AgentRequest(
-            user_text="recommend a science fiction book",
-            conversation_history=[],  # Empty - first turn
-            context={"profile_allowed": False, "num_ratings": 15},
-        )
-        result = agent.execute(request)
-
-        # Should complete successfully
-        assert isinstance(result, AgentResponse), "Should return AgentResponse"
-        assert result.success, "Pipeline should complete successfully on first turn"
-        assert len(result.book_recommendations) > 0, "Should return book recommendations"
-        assert result.text, "Should have response text"
-
-        # Verify all stages were called
-        assert mock_planner.execute.called, "Planner should be called on first turn"
-        assert mock_retrieval.execute.called, "Retrieval should be called on first turn"
-        assert mock_curation.execute.called, "Curation should be called on first turn"
+        assert complete.data["success"] is True

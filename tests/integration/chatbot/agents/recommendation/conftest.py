@@ -1,27 +1,26 @@
 # tests/integration/chatbot/agents/recommendation/conftest.py
 """
 Fixtures for RecommendationAgent pipeline integration tests.
-Provides mock builders for sub-agents and factories for test data generation.
+
+All sub-agent execute() methods are AsyncMock.
+CurationAgent.execute_stream() is mocked as an async generator — it cannot
+use AsyncMock directly because async generators and coroutines are
+distinct protocol in Python; instead, a MagicMock with side_effect
+that returns a fresh async generator on each call is used.
 """
 
 import pytest
-from unittest.mock import Mock
+from unittest.mock import AsyncMock, MagicMock
 from typing import List, Optional, Dict, Any
 
-from app.agents.domain.entities import (
-    AgentResponse,
-    AgentExecutionState,
-    ExecutionStatus,
-    ToolExecution,
-    BookRecommendation,
-)
+from app.agents.domain.entities import BookRecommendation
 from app.agents.domain.recsys_schemas import (
     PlannerStrategy,
     ExecutionContext,
     RetrievalOutput,
 )
+from app.agents.schemas import StreamChunk
 
-# Import shared recsys user fixtures from parent
 from tests.integration.chatbot.recsys_fixtures import (
     test_user_warm,
     test_user_cold,
@@ -37,38 +36,38 @@ from tests.integration.chatbot.recsys_fixtures import (
 
 
 class CandidateFactory:
-    """Factory for generating test book candidates."""
+    """
+    Generates book candidates as dicts, matching the raw output of retrieval tools.
+
+    The orchestrator converts these dicts to BookRecommendation objects via
+    StandardResultProcessor._build_recommendations_from_objects(), so the
+    dict keys must match the field names that method expects.
+    """
 
     @staticmethod
     def create_batch(
         n: int,
         start_idx: int = 10000,
-        source_tool: str = "als_recommendations",
+        source_tool: str = "als_recs",
     ) -> List[Dict[str, Any]]:
         """
-        Generate a batch of book candidates as dictionaries.
+        Generate n candidate dicts.
 
         Args:
-            n: Number of candidates to generate
-            start_idx: Starting book ID (increments from here)
-            source_tool: Tool that generated these candidates
-
-        Returns:
-            List of candidate dictionaries (NOT BookRecommendation objects)
-            These will be converted to BookRecommendation by the orchestrator
+            n: Number of candidates.
+            start_idx: First item_idx (increments by 1 per candidate).
+            source_tool: Logical source label stored in the dict.
         """
-        candidates = []
-        for i in range(n):
-            candidates.append(
-                {
-                    "item_idx": start_idx + i,
-                    "title": f"Test Book {start_idx + i}",
-                    "author": f"Author {i % 10}",
-                    "year": 1990 + (i % 30),
-                    "tool_source": source_tool,
-                }
-            )
-        return candidates
+        return [
+            {
+                "item_idx": start_idx + i,
+                "title": f"Test Book {start_idx + i}",
+                "author": f"Author {i % 10}",
+                "year": 1990 + (i % 30),
+                "source_tool": source_tool,
+            }
+            for i in range(n)
+        ]
 
     @staticmethod
     def create_with_metadata(
@@ -80,35 +79,52 @@ class CandidateFactory:
         tones: Optional[List[str]] = None,
     ) -> Dict[str, Any]:
         """
-        Create a candidate with full metadata as a dictionary.
+        Create a single candidate dict with specific metadata.
 
-        Used for testing metadata preservation through pipeline.
+        Used for tests that need to assert field-by-field preservation
+        through the Retrieval → BookRecommendation conversion.
         """
-        candidate = {
+        candidate: Dict[str, Any] = {
             "item_idx": item_idx,
             "title": title,
             "author": author,
             "year": year,
         }
-
         if subjects is not None:
             candidate["subjects"] = subjects
         if tones is not None:
             candidate["tones"] = tones
-
         return candidate
+
+    @staticmethod
+    def create_book_recommendations(
+        n: int,
+        start_idx: int = 20000,
+    ) -> List[BookRecommendation]:
+        """
+        Generate n BookRecommendation objects.
+
+        Used by MockSelectionBuilder which must return the post-conversion type.
+        """
+        return [
+            BookRecommendation(
+                item_idx=start_idx + i,
+                title=f"Selected Book {start_idx + i}",
+                author=f"Author {i % 10}",
+                year=1990 + (i % 30),
+            )
+            for i in range(n)
+        ]
 
 
 class StrategyFactory:
-    """Factory for generating test PlannerStrategy objects."""
+    """Generates PlannerStrategy objects for common test scenarios."""
 
     @staticmethod
-    def warm_user_strategy(
-        profile_data: Optional[Dict] = None,
-    ) -> PlannerStrategy:
-        """Strategy for warm user (ALS available)."""
+    def warm_user_strategy(profile_data: Optional[Dict] = None) -> PlannerStrategy:
+        """ALS-first strategy for warm users."""
         return PlannerStrategy(
-            recommended_tools=["als_recommendations"],
+            recommended_tools=["als_recs"],
             fallback_tools=["popular_books"],
             reasoning="User has sufficient rating history for collaborative filtering",
             profile_data=profile_data,
@@ -116,7 +132,7 @@ class StrategyFactory:
 
     @staticmethod
     def cold_user_descriptive_strategy() -> PlannerStrategy:
-        """Strategy for cold user with descriptive query."""
+        """Semantic-search strategy for cold users with a descriptive query."""
         return PlannerStrategy(
             recommended_tools=["book_semantic_search"],
             fallback_tools=["popular_books"],
@@ -125,14 +141,12 @@ class StrategyFactory:
         )
 
     @staticmethod
-    def cold_user_with_profile_strategy(
-        profile_data: Dict,
-    ) -> PlannerStrategy:
-        """Strategy for cold user with profile."""
+    def cold_user_with_profile_strategy(profile_data: Dict) -> PlannerStrategy:
+        """Subject-pool strategy for cold users who have a profile."""
         return PlannerStrategy(
             recommended_tools=["subject_hybrid_pool"],
             fallback_tools=["popular_books"],
-            reasoning="User has profile data, use subject-based recommendations",
+            reasoning="Cold user with profile — use favourite subjects",
             profile_data=profile_data,
         )
 
@@ -143,7 +157,7 @@ class StrategyFactory:
         reasoning: str,
         profile_data: Optional[Dict] = None,
     ) -> PlannerStrategy:
-        """Create custom strategy for edge case testing."""
+        """Fully customisable strategy for edge-case testing."""
         return PlannerStrategy(
             recommended_tools=recommended_tools,
             fallback_tools=fallback_tools,
@@ -159,258 +173,225 @@ class StrategyFactory:
 
 class MockPlannerBuilder:
     """
-    Builder for configuring mock PlannerAgent behavior.
+    Fluent builder for PlannerAgent mocks.
 
-    Provides fluent API for setting up planner responses in tests.
+    PlannerAgent.execute() is a coroutine — must use AsyncMock so the
+    orchestrator can await it correctly.
     """
 
     def __init__(self):
-        self.mock = Mock()
-        # Default: warm user strategy
         self._strategy = StrategyFactory.warm_user_strategy()
-        self._configure_default()
+        self.mock = MagicMock()
+        self._configure()
 
-    def returns_strategy(self, strategy: PlannerStrategy):
-        """Configure planner to return specific strategy."""
+    def returns_strategy(self, strategy: PlannerStrategy) -> "MockPlannerBuilder":
         self._strategy = strategy
-        self._configure_default()
+        self._configure()
         return self
 
-    def returns_warm_user_strategy(self):
-        """Configure planner for warm user scenario."""
+    def returns_warm_user_strategy(self) -> "MockPlannerBuilder":
         self._strategy = StrategyFactory.warm_user_strategy()
-        self._configure_default()
+        self._configure()
         return self
 
-    def returns_cold_descriptive_strategy(self):
-        """Configure planner for cold user with descriptive query."""
+    def returns_cold_descriptive_strategy(self) -> "MockPlannerBuilder":
         self._strategy = StrategyFactory.cold_user_descriptive_strategy()
-        self._configure_default()
+        self._configure()
         return self
 
-    def returns_cold_with_profile_strategy(self, profile_data: Dict):
-        """Configure planner for cold user with profile."""
+    def returns_cold_with_profile_strategy(self, profile_data: Dict) -> "MockPlannerBuilder":
         self._strategy = StrategyFactory.cold_user_with_profile_strategy(profile_data)
-        self._configure_default()
+        self._configure()
         return self
 
-    def raises_error(self, error: Exception):
-        """Configure planner to raise error."""
-        self.mock.execute.side_effect = error
+    def raises_error(self, error: Exception) -> "MockPlannerBuilder":
+        self.mock.execute = AsyncMock(side_effect=error)
         return self
 
-    def _configure_default(self):
-        """Set default return value."""
-        self.mock.execute.return_value = self._strategy
+    def _configure(self):
+        self.mock.execute = AsyncMock(return_value=self._strategy)
 
     def build(self):
-        """Return configured mock."""
         return self.mock
 
 
 class MockRetrievalBuilder:
     """
-    Builder for configuring mock RetrievalAgent behavior.
+    Fluent builder for RetrievalAgent mocks.
 
-    Provides fluent API for setting up retrieval responses in tests.
+    RetrievalAgent.execute() is a coroutine that receives a RetrievalInput and
+    returns a RetrievalOutput. The side_effect is an async function so it can
+    inspect the actual input and propagate planner_reasoning / profile_data
+    into the ExecutionContext — this makes stage-transition assertions accurate.
     """
 
     def __init__(self):
-        self.mock = Mock()
-        # Default: 60 candidates
-        self._candidates = CandidateFactory.create_batch(60)
-        self._tool_executions = [
-            ToolExecution(
-                tool_name="als_recommendations",
-                arguments={"user_id": 278859, "n": 60},
-                result={"candidates": 60},
-                execution_time_ms=150,
-            )
-        ]
-        self._configure_default()
+        self._candidates: List[Dict] = CandidateFactory.create_batch(60)
+        self._tool_names: List[str] = ["als_recs"]
+        self.mock = MagicMock()
+        self._configure()
 
     def returns_candidates(
         self,
-        candidates: List[Dict[str, Any]],
-        tool_name: str = "als_recommendations",
-    ):
-        """Configure retrieval to return specific candidates."""
+        candidates: List[Dict],
+        tool_name: str = "als_recs",
+    ) -> "MockRetrievalBuilder":
         self._candidates = candidates
-        self._tool_executions = [
-            ToolExecution(
-                tool_name=tool_name,
-                arguments={},
-                result={"candidates": len(candidates)},
-                execution_time_ms=100,
-            )
-        ]
-        self._configure_default()
+        self._tool_names = [tool_name]
+        self._configure()
         return self
 
-    def returns_empty(self):
-        """Configure retrieval to return no candidates (failure scenario)."""
-        self._candidates = []
-        self._tool_executions = []
-        self._configure_default()
-        return self
-
-    def returns_batch(self, n: int, source_tool: str = "als_recommendations"):
-        """Configure retrieval to return n candidates from specified tool."""
+    def returns_batch(self, n: int, source_tool: str = "als_recs") -> "MockRetrievalBuilder":
         self._candidates = CandidateFactory.create_batch(n, source_tool=source_tool)
-        self._tool_executions = [
-            ToolExecution(
-                tool_name=source_tool,
-                arguments={},
-                result={"candidates": n},
-                execution_time_ms=100,
-            )
-        ]
-        self._configure_default()
+        self._tool_names = [source_tool]
+        self._configure()
         return self
 
-    def raises_error(self, error: Exception):
-        """Configure retrieval to raise error."""
-        self.mock.execute.side_effect = error
+    def returns_empty(self) -> "MockRetrievalBuilder":
+        self._candidates = []
+        self._tool_names = []
+        self._configure()
         return self
 
-    def _configure_default(self):
-        """
-        Set default return value as RetrievalOutput object.
+    def raises_error(self, error: Exception) -> "MockRetrievalBuilder":
+        self.mock.execute = AsyncMock(side_effect=error)
+        return self
 
-        Uses side_effect to dynamically capture strategy reasoning and profile_data
-        from the actual RetrievalInput when execute() is called.
-        """
-        # Store references to candidates and tool_executions in closure
+    def _configure(self):
         candidates = self._candidates
-        tool_executions = self._tool_executions
+        tool_names = self._tool_names
 
-        def mock_execute(retrieval_input):
-            """
-            Dynamic mock that extracts values from the actual input.
-
-            This ensures the ExecutionContext has the correct planner_reasoning
-            and profile_data from the actual strategy passed in.
-            """
-            # Extract reasoning and profile_data from the actual input
-            strategy_reasoning = retrieval_input.strategy.reasoning
-            profile_data = retrieval_input.profile_data
-
-            # Create ExecutionContext with actual values
-            execution_context = ExecutionContext(
-                planner_reasoning=strategy_reasoning,
-                tools_used=[te.tool_name for te in tool_executions],
-                profile_data=profile_data,
-            )
-
-            # Return RetrievalOutput
+        async def _execute(retrieval_input):
             return RetrievalOutput(
                 candidates=candidates,
-                execution_context=execution_context,
-                reasoning=f"Retrieved {len(candidates)} candidates using {len(tool_executions)} tools",
+                execution_context=ExecutionContext(
+                    planner_reasoning=retrieval_input.strategy.reasoning,
+                    tools_used=list(tool_names),
+                    profile_data=retrieval_input.profile_data,
+                ),
+                reasoning=f"Retrieved {len(candidates)} candidates",
             )
 
-        # Use side_effect instead of return_value for dynamic behavior
-        self.mock.execute = Mock(side_effect=mock_execute)
+        self.mock.execute = AsyncMock(side_effect=_execute)
 
     def build(self):
-        """Return configured mock."""
+        return self.mock
+
+
+class MockSelectionBuilder:
+    """
+    Fluent builder for SelectionAgent mocks.
+
+    SelectionAgent.execute() returns List[BookRecommendation] — the post-conversion
+    type, not raw dicts. This is what curation receives.
+    """
+
+    def __init__(self):
+        self._selected = CandidateFactory.create_book_recommendations(10)
+        self.mock = MagicMock()
+        self._configure()
+
+    def returns_batch(self, n: int, start_idx: int = 20000) -> "MockSelectionBuilder":
+        self._selected = CandidateFactory.create_book_recommendations(n, start_idx)
+        self._configure()
+        return self
+
+    def returns_books(self, books: List[BookRecommendation]) -> "MockSelectionBuilder":
+        self._selected = books
+        self._configure()
+        return self
+
+    def returns_empty(self) -> "MockSelectionBuilder":
+        self._selected = []
+        self._configure()
+        return self
+
+    def raises_error(self, error: Exception) -> "MockSelectionBuilder":
+        self.mock.execute = AsyncMock(side_effect=error)
+        return self
+
+    def _configure(self):
+        self.mock.execute = AsyncMock(return_value=self._selected)
+
+    def build(self):
         return self.mock
 
 
 class MockCurationBuilder:
     """
-    Builder for configuring mock CurationAgent behavior.
+    Fluent builder for CurationAgent mocks.
 
-    Provides fluent API for setting up curation responses in tests.
+    CurationAgent.execute_stream() is an async generator — it cannot be mocked
+    with AsyncMock (which produces a coroutine, not an async generator).
+    Instead, execute_stream is a MagicMock whose side_effect returns a fresh
+    async generator on each call, avoiding the single-iteration exhaustion
+    problem that would occur with a stored generator instance.
+
+    The success stream is dynamic: it reads the `candidates` kwarg passed at
+    call time and uses those item_idx values as book_ids in the complete chunk,
+    so assertions about book_ids reflect what the orchestrator actually passed.
     """
 
     def __init__(self):
-        self.mock = Mock()
-        # Default: successful response with 5 books
-        self._response = self._default_response()
-        self._configure_default()
+        self._success = True
+        self._n_books = 5
+        self._error: Optional[Exception] = None
+        self.mock = MagicMock()
+        self._configure()
 
-    def returns_response(self, response: AgentResponse):
-        """Configure curation to return specific response."""
-        self._response = response
-        self._configure_default()
+    def returns_success_with_books(self, n: int = 5) -> "MockCurationBuilder":
+        self._success = True
+        self._n_books = n
+        self._error = None
+        self._configure()
         return self
 
-    def returns_success_with_books(self, n: int = 5):
-        """Configure curation to return successful response with n books."""
-        # Create candidate dictionaries
-        candidate_dicts = CandidateFactory.create_batch(n)
+    def raises_error_on_stream(self, error: Exception) -> "MockCurationBuilder":
+        self._success = False
+        self._error = error
+        self._configure()
+        return self
 
-        # Convert to BookRecommendation objects (what curation actually returns)
-        books = [
-            BookRecommendation(
-                item_idx=c["item_idx"],
-                title=c["title"],
-                author=c["author"],
-                year=c["year"],
+    def _configure(self):
+        n_books = self._n_books
+        error = self._error
+
+        if error is not None:
+
+            async def _error_stream(*args, **kwargs):
+                raise error
+                yield  # required to make this an async generator function
+
+            self.mock.execute_stream = MagicMock(side_effect=lambda *a, **kw: _error_stream())
+
+        else:
+
+            async def _success_stream(*args, **kwargs):
+                candidates: List[BookRecommendation] = kwargs.get("candidates", [])
+                book_ids = [c.item_idx for c in candidates[:n_books]]
+
+                yield StreamChunk(type="status", content="Curating personalized recommendations...")
+                yield StreamChunk(
+                    type="token",
+                    content="Here are some great book recommendations for you.",
+                )
+                yield StreamChunk(
+                    type="complete",
+                    data={
+                        "target": "recsys",
+                        "success": True,
+                        "book_ids": book_ids,
+                        "tool_calls": [],
+                        "policy_version": "recsys.curation.md",
+                        "elapsed_ms": 100,
+                    },
+                )
+
+            self.mock.execute_stream = MagicMock(
+                side_effect=lambda *a, **kw: _success_stream(*a, **kw)
             )
-            for c in candidate_dicts
-        ]
-
-        execution_state = AgentExecutionState(
-            status=ExecutionStatus.COMPLETED,
-            input_text="",
-        )
-        execution_state.mark_completed()
-
-        self._response = AgentResponse(
-            text=f"Here are {n} great book recommendations based on your reading history.",
-            target_category="recsys",
-            success=True,
-            book_recommendations=books,
-            execution_state=execution_state,
-            policy_version="recsys.curation.v1",
-        )
-        self._configure_default()
-        return self
-
-    def raises_error(self, error: Exception):
-        """Configure curation to raise error."""
-        self.mock.execute.side_effect = error
-        return self
-
-    def _default_response(self) -> AgentResponse:
-        """Create default successful response."""
-        # Create candidate dictionaries
-        candidate_dicts = CandidateFactory.create_batch(5)
-
-        # Convert to BookRecommendation objects (what curation actually returns)
-        books = [
-            BookRecommendation(
-                item_idx=c["item_idx"],
-                title=c["title"],
-                author=c["author"],
-                year=c["year"],
-            )
-            for c in candidate_dicts
-        ]
-
-        execution_state = AgentExecutionState(
-            status=ExecutionStatus.COMPLETED,
-            input_text="",
-        )
-        execution_state.mark_completed()
-
-        return AgentResponse(
-            text="Here are 5 great book recommendations based on your reading history.",
-            target_category="recsys",
-            success=True,
-            book_recommendations=books,
-            execution_state=execution_state,
-            policy_version="recsys.curation.v1",
-        )
-
-    def _configure_default(self):
-        """Set default return value."""
-        self.mock.execute.return_value = self._response
 
     def build(self):
-        """Return configured mock."""
         return self.mock
 
 
@@ -420,60 +401,36 @@ class MockCurationBuilder:
 
 
 @pytest.fixture
-def mock_planner_builder():
-    """
-    Provides MockPlannerBuilder for configuring planner behavior.
-
-    Usage:
-        def test_something(mock_planner_builder):
-            mock_planner = mock_planner_builder.returns_warm_user_strategy().build()
-    """
+def mock_planner_builder() -> MockPlannerBuilder:
+    """Fresh MockPlannerBuilder per test."""
     return MockPlannerBuilder()
 
 
 @pytest.fixture
-def mock_retrieval_builder():
-    """
-    Provides MockRetrievalBuilder for configuring retrieval behavior.
-
-    Usage:
-        def test_something(mock_retrieval_builder):
-            mock_retrieval = mock_retrieval_builder.returns_batch(60).build()
-    """
+def mock_retrieval_builder() -> MockRetrievalBuilder:
+    """Fresh MockRetrievalBuilder per test."""
     return MockRetrievalBuilder()
 
 
 @pytest.fixture
-def mock_curation_builder():
-    """
-    Provides MockCurationBuilder for configuring curation behavior.
+def mock_selection_builder() -> MockSelectionBuilder:
+    """Fresh MockSelectionBuilder per test."""
+    return MockSelectionBuilder()
 
-    Usage:
-        def test_something(mock_curation_builder):
-            mock_curation = mock_curation_builder.returns_success_with_books(5).build()
-    """
+
+@pytest.fixture
+def mock_curation_builder() -> MockCurationBuilder:
+    """Fresh MockCurationBuilder per test."""
     return MockCurationBuilder()
 
 
 @pytest.fixture
-def candidate_factory():
-    """
-    Provides CandidateFactory for generating test candidates.
-
-    Usage:
-        def test_something(candidate_factory):
-            candidates = candidate_factory.create_batch(60)
-    """
+def candidate_factory() -> CandidateFactory:
+    """CandidateFactory instance (stateless, safe to share)."""
     return CandidateFactory()
 
 
 @pytest.fixture
-def strategy_factory():
-    """
-    Provides StrategyFactory for generating test strategies.
-
-    Usage:
-        def test_something(strategy_factory):
-            strategy = strategy_factory.warm_user_strategy()
-    """
+def strategy_factory() -> StrategyFactory:
+    """StrategyFactory instance (stateless, safe to share)."""
     return StrategyFactory()
