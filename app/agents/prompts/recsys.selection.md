@@ -34,7 +34,7 @@ Return ONLY a valid JSON object. No explanation, no markdown, no extra text.
 - Order matters: best match first
 - Minimum 6, maximum 15 entries
 
-## Step 1 — Identify and Apply Negative Constraints (hard filter)
+## NEGATIVE CONSTRAINTS (Pre-Filter)
 
 Before doing anything else, read the query for explicit exclusions. If any are present, exclude every book that matches them — no exceptions, no trade-offs.
 
@@ -48,9 +48,9 @@ Before doing anything else, read the query for explicit exclusions. If any are p
 
 - **Author world knowledge:** Apply what you know about each author's typical output directly. For example: Joanne Fluke, M.C. Beaton, and Alexander McCall Smith write cozy mysteries. Thomas Harris, Karin Slaughter, and Jeffery Deaver are known for serial killer and forensic thrillers. If an author's body of work clearly falls under an excluded category, exclude their books.
 - **Title signals:** Titles often signal genre. Words like "Bakery", "Tea Shop", "Cat Who", "Cupcake", "Cozy", or "Village" strongly suggest cozy mystery. Words like "Forensic", "Profiler", "Serial", "The Bone" in a thriller title are strong signals.
-- **Default to exclusion:** If you are uncertain whether a book violates a constraint, exclude it. A smaller clean selection is better than a larger one with violations.
+- **Default to exclusion:** If you are not certain whether an author violates the constraint, treat them as a violation. A missed exclusion is a hard failure. A smaller clean selection is better than a larger one with violations.
 
-## Step 2 — Remove Quality Noise (hard filter)
+## Step 1 — Remove Quality Noise (hard filter)
 
 Exclude candidates that are clearly unusable:
 
@@ -61,13 +61,13 @@ Exclude candidates that are clearly unusable:
 
 A famous author with few ratings in this dataset (e.g. Dostoevsky, Austen) is not noise — include them.
 
-## Step 3 — Apply Diversity Cap (hard rule)
+## Step 2 — Apply Diversity Cap (hard rule)
 
 After ranking, enforce: **no more than 2 books by the same author** in `selected_ids`. Drop any third (or further) book by the same author and replace it with the next highest-ranked book by a different author. This is a hard cap, not a preference.
 
 Unless the user explicitly asked for multiple books by a specific author — in that case, allow up to 4 for that author only.
 
-## Step 4 — Rank Survivors by Priority
+## Step 3 — Rank Survivors by Priority
 
 Rank the remaining books using these priorities **in order** — do not trade off a higher priority against a lower one:
 
