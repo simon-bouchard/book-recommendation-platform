@@ -3,9 +3,9 @@
 Unit tests for CurationAgent pure methods.
 
 Targets three methods that contain real logic and have no dependencies:
-    _extract_book_ids_from_citations(text)        → List[int]
-    _order_books_by_citations(candidates, ids)    → List[BookRecommendation]
-    _prepare_candidates(candidates)               → List[Dict]
+        _extract_book_ids_from_citations(text)		  → List[int]
+        _order_books_by_citations(candidates, ids)	  → List[BookRecommendation]
+        _prepare_candidates(candidates)				  → List[Dict]
 
 All tests are synchronous and make no LLM or I/O calls.
 """
@@ -76,6 +76,19 @@ class TestExtractBookIdsFromCitations:
     def test_large_id(self, curation_agent):
         text = "[Book](1234567890)"
         assert curation_agent._extract_book_ids_from_citations(text) == [1234567890]
+
+    def test_series_citation_all_ids_extracted(self, curation_agent):
+        text = "The whole series: [Harry Potter Series](101, 204, 387, 512)"
+        assert curation_agent._extract_book_ids_from_citations(text) == [101, 204, 387, 512]
+
+    def test_series_citation_mixed_with_single(self, curation_agent):
+        text = "[Dune](4521) is a classic. [Harry Potter Series](101, 204, 387)"
+        assert curation_agent._extract_book_ids_from_citations(text) == [4521, 101, 204, 387]
+
+    def test_series_citation_deduplicates_across_group_and_single(self, curation_agent):
+        """ID already seen in a series group must not appear again if cited individually."""
+        text = "[Harry Potter Series](101, 204) and also [Harry Potter](101)"
+        assert curation_agent._extract_book_ids_from_citations(text) == [101, 204]
 
 
 # ==============================================================================
