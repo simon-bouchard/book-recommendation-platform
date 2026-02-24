@@ -44,11 +44,7 @@ Before doing anything else, read the query for explicit exclusions. If any are p
 - "no romance" → exclude romance-heavy books
 - "nothing too dark" → exclude books known for disturbing or grim content
 
-**How to detect violations using only title and author:**
-
-- **Author world knowledge:** Apply what you know about each author's typical output directly. For example: Joanne Fluke, M.C. Beaton, and Alexander McCall Smith write cozy mysteries. Thomas Harris, Karin Slaughter, and Jeffery Deaver are known for serial killer and forensic thrillers. If an author's body of work clearly falls under an excluded category, exclude their books.
-- **Title signals:** Titles often signal genre. Words like "Bakery", "Tea Shop", "Cat Who", "Cupcake", "Cozy", or "Village" strongly suggest cozy mystery. Words like "Forensic", "Profiler", "Serial", "The Bone" in a thriller title are strong signals.
-- **Default to exclusion:** If you are not certain whether an author violates the constraint, treat them as a violation. A missed exclusion is a hard failure. A smaller clean selection is better than a larger one with violations.
+**Default to exclusion:** If you are not certain whether an author violates the constraint, treat them as a violation. A missed exclusion is a hard failure. A smaller clean selection is better than a larger one with violations.
 
 ## Step 1 — Remove Quality Noise (hard filter)
 
