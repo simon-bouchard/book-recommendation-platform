@@ -97,10 +97,10 @@ class CurationAgent(BaseLangGraphAgent):
         system prompt and conversation history.
 
         Args:
-            **context: Must contain 'candidates' and 'execution_context'
+                **context: Must contain 'candidates' and 'execution_context'
 
         Returns:
-            List containing single HumanMessage with formatted context
+                List containing single HumanMessage with formatted context
         """
         candidates = context.get("candidates", [])
         execution_context = context.get("execution_context")
@@ -145,12 +145,12 @@ class CurationAgent(BaseLangGraphAgent):
         Curate candidates and generate response with inline citations.
 
         Args:
-            request: Original user request
-            candidates: Books from retrieval stage (60-120 unfiltered)
-            execution_context: Context about retrieval strategy and execution
+                request: Original user request
+                candidates: Books from retrieval stage (60-120 unfiltered)
+                execution_context: Context about retrieval strategy and execution
 
         Returns:
-            AgentResponse with prose containing [Title](item_idx) citations
+                AgentResponse with prose containing [Title](item_idx) citations
         """
         append_chatbot_log(f"\n{'=' * 60}")
         append_chatbot_log(f"=== CURATION START ===")
@@ -210,15 +210,15 @@ class CurationAgent(BaseLangGraphAgent):
         Stream curation with status updates and token-by-token prose.
 
         Args:
-            request: Original user request
-            candidates: Books from retrieval stage
-            execution_context: Context about retrieval
+                request: Original user request
+                candidates: Books from retrieval stage
+                execution_context: Context about retrieval
 
         Yields:
-            StreamChunk objects:
-            - type="status": "Curating personalized recommendations..."
-            - type="token": Individual words/tokens of response
-            - type="complete": Final result with book IDs from citations
+                StreamChunk objects:
+                - type="status": "Curating personalized recommendations..."
+                - type="token": Individual words/tokens of response
+                - type="complete": Final result with book IDs from citations
         """
         append_chatbot_log(f"\n{'=' * 60}")
         append_chatbot_log(f"=== CURATION STREAMING ===")
@@ -291,10 +291,10 @@ class CurationAgent(BaseLangGraphAgent):
         Format execution context from planner and retrieval stages.
 
         Args:
-            execution_context: Context about how candidates were generated
+                execution_context: Context about how candidates were generated
 
         Returns:
-            Formatted multi-line string
+                Formatted multi-line string
         """
         lines = ["EXECUTION CONTEXT:"]
         lines.append("")
@@ -336,10 +336,10 @@ class CurationAgent(BaseLangGraphAgent):
         Truncates vibe descriptions for token limits.
 
         Args:
-            candidates: List of candidate books
+                candidates: List of candidate books
 
         Returns:
-            List of dict representations
+                List of dict representations
         """
         prepared = []
 
@@ -382,24 +382,24 @@ class CurationAgent(BaseLangGraphAgent):
         Example: "[The Hobbit](4521)" -> 4521
 
         Args:
-            text: Response text with citations
+                text: Response text with citations
 
         Returns:
-            List of unique book IDs in order of first appearance
+                List of unique book IDs in order of first appearance
         """
         # Pattern: [any text](digits)
-        pattern = r"\[([^\]]+)\]\((\d+)\)"
+        pattern = r"\[([^\]]+)\]\(([\d,\s]+)\)"
         matches = re.findall(pattern, text)
 
         # Extract IDs, preserving order and removing duplicates
         book_ids = []
         seen = set()
 
-        for title, item_idx in matches:
-            item_idx = int(item_idx)
-            if item_idx not in seen:
-                book_ids.append(item_idx)
-                seen.add(item_idx)
+        for title, ids_str in matches:
+            for item_idx in [int(x.strip()) for x in ids_str.split(",")]:
+                if item_idx not in seen:
+                    book_ids.append(item_idx)
+                    seen.add(item_idx)
 
         return book_ids
 
@@ -412,11 +412,11 @@ class CurationAgent(BaseLangGraphAgent):
         Reorder candidates to match citation order.
 
         Args:
-            candidates: Original candidate list
-            cited_ids: Book IDs in citation order
+                candidates: Original candidate list
+                cited_ids: Book IDs in citation order
 
         Returns:
-            Ordered list of BookRecommendation objects
+                Ordered list of BookRecommendation objects
         """
         # Build lookup
         id_to_book = {book.item_idx: book for book in candidates}

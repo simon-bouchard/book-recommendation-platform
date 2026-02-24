@@ -28,6 +28,10 @@ Every book you mention must be cited with:
 - Find the candidate entry first, then copy both fields together
 - Every cited book must appear in the candidates list
 
+If multiple candidates belong to the same series, cite them together as a single group:
+[Series Name](id1, id2, id3) — first ID is the best entry point, rest follow in reading order.
+Only group books you are confident share the same series. When uncertain, cite individually.
+
 ## Prose Mode
 
 Before writing, classify the query as **vague** or **specific** — this determines your opening framing and your per-book prose standard.
