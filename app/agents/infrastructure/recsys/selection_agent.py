@@ -58,7 +58,7 @@ class SelectionAgent(BaseLangGraphAgent):
             policy_name="recsys.selection.md",
             capabilities=frozenset(),
             allowed_tools=frozenset(),
-            llm_tier="medium",
+            llm_tier="large",
             timeout_seconds=30,
             max_iterations=1,
         )
