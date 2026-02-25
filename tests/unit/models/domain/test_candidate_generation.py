@@ -50,11 +50,10 @@ def mock_user_no_preferences():
 
 @pytest.fixture
 def mock_embedder():
-    """Create mock SubjectEmbedder that returns proper numpy arrays."""
+    """Create mock SubjectEmbedder that returns deterministic numpy arrays."""
     embedder = Mock()
 
     def embed_side_effect(subjects):
-        # Return deterministic 1D embedding based on sum of subjects
         val = sum(subjects) if subjects else 0
         return np.full(16, float(val) / 100.0, dtype=np.float32)
 
@@ -64,34 +63,57 @@ def mock_embedder():
 
 @pytest.fixture
 def mock_similarity_index():
-    """Create mock SimilarityIndex with embeddings_full and ids_full attributes."""
-    index = Mock()
+    """
+    Create a mock SimilarityIndex that replicates the FAISS index interface.
 
-    # Mock the embeddings_full attribute (100 books, 16 dimensions)
-    index.embeddings_full = np.random.randn(100, 16).astype(np.float32)
+    The production code accesses similarity_index.index (a FAISS IndexFlat object)
+    and calls .ntotal and .search() on it.  This fixture wires up a nested mock
+    whose search() computes real dot products against a fixed embedding matrix so
+    that all behavioural tests (sort order, score sign, k-truncation) pass without
+    a FAISS installation.
 
-    # Mock the ids_full attribute
-    index.ids_full = np.arange(1000, 1100, dtype=np.int64)
+    FAISS IndexFlatIP.search returns (distances, indices) each of shape (n_queries, k),
+    with results ordered by descending inner product.  The side_effect below replicates
+    that contract exactly.
 
-    return index
+    Embeddings are drawn from abs(normal) so that dot products with the all-positive
+    user embedding produced by mock_embedder are guaranteed non-negative, satisfying
+    the test_candidates_have_scores >= 0 assertion deterministically.
+    """
+    rng = np.random.default_rng(seed=42)
+    embeddings = np.abs(rng.standard_normal((100, 16))).astype(np.float32)
+    ids = np.arange(1000, 1100, dtype=np.int64)
+
+    def faiss_search(query: np.ndarray, k: int):
+        """Simulate IndexFlatIP.search returning (distances, indices) shape (1, k)."""
+        scores = embeddings @ query[0].astype(np.float32)  # (N,)
+        top_k = min(k, len(scores))
+        top_pos = np.argsort(-scores)[:top_k]
+        return scores[top_pos].reshape(1, -1), top_pos.reshape(1, -1)
+
+    faiss_index = Mock()
+    faiss_index.ntotal = len(embeddings)
+    faiss_index.search.side_effect = faiss_search
+
+    similarity_index = Mock()
+    similarity_index.index = faiss_index
+    similarity_index.ids_full = ids
+
+    return similarity_index
 
 
 @pytest.fixture
 def mock_als_model():
     """Create mock ALSModel with properly configured attributes."""
+    rng = np.random.default_rng(seed=42)
+
     model = Mock()
-
-    # Basic checks
     model.has_user.return_value = True
-
-    # Mock factors - 100 books, 16 dimensions
-    model.book_factors = np.random.randn(100, 16).astype(np.float32)
-
-    # Mock book_row_to_id mapping
+    model.book_factors = rng.standard_normal((100, 16)).astype(np.float32)
     model.book_row_to_id = {i: 2000 + i for i in range(100)}
 
     def get_user_factors_side_effect(user_id):
-        return np.random.randn(16).astype(np.float32)
+        return rng.standard_normal(16).astype(np.float32)
 
     model.get_user_factors.side_effect = get_user_factors_side_effect
 
@@ -148,21 +170,19 @@ class TestSubjectBasedGenerator:
 
         mock_embedder.embed.assert_called_once_with(mock_user.fav_subjects)
 
-    def test_generate_calls_similarity_search_with_embedding(
+    def test_generate_calls_faiss_search_with_embedding(
         self, mock_embedder, mock_similarity_index, mock_user
     ):
-        """Should compute similarities using user embedding."""
+        """Should call FAISS index.search with the reshaped user embedding as query."""
         generator = SubjectBasedGenerator(mock_embedder, mock_similarity_index)
 
         candidates = generator.generate(mock_user, k=10)
 
-        # Should have called embedder
-        assert mock_embedder.embed.called
-        # Should use index.embeddings_full for computation
+        mock_similarity_index.index.search.assert_called_once()
         assert len(candidates) > 0
 
     def test_generate_respects_k_parameter(self, mock_embedder, mock_similarity_index, mock_user):
-        """Should return exactly k candidates."""
+        """Should return exactly k candidates when k <= catalog size."""
         generator = SubjectBasedGenerator(mock_embedder, mock_similarity_index)
 
         candidates = generator.generate(mock_user, k=20)
@@ -178,7 +198,7 @@ class TestSubjectBasedGenerator:
         assert all(c.source == "subject" for c in candidates)
 
     def test_candidates_have_scores(self, mock_embedder, mock_similarity_index, mock_user):
-        """Candidates should include similarity scores."""
+        """Candidates should include non-negative similarity scores."""
         generator = SubjectBasedGenerator(mock_embedder, mock_similarity_index)
 
         candidates = generator.generate(mock_user, k=10)
@@ -248,9 +268,7 @@ class TestALSBasedGenerator:
 
         candidates = generator.generate(mock_user, k=10)
 
-        # Should call get_user_factors
         mock_als_model.get_user_factors.assert_called_once_with(mock_user.user_id)
-        # Should generate candidates
         assert len(candidates) == 10
 
     def test_candidates_have_correct_source(self, mock_als_model, mock_user):
@@ -284,7 +302,6 @@ class TestBayesianPopularityGenerator:
 
     def test_implements_candidate_generator_interface(self, monkeypatch):
         """Should implement CandidateGenerator abstract class."""
-        # Mock the loaders
         monkeypatch.setattr(
             "models.domain.candidate_generation.load_bayesian_scores",
             lambda **kwargs: np.linspace(0.9, 0.1, 100),
@@ -410,8 +427,7 @@ class TestBayesianPopularityGenerator:
         )
 
         generator = BayesianPopularityGenerator()
-        k_large = 150  # More than the 100 books we have
-        candidates = generator.generate(mock_user, k=k_large)
+        candidates = generator.generate(mock_user, k=150)
 
         assert len(candidates) == 100
 
@@ -422,7 +438,6 @@ class TestHybridGenerator:
     @pytest.fixture
     def mock_generators(self, mock_embedder, mock_similarity_index, monkeypatch):
         """Create two mock generators for hybrid blending."""
-        # Mock the loaders for BayesianPopularityGenerator
         monkeypatch.setattr(
             "models.domain.candidate_generation.load_bayesian_scores",
             lambda **kwargs: np.linspace(0.9, 0.1, 100),
@@ -485,7 +500,6 @@ class TestHybridGenerator:
 
     def test_generate_deduplicates_candidates(self, mock_user):
         """Should deduplicate candidates from different sources."""
-        # Both generators return same book
         mock_gen1 = Mock(spec=CandidateGenerator)
         mock_gen1.generate.return_value = [Candidate(100, 0.8, "gen1")]
         mock_gen1.name = "gen1"
@@ -497,12 +511,11 @@ class TestHybridGenerator:
         generator = HybridGenerator([(mock_gen1, 0.5), (mock_gen2, 0.5)])
         candidates = generator.generate(mock_user, k=20)
 
-        # Should only have one instance of book 100
         assert len(candidates) == 1
         assert candidates[0].item_idx == 100
 
     def test_deduplication_keeps_highest_blended_score(self, mock_user):
-        """When deduplicating, should keep candidate with highest blended score."""
+        """When deduplicating, should accumulate blended scores from all sources."""
         mock_gen1 = Mock(spec=CandidateGenerator)
         mock_gen1.generate.return_value = [Candidate(100, 0.8, "gen1")]
         mock_gen1.name = "gen1"
@@ -511,12 +524,10 @@ class TestHybridGenerator:
         mock_gen2.generate.return_value = [Candidate(100, 0.6, "gen2")]
         mock_gen2.name = "gen2"
 
-        # Weight gen1 more heavily
         generator = HybridGenerator([(mock_gen1, 0.8), (mock_gen2, 0.2)])
         candidates = generator.generate(mock_user, k=20)
 
         assert len(candidates) == 1
-        # Source should indicate hybrid blending (set ordering may vary)
         assert "hybrid" in candidates[0].source
         assert "gen1" in candidates[0].source
         assert "gen2" in candidates[0].source
@@ -542,7 +553,6 @@ class TestHybridGenerator:
 
     def test_weights_must_be_positive(self, monkeypatch):
         """Generator weights should be positive."""
-        # Mock loaders for BayesianPopularityGenerator
         monkeypatch.setattr(
             "models.domain.candidate_generation.load_bayesian_scores",
             lambda **kwargs: np.linspace(0.9, 0.1, 100),
