@@ -5,11 +5,12 @@ Provides mocked agents for testing orchestration logic without LLM calls.
 """
 
 import pytest
-from unittest.mock import Mock
-from typing import Dict, List, Optional
+from unittest.mock import Mock, AsyncMock
+from typing import List
+
+from app.agents.schemas import AgentResult, StreamChunk, ToolCall
 
 from app.agents.domain.entities import (
-    AgentResponse,
     AgentExecutionState,
     ExecutionStatus,
     ToolExecution,
@@ -25,190 +26,235 @@ from tests.integration.chatbot.recsys_fixtures import (
     get_user_rating_count,
 )
 
+# ---------------------------------------------------------------------------
+# Async generator mock
+# ---------------------------------------------------------------------------
+
+
+class AsyncGenMock:
+    """
+    Callable async generator mock that records call arguments.
+
+    Use instead of unittest.mock.AsyncMock when the callable must behave
+    as an async generator (i.e. ``async for chunk in agent.execute_stream(req)``).
+
+    Exposes the same inspection attributes as Mock:
+        .called       – True after first invocation
+        .call_count   – number of times called
+        .call_args    – ((positional_args,), {keyword_args}) of the last call,
+                        so ``mock.call_args[0][0]`` returns the first positional arg
+        .reset_mock() – resets all tracking state
+    """
+
+    def __init__(self, chunks: list):
+        self._chunks = chunks
+        self.called = False
+        self.call_count = 0
+        self.call_args = None
+
+    async def __call__(self, *args, **kwargs):
+        self.called = True
+        self.call_count += 1
+        # Mirror Mock's call_args interface: (positional_tuple, kwargs_dict)
+        self.call_args = (args, kwargs)
+        for chunk in self._chunks:
+            yield chunk
+
+    def reset_mock(self):
+        self.called = False
+        self.call_count = 0
+        self.call_args = None
+
+
+# ---------------------------------------------------------------------------
+# collect_result fixture
+# ---------------------------------------------------------------------------
+
+# Targets that are valid for AgentResult; "error" is used by conductor on failure.
+_VALID_TARGETS = {"web", "docs", "recsys", "respond"}
+
+
+@pytest.fixture
+def collect_result():
+    """
+    Drive conductor.run_stream() to completion and return an AgentResult.
+
+    Collects all StreamChunk objects, locates the final 'complete' chunk,
+    and reconstructs an AgentResult from its data dict.  Pydantic coerces
+    nested dicts (tool_calls, citations) automatically.
+
+    Usage::
+
+        async def test_something(self, collect_result, ...):
+            result = await collect_result(conductor, history=[], user_text="...", ...)
+            assert result.success
+    """
+
+    async def _collect(conductor, **kwargs) -> AgentResult:
+        chunks = []
+        async for chunk in conductor.run_stream(**kwargs):
+            chunks.append(chunk)
+
+        complete = next((c for c in chunks if c.type == "complete"), None)
+        if complete is None:
+            types_seen = [c.type for c in chunks]
+            raise AssertionError(
+                f"Stream ended without a 'complete' chunk. Chunk types seen: {types_seen}"
+            )
+
+        data = dict(complete.data or {})
+
+        # Conductor uses target="error" for failure paths; normalise to a valid literal.
+        if data.get("target") not in _VALID_TARGETS:
+            data["target"] = "respond"
+
+        return AgentResult(**data)
+
+    return _collect
+
+
+# ---------------------------------------------------------------------------
+# Mock agent fixtures
+# ---------------------------------------------------------------------------
+
 
 @pytest.fixture
 def mock_recsys_agent():
     """
-    Mock RecommendationAgent that returns successful responses with books.
-
-    Returns a mock with a pre-configured execute() method that returns
-    a successful AgentResponse with 5 book recommendations.
+    Mock RecommendationAgent with execute_stream returning 5 book recommendations.
     """
     agent = Mock()
 
-    # Create realistic book recommendations
-    books = [
-        BookRecommendation(
-            item_idx=12345,
-            title="The Three-Body Problem",
-            author="Cixin Liu",
-            year=2008,
-        ),
-        BookRecommendation(
-            item_idx=12346,
-            title="Foundation",
-            author="Isaac Asimov",
-            year=1951,
-        ),
-        BookRecommendation(
-            item_idx=12347,
-            title="Dune",
-            author="Frank Herbert",
-            year=1965,
-        ),
-        BookRecommendation(
-            item_idx=12348,
-            title="Hyperion",
-            author="Dan Simmons",
-            year=1989,
-        ),
-        BookRecommendation(
-            item_idx=12349,
-            title="Neuromancer",
-            author="William Gibson",
-            year=1984,
-        ),
-    ]
-
-    # Create execution state with tool calls
-    execution_state = AgentExecutionState(
-        status=ExecutionStatus.COMPLETED,
-        input_text="",
-        tool_executions=[
-            ToolExecution(
-                tool_name="als_recommendations",
-                arguments={"user_id": 278859, "n": 60},
-                result={"candidates": 60},
-                execution_time_ms=150,
-            )
-        ],
-    )
-    execution_state.mark_completed()
-
-    agent.execute.return_value = AgentResponse(
-        text="Here are 5 great science fiction books I think you'll enjoy based on your reading history.",
-        target_category="recsys",
-        success=True,
-        book_recommendations=books,
-        execution_state=execution_state,
-        policy_version="recsys.v1",
+    complete_chunk = StreamChunk(
+        type="complete",
+        data={
+            "target": "recsys",
+            "text": (
+                "Here are 5 great science fiction books I think you'll enjoy "
+                "based on your reading history."
+            ),
+            "success": True,
+            "book_ids": [12345, 12346, 12347, 12348, 12349],
+            "tool_calls": [
+                {
+                    "name": "als_recommendations",
+                    "args": {"user_id": 278859, "n": 60},
+                    "ok": True,
+                    "elapsed_ms": 150,
+                }
+            ],
+            "policy_version": "recsys.v1",
+        },
     )
 
+    agent.execute_stream = AsyncGenMock([complete_chunk])
     return agent
 
 
 @pytest.fixture
 def mock_web_agent():
     """
-    Mock WebAgent that returns successful responses with web search results.
-
-    Returns a mock with a pre-configured execute() method that returns
-    a successful AgentResponse with web search information.
+    Mock WebAgent with execute_stream returning a web-search response.
     """
     agent = Mock()
 
-    # Create execution state with web search tool call
-    execution_state = AgentExecutionState(
-        status=ExecutionStatus.COMPLETED,
-        input_text="",
-        tool_executions=[
-            ToolExecution(
-                tool_name="web_search",
-                arguments={"query": "best books 2024"},
-                result={"results": 10},
-                execution_time_ms=500,
-            )
-        ],
-    )
-    execution_state.mark_completed()
-
-    agent.execute.return_value = AgentResponse(
-        text="Based on web search results, here's what I found about the best books of 2024...",
-        target_category="web",
-        success=True,
-        citations=[
-            {
-                "source": "web",
-                "ref": "https://example.com/best-books-2024",
-                "meta": {"title": "Best Books of 2024"},
-            }
-        ],
-        execution_state=execution_state,
-        policy_version="web.v1",
+    complete_chunk = StreamChunk(
+        type="complete",
+        data={
+            "target": "web",
+            "text": (
+                "Based on web search results, here's what I found about the best books of 2024..."
+            ),
+            "success": True,
+            "citations": [
+                {
+                    "source": "web",
+                    "ref": "https://example.com/best-books-2024",
+                    "meta": {"title": "Best Books of 2024"},
+                }
+            ],
+            "tool_calls": [
+                {
+                    "name": "web_search",
+                    "args": {"query": "best books 2024"},
+                    "ok": True,
+                    "elapsed_ms": 500,
+                }
+            ],
+            "policy_version": "web.v1",
+        },
     )
 
+    agent.execute_stream = AsyncGenMock([complete_chunk])
     return agent
 
 
 @pytest.fixture
 def mock_docs_agent():
     """
-    Mock DocsAgent that returns successful responses with documentation.
-
-    Returns a mock with a pre-configured execute() method that returns
-    a successful AgentResponse with documentation information.
+    Mock DocsAgent with execute_stream returning a documentation response.
     """
     agent = Mock()
 
-    # Create execution state with docs search tool call
-    execution_state = AgentExecutionState(
-        status=ExecutionStatus.COMPLETED,
-        input_text="",
-        tool_executions=[
-            ToolExecution(
-                tool_name="docs_search",
-                arguments={"query": "how to rate books"},
-                result={"docs": 3},
-                execution_time_ms=100,
-            )
-        ],
-    )
-    execution_state.mark_completed()
-
-    agent.execute.return_value = AgentResponse(
-        text="To rate a book in our system, you can click the star rating next to any book in your library...",
-        target_category="docs",
-        success=True,
-        citations=[
-            {
-                "source": "docs",
-                "ref": "user-guide/rating-books",
-                "meta": {"section": "Rating Books"},
-            }
-        ],
-        execution_state=execution_state,
-        policy_version="docs.v1",
+    complete_chunk = StreamChunk(
+        type="complete",
+        data={
+            "target": "docs",
+            "text": (
+                "To rate a book in our system, you can click the star rating "
+                "next to any book in your library..."
+            ),
+            "success": True,
+            "citations": [
+                {
+                    "source": "docs",
+                    "ref": "user-guide/rating-books",
+                    "meta": {"section": "Rating Books"},
+                }
+            ],
+            "tool_calls": [
+                {
+                    "name": "docs_search",
+                    "args": {"query": "how to rate books"},
+                    "ok": True,
+                    "elapsed_ms": 100,
+                }
+            ],
+            "policy_version": "docs.v1",
+        },
     )
 
+    agent.execute_stream = AsyncGenMock([complete_chunk])
     return agent
 
 
 @pytest.fixture
 def mock_response_agent():
     """
-    Mock ResponseAgent that returns successful conversational responses.
-
-    Returns a mock with a pre-configured execute() method that returns
-    a successful AgentResponse with a generic conversational reply.
+    Mock ResponseAgent with execute_stream returning a conversational reply.
     """
     agent = Mock()
 
-    # Create execution state (no tool calls for pure conversation)
-    execution_state = AgentExecutionState(
-        status=ExecutionStatus.COMPLETED,
-        input_text="",
-    )
-    execution_state.mark_completed()
-
-    agent.execute.return_value = AgentResponse(
-        text="Hello! I'm here to help you discover great books. What kind of books are you interested in?",
-        target_category="respond",
-        success=True,
-        execution_state=execution_state,
-        policy_version="respond.v1",
+    complete_chunk = StreamChunk(
+        type="complete",
+        data={
+            "target": "respond",
+            "text": (
+                "Hello! I'm here to help you discover great books. "
+                "What kind of books are you interested in?"
+            ),
+            "success": True,
+            "policy_version": "respond.v1",
+        },
     )
 
+    agent.execute_stream = AsyncGenMock([complete_chunk])
     return agent
+
+
+# ---------------------------------------------------------------------------
+# Factory and router fixtures
+# ---------------------------------------------------------------------------
 
 
 @pytest.fixture
@@ -221,21 +267,14 @@ def mock_agent_factory(
     """
     Mock AgentFactory that returns mocked agents instead of real ones.
 
-    This factory can be injected into Conductor to replace real agents
-    with mocks for testing orchestration logic.
+    Inject into Conductor to replace real agents with mocks::
 
-    Usage:
         conductor = Conductor()
         conductor.factory = mock_agent_factory
-        result = conductor.run(...)  # Uses mocked agents
-
-    Returns:
-        Mock factory with create_agent() method that returns appropriate
-        mocked agent based on target type
+        result = await collect_result(conductor, ...)
     """
     factory = Mock()
 
-    # Map of agent types to mocked agents
     agent_map = {
         "recsys": mock_recsys_agent,
         "web": mock_web_agent,
@@ -244,14 +283,12 @@ def mock_agent_factory(
     }
 
     def create_agent(target, **kwargs):
-        """Return appropriate mocked agent based on target."""
         agent = agent_map.get(target)
         if agent is None:
             raise ValueError(f"Unknown agent type: {target}")
         return agent
 
     factory.create_agent = create_agent
-
     return factory
 
 
@@ -260,17 +297,16 @@ def mock_router():
     """
     Mock RouterLLM for tests that need to control routing decisions.
 
-    By default, routes to recsys. Configure with:
+    Defaults to routing to recsys.  Override with::
+
         mock_router.classify.return_value = RoutePlan(target="web", reason="...")
 
-    Returns:
-        Mock router with classify() method
+    Because conductor awaits classify(), this uses AsyncMock.
     """
     from app.agents.schemas import RoutePlan
 
     router = Mock()
-    router.classify.return_value = RoutePlan(
-        target="recsys", reason="Default mock routing to recsys"
+    router.classify = AsyncMock(
+        return_value=RoutePlan(target="recsys", reason="Default mock routing to recsys")
     )
-
     return router

@@ -5,10 +5,11 @@ Validates that failures are caught and handled gracefully at orchestration level
 """
 
 import pytest
-from unittest.mock import Mock
+from unittest.mock import Mock, AsyncMock
 from app.agents.orchestrator.conductor import Conductor
 from app.agents.schemas import AgentResult, RoutePlan
-from app.agents.domain.entities import AgentResponse
+
+pytestmark = pytest.mark.asyncio
 
 
 class TestErrorBoundaries:
@@ -22,58 +23,63 @@ class TestErrorBoundaries:
     error handling, not LLM quality.
     """
 
-    def test_agent_execution_failure_returns_error_result(self, db_session, mock_agent_factory):
+    async def test_agent_execution_failure_returns_error_result(
+        self, db_session, mock_agent_factory, collect_result
+    ):
         """
         Verify agent execution failures are caught and return error result.
 
-        Conductor catches exceptions and returns AgentResult with success=False.
+        Conductor catches exceptions and returns a 'complete' chunk with success=False.
         This ensures users get graceful error messages, not crashes.
         """
         conductor = Conductor()
 
-        # Create a factory that returns a failing agent
+        # Async generator that raises immediately — simulates a broken agent.
+        async def _failing_execute_stream(*args, **kwargs):
+            raise RuntimeError("Simulated agent execution failure")
+            yield  # pragma: no cover  (makes this an async generator function)
+
         failing_agent = Mock()
-        failing_agent.execute.side_effect = RuntimeError("Simulated agent execution failure")
+        failing_agent.execute_stream = _failing_execute_stream
 
         failing_factory = Mock()
         failing_factory.create_agent = Mock(return_value=failing_agent)
-
         conductor.factory = failing_factory
 
-        # Should return error result (not raise exception)
-        result = conductor.run(
+        result = await collect_result(
+            conductor,
             history=[],
             user_text="recommend books",
             use_profile=False,
             db=db_session,
             user_num_ratings=10,
-            force_target="recsys",  # Force target to avoid "error" target issue
+            force_target="recsys",
         )
 
-        # Verify error result
         assert isinstance(result, AgentResult), "Should return AgentResult on error"
         assert result.success is False, "Result should indicate failure"
         assert result.text, "Should have error message"
 
-    def test_router_classification_failure_returns_error_result(
-        self, db_session, mock_agent_factory
+    async def test_router_classification_failure_returns_error_result(
+        self, db_session, mock_agent_factory, collect_result
     ):
         """
         Verify router classification failures are caught and return error result.
 
-        Conductor catches exceptions and returns AgentResult with success=False.
+        Conductor catches exceptions and returns a 'complete' chunk with success=False.
         """
         conductor = Conductor()
-        conductor.factory = mock_agent_factory  # Inject mocks
+        conductor.factory = mock_agent_factory
 
-        # Mock router to raise exception
         failing_router = Mock()
-        failing_router.classify.side_effect = RuntimeError("Router classification failed")
-
+        # classify is awaited in conductor, so must be AsyncMock
+        failing_router.classify = AsyncMock(
+            side_effect=RuntimeError("Router classification failed")
+        )
         conductor.router = failing_router
 
-        # Should return error result (not raise exception)
-        result = conductor.run(
+        result = await collect_result(
+            conductor,
             history=[],
             user_text="test query",
             use_profile=False,
@@ -81,13 +87,12 @@ class TestErrorBoundaries:
             user_num_ratings=0,
         )
 
-        # Verify error result
         assert isinstance(result, AgentResult), "Should return AgentResult on error"
         assert result.success is False, "Result should indicate failure"
         assert result.text, "Should have error message"
 
-    def test_empty_query_handled_gracefully(
-        self, db_session, mock_agent_factory, mock_response_agent
+    async def test_empty_query_handled_gracefully(
+        self, db_session, mock_agent_factory, mock_response_agent, collect_result
     ):
         """
         Verify empty user_text doesn't break system.
@@ -95,25 +100,24 @@ class TestErrorBoundaries:
         Edge case: user submits empty string.
         """
         conductor = Conductor()
-        conductor.factory = mock_agent_factory  # Inject mocks
+        conductor.factory = mock_agent_factory
 
-        result = conductor.run(
+        result = await collect_result(
+            conductor,
             history=[],
-            user_text="",  # Empty query
+            user_text="",
             use_profile=False,
             db=db_session,
             user_num_ratings=0,
         )
 
-        # Should handle gracefully (route to response agent)
         assert isinstance(result, AgentResult), "Should return AgentResult for empty query"
         assert result.text, "Should have response even for empty query"
 
-        # Verify some agent was called (likely response agent)
-        assert mock_response_agent.execute.called, "Response agent should handle empty query"
+        assert mock_response_agent.execute_stream.called, "Response agent should handle empty query"
 
-    def test_whitespace_only_query_handled(
-        self, db_session, mock_agent_factory, mock_response_agent
+    async def test_whitespace_only_query_handled(
+        self, db_session, mock_agent_factory, mock_response_agent, collect_result
     ):
         """
         Verify whitespace-only query is handled.
@@ -121,11 +125,12 @@ class TestErrorBoundaries:
         Edge case: user submits only spaces/newlines.
         """
         conductor = Conductor()
-        conductor.factory = mock_agent_factory  # Inject mocks
+        conductor.factory = mock_agent_factory
 
-        result = conductor.run(
+        result = await collect_result(
+            conductor,
             history=[],
-            user_text="   \n\t  ",  # Whitespace only
+            user_text="   \n\t  ",
             use_profile=False,
             db=db_session,
             user_num_ratings=0,
@@ -134,49 +139,48 @@ class TestErrorBoundaries:
         assert isinstance(result, AgentResult), "Should return AgentResult for whitespace query"
         assert result.text, "Should have response for whitespace query"
 
-    def test_very_long_query_handled(self, db_session, mock_agent_factory):
+    async def test_very_long_query_handled(self, db_session, mock_agent_factory, collect_result):
         """
         Verify extremely long queries don't break system.
 
         Edge case: user submits massive query (potential token overflow).
         """
         conductor = Conductor()
-        conductor.factory = mock_agent_factory  # Inject mocks
+        conductor.factory = mock_agent_factory
 
-        # Generate very long query (1000 words)
         long_query = " ".join(["word"] * 1000)
 
-        result = conductor.run(
+        result = await collect_result(
+            conductor,
             history=[],
             user_text=long_query,
             use_profile=False,
             db=db_session,
             user_num_ratings=0,
-            force_target="recsys",  # Force target to ensure deterministic routing
+            force_target="recsys",
         )
 
-        # Should handle gracefully (may truncate or error, but not crash)
         assert isinstance(result, AgentResult), "Should return AgentResult for very long query"
         assert result.text, "Should have response for long query"
 
-        # System should complete without crashing - that's the key test
-
-    def test_malformed_history_handled(self, db_session, mock_agent_factory, mock_recsys_agent):
+    async def test_malformed_history_handled(
+        self, db_session, mock_agent_factory, mock_recsys_agent, collect_result
+    ):
         """
         Verify malformed history doesn't crash system.
 
         Edge case: history has missing or extra fields.
         """
         conductor = Conductor()
-        conductor.factory = mock_agent_factory  # Inject mocks
+        conductor.factory = mock_agent_factory
 
-        # History with missing 'a' field
         malformed_history = [
             {"u": "first message"},  # Missing 'a'
             {"u": "second message", "a": "response"},
         ]
 
-        result = conductor.run(
+        result = await collect_result(
+            conductor,
             history=malformed_history,
             user_text="test",
             use_profile=False,
@@ -184,12 +188,11 @@ class TestErrorBoundaries:
             user_num_ratings=0,
         )
 
-        # Should handle gracefully
         assert isinstance(result, AgentResult), "Should return AgentResult with malformed history"
 
-        # System should not crash - that's the key test
-
-    def test_database_none_for_agent_requiring_db(self, mock_agent_factory, mock_recsys_agent):
+    async def test_database_none_for_agent_requiring_db(
+        self, mock_agent_factory, mock_recsys_agent, collect_result
+    ):
         """
         Verify recsys agent handles db=None appropriately.
 
@@ -197,23 +200,22 @@ class TestErrorBoundaries:
         Should either work without db or fail clearly.
         """
         conductor = Conductor()
-        conductor.factory = mock_agent_factory  # Inject mocks
+        conductor.factory = mock_agent_factory
 
-        result = conductor.run(
+        result = await collect_result(
+            conductor,
             history=[],
             user_text="recommend books",
             use_profile=False,
-            db=None,  # Recsys needs db
+            db=None,
             current_user=None,
             user_num_ratings=10,
-            force_target="recsys",  # Force recsys
+            force_target="recsys",
         )
 
-        # Should return an AgentResult (success may vary)
         assert isinstance(result, AgentResult), "Should return AgentResult when db=None"
-
-        # Should have some response text
         assert result.text, "Should have response text when db required but missing"
 
-        # Verify recsys agent was called (with db=None in context)
-        assert mock_recsys_agent.execute.called, "Recsys agent should be called even with db=None"
+        assert mock_recsys_agent.execute_stream.called, (
+            "Recsys agent should be called even with db=None"
+        )

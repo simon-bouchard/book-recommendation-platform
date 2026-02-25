@@ -8,6 +8,8 @@ import pytest
 from app.agents.orchestrator.conductor import Conductor
 from app.agents.schemas import AgentResult
 
+pytestmark = pytest.mark.asyncio
+
 
 class TestParameterHandling:
     """
@@ -20,8 +22,8 @@ class TestParameterHandling:
     not LLM quality.
     """
 
-    def test_cold_user_routing_and_tool_selection(
-        self, db_session, test_user_cold, mock_agent_factory, mock_recsys_agent
+    async def test_cold_user_routing_and_tool_selection(
+        self, db_session, test_user_cold, mock_agent_factory, mock_recsys_agent, collect_result
     ):
         """
         Verify user_num_ratings=0 is correctly passed to agent.
@@ -31,32 +33,31 @@ class TestParameterHandling:
         tool availability.
         """
         conductor = Conductor()
-        conductor.factory = mock_agent_factory  # Inject mocks
+        conductor.factory = mock_agent_factory
 
-        result = conductor.run(
+        result = await collect_result(
+            conductor,
             history=[],
             user_text="recommend fantasy adventure books",
             use_profile=False,
             current_user=test_user_cold,
             db=db_session,
-            user_num_ratings=0,  # Cold user
-            force_target="recsys",  # Force recsys to test parameter passing
+            user_num_ratings=0,
+            force_target="recsys",
         )
 
         assert result.success, f"Cold user recommendation failed: {result.text}"
 
-        # Verify agent received cold user status
-        agent_request = mock_recsys_agent.execute.call_args[0][0]
+        agent_request = mock_recsys_agent.execute_stream.call_args[0][0]
         assert agent_request.context.user_preferences["num_ratings"] == 0, (
             "Cold user rating count not passed to agent"
         )
 
-        # Cold user should still get recommendations (mock returns 5 books)
         assert result.book_ids is not None, "Cold user should get recommendations"
         assert len(result.book_ids) == 5, f"Expected 5 books from mock, got {len(result.book_ids)}"
 
-    def test_warm_user_can_access_personalized_recs(
-        self, db_session, test_user_warm, mock_agent_factory, mock_recsys_agent
+    async def test_warm_user_can_access_personalized_recs(
+        self, db_session, test_user_warm, mock_agent_factory, mock_recsys_agent, collect_result
     ):
         """
         Verify user_num_ratings≥10 enables personalized recommendations.
@@ -65,32 +66,31 @@ class TestParameterHandling:
         This is the complement of test_cold_user.
         """
         conductor = Conductor()
-        conductor.factory = mock_agent_factory  # Inject mocks
+        conductor.factory = mock_agent_factory
 
-        result = conductor.run(
+        result = await collect_result(
+            conductor,
             history=[],
-            user_text="recommend something good",  # Vague = might use ALS
+            user_text="recommend something good",
             use_profile=False,
             current_user=test_user_warm,
             db=db_session,
-            user_num_ratings=15,  # Warm user
+            user_num_ratings=15,
             force_target="recsys",
         )
 
         assert result.success, f"Warm user recommendation failed: {result.text}"
 
-        # Verify agent received warm user status
-        agent_request = mock_recsys_agent.execute.call_args[0][0]
+        agent_request = mock_recsys_agent.execute_stream.call_args[0][0]
         assert agent_request.context.user_preferences["num_ratings"] == 15, (
             "Warm user rating count not passed to agent"
         )
 
-        # Warm user should get personalized recommendations (mock returns 5 books)
         assert result.book_ids is not None, "Warm user should get recommendations"
         assert len(result.book_ids) == 5, f"Expected 5 books from mock, got {len(result.book_ids)}"
 
-    def test_user_num_ratings_none_defaults_to_zero(
-        self, db_session, test_user_new, mock_agent_factory, mock_recsys_agent
+    async def test_user_num_ratings_none_defaults_to_zero(
+        self, db_session, test_user_new, mock_agent_factory, mock_recsys_agent, collect_result
     ):
         """
         Verify user_num_ratings=None is handled as 0 (cold user).
@@ -98,24 +98,24 @@ class TestParameterHandling:
         When user_num_ratings is not provided, should default to cold user behavior.
         """
         conductor = Conductor()
-        conductor.factory = mock_agent_factory  # Inject mocks
+        conductor.factory = mock_agent_factory
 
-        result = conductor.run(
+        result = await collect_result(
+            conductor,
             history=[],
             user_text="hello",
             use_profile=False,
             current_user=test_user_new,
             db=db_session,
-            user_num_ratings=None,  # Should default to 0
+            user_num_ratings=None,
         )
 
         assert result.success, "Request with user_num_ratings=None failed"
         assert result.text, "No response with user_num_ratings=None"
 
-        # Verify some agent was called
-        # (Router will decide which agent, but system shouldn't crash)
-
-    def test_optional_parameters_none_values(self, mock_agent_factory, mock_response_agent):
+    async def test_optional_parameters_none_values(
+        self, mock_agent_factory, mock_response_agent, collect_result
+    ):
         """
         Verify Conductor handles None for optional parameters.
 
@@ -123,40 +123,42 @@ class TestParameterHandling:
         System should work with minimal parameters.
         """
         conductor = Conductor()
-        conductor.factory = mock_agent_factory  # Inject mocks
+        conductor.factory = mock_agent_factory
 
-        # Response agent should work with minimal params
-        result = conductor.run(
+        result = await collect_result(
+            conductor,
             history=[],
             user_text="hello there",
             use_profile=False,
-            db=None,  # Response agent doesn't need db
+            db=None,
             current_user=None,
-            user_num_ratings=None,  # Defaults to 0
+            user_num_ratings=None,
         )
 
         assert result.success, "Response agent failed with None parameters"
         assert result.text, "No response from response agent"
 
-        # Verify response agent was called
-        assert mock_response_agent.execute.called, (
+        assert mock_response_agent.execute_stream.called, (
             "Response agent should handle query with None parameters"
         )
 
-    def test_docs_agent_works_without_user_context(self, mock_agent_factory, mock_docs_agent):
+    async def test_docs_agent_works_without_user_context(
+        self, mock_agent_factory, mock_docs_agent, collect_result
+    ):
         """
         Verify docs agent works without user context.
 
         Documentation queries don't need personalization.
         """
         conductor = Conductor()
-        conductor.factory = mock_agent_factory  # Inject mocks
+        conductor.factory = mock_agent_factory
 
-        result = conductor.run(
+        result = await collect_result(
+            conductor,
             history=[],
             user_text="how do I rate a book?",
             use_profile=False,
-            db=None,  # Docs agent doesn't need db
+            db=None,
             current_user=None,
             user_num_ratings=0,
         )
@@ -166,11 +168,17 @@ class TestParameterHandling:
         )
         assert result.text, "No response from docs agent"
 
-        # Verify docs agent was called
-        assert mock_docs_agent.execute.called, "Docs agent should handle query without user context"
+        assert mock_docs_agent.execute_stream.called, (
+            "Docs agent should handle query without user context"
+        )
 
-    def test_use_profile_false_prevents_profile_access(
-        self, db_session, test_user_with_profile, mock_agent_factory, mock_recsys_agent
+    async def test_use_profile_false_prevents_profile_access(
+        self,
+        db_session,
+        test_user_with_profile,
+        mock_agent_factory,
+        mock_recsys_agent,
+        collect_result,
     ):
         """
         Verify use_profile=False is respected (privacy-critical).
@@ -179,30 +187,28 @@ class TestParameterHandling:
         use_profile=False.
         """
         conductor = Conductor()
-        conductor.factory = mock_agent_factory  # Inject mocks
+        conductor.factory = mock_agent_factory
 
-        result = conductor.run(
+        result = await collect_result(
+            conductor,
             history=[],
-            user_text="recommend something for me",  # Vague = would use profile
-            use_profile=False,  # Explicit denial
+            user_text="recommend something for me",
+            use_profile=False,
             current_user=test_user_with_profile,
             db=db_session,
-            user_num_ratings=15,  # Warm user with profile
+            user_num_ratings=15,
         )
 
         assert result.success, "Request with use_profile=False failed"
         assert result.text, "No response when profile disabled"
 
-        # Verify agent received profile_allowed=False
-        agent_request = mock_recsys_agent.execute.call_args[0][0]
+        agent_request = mock_recsys_agent.execute_stream.call_args[0][0]
         assert agent_request.context.user_preferences["profile_allowed"] is False, (
             "Profile access flag should be False"
         )
 
-        # Should succeed without profile access
-
-    def test_conv_id_and_uid_passed_through(
-        self, db_session, test_user_warm, mock_agent_factory, mock_recsys_agent
+    async def test_conv_id_and_uid_passed_through(
+        self, db_session, test_user_warm, mock_agent_factory, mock_recsys_agent, collect_result
     ):
         """
         Verify conv_id and uid parameters pass through system.
@@ -210,9 +216,10 @@ class TestParameterHandling:
         These are metadata fields that should survive all conversions.
         """
         conductor = Conductor()
-        conductor.factory = mock_agent_factory  # Inject mocks
+        conductor.factory = mock_agent_factory
 
-        result = conductor.run(
+        result = await collect_result(
+            conductor,
             history=[],
             user_text="recommend books",
             use_profile=False,
@@ -225,11 +232,8 @@ class TestParameterHandling:
 
         assert result.success, "Request with conv_id/uid failed"
 
-        # Verify metadata fields reached agent
-        agent_request = mock_recsys_agent.execute.call_args[0][0]
+        agent_request = mock_recsys_agent.execute_stream.call_args[0][0]
         assert agent_request.context.conversation_id == "test_conv_456", (
             "conv_id not passed to agent"
         )
         assert agent_request.context.user_id == test_user_warm.user_id, "uid not passed to agent"
-
-        # Metadata fields should be present in execution context
