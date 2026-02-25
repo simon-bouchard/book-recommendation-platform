@@ -23,14 +23,14 @@ class EvaluationRunner:
         self.agents = {
             "router": {"path": "router/evaluate_router.py", "name": "Router Agent"},
             "router_history": {
-                "path": "router/eveluate_router_with_history.py",
+                "path": "router/evaluate_router_with_history.py",
                 "name": "Router with History",
             },
             "docs": {"path": "docs_agent/evaluate_docs.py", "name": "Docs Agent"},
             "web": {"path": "web_agent/evaluate_web.py", "name": "Web Agent"},
             "response": {"path": "response_agent/evaluate_response.py", "name": "Response Agent"},
             "recommendation": {
-                "path": "recommendation_agent/run_all_recommendation_tests.py",
+                "path": "recommendation_agent/run_all_recommendations_tests.py",
                 "name": "Recommendation Agent",
             },
         }
