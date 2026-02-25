@@ -4,10 +4,10 @@ Shared fixtures for API layer tests.
 Provides mocks for services, database, and test client setup.
 """
 
+import sys
 import pytest
 from unittest.mock import Mock
 from sqlalchemy.orm import Session
-import sys
 from pathlib import Path
 
 project_root = Path(__file__).resolve().parents[4]
@@ -37,7 +37,6 @@ def mock_orm_user():
     user.age = 30
     user.filled_age = "30-35"
 
-    # Mock favorite_subjects relationship
     subject_1 = Mock()
     subject_1.subject_idx = 5
     subject_2 = Mock()
@@ -153,17 +152,33 @@ def mock_similarity_service(sample_similar_books):
 @pytest.fixture
 def test_app(monkeypatch):
     """
-    Create test FastAPI app with mocked dependencies.
+    Create a test FastAPI app with response caching neutralised.
 
-    This fixture sets up the app without loading real models,
-    allowing tests to inject mocks for services.
+    The @cached_recommendations and @cached_similarity decorators are applied
+    to the route handlers at module import time.  If routes.models is already
+    in sys.modules the cached wrappers are reused across tests, meaning the
+    real handler is bypassed after the first request with a given parameter
+    combination and mock call assertions fail.
+
+    Fix: patch both decorators to identity functions in the cache module, then
+    remove routes.models from sys.modules so the next import re-executes the
+    module body with the inert decorators.  monkeypatch restores both the
+    decorator patch and the sys.modules entry on teardown, leaving no state
+    between tests.
     """
-    # Import here to avoid loading real models at import time
+    import models.cache as cache_module
+
+    monkeypatch.setattr(cache_module, "cached_recommendations", lambda f: f)
+    monkeypatch.setattr(cache_module, "cached_similarity", lambda f: f)
+
+    # Force re-execution of routes.models with the patched decorators.
+    monkeypatch.delitem(sys.modules, "routes.models", raising=False)
+
     from fastapi import FastAPI
-    from routes.models import router
+    import routes.models as routes_module
 
     app = FastAPI()
-    app.include_router(router)
+    app.include_router(routes_module.router)
 
     return app
 
