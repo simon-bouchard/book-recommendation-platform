@@ -13,6 +13,7 @@ from datetime import datetime
 from dotenv import load_dotenv
 
 from models.core.reload_poller import get_poller
+from metrics import apply_metrics
 
 load_dotenv()
 
@@ -34,6 +35,9 @@ if SECURE_MODE:
 else:
     # No rate limiting or security
     limiter_dep = _no_limit
+
+
+apply_metrics(app)
 
 
 @app.get("/health", dependencies=[Depends(limiter_dep)])

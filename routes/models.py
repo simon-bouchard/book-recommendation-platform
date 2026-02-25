@@ -183,9 +183,6 @@ def get_similar_books(
 # ============================================================================
 
 
-# In routes/models.py, update reload_models_endpoint
-
-
 @router.post("/admin/reload_models")
 def reload_models_endpoint(secret: str = Query(...)):
     """
