@@ -39,6 +39,7 @@ tree.txt
 code_instructions_prompt.txt
 .envrc
 pyproject.toml
+system/
 
 #Junk
 __pycache__/
