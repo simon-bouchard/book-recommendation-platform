@@ -1,6 +1,9 @@
 # Env and Secrets
 .env
 
+# System
+gunicorn.conf.py
+
 # Data paths
 /models/data/
 /models/data_backup_*
