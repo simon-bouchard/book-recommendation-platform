@@ -1,5 +1,4 @@
 from starlette.middleware.trustedhost import TrustedHostMiddleware
-from starlette.middleware.httpsredirect import HTTPSRedirectMiddleware
 from fastapi_limiter import FastAPILimiter
 from fastapi_limiter.depends import RateLimiter
 from fastapi.middleware.cors import CORSMiddleware
@@ -41,9 +40,6 @@ def apply_security(app):
             "recsys.simonbouchard.space",
         ],
     )
-
-    # --- Force HTTPS ---
-    app.add_middleware(HTTPSRedirectMiddleware)
 
     # --- Security Headers ---
     @app.middleware("http")
