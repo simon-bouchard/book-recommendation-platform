@@ -5,9 +5,11 @@ Exposes /metrics endpoint and defines custom application-level metrics.
 Call apply_metrics(app) from main.py before route registration.
 """
 
-from prometheus_client import Counter, Histogram, make_asgi_app
 from prometheus_fastapi_instrumentator import Instrumentator
+from prometheus_client import Counter, Histogram, make_asgi_app, CollectorRegistry, multiprocess, generate_latest, CONTENT_TYPE_LATEST
 from fastapi import FastAPI
+from fastapi.responses import Response
+import os
 
 
 # ---------------------------------------------------------------------------
@@ -92,4 +94,13 @@ def apply_metrics(app: FastAPI) -> None:
         body_handlers=[],
     ).instrument(app)
 
-    app.mount("/metrics", make_asgi_app())
+    @app.get("/metrics/", include_in_schema=False)
+    def metrics_endpoint():
+        if os.getenv("PROMETHEUS_MULTIPROC_DIR"):
+            registry = CollectorRegistry()
+            multiprocess.MultiProcessCollector(registry)
+        else:
+            from prometheus_client import REGISTRY
+            registry = REGISTRY
+        data = generate_latest(registry)
+        return Response(content=data, media_type=CONTENT_TYPE_LATEST)
