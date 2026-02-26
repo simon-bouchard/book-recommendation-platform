@@ -3,7 +3,7 @@ from fastapi.templating import Jinja2Templates
 from fastapi.responses import RedirectResponse, StreamingResponse
 from datetime import datetime
 from zoneinfo import ZoneInfo
-import json
+import json, time
 from routes.auth import get_current_user
 from sqlalchemy.orm import Session
 from app.agents.orchestrator.conductor import Conductor
@@ -20,8 +20,8 @@ from app.agents.runtime import (
 )
 from app.agents.logging import get_logger, chatbot_logger
 from models.data.queries import get_user_num_ratings
-
 from app.agents.settings import settings
+from metrics import CHAT_REQUESTS, CHAT_LATENCY
 
 logger = get_logger(__name__)
 router = APIRouter()
@@ -211,6 +211,7 @@ async def chat_agent_stream(
         """Generate Server-Sent Events stream."""
         accumulated_text = []
         final_data = None
+        start_time = time.time()
 
         try:
             # Stream from conductor
@@ -268,6 +269,8 @@ async def chat_agent_stream(
                         }
                     },
                 )
+                CHAT_REQUESTS.labels(target=target).inc()
+                CHAT_LATENCY.labels(target=target).observe(time.time() - start_time)
 
         except Exception as e:
             logger.error(f"Streaming error: {e}", exc_info=True)

@@ -29,6 +29,12 @@ RECSYS_REQUESTS = Counter(
     ["mode"],
 )
 
+SIMILARITY_REQUESTS = Counter(
+    "bookrec_similarity_requests_total",
+    "Total number of similarity requests",
+    ["mode"],
+)
+
 SEARCH_REQUESTS = Counter(
     "bookrec_search_requests_total",
     "Total number of search requests",
@@ -46,6 +52,13 @@ RECSYS_LATENCY = Histogram(
     "End-to-end recommendation pipeline latency in seconds",
     ["mode"],
     buckets=[0.1, 0.25, 0.5, 1.0, 2.5, 5.0, 10.0],
+)
+
+SIMILARITY_LATENCY = Histogram(
+    "bookrec_similarity_latency_seconds",
+    "End-to-end similarity lookup latency in seconds",
+    ["mode"],
+    buckets=[0.05, 0.1, 0.25, 0.5, 1.0, 2.5, 5.0],
 )
 
 CHAT_LATENCY = Histogram(

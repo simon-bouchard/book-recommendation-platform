@@ -16,6 +16,7 @@ from sqlalchemy import func, desc, case
 from sqlalchemy.orm import Session
 from typing import List, Optional, Union
 
+from metrics import RATING_ACTIONS
 from routes.auth import get_current_user
 from app.database import get_db
 from app.table_models import Book, User, Interaction, BookSubject, Subject, UserFavSubject
@@ -275,6 +276,8 @@ async def new_rating(
     db.commit()
     db.close()
 
+    RATING_ACTIONS.labels(action=interaction_type).inc()
+
     update_book_ratings_in_meili(item_idx)
 
     return {"message": "Interaction recorded successfully"}
@@ -299,6 +302,8 @@ async def delete_rating(
 
     db.delete(interaction)
     db.commit()
+
+    RATING_ACTIONS.labels(action="delete").inc()
 
     update_book_ratings_in_meili(item_idx)
 

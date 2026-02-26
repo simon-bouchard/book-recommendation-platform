@@ -8,7 +8,9 @@ Maintains backward compatibility with old API response formats.
 from fastapi import APIRouter, HTTPException, Query, Depends
 from sqlalchemy.orm import Session, joinedload
 import os
-import logging
+import logging, time
+
+from metrics import RECSYS_REQUESTS, RECSYS_LATENCY, SIMILARITY_REQUESTS, SIMILARITY_LATENCY
 
 from app.database import get_db
 from app.table_models import User as ORMUser
@@ -51,6 +53,7 @@ async def recommend_for_user(
     - subject: Force subject-based recommendations
     - behavioral: Force ALS-based recommendations
     """
+    start_time = time.time()
     try:
         # Fetch user from database
         user_query = db.query(ORMUser).options(joinedload(ORMUser.favorite_subjects))
@@ -79,13 +82,16 @@ async def recommend_for_user(
         # Build configuration (cast mode string to Literal type)
         config = RecommendationConfig(
             k=top_n,
-            mode=mode,  # type: RecommendationMode  # FastAPI ensures regex match
+            mode=mode,  
             hybrid_config=HybridConfig(subject_weight=w),
         )
 
         # Generate recommendations
         service = RecommendationService()
         recommendations = service.recommend(domain_user, config, db)
+
+        RECSYS_REQUESTS.labels(mode=mode).inc()
+        RECSYS_LATENCY.labels(mode=mode).observe(time.time() - start_time)
 
         # Convert to OLD API format (flat list with old field names)
         return [
@@ -138,6 +144,8 @@ def get_similar_books(
 
     Alpha (hybrid only): 0.0=pure subject, 1.0=pure ALS, 0.6=default
     """
+    start_time = time.time()
+
     # Check if book has required data for mode
     if mode == "als":
         from models.data.loaders import load_als_factors
@@ -163,12 +171,15 @@ def get_similar_books(
             mode=mode,
             k=top_k,
             alpha=alpha,
-            min_rating_count=None,  # Use defaults
+            min_rating_count=None,  
             filter_candidates=True,
         )
 
+        SIMILARITY_REQUESTS.labels(mode=mode).inc()
+        SIMILARITY_LATENCY.labels(mode=mode).observe(time.time() - start_time)
+
         # Return in OLD API format (flat list of dicts)
-        return results  # Already in correct format from service
+        return results  
 
     except ValueError as e:
         logger.error(f"Validation error in get_similar_books: {str(e)}")
