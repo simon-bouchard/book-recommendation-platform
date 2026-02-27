@@ -6,7 +6,7 @@ import os, sys
 from implicit.als import AlternatingLeastSquares
 from pathlib import Path
 
-import logging
+import logging, time
 
 logging.getLogger("implicit").setLevel(logging.ERROR)
 
@@ -15,6 +15,7 @@ DATA_DIR = REPO_ROOT / "models" / "training" / "data"
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "../..")))
 
 from models.core import PATHS
+from models.training.metrics import record_training_metrics
 
 ALPHA = 40
 FACTORS = 64
@@ -62,7 +63,9 @@ def main():
         random_state=RANDOM_STATE,
         use_gpu=False,
     )
+    t0 = time.time()
     model.fit(user_items)
+    train_duration = time.time() - t0
 
     print("💾 Saving outputs...")
     PATHS.ensure_artifact_dirs()
@@ -73,6 +76,44 @@ def main():
         json.dump([int(idx2user[i]) for i in range(num_users)], f)
     with open(PATHS.book_als_ids, "w") as f:
         json.dump([int(idx2item[i]) for i in range(num_items)], f)
+
+    print("Evaluating Recall@30...")
+    user_item_csr = user_items.tocsr()
+    per_user_recalls = []
+    EVAL_BATCH_SIZE = 512
+
+    for batch_start in range(0, num_users, EVAL_BATCH_SIZE):
+        batch_end = min(batch_start + EVAL_BATCH_SIZE, num_users)
+        batch_scores = model.user_factors[batch_start:batch_end] @ model.item_factors.T
+
+        for i, user_row in enumerate(range(batch_start, batch_end)):
+            user_items_row = user_item_csr[user_row].indices
+            if len(user_items_row) == 0:
+                continue
+
+            top_30 = np.argpartition(batch_scores[i], -30)[-30:]
+            hits = len(set(user_items_row) & set(top_30))
+            per_user_recalls.append(hits / len(user_items_row))
+
+    recall_at_30 = float(np.mean(per_user_recalls))
+
+    print(f"Recall@30: {recall_at_30:.4f}  (n_users={len(per_user_recalls)})")
+
+    record_training_metrics(
+        "als",
+        {
+            "recall_at_30": round(recall_at_30, 6),
+            "recall_at_30_p25": round(float(np.percentile(per_user_recalls, 25)), 6),
+            "recall_at_30_p50": round(float(np.percentile(per_user_recalls, 50)), 6),
+            "recall_at_30_p75": round(float(np.percentile(per_user_recalls, 75)), 6),
+            "n_users": len(per_user_recalls),
+            "n_items": num_items,
+            "n_interactions": int(len(warm_df)),
+            "factors": FACTORS,
+            "iterations": ITERATIONS,
+        },
+        duration_s=train_duration,
+    )
 
     print("✅ ALS training complete.")
 
