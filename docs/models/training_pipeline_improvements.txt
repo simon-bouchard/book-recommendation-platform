@@ -1,0 +1,66 @@
+Conditional Deployment Pipeline — Implementation Plan
+Context
+The training pipeline runs on an Azure VM, produces model artifacts, and SCPs them back to the production server where they are loaded into memory by a FastAPI/Gunicorn multi-worker application. Currently there is no quality gate between "training completed" and "artifacts go live" — if a run produces degraded or corrupt artifacts, they get deployed automatically. The reload signal (models/data/.reload_signal) then propagates them to all workers immediately.
+The goal is to add versioning, a quality gate, and rollback capability without changing how the loaders, the API, or the workers behave. The only consumers of PATHS properties are the loaders in models/data/loaders.py — if PATHS.embeddings_dir silently points to the right versioned directory, nothing else in the application needs to change.
+
+Step 1 — models/core/paths.py
+Add a staging_dir property pointing to models/artifacts/staging/. This is where automated_training.py will SCP new artifacts instead of directly into the live artifact directories.
+Route embeddings_dir, attention_dir, and scoring_dir through a private _active_version_dir property that reads models/artifacts/active_version — a plain text file containing a version ID like 20260226-1430-a3f9b2. The existing ensure_artifact_dirs() method gets a companion ensure_staging_dirs().
+The current flat structure:
+models/artifacts/
+    embeddings/
+    attention/
+    scoring/
+Becomes:
+models/artifacts/
+    active_version              # plain text: "20260226-1430-a3f9b2"
+    staging/                    # new artifacts land here first
+        training_metrics.json
+        embeddings/
+        attention/
+        scoring/
+    versions/
+        20260226-1430-a3f9b2/
+            manifest.json
+            embeddings/
+            attention/
+            scoring/
+        20260110-0900-c8d1e4/   # previous versions kept for rollback
+            manifest.json
+            ...
+All existing loader code continues to work unchanged because PATHS.embeddings_dir still returns a valid path — it just resolves through the pointer file now.
+
+Step 2 — ops/artifact_registry.py
+The registry owns the entire artifact lifecycle. It is the only code that reads and writes the active_version pointer file, promotes staging, and retires old versions.
+Core responsibilities:
+
+promote_staging(version_id) — moves staging/ into versions/{version_id}/, writes the manifest (version ID, timestamp, git commit, PAD_IDX, attn strategy, metrics from training_metrics.json, SHA-256 checksums of all artifact files), then atomically updates active_version
+rollback(version_id) — writes a different version ID to active_version and writes the reload signal, nothing else. Since PATHS reads the pointer on every call, workers pick up the change on next reload. Should take under a second.
+list_versions() — reads all manifests and returns them sorted by date
+retire_old_versions(keep=5) — deletes versions beyond the most recent N, never touching active or the one immediately before it
+CLI interface — python ops/artifact_registry.py status | list | rollback --to <version_id> | retire
+
+The checksum verification step in promote_staging protects against silent file corruption during SCP, which is a real risk with large binary files like .npy embeddings.
+
+Step 3 — ops/evaluate_gate.py
+A focused module with a single responsibility: given staging metrics and the active manifest, return a typed promotion decision.
+It reads staging/training_metrics.json (produced by train_als.py via metrics.py) and the active version's manifest.json, compares Recall@30, and returns a PromotionDecision dataclass with fields approved: bool and reason: str.
+The gate logic for ALS:
+
+Hard floor: Recall@30 must be above an absolute minimum (e.g. 0.25) — catches catastrophic failures like corrupt factors or broken ID mappings
+Regression check: Recall@30 must not drop more than a configurable delta versus the active version (e.g. 0.03) — catches genuine quality regressions from data issues
+
+Subject embedding metrics are recorded in the manifest for longitudinal tracking but are not part of the hard gate, since subjects are rarely retrained and have no established baseline to compare against.
+If there is no active version yet (first ever deployment), the gate is skipped and staging is promoted unconditionally.
+
+Step 4 — ops/automated_training.py
+Wire everything together. The existing script structure stays largely intact — the changes are:
+
+SCP target changes from {REMOTE_MODELS}/* to {REMOTE_MODELS}/staging/ so new artifacts land in staging rather than directly in the live directories
+After SCP completes, call evaluate_gate.py — if rejected, log the reason, send a Slack notification via notify.py, deallocate the VM, and exit without promoting
+If approved, call registry.promote_staging(version_id) which moves staging to a versioned directory, writes the manifest, and updates the pointer
+Write the reload signal (existing mechanism unchanged)
+Call registry.retire_old_versions(keep=5) to clean up
+Notify success with the version ID and Recall@30 in the message body
+
+The result is that a failed gate leaves production completely untouched — the active version pointer never changes, the reload signal is never written, and the workers keep serving the previous model.
