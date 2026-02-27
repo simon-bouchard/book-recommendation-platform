@@ -1,7 +1,8 @@
 # models/core/paths.py
 """
 Centralized path definitions for all model artifacts and data files.
-Provides a single source of truth for file locations throughout the codebase.
+Versioned artifact directories (embeddings, attention, scoring) resolve through
+the active_version pointer file, so loaders always read from the correct version.
 """
 
 from pathlib import Path
@@ -9,20 +10,38 @@ from typing import Literal
 
 AttentionStrategy = Literal["scalar", "perdim", "selfattn", "selfattn_perdim"]
 
+_ACTIVE_VERSION_FILENAME = "active_version"
+_VERSIONED_SUBDIRS = ("embeddings", "attention", "scoring")
+
 
 class ModelPaths:
     """
     Centralized registry of all model artifact paths.
 
+    Versioned artifact directories are resolved dynamically through
+    models/artifacts/active_version, a plain-text file containing a version ID
+    such as '20260226-1430-a3f9b2'. All other paths are static.
+
     Directory structure:
         models/
-        ├── artifacts/
-        │   ├── embeddings/     # Vector representations
-        │   ├── attention/      # Attention pooling components
-        │   ├── scoring/        # Ranking/scoring models
-                |	└── Semantic_indexes # Semantic indexes for semantic search
-        └── training/
-            └── data/           # Training input data
+        |-- artifacts/
+        |   |-- active_version              # plain text: "20260226-1430-a3f9b2"
+        |   |-- staging/                    # new artifacts land here first
+        |   |   |-- training_metrics.json
+        |   |   |-- embeddings/
+        |   |   |-- attention/
+        |   |   `-- scoring/
+        |   |-- versions/
+        |   |   |-- 20260226-1430-a3f9b2/
+        |   |   |   |-- manifest.json
+        |   |   |   |-- embeddings/
+        |   |   |   |-- attention/
+        |   |   |   `-- scoring/
+        |   |   `-- 20260110-0900-c8d1e4/  # previous versions kept for rollback
+        |   |       `-- ...
+        |   `-- semantic_indexes/           # not versioned
+        `-- training/
+            `-- data/
     """
 
     def __init__(self, project_root: Path = None):
@@ -30,7 +49,8 @@ class ModelPaths:
         Initialize path registry.
 
         Args:
-            project_root: Root directory of the project. If None, auto-detects from file location.
+            project_root: Root directory of the project. Defaults to three levels
+                          above this file (i.e. the repository root).
         """
         if project_root is None:
             project_root = Path(__file__).resolve().parent.parent.parent
@@ -38,18 +58,77 @@ class ModelPaths:
         self.project_root = project_root
         self.models_root = project_root / "models"
 
-        # Top-level directories
         self.artifacts_dir = self.models_root / "artifacts"
         self.training_root = self.models_root / "training"
 
-        # Artifact subdirectories
-        self.embeddings_dir = self.artifacts_dir / "embeddings"
-        self.attention_dir = self.artifacts_dir / "attention"
-        self.scoring_dir = self.artifacts_dir / "scoring"
-        self.semantic_indexes_dir = self.artifacts_dir / "semantic_indexes"
+        self.staging_dir = self.artifacts_dir / "staging"
+        self.versions_dir = self.artifacts_dir / "versions"
+        self.active_version_file = self.artifacts_dir / _ACTIVE_VERSION_FILENAME
 
-        # Training data directory
+        self.semantic_indexes_dir = self.artifacts_dir / "semantic_indexes"
         self.training_data_dir = self.training_root / "data"
+
+    # -------------------------------------------------------------------------
+    # Internal version resolution
+    # -------------------------------------------------------------------------
+
+    @property
+    def _active_version_dir(self) -> Path:
+        """
+        Resolve the active versioned artifact directory.
+
+        Reads the active_version pointer file on every call so that a rollback
+        takes effect on the next access without restarting the application.
+
+        Raises:
+            FileNotFoundError: If active_version does not exist, which means
+                migration has not been run yet.
+            ValueError: If active_version exists but is empty or blank.
+        """
+        if not self.active_version_file.exists():
+            raise FileNotFoundError(
+                f"No active version pointer found at '{self.active_version_file}'. "
+                "Initialize the versioned artifact structure by running: "
+                "python ops/migrations/migrate_flat_artifacts.py"
+            )
+
+        version_id = self.active_version_file.read_text().strip()
+
+        if not version_id:
+            raise ValueError(
+                f"Active version pointer file is empty: '{self.active_version_file}'. "
+                "The file must contain a valid version ID."
+            )
+
+        return self.versions_dir / version_id
+
+    def active_version_id(self) -> str:
+        """
+        Return the currently active version ID string.
+
+        Delegates to _active_version_dir so it raises the same errors on
+        misconfiguration. Useful for logging and manifest lookups.
+        """
+        return self._active_version_dir.name
+
+    # -------------------------------------------------------------------------
+    # Versioned artifact subdirectories
+    # -------------------------------------------------------------------------
+
+    @property
+    def embeddings_dir(self) -> Path:
+        """Embeddings directory for the active model version."""
+        return self._active_version_dir / "embeddings"
+
+    @property
+    def attention_dir(self) -> Path:
+        """Attention components directory for the active model version."""
+        return self._active_version_dir / "attention"
+
+    @property
+    def scoring_dir(self) -> Path:
+        """Scoring models directory for the active model version."""
+        return self._active_version_dir / "scoring"
 
     # -------------------------------------------------------------------------
     # Embeddings (vector representations)
@@ -94,13 +173,13 @@ class ModelPaths:
         Get path for attention model components by strategy name.
 
         Args:
-            strategy: One of 'scalar', 'perdim', 'selfattn', 'selfattn_perdim'
+            strategy: One of 'scalar', 'perdim', 'selfattn', 'selfattn_perdim'.
 
         Returns:
-            Path to the attention model file
+            Path to the attention model file.
 
         Raises:
-            ValueError: If strategy is not recognized
+            ValueError: If strategy is not recognized.
         """
         valid_strategies = {"scalar", "perdim", "selfattn", "selfattn_perdim"}
 
@@ -141,18 +220,8 @@ class ModelPaths:
         """Precomputed Bayesian popularity scores for books."""
         return self.scoring_dir / "bayesian_scores.npy"
 
-    @property
-    def gbt_cold(self) -> Path:
-        """Gradient boosted tree model for cold-start users."""
-        return self.scoring_dir / "gbt_cold.pickle"
-
-    @property
-    def gbt_warm(self) -> Path:
-        """Gradient boosted tree model for warm-start users."""
-        return self.scoring_dir / "gbt_warm.pickle"
-
     # -------------------------------------------------------------------------
-    # Semantic Indexes (FAISS-based semantic search)
+    # Semantic indexes (FAISS-based, not versioned)
     # -------------------------------------------------------------------------
 
     @property
@@ -224,14 +293,23 @@ class ModelPaths:
     # -------------------------------------------------------------------------
 
     def ensure_artifact_dirs(self) -> None:
-        """Create all artifact directories if they don't exist."""
-        self.embeddings_dir.mkdir(parents=True, exist_ok=True)
-        self.attention_dir.mkdir(parents=True, exist_ok=True)
-        self.scoring_dir.mkdir(parents=True, exist_ok=True)
+        """
+        Create top-level artifact infrastructure directories.
+
+        Does not create versioned subdirectories — those are created by the
+        artifact registry when a version is registered or promoted.
+        """
+        self.staging_dir.mkdir(parents=True, exist_ok=True)
+        self.versions_dir.mkdir(parents=True, exist_ok=True)
         self.semantic_indexes_dir.mkdir(parents=True, exist_ok=True)
 
+    def ensure_staging_dirs(self) -> None:
+        """Create all expected subdirectories inside staging."""
+        for subdir in _VERSIONED_SUBDIRS:
+            (self.staging_dir / subdir).mkdir(parents=True, exist_ok=True)
+
     def ensure_training_dirs(self) -> None:
-        """Create training data directory if it doesn't exist."""
+        """Create training data directory if it does not exist."""
         self.training_data_dir.mkdir(parents=True, exist_ok=True)
 
 
