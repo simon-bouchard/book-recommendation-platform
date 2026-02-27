@@ -205,35 +205,3 @@ def get_similar_books(
     except Exception as e:
         logger.error(f"Error in get_similar_books: {str(e)}", exc_info=True)
         raise HTTPException(status_code=500, detail="Internal server error")
-
-
-# ============================================================================
-# Admin Endpoint
-# ============================================================================
-
-
-@router.post("/admin/reload_models")
-def reload_models_endpoint(secret: str = Query(...)):
-    """
-    Reload all model artifacts from disk.
-
-    Clears all in-memory caches and reloads artifacts for model updates.
-    Requires ADMIN_SECRET environment variable for authorization.
-    """
-    if secret != os.getenv("ADMIN_SECRET"):
-        raise HTTPException(status_code=403, detail="Forbidden")
-
-    try:
-        clear_cache()
-        SubjectEmbedder.reset()
-        ALSModel.reset()
-        reset_indices()
-
-        preload_all_artifacts()
-
-        logger.info("Models reloaded successfully")
-        return {"status": "reloaded"}
-
-    except Exception as e:
-        logger.error(f"Reload failed: {str(e)}", exc_info=True)
-        raise HTTPException(status_code=500, detail=f"Model reload failed: {str(e)}")
