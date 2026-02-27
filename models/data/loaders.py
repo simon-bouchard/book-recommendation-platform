@@ -5,7 +5,6 @@ Replaces the monolithic ModelStore with focused, cacheable loading functions.
 """
 
 import json
-import pickle
 from typing import Tuple, Optional, Dict, List
 from collections import defaultdict
 
@@ -290,60 +289,6 @@ def load_book_to_subjects(use_cache: bool = True) -> Dict[int, List[int]]:
     return mapping
 
 
-def load_gbt_cold_model(use_cache: bool = True):
-    """
-    Load gradient boosted tree model for cold-start users.
-
-    Args:
-        use_cache: If True, cache loaded model in memory
-
-    Returns:
-        Trained LGBMRegressor model
-
-    Raises:
-        FileNotFoundError: If model file doesn't exist
-    """
-    cache_key = "gbt_cold"
-
-    if use_cache and cache_key in _CACHE:
-        return _CACHE[cache_key]
-
-    with open(PATHS.gbt_cold, "rb") as f:
-        model = pickle.load(f)
-
-    if use_cache:
-        _CACHE[cache_key] = model
-
-    return model
-
-
-def load_gbt_warm_model(use_cache: bool = True):
-    """
-    Load gradient boosted tree model for warm-start users.
-
-    Args:
-        use_cache: If True, cache loaded model in memory
-
-    Returns:
-        Trained LGBMRegressor model
-
-    Raises:
-        FileNotFoundError: If model file doesn't exist
-    """
-    cache_key = "gbt_warm"
-
-    if use_cache and cache_key in _CACHE:
-        return _CACHE[cache_key]
-
-    with open(PATHS.gbt_warm, "rb") as f:
-        model = pickle.load(f)
-
-    if use_cache:
-        _CACHE[cache_key] = model
-
-    return model
-
-
 def load_attention_strategy(strategy: Optional[str] = None, use_cache: bool = True):
     """
     Load attention pooling strategy from saved components.
@@ -409,7 +354,6 @@ def preload_all_artifacts():
     load_book_meta(use_cache=True)
     load_user_meta(use_cache=True)
     load_book_to_subjects(use_cache=True)
-    load_gbt_warm_model(use_cache=True)
     load_attention_strategy(use_cache=True)
 
     from models.infrastructure.similarity_indices import preload_indices
