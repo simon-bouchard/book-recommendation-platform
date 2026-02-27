@@ -7,19 +7,20 @@ import os
 import sys
 import argparse
 from pathlib import Path
-
-sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "../..")))
-
 import math
 import torch
 import torch.nn.functional as F
 from torch.utils.data import DataLoader, RandomSampler
+import time
+
+sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "../..")))
 
 from models.training.data_loader import load_rows_and_dataset
 from models.training.train_subject_attention import (
     build_pooler_from_env,
     save_components,
 )
+from models.training.metrics import record_training_metrics
 
 REPO_ROOT = Path(__file__).parent.parent.parent
 OUT_DIR = REPO_ROOT / "models" / "artifacts" / "attention"
@@ -240,7 +241,7 @@ def main():
 
     print("Starting contrastive+RMSE training...")
 
-    import time
+    train_start = time.time()
 
     for epoch in range(epochs):
         pooler.train()
@@ -322,6 +323,20 @@ def main():
             f"| anchors_with_pos={pct_with_pos:.1f}%  "
             f"pos_mean={pos_mean:.3f}  neg_mean={neg_mean:.3f}"
         )
+
+    record_training_metrics(
+        "subject_embeddings_contrastive",
+        {
+            "final_rmse": round(epoch_rmse, 6),
+            "final_mse": round(avg_mse, 4),
+            "final_contrast_loss": round(avg_contrast, 4),
+            "final_total_loss": round(avg_total, 4),
+            "epochs": epochs,
+            "kind": kind,
+            "n_train_samples": len(rows),
+        },
+        duration_s=time.time() - train_start,
+    )
 
     # Save
     out_name = OUT_NAME_BY_KIND.get(kind, f"subject_attention_components_{kind}.pth")

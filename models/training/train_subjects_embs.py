@@ -28,6 +28,7 @@ from models.training.train_subject_attention import (
     build_pooler_from_env,
     save_components,
 )
+from models.training.metrics import record_training_metrics
 
 REPO_ROOT = Path(__file__).parent.parent.parent
 OUT_DIR = REPO_ROOT / "models" / "data"
@@ -100,6 +101,18 @@ def main():
     epochs = int(os.getenv("SUBJ_EPOCHS", "5"))
     lr = float(os.getenv("SUBJ_LR", "3e-2"))
     learn.fit_one_cycle(epochs, lr_max=lr)
+
+    record_training_metrics(
+        "subject_embeddings",
+        {
+            "final_rmse": float(learn.recorder.values[-1][1]),
+            "final_mae": float(learn.recorder.values[-1][2]),
+            "epochs": epochs,
+            "kind": kind,
+            "n_train_samples": len(train_ds),
+        },
+    )
+    print("Recorded training metrics")
 
     # Save
     out_name = OUT_NAME_BY_KIND.get(kind, f"subject_attention_components_{kind}.pth")
