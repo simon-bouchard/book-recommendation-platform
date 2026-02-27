@@ -1,4 +1,4 @@
-# ops/evaluate_gate.py
+# ops/training/evaluate_gate.py
 """
 Deployment quality gate for trained model artifacts.
 
