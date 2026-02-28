@@ -54,7 +54,7 @@ AZURE_TENANT_ID = _sp["tenantId"]
 REMOTE_HOST = os.getenv("REMOTE_HOST")
 REMOTE_REPO = os.getenv("REMOTE_REPO_PATH")
 REMOTE_BACKUP_DIR = os.getenv("REMOTE_BACKUP_DIR")
-REMOTE_ARTIFACTS = f"{REMOTE_HOST}:{REMOTE_REPO}/models/artifacts"
+REMOTE_ARTIFACTS = f"{REMOTE_HOST}:{REMOTE_REPO}/models/artifacts/staging"
 
 # ---------------------------------------------------------------------------
 # Local paths
@@ -244,6 +244,14 @@ def main() -> None:
         run(f"ssh {REMOTE_HOST} 'mkdir -p {REMOTE_REPO}/models/training/data'")
         run(f"scp -r {TRAINING_DATA_NEW}/* {REMOTE_DATA}/")
 
+        print("Ensuring remote artifact structure is ready...")
+        run(
+            f"ssh {REMOTE_HOST} "
+            f"'mkdir -p {REMOTE_REPO}/models/artifacts/staging/embeddings "
+            f"{REMOTE_REPO}/models/artifacts/staging/attention "
+            f"{REMOTE_REPO}/models/artifacts/staging/scoring'"
+        )
+
         # --- Remote training ------------------------------------------------
 
         print("Running training scripts remotely...")
@@ -257,7 +265,15 @@ def main() -> None:
         PATHS.ensure_staging_dirs()
 
         print("Copying trained artifacts into staging...")
-        run(f"scp -r {REMOTE_ARTIFACTS}/* {PATHS.staging_dir}/")
+        for subdir in ("embeddings", "attention", "scoring"):
+            run(
+                f"scp -r {REMOTE_HOST}:{REMOTE_REPO}/models/artifacts/staging/{subdir} "
+                f"{PATHS.staging_dir}/"
+            )
+        run(
+            f"scp {REMOTE_HOST}:{REMOTE_REPO}/models/artifacts/staging/training_metrics.json "
+            f"{PATHS.staging_dir}/"
+        )
 
         # --- VM deallocation (always runs) ----------------------------------
 
