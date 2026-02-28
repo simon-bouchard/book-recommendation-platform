@@ -81,15 +81,14 @@ TRAIN_SCRIPTS = []
 if SUBJECT_AUTO_TRAIN:
     TRAIN_SCRIPTS.append(_subject_script)
 
-TRAIN_SCRIPTS.extend(
-    [
-        "precompute_embs.py",
-        "precompute_bayesian.py",
-        "train_als.py",
-    ]
-)
+TRAIN_SCRIPTS.extend([
+    "precompute_embs.py",
+    "precompute_bayesian.py",
+    "train_als.py",
+])
 
 _VERSIONS_TO_KEEP = 5
+_REMOTE_BACKUPS_TO_KEEP = 3
 
 # Set to false once you've confirmed the pipeline is working reliably.
 _NOTIFY_ON_SUCCESS = os.getenv("NOTIFY_ON_SUCCESS", "true").lower() != "false"
@@ -216,12 +215,9 @@ def main() -> None:
         run(f"python {PROJECT_ROOT}/models/training/export_training_data.py")
 
         print("Waiting for SSH to be available...")
-        while (
-            subprocess.run(
-                f"ssh -o BatchMode=yes {REMOTE_HOST} 'echo ready'", shell=True
-            ).returncode
-            != 0
-        ):
+        while subprocess.run(
+            f"ssh -o BatchMode=yes {REMOTE_HOST} 'echo ready'", shell=True
+        ).returncode != 0:
             print("  Still waiting for SSH...")
             time.sleep(5)
 
@@ -237,6 +233,11 @@ def main() -> None:
             run(
                 f"scp {shlex.quote(str(latest_dump))} "
                 f"{REMOTE_HOST}:{REMOTE_BACKUP_DIR.rstrip('/')}/"
+            )
+            run(
+                f"ssh {REMOTE_HOST} "
+                f"'ls -t {REMOTE_BACKUP_DIR}/*.sql.gz 2>/dev/null "
+                f"| tail -n +{_REMOTE_BACKUPS_TO_KEEP + 1} | xargs -r rm -f'"
             )
 
         print("Copying new training data to training server...")
@@ -317,7 +318,9 @@ def main() -> None:
     # --- Success notification -----------------------------------------------
 
     if _NOTIFY_ON_SUCCESS:
-        recall_str = f"Recall@30={decision.staging_recall:.4f}" if decision.staging_recall else ""
+        recall_str = (
+            f"Recall@30={decision.staging_recall:.4f}" if decision.staging_recall else ""
+        )
         notify(
             "ok",
             "Training pipeline succeeded",
