@@ -15,6 +15,8 @@ import sys
 
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "../..")))
 
+from models.core import PATHS
+
 DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
 
 REPO_ROOT = Path(__file__).parent.parent.parent
@@ -87,10 +89,10 @@ def main():
     print(f"Shape: {pooled_embs.shape}")
 
     # Save
-    os.makedirs(REPO_ROOT / "models" / "data", exist_ok=True)
-    np.save(REPO_ROOT / "models/artifacts/embeddings/book_subject_embeddings.npy", pooled_embs)
+    PATHS.ensure_staging_dirs()
+    np.save(PATHS.staging_dir / "embeddings" / "book_subject_embeddings.npy", pooled_embs)
 
-    with open(REPO_ROOT / "models/artifacts/book_subject_ids.json", "w") as f:
+    with open(PATHS.staging_dir / "embeddings" / "book_subject_ids.json", "w") as f:
         json.dump(book_ids, f)
 
     print("Saved:")

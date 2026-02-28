@@ -68,13 +68,13 @@ def main():
     train_duration = time.time() - t0
 
     print("💾 Saving outputs...")
-    PATHS.ensure_artifact_dirs()
-    np.save(PATHS.user_als_factors, model.user_factors)
-    np.save(PATHS.book_als_factors, model.item_factors)
+    PATHS.ensure_staging_dirs()
+    np.save(PATHS.staging_dir / "embeddings" / "user_als_factors.npy", model.user_factors)
+    np.save(PATHS.staging_dir / "embeddings" / "book_als_factors.npy", model.item_factors)
 
-    with open(PATHS.user_als_ids, "w") as f:
+    with open(PATHS.staging_dir / "embeddings" / "user_als_ids.json", "w") as f:
         json.dump([int(idx2user[i]) for i in range(num_users)], f)
-    with open(PATHS.book_als_ids, "w") as f:
+    with open(PATHS.staging_dir / "embeddings" / "book_als_ids.json", "w") as f:
         json.dump([int(idx2item[i]) for i in range(num_items)], f)
 
     print("Evaluating Recall@30...")

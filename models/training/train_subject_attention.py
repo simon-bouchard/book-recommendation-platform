@@ -323,5 +323,5 @@ def save_components(pooler: BasePooler, out_path: str, kind: PoolerKind):
     else:
         raise ValueError(f"Unknown attention kind for saving: {kind}")
 
-    PATHS.ensure_artifact_dirs()
+    PATHS.ensure_staging_dirs()
     torch.save(state, out_path)

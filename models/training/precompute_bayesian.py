@@ -60,9 +60,9 @@ def main():
         print(f"{title} ({score:.6f})")
 
     bayesian_tensor = score_df.loc[book_ids]["score"].fillna(0).values.astype(np.float32)
-    PATHS.ensure_artifact_dirs()
-    np.save(PATHS.bayesian_scores, bayesian_tensor)
-    print(f"✅ Saved: {PATHS.bayesian_scores} (shape: {bayesian_tensor.shape})")
+    PATHS.ensure_staging_dirs()
+    np.save(PATHS.staging_dir / "scoring" / "bayesian_scores.npy", bayesian_tensor)
+    print(f"✅ Saved: {PATHS.staging_dir}/scoring/bayesian_scores.npy (shape: {bayesian_tensor.shape})")
 
 
 if __name__ == "__main__":

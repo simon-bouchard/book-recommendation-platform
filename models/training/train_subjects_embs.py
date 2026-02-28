@@ -29,9 +29,10 @@ from models.training.train_subject_attention import (
     save_components,
 )
 from models.training.metrics import record_training_metrics
+from models.core import PATHS
 
 REPO_ROOT = Path(__file__).parent.parent.parent
-OUT_DIR = REPO_ROOT / "models" / "data"
+OUT_DIR = PATHS.staging_dir / "attention"
 
 OUT_NAME_BY_KIND = {
     "scalar": "subject_attention_components.pth",
