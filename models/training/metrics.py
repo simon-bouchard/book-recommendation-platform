@@ -23,15 +23,15 @@ def _default_output_path() -> Path:
     """
     Resolve the metrics output path.
 
-    Checks the TRAINING_METRICS_PATH environment variable first,
-    then falls back to PATHS.artifacts_dir. The artifacts_dir location
-    ensures the file is included in the standard SCP artifact transfer
-    without any changes to automated_training.py.
+    Checks the TRAINING_METRICS_PATH environment variable first, then falls
+    back to PATHS.staging_dir. The staging directory is where all pre-promotion
+    artifacts live and is the exact location the deployment gate reads from,
+    so writing here requires no coordination between training and the gate.
     """
     env_override = os.getenv("TRAINING_METRICS_PATH")
     if env_override:
         return Path(env_override)
-    return PATHS.artifacts_dir / _METRICS_FILENAME
+    return PATHS.staging_dir / _METRICS_FILENAME
 
 
 def _now_iso() -> str:
