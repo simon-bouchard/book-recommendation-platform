@@ -10,8 +10,6 @@ from models.data.loaders import (
     load_book_meta,
     load_user_meta,
     load_book_to_subjects,
-    load_gbt_cold_model,
-    load_gbt_warm_model,
     load_attention_strategy,
     normalize_embeddings,
     get_item_idx_to_row,
