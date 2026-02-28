@@ -30,7 +30,7 @@ from models.core.artifact_registry import (
 )
 from models.core.paths import PATHS
 from ops.training.evaluate_gate import evaluate
-from ops.training.notify import notify
+from ops.training.notify import notify, read_tail as _notify_read_tail
 
 # ---------------------------------------------------------------------------
 # Azure configuration
@@ -91,6 +91,9 @@ TRAIN_SCRIPTS.extend(
 
 _VERSIONS_TO_KEEP = 5
 
+# Set to false once you've confirmed the pipeline is working reliably.
+_NOTIFY_ON_SUCCESS = os.getenv("NOTIFY_ON_SUCCESS", "true").lower() != "false"
+
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -112,6 +115,11 @@ def _db_name_from_env() -> str:
         return (urlsplit(os.getenv("DATABASE_URL", "")).path or "").lstrip("/")
     except Exception:
         return ""
+
+
+def _read_tail(path: Path) -> str | None:
+    """Return the last 60 lines of a log file, or None if unreadable."""
+    return _notify_read_tail(str(path) if path.exists() else None)
 
 
 def _deallocate_vm() -> None:
@@ -173,12 +181,15 @@ def main() -> None:
         reload signal, retire old versions, and notify success.
     9.  Replace local training data with the new export.
     10. Update Meilisearch bayes_pop index.
+
+    Any unexpected exception sends a fail notification and re-raises.
+    Gate rejections are handled separately before the try/except so they
+    exit cleanly without being treated as crashes.
     """
     LOG_DIR.mkdir(parents=True, exist_ok=True)
     timestamp = datetime.now().strftime("%Y%m%d-%H%M")
     log_file_local = LOG_DIR / f"{timestamp}_train.log"
     log_file_remote = f"{REMOTE_REPO}/models/training/logs/{timestamp}_train.log"
-    log_path_str = str(log_file_local)
 
     version_id = generate_version_id()
 
@@ -187,116 +198,131 @@ def main() -> None:
 
     notify("start", "Training pipeline started", body=f"Version: {version_id}")
 
-    # --- Azure setup --------------------------------------------------------
+    try:
+        # --- Azure setup ----------------------------------------------------
 
-    print("Authenticating with Azure...")
-    run(
-        f"az login --service-principal "
-        f"-u {AZURE_CLIENT_ID} -p {AZURE_CLIENT_SECRET} --tenant {AZURE_TENANT_ID}"
-    )
+        print("Authenticating with Azure...")
+        run(
+            f"az login --service-principal "
+            f"-u {AZURE_CLIENT_ID} -p {AZURE_CLIENT_SECRET} --tenant {AZURE_TENANT_ID}"
+        )
 
-    print("Starting training VM...")
-    run(f'az vm start --name {AZURE_VM} --resource-group "{AZURE_RG}"')
+        print("Starting training VM...")
+        run(f'az vm start --name {AZURE_VM} --resource-group "{AZURE_RG}"')
 
-    # --- Data preparation ---------------------------------------------------
+        # --- Data preparation -----------------------------------------------
 
-    print("Exporting training data locally...")
-    run(f"python {PROJECT_ROOT}/models/training/export_training_data.py")
+        print("Exporting training data locally...")
+        run(f"python {PROJECT_ROOT}/models/training/export_training_data.py")
 
-    print("Waiting for SSH to be available...")
-    while (
-        subprocess.run(f"ssh -o BatchMode=yes {REMOTE_HOST} 'echo ready'", shell=True).returncode
-        != 0
-    ):
-        print("  Still waiting for SSH...")
-        time.sleep(5)
+        print("Waiting for SSH to be available...")
+        while (
+            subprocess.run(
+                f"ssh -o BatchMode=yes {REMOTE_HOST} 'echo ready'", shell=True
+            ).returncode
+            != 0
+        ):
+            print("  Still waiting for SSH...")
+            time.sleep(5)
 
-    print("Backing up current database...")
-    run(f"python {PROJECT_ROOT}/ops/training/backup_db.py")
+        print("Backing up current database...")
+        run(f"python {PROJECT_ROOT}/ops/training/backup_db.py")
 
-    db_name = _db_name_from_env()
-    backup_dir = PROJECT_ROOT / "data/backups/db"
-    candidates = sorted(backup_dir.glob(f"*_{db_name}.sql.gz"))
-    if candidates:
-        latest_dump = candidates[-1]
-        run(f"ssh {REMOTE_HOST} 'mkdir -p {REMOTE_BACKUP_DIR}'")
-        run(f"scp {shlex.quote(str(latest_dump))} {REMOTE_HOST}:{REMOTE_BACKUP_DIR.rstrip('/')}/")
+        db_name = _db_name_from_env()
+        backup_dir = PROJECT_ROOT / "data/backups/db"
+        candidates = sorted(backup_dir.glob(f"*_{db_name}.sql.gz"))
+        if candidates:
+            latest_dump = candidates[-1]
+            run(f"ssh {REMOTE_HOST} 'mkdir -p {REMOTE_BACKUP_DIR}'")
+            run(
+                f"scp {shlex.quote(str(latest_dump))} "
+                f"{REMOTE_HOST}:{REMOTE_BACKUP_DIR.rstrip('/')}/"
+            )
 
-    print("Copying new training data to training server...")
-    run(f"ssh {REMOTE_HOST} 'mkdir -p {REMOTE_REPO}/models/training/data'")
-    run(f"scp -r {TRAINING_DATA_NEW}/* {REMOTE_DATA}/")
+        print("Copying new training data to training server...")
+        run(f"ssh {REMOTE_HOST} 'mkdir -p {REMOTE_REPO}/models/training/data'")
+        run(f"scp -r {TRAINING_DATA_NEW}/* {REMOTE_DATA}/")
 
-    # --- Remote training ----------------------------------------------------
+        # --- Remote training ------------------------------------------------
 
-    print("Running training scripts remotely...")
-    for script in TRAIN_SCRIPTS:
-        print(f"-> {script}")
-        _run_remote_script(script, log_file_local, log_file_remote)
+        print("Running training scripts remotely...")
+        for script in TRAIN_SCRIPTS:
+            print(f"-> {script}")
+            _run_remote_script(script, log_file_local, log_file_remote)
 
-    # --- Artifact retrieval -------------------------------------------------
+        # --- Artifact retrieval ---------------------------------------------
 
-    print("Ensuring local staging directory exists...")
-    PATHS.ensure_staging_dirs()
+        print("Ensuring local staging directory exists...")
+        PATHS.ensure_staging_dirs()
 
-    print("Copying trained artifacts into staging...")
-    run(f"scp -r {REMOTE_ARTIFACTS}/* {PATHS.staging_dir}/")
+        print("Copying trained artifacts into staging...")
+        run(f"scp -r {REMOTE_ARTIFACTS}/* {PATHS.staging_dir}/")
 
-    # --- VM deallocation (always runs) --------------------------------------
+        # --- VM deallocation (always runs) ----------------------------------
 
-    print("Deallocating training VM...")
-    _deallocate_vm()
+        print("Deallocating training VM...")
+        _deallocate_vm()
 
-    # --- Quality gate -------------------------------------------------------
+        # --- Quality gate ---------------------------------------------------
 
-    print("Evaluating deployment quality gate...")
-    decision = evaluate()
+        print("Evaluating deployment quality gate...")
+        decision = evaluate()
 
-    print(f"Gate decision: {'APPROVED' if decision.approved else 'REJECTED'}")
-    print(f"Reason: {decision.reason}")
+        print(f"Gate decision: {'APPROVED' if decision.approved else 'REJECTED'}")
+        print(f"Reason: {decision.reason}")
 
-    if not decision.approved:
+        if not decision.approved:
+            notify(
+                "fail",
+                "Training gate rejected — production untouched",
+                body=decision.reason,
+            )
+            print("Gate rejected. Exiting without promoting. Active version unchanged.")
+            sys.exit(1)
+
+        # --- Promotion ------------------------------------------------------
+
+        print(f"Promoting staging to version '{version_id}'...")
+        manifest = promote_staging(version_id)
+
+        print("Writing reload signal for Gunicorn workers...")
+        _write_reload_signal()
+
+        print(f"Retiring old versions (keeping {_VERSIONS_TO_KEEP})...")
+        retire_old_versions(keep=_VERSIONS_TO_KEEP)
+
+        # --- Training data rotation -----------------------------------------
+
+        print("Replacing local training data with new export...")
+        for file in TRAINING_DATA_MAIN.glob("*"):
+            if file.is_file():
+                file.unlink()
+        for file in TRAINING_DATA_NEW.glob("*"):
+            shutil.move(str(file), TRAINING_DATA_MAIN)
+
+        # --- Meilisearch update ---------------------------------------------
+
+        print("Updating bayes_pop in Meilisearch...")
+        run(f"python {PROJECT_ROOT}/ops/meilisearch/update_bayes_pop.py")
+
+    except Exception as exc:
         notify(
             "fail",
-            "Training gate rejected — production untouched",
-            body=decision.reason,
-            log_tail=None,
+            "Training pipeline crashed",
+            body=f"{type(exc).__name__}: {exc}",
+            log_tail=_read_tail(log_file_local),
         )
-        print("Gate rejected. Exiting without promoting. Active version unchanged.")
-        sys.exit(1)
-
-    # --- Promotion ----------------------------------------------------------
-
-    print(f"Promoting staging to version '{version_id}'...")
-    manifest = promote_staging(version_id)
-
-    print("Writing reload signal for Gunicorn workers...")
-    _write_reload_signal()
-
-    print(f"Retiring old versions (keeping {_VERSIONS_TO_KEEP})...")
-    retire_old_versions(keep=_VERSIONS_TO_KEEP)
-
-    # --- Training data rotation ---------------------------------------------
-
-    print("Replacing local training data with new export...")
-    for file in TRAINING_DATA_MAIN.glob("*"):
-        if file.is_file():
-            file.unlink()
-    for file in TRAINING_DATA_NEW.glob("*"):
-        shutil.move(str(file), TRAINING_DATA_MAIN)
-
-    # --- Meilisearch update -------------------------------------------------
-
-    print("Updating bayes_pop in Meilisearch...")
-    run(f"python {PROJECT_ROOT}/ops/meilisearch/update_bayes_pop.py")
+        raise
 
     # --- Success notification -----------------------------------------------
 
-    recall_str = f"Recall@30={decision.staging_recall:.4f}" if decision.staging_recall else ""
-    notify(
-        "ok",
-        "Training pipeline succeeded",
-        body=f"Version: {manifest.version_id}  {recall_str}",
-    )
+    if _NOTIFY_ON_SUCCESS:
+        recall_str = f"Recall@30={decision.staging_recall:.4f}" if decision.staging_recall else ""
+        notify(
+            "ok",
+            "Training pipeline succeeded",
+            body=f"Version: {manifest.version_id}  {recall_str}",
+        )
 
     print(f"Done. Version '{manifest.version_id}' is now active.")
     print(f"Logs saved to: {log_file_local}")
