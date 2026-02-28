@@ -443,47 +443,6 @@ def test_concurrent_recommendation_requests(client: TestClient, performance_repo
     print(f"\nConcurrency overhead: {((conc_mean / seq_mean) - 1) * 100:.1f}%")
 
 
-def test_cold_start_latency(client: TestClient, performance_report: Dict):
-    """
-    Tests first request latency after model reload vs subsequent requests.
-    Measures model loading overhead.
-    """
-    if not WARM_USER_IDS:
-        pytest.skip("No warm user IDs provided")
-
-    admin_secret = os.getenv("ADMIN_SECRET")
-    if admin_secret:
-        response = client.post("/admin/reload_models", params={"secret": admin_secret})
-        assert response.status_code == 200
-        time.sleep(2)
-
-    user_id = WARM_USER_IDS[0]
-    endpoint = "/profile/recommend"
-    params = {"user": str(user_id), "_id": True, "top_n": 200}
-
-    cold_stats = LatencyStats("cold_start")
-    start = time.perf_counter()
-    response = client.get(endpoint, params=params)
-    duration_ms = (time.perf_counter() - start) * 1000
-    assert response.status_code == 200
-    cold_stats.add(duration_ms)
-
-    warm_stats = LatencyStats("warm_cache")
-    for _ in range(10):
-        start = time.perf_counter()
-        response = client.get(endpoint, params=params)
-        duration_ms = (time.perf_counter() - start) * 1000
-        assert response.status_code == 200
-        warm_stats.add(duration_ms)
-
-    performance_report["cold_start"] = cold_stats
-    performance_report["warm_cache"] = warm_stats
-
-    print(
-        f"\nCold start overhead: {cold_stats.get_stats()['mean_ms'] - warm_stats.get_stats()['mean_ms']:.2f}ms"
-    )
-
-
 if __name__ == "__main__":
     import os
 

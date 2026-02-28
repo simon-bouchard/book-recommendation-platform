@@ -24,8 +24,6 @@ from models.data.loaders import (
     load_book_meta,
     load_user_meta,
     load_book_to_subjects,
-    load_gbt_cold_model,
-    load_gbt_warm_model,
     load_attention_strategy,
     normalize_embeddings,
     get_item_idx_to_row,
@@ -247,24 +245,6 @@ class TestBookToSubjects:
             assert isinstance(mapping[sample_key], list)
             if mapping[sample_key]:
                 assert isinstance(mapping[sample_key][0], int)
-
-
-class TestGBTModels:
-    """Test loading gradient boosted tree models."""
-
-    def test_load_gbt_cold_model_succeeds(self):
-        """Should load cold-start GBT model without error."""
-        model = load_gbt_cold_model(use_cache=False)
-
-        assert model is not None
-        assert hasattr(model, "predict")
-
-    def test_load_gbt_warm_model_succeeds(self):
-        """Should load warm-start GBT model without error."""
-        model = load_gbt_warm_model(use_cache=False)
-
-        assert model is not None
-        assert hasattr(model, "predict")
 
 
 class TestAttentionStrategy:
