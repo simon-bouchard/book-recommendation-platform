@@ -166,6 +166,33 @@ class ALSModel:
 
         return recommendations
 
+    def score(self, user_id: int, k: int) -> Tuple[np.ndarray, np.ndarray]:
+        """
+        Compute ALS recommendation scores for a user and return the top-k.
+
+        Args:
+            user_id: User to score books for.
+            k: Number of results to return.
+
+        Returns:
+            Tuple of (item_ids, scores) as numpy arrays of length <= k,
+            ordered by descending score. Both arrays are empty if the user
+            has no ALS factors or k <= 0.
+        """
+        if not self.has_user(user_id) or k <= 0:
+            return np.array([], dtype=np.int64), np.array([], dtype=np.float32)
+
+        user_row = self.user_id_to_row[user_id]
+        user_vec = self.user_factors[user_row]
+
+        raw_scores = self.book_factors @ user_vec
+        top_indices = np.argsort(-raw_scores)[:k]
+
+        item_ids = np.array([self.book_row_to_id[int(i)] for i in top_indices], dtype=np.int64)
+        scores = raw_scores[top_indices].astype(np.float32)
+
+        return item_ids, scores
+
     def get_user_factors(self, user_id: int) -> Optional[np.ndarray]:
         """
         Get latent factors for a specific user.
