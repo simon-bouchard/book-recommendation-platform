@@ -5,6 +5,7 @@ Replaces the monolithic ModelStore with focused, cacheable loading functions.
 """
 
 import json
+import pickle
 from typing import Tuple, Optional, Dict, List
 from collections import defaultdict
 
@@ -166,11 +167,13 @@ def has_book_als(item_idx: int) -> bool:
     return int(item_idx) in _CACHE[cache_key]
 
 
-def load_bayesian_scores(use_cache: bool = True) -> np.ndarray:
+def load_bayesian_scores(normalized: bool = False, use_cache: bool = True) -> np.ndarray:
     """
     Load precomputed Bayesian popularity scores.
 
     Args:
+        normalized: If True, return min-max normalized scores in [0, 1].
+                   Normalized scores are cached separately from raw scores.
         use_cache: If True, cache loaded scores in memory
 
     Returns:
@@ -180,15 +183,29 @@ def load_bayesian_scores(use_cache: bool = True) -> np.ndarray:
         FileNotFoundError: If scores file doesn't exist
     """
     cache_key = "bayesian_scores"
+    cache_key_norm = "bayesian_scores_normalized"
 
     if use_cache and cache_key in _CACHE:
-        return _CACHE[cache_key]
+        scores = _CACHE[cache_key]
+    else:
+        scores = np.load(PATHS.bayesian_scores)
+        scores = np.nan_to_num(scores, nan=0.0, posinf=0.0, neginf=0.0)
 
-    scores = np.load(PATHS.bayesian_scores)
-    scores = np.nan_to_num(scores, nan=0.0, posinf=0.0, neginf=0.0)
+        if use_cache:
+            _CACHE[cache_key] = scores
 
-    if use_cache:
-        _CACHE[cache_key] = scores
+    if normalized:
+        if use_cache and cache_key_norm in _CACHE:
+            return _CACHE[cache_key_norm]
+
+        lo, hi = scores.min(), scores.max()
+        norm_scores = (scores - lo) / (hi - lo) if hi > lo else np.ones_like(scores)
+        norm_scores = norm_scores.astype(np.float32)
+
+        if use_cache:
+            _CACHE[cache_key_norm] = norm_scores
+
+        return norm_scores
 
     return scores
 
@@ -351,6 +368,7 @@ def preload_all_artifacts():
     load_als_factors(normalized=False, use_cache=True)
     load_als_factors(normalized=True, use_cache=True)
     load_bayesian_scores(use_cache=True)
+    load_bayesian_scores(normalized=True, use_cache=True)
     load_book_meta(use_cache=True)
     load_user_meta(use_cache=True)
     load_book_to_subjects(use_cache=True)

@@ -226,6 +226,83 @@ class HybridGenerator(CandidateGenerator):
         return f"hybrid({'+'.join(source_names)})"
 
 
+class JointSubjectGenerator(CandidateGenerator):
+    """
+    Generate candidates via joint scoring over all books in a single pass.
+
+    Blends cosine similarity between the user embedding and every book's
+    subject embedding with pre-normalized Bayesian popularity scores:
+
+        score = alpha * cosine_score + (1 - alpha) * bayesian_score
+
+    Cosine scores are min-max normalized inline before blending so both
+    components operate on the same [0, 1] scale. Bayesian scores are
+    normalized once at load time and cached.
+
+    This approach avoids the recall loss of the two-list merge pattern:
+    a book with a moderate cosine score but high Bayesian score will be
+    correctly ranked in the blended output because it is never dropped
+    from the candidate pool during retrieval.
+    """
+
+    def __init__(self, alpha: float = 0.6):
+        """
+        Initialize the joint subject generator.
+
+        Heavy data (embeddings, normalized Bayesian scores) is loaded from
+        the module-level cache. Only the alpha scalar is instance-specific,
+        so instances are cheap to create per request.
+
+        Args:
+            alpha: Weight for cosine similarity; (1 - alpha) is the
+                   Bayesian popularity weight. Must be in [0, 1].
+        """
+        if not 0.0 <= alpha <= 1.0:
+            raise ValueError(f"alpha must be in [0, 1], got {alpha}")
+
+        self.alpha = alpha
+        self._embeddings, self._book_ids = load_book_subject_embeddings(
+            normalized=True, use_cache=True
+        )
+        self._bayesian_norm = load_bayesian_scores(normalized=True, use_cache=True)
+        self._embedder = SubjectEmbedder()
+
+    def generate(self, user: User, k: int) -> List[Candidate]:
+        if not user.has_preferences:
+            return []
+
+        if k <= 0:
+            return []
+
+        user_vec = self._embedder.embed(user.fav_subjects).astype(np.float32)
+        cosine_scores = self._embeddings @ user_vec
+
+        lo, hi = cosine_scores.min(), cosine_scores.max()
+        if hi > lo:
+            cosine_norm = (cosine_scores - lo) / (hi - lo)
+        else:
+            cosine_norm = np.ones_like(cosine_scores)
+
+        blended = self.alpha * cosine_norm + (1.0 - self.alpha) * self._bayesian_norm
+
+        search_k = min(k, len(blended))
+        top_rows = np.argpartition(-blended, search_k - 1)[:search_k]
+        top_rows = top_rows[np.argsort(-blended[top_rows])]
+
+        return [
+            Candidate(
+                item_idx=int(self._book_ids[row]),
+                score=float(blended[row]),
+                source=self.name,
+            )
+            for row in top_rows
+        ]
+
+    @property
+    def name(self) -> str:
+        return "joint_subject"
+
+
 _subject_generator = None
 _als_generator = None
 _popularity_generator = None
@@ -286,3 +363,19 @@ def create_hybrid_generator(
         raise ValueError("At least one weight must be > 0")
 
     return HybridGenerator(generators)
+
+
+def create_joint_subject_generator(alpha: float = 0.6) -> JointSubjectGenerator:
+    """
+    Create a JointSubjectGenerator with the given blend weight.
+
+    Not cached because alpha varies per request. The generator is cheap
+    to instantiate — it holds references to cached arrays, not copies.
+
+    Args:
+        alpha: Subject similarity weight; popularity weight is (1 - alpha).
+
+    Returns:
+        JointSubjectGenerator instance ready for candidate generation.
+    """
+    return JointSubjectGenerator(alpha=alpha)

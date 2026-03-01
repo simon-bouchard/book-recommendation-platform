@@ -13,10 +13,9 @@ from models.domain.config import RecommendationConfig
 from models.domain.recommendation import Candidate, RecommendedBook
 from models.domain.pipeline import RecommendationPipeline
 from models.domain.candidate_generation import (
-    get_subject_generator,
     get_als_generator,
     get_popularity_generator,
-    create_hybrid_generator,
+    create_joint_subject_generator,
 )
 from models.domain.filters import get_read_books_filter
 from models.domain.rankers import get_noop_ranker
@@ -94,9 +93,8 @@ class RecommendationService:
             fallback_generator = get_popularity_generator()
 
         elif config.mode == "subject":
-            primary_generator = create_hybrid_generator(
-                subject_weight=config.hybrid_config.subject_weight,
-                popularity_weight=config.hybrid_config.popularity_weight,
+            primary_generator = create_joint_subject_generator(
+                alpha=config.hybrid_config.subject_weight,
             )
             fallback_generator = get_popularity_generator()
 
@@ -106,9 +104,8 @@ class RecommendationService:
                 primary_generator = get_als_generator()
                 fallback_generator = get_popularity_generator()
             elif user.has_preferences:
-                primary_generator = create_hybrid_generator(
-                    subject_weight=config.hybrid_config.subject_weight,
-                    popularity_weight=config.hybrid_config.popularity_weight,
+                primary_generator = create_joint_subject_generator(
+                    alpha=config.hybrid_config.subject_weight,
                 )
                 fallback_generator = get_popularity_generator()
             else:
