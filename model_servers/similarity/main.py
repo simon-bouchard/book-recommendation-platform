@@ -1,0 +1,284 @@
+# model_servers/similarity/main.py
+"""
+Unified similarity model server.
+
+Owns normalized subject embeddings, normalized ALS factors, both FAISS indices,
+the subject/ALS alignment map, and Bayesian scores. All four operations share
+this process because hybrid_sim requires both embedding matrices simultaneously
+— splitting them would force data duplication or a degraded two-list merge.
+"""
+
+import logging
+import os
+import time
+from contextlib import asynccontextmanager
+
+from fastapi import FastAPI, HTTPException
+
+from model_servers._shared.contracts import (
+    AlsSimRequest,
+    HasBookAlsRequest,
+    HasBookAlsResponse,
+    HealthResponse,
+    HybridSimRequest,
+    ScoredItem,
+    SimResponse,
+    SubjectRecsRequest,
+    SubjectRecsResponse,
+    SubjectSimRequest,
+)
+from models.core.reload_poller import ModelReloadPoller
+from models.infrastructure.hybrid_scorer import HybridScorer
+from models.infrastructure.similarity_indices import (
+    get_als_similarity_index,
+    get_subject_similarity_index,
+    reset_indices,
+)
+from models.infrastructure.subject_scorer import SubjectScorer
+
+logger = logging.getLogger(__name__)
+
+_SERVER_NAME = "similarity"
+
+
+def _get_artifact_version() -> str:
+    pointer_path = os.environ.get("MODEL_VERSION_POINTER", "")
+    if pointer_path and os.path.exists(pointer_path):
+        try:
+            with open(pointer_path) as f:
+                return f.read().strip()
+        except OSError:
+            pass
+    return "unknown"
+
+
+def _load_artifacts() -> None:
+    """
+    Initialize all artifacts owned by this server.
+
+    FAISS indices are built first because their factory functions pull the
+    embedding arrays into the loader cache as a side effect. HybridScorer
+    and SubjectScorer then build from those cached arrays, avoiding redundant
+    disk reads.
+    """
+    logger.info("Loading similarity server artifacts...")
+    start = time.monotonic()
+
+    get_subject_similarity_index()
+    get_als_similarity_index()
+    HybridScorer()
+    SubjectScorer()
+
+    elapsed_ms = (time.monotonic() - start) * 1000
+    logger.info("Similarity server artifacts loaded in %.0fms", elapsed_ms)
+
+
+def _reload_artifacts() -> None:
+    """Clear all owned artifacts and reload from disk."""
+    from models.data.loaders import clear_cache
+
+    logger.info("Reloading similarity server artifacts...")
+    start = time.monotonic()
+
+    HybridScorer.reset()
+    SubjectScorer.reset()
+    reset_indices()
+    clear_cache()
+
+    get_subject_similarity_index()
+    get_als_similarity_index()
+    HybridScorer()
+    SubjectScorer()
+
+    elapsed_ms = (time.monotonic() - start) * 1000
+    logger.info("Similarity server artifacts reloaded in %.0fms", elapsed_ms)
+
+
+class _SimilarityReloadPoller(ModelReloadPoller):
+    """Reload poller bound to the similarity server's artifact set."""
+
+    async def _reload_models(self) -> None:
+        _reload_artifacts()
+
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    """Load artifacts and start reload poller on startup; stop on shutdown."""
+    _load_artifacts()
+
+    poller = _SimilarityReloadPoller()
+    await poller.start()
+
+    yield
+
+    await poller.stop()
+
+
+app = FastAPI(
+    title="Similarity Model Server",
+    description=(
+        "Subject similarity, ALS similarity, hybrid similarity, and subject-based recommendations."
+    ),
+    version="1.0.0",
+    lifespan=lifespan,
+)
+
+
+# ===========================================================================
+# Health
+# ===========================================================================
+
+
+@app.get("/health", response_model=HealthResponse)
+def health() -> HealthResponse:
+    """
+    Liveness and readiness check.
+
+    HybridScorer is the last artifact initialized on startup, so its
+    presence confirms all other artifacts are also ready.
+    """
+    if HybridScorer._instance is None:
+        raise HTTPException(status_code=503, detail="Similarity server not initialized")
+
+    return HealthResponse(
+        status="ok",
+        server=_SERVER_NAME,
+        artifact_version=_get_artifact_version(),
+    )
+
+
+# ===========================================================================
+# Book ALS membership
+# ===========================================================================
+
+
+@app.post("/has_book_als", response_model=HasBookAlsResponse)
+def has_book_als(request: HasBookAlsRequest) -> HasBookAlsResponse:
+    """
+    Check whether a book has a normalized ALS factor in this server's index.
+
+    Uses the ALS similarity index's full item set, which covers all books that
+    have ALS factors regardless of the rating-count threshold applied to the
+    candidate pool. A book absent here will contribute zero ALS signal to
+    hybrid_sim and will return empty results from als_sim.
+    """
+    return HasBookAlsResponse(
+        item_idx=request.item_idx,
+        has_als=get_als_similarity_index().has_item(request.item_idx),
+    )
+
+
+# ===========================================================================
+# Subject similarity
+# ===========================================================================
+
+
+@app.post("/subject_sim", response_model=SimResponse)
+def subject_sim(request: SubjectSimRequest) -> SimResponse:
+    """
+    HNSW nearest-neighbour lookup in the subject embedding space.
+
+    Any item_idx can be queried. No rating threshold on the candidate pool.
+    Returns empty results if item_idx has no subject embedding.
+    """
+    try:
+        scores, item_ids = get_subject_similarity_index().search(
+            query_item_id=request.item_idx, k=request.k, exclude_query=True
+        )
+        return SimResponse(
+            results=[
+                ScoredItem(item_idx=int(iid), score=float(s)) for iid, s in zip(item_ids, scores)
+            ]
+        )
+    except Exception as e:
+        logger.error("subject_sim failed for item %d: %s", request.item_idx, e, exc_info=True)
+        raise HTTPException(status_code=500, detail="Subject similarity search failed")
+
+
+# ===========================================================================
+# ALS similarity
+# ===========================================================================
+
+
+@app.post("/als_sim", response_model=SimResponse)
+def als_sim(request: AlsSimRequest) -> SimResponse:
+    """
+    HNSW nearest-neighbour lookup in the ALS factor space.
+
+    Candidate pool is restricted to books with 10+ ratings, enforced at
+    index build time. Returns empty results if item_idx has no ALS factors.
+    """
+    try:
+        scores, item_ids = get_als_similarity_index().search(
+            query_item_id=request.item_idx, k=request.k, exclude_query=True
+        )
+        return SimResponse(
+            results=[
+                ScoredItem(item_idx=int(iid), score=float(s)) for iid, s in zip(item_ids, scores)
+            ]
+        )
+    except Exception as e:
+        logger.error("als_sim failed for item %d: %s", request.item_idx, e, exc_info=True)
+        raise HTTPException(status_code=500, detail="ALS similarity search failed")
+
+
+# ===========================================================================
+# Hybrid similarity
+# ===========================================================================
+
+
+@app.post("/hybrid_sim", response_model=SimResponse)
+def hybrid_sim(request: HybridSimRequest) -> SimResponse:
+    """
+    Single-pass joint matmul over subject and ALS embedding matrices.
+
+    Score = (1 - alpha) * subject_cosine + alpha * als_cosine.
+    Books without ALS factors receive a zero ALS contribution.
+    Returns empty results if item_idx has no subject embedding.
+    """
+    try:
+        item_ids, scores = HybridScorer().score(
+            item_idx=request.item_idx,
+            k=request.k,
+            alpha=request.alpha,
+        )
+        return SimResponse(
+            results=[
+                ScoredItem(item_idx=int(iid), score=float(s)) for iid, s in zip(item_ids, scores)
+            ]
+        )
+    except Exception as e:
+        logger.error("hybrid_sim failed for item %d: %s", request.item_idx, e, exc_info=True)
+        raise HTTPException(status_code=500, detail="Hybrid similarity search failed")
+
+
+# ===========================================================================
+# Subject recommendations
+# ===========================================================================
+
+
+@app.post("/subject_recs", response_model=SubjectRecsResponse)
+def subject_recs(request: SubjectRecsRequest) -> SubjectRecsResponse:
+    """
+    Joint scoring over all book subject embeddings and Bayesian popularity scores.
+
+    Score = alpha * normalize(cosine_scores) + (1 - alpha) * normalize(bayesian_scores).
+    The user_vector must be L2-normalized (as returned by the embedder server).
+    """
+    try:
+        import numpy as np
+
+        user_vec = np.array(request.user_vector, dtype="float32")
+        item_ids, scores = SubjectScorer().score(
+            user_vector=user_vec,
+            k=request.k,
+            alpha=request.alpha,
+        )
+        return SubjectRecsResponse(
+            results=[
+                ScoredItem(item_idx=int(iid), score=float(s)) for iid, s in zip(item_ids, scores)
+            ]
+        )
+    except Exception as e:
+        logger.error("subject_recs failed: %s", e, exc_info=True)
+        raise HTTPException(status_code=500, detail="Subject recommendations failed")
