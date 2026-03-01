@@ -21,7 +21,12 @@ class ModelReloadPoller:
     Safe to run in multiple workers - each tracks its own last reload timestamp.
     """
 
-    SIGNAL_FILE = Path(__file__).parent.parent.parent / "models" / "data" / ".reload_signal"
+    SIGNAL_FILE = Path(
+        os.environ.get(
+            "MODEL_RELOAD_SIGNAL_FILE",
+            str(Path(__file__).parent.parent.parent / "models" / "data" / ".reload_signal"),
+        )
+    )
     POLL_INTERVAL = 30.0
 
     def __init__(self):
