@@ -3,9 +3,7 @@
 Metadata model server.
 
 Owns the book metadata DataFrame and Bayesian popularity scores. Provides book
-enrichment and popular books retrieval. Subject search is not implemented here
-and will be added as a separate service when a sentence-transformer-based
-approach replaces the TF-IDF design.
+enrichment and popular books retrieval. 
 """
 
 import logging
