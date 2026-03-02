@@ -25,6 +25,7 @@ from app.search.search_utils import update_book_ratings_in_meili
 from app.search.models import SearchRequest, SearchMode
 from app.search.engine import SearchEngine
 from app.search.search_utils import _build_search_request
+from models.client.registry import get_similarity_client
 
 # New refactored imports
 from models.infrastructure.als_model import ALSModel
@@ -369,7 +370,7 @@ async def book_recommendation(
         if interaction and (interaction.rating is not None or interaction.comment):
             user_rating = {"rating": interaction.rating, "comment": interaction.comment}
 
-    has_als = ALSModel().has_book(book.item_idx)
+    has_als = (await get_similarity_client().has_book_als(book.item_idx)).has_als
 
     return templates.TemplateResponse(
         "book.html",
