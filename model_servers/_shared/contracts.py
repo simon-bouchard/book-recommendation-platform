@@ -156,17 +156,30 @@ class SubjectRecsResponse(BaseModel):
 # ===========================================================================
 
 
-class HasUserRequest(BaseModel):
+class HasAlsUserRequest(BaseModel):
     """Check whether a user has ALS factors (warm/cold gate)."""
 
     user_id: int
 
 
-class HasUserResponse(BaseModel):
-    """Result of the warm/cold gate check."""
+class HasAlsUserResponse(BaseModel):
+    """Result of the warm/cold user gate check."""
 
     user_id: int
     is_warm: bool
+
+
+class HasBookAlsRequest(BaseModel):
+    """Check whether a book has a normalized ALS factor in the similarity server."""
+
+    item_idx: int
+
+
+class HasBookAlsResponse(BaseModel):
+    """Result of the book ALS membership check."""
+
+    item_idx: int
+    has_als: bool
 
 
 class AlsRecsRequest(BaseModel):
