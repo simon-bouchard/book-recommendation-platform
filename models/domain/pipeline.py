@@ -57,7 +57,7 @@ class RecommendationPipeline:
         self.filter = filter or NoFilter()
         self.ranker = ranker or NoOpRanker()
 
-    def recommend(self, user: User, k: int, db: Session = None) -> List[Candidate]:
+    async def recommend(self, user: User, k: int, db: Session = None) -> List[Candidate]:
         """
         Generate recommendations for a user.
 
@@ -81,11 +81,11 @@ class RecommendationPipeline:
 
         # Generate candidates (request 2x k to account for filtering)
         buffer_k = max(k * 2, 500)
-        candidates = self.generator.generate(user, buffer_k)
+        candidates = await self.generator.generate(user, buffer_k)
 
         # Fallback if primary generator returned nothing
         if not candidates and self.fallback_generator is not None:
-            candidates = self.fallback_generator.generate(user, buffer_k)
+            candidates = await self.fallback_generator.generate(user, buffer_k)
 
         # No candidates available
         if not candidates:
