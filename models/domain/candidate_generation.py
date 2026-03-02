@@ -12,17 +12,19 @@ from typing import List, Optional
 
 from models.domain.recommendation import Candidate
 from models.domain.user import User
-from models.infrastructure.subject_embedder import SubjectEmbedder
-from models.infrastructure.subject_scorer import SubjectScorer
-from models.infrastructure.als_model import ALSModel
-from models.infrastructure.popularity_scorer import PopularityScorer
+from models.client.registry import (
+    get_embedder_client,
+    get_similarity_client,
+    get_als_client,
+    get_metadata_client,
+)
 
 
 class CandidateGenerator(ABC):
     """Abstract base class for candidate generation strategies."""
 
     @abstractmethod
-    def generate(self, user: User, k: int) -> List[Candidate]:
+    async def generate(self, user: User, k: int) -> List[Candidate]:
         pass
 
     @property
@@ -49,19 +51,20 @@ class JointSubjectGenerator(CandidateGenerator):
             raise ValueError(f"alpha must be in [0, 1], got {alpha}")
 
         self.alpha = alpha
-        self._embedder = SubjectEmbedder()
-        self._scorer = SubjectScorer()
 
-    def generate(self, user: User, k: int) -> List[Candidate]:
+    async def generate(self, user: User, k: int) -> List[Candidate]:
         if not user.has_preferences or k <= 0:
             return []
 
-        user_vec = self._embedder.embed(user.fav_subjects)
-        item_ids, scores = self._scorer.score(user_vec, k=k, alpha=self.alpha)
+        embed_resp = await get_embedder_client().embed(user.fav_subjects)
+
+        recs_resp = await get_similarity_client().subject_recs(
+            embed_resp.vector, k=k, alpha=self.alpha
+        )
 
         return [
-            Candidate(item_idx=int(iid), score=float(s), source=self.name)
-            for iid, s in zip(item_ids, scores)
+            Candidate(item_idx=r.item_idx, score=r.score, source=self.name)
+            for r in recs_resp.results
         ]
 
     @property
@@ -72,18 +75,17 @@ class JointSubjectGenerator(CandidateGenerator):
 class ALSBasedGenerator(CandidateGenerator):
     """Warm-user candidates via ALS collaborative filtering."""
 
-    def __init__(self, als_model: Optional[ALSModel] = None):
-        self._als = als_model or ALSModel()
+    def __init__(self):
+        pass
 
-    def generate(self, user: User, k: int) -> List[Candidate]:
+    async def generate(self, user: User, k: int) -> List[Candidate]:
         if k <= 0:
             return []
 
-        item_ids, scores = self._als.score(user.user_id, k=k)
+        resp = await get_als_client().als_recs(user.user_id, k=k)
 
         return [
-            Candidate(item_idx=int(iid), score=float(s), source=self.name)
-            for iid, s in zip(item_ids, scores)
+            Candidate(item_idx=r.item_idx, score=r.score, source=self.name) for r in resp.results
         ]
 
     @property
@@ -94,18 +96,18 @@ class ALSBasedGenerator(CandidateGenerator):
 class PopularityBasedGenerator(CandidateGenerator):
     """Fallback candidates ranked by Bayesian popularity score."""
 
-    def __init__(self, scorer: Optional[PopularityScorer] = None):
-        self._scorer = scorer or PopularityScorer()
+    def __init__(self):
+        pass
 
-    def generate(self, user: User, k: int) -> List[Candidate]:
+    async def generate(self, user: User, k: int) -> List[Candidate]:
         if k <= 0:
             return []
 
-        item_ids, scores = self._scorer.top_k(k=k)
+        resp = await get_metadata_client().popular(k=k)
 
         return [
-            Candidate(item_idx=int(iid), score=float(s), source=self.name)
-            for iid, s in zip(item_ids, scores)
+            Candidate(item_idx=b.item_idx, score=b.bayes_score or 0.0, source=self.name)
+            for b in resp.books
         ]
 
     @property
