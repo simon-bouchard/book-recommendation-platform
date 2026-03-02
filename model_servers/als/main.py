@@ -1,11 +1,11 @@
-# model_servers/similarity/main.py
+# model_servers/als/main.py
 """
-Unified similarity model server.
+ALS recommendation model server.
 
-Owns normalized subject embeddings, normalized ALS factors, both FAISS indices,
-the subject/ALS alignment map, and Bayesian scores. All four operations share
-this process because hybrid_sim requires both embedding matrices simultaneously
-— splitting them would force data duplication or a degraded two-list merge.
+Owns raw (non-normalized) user and book ALS factors. Normalization would change
+the semantics of the dot product — factor magnitudes encode predicted interaction
+strength and must be preserved. The similarity server holds a separate normalized
+copy for cosine similarity; the two representations cannot be shared.
 """
 
 import logging
@@ -16,32 +16,28 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI, HTTPException
 
 from model_servers._shared.contracts import (
-    AlsSimRequest,
-    HasBookAlsRequest,
-    HasBookAlsResponse,
+    AlsRecsRequest,
+    AlsRecsResponse,
+    HasAlsUserRequest,
+    HasAlsUserResponse,
     HealthResponse,
-    HybridSimRequest,
     ScoredItem,
-    SimResponse,
-    SubjectRecsRequest,
-    SubjectRecsResponse,
-    SubjectSimRequest,
 )
 from models.core.reload_poller import ModelReloadPoller
-from models.infrastructure.hybrid_scorer import HybridScorer
-from models.infrastructure.similarity_indices import (
-    get_als_similarity_index,
-    get_subject_similarity_index,
-    reset_indices,
-)
-from models.infrastructure.subject_scorer import SubjectScorer
+from models.infrastructure.als_model import ALSModel
 
 logger = logging.getLogger(__name__)
 
-_SERVER_NAME = "similarity"
+_SERVER_NAME = "als"
 
 
 def _get_artifact_version() -> str:
+    """
+    Read the current artifact version string from the version pointer file.
+
+    Returns 'unknown' if the pointer file is absent, which prevents a missing
+    file from blocking the health check.
+    """
     pointer_path = os.environ.get("MODEL_VERSION_POINTER", "")
     if pointer_path and os.path.exists(pointer_path):
         try:
@@ -54,48 +50,42 @@ def _get_artifact_version() -> str:
 
 def _load_artifacts() -> None:
     """
-    Initialize all artifacts owned by this server.
+    Force-initialize the ALSModel singleton.
 
-    FAISS indices are built first because their factory functions pull the
-    embedding arrays into the loader cache as a side effect. HybridScorer
-    and SubjectScorer then build from those cached arrays, avoiding redundant
-    disk reads.
+    ALSModel() with no arguments triggers disk loading of raw user and book
+    factors via load_als_factors(normalized=False). Subsequent calls within
+    this process return the cached instance at no cost.
     """
-    logger.info("Loading similarity server artifacts...")
+    logger.info("Loading ALS server artifacts...")
     start = time.monotonic()
-
-    get_subject_similarity_index()
-    get_als_similarity_index()
-    HybridScorer()
-    SubjectScorer()
-
+    ALSModel()
     elapsed_ms = (time.monotonic() - start) * 1000
-    logger.info("Similarity server artifacts loaded in %.0fms", elapsed_ms)
+    logger.info("ALS server artifacts loaded in %.0fms", elapsed_ms)
 
 
 def _reload_artifacts() -> None:
-    """Clear all owned artifacts and reload from disk."""
+    """
+    Clear the ALSModel singleton and reload from disk.
+
+    Called by the reload poller when a new ALS training signal is detected.
+    The loader cache is also cleared so the new factor files are read rather
+    than the old cached arrays.
+    """
     from models.data.loaders import clear_cache
 
-    logger.info("Reloading similarity server artifacts...")
+    logger.info("Reloading ALS server artifacts...")
     start = time.monotonic()
 
-    HybridScorer.reset()
-    SubjectScorer.reset()
-    reset_indices()
+    ALSModel.reset()
     clear_cache()
-
-    get_subject_similarity_index()
-    get_als_similarity_index()
-    HybridScorer()
-    SubjectScorer()
+    ALSModel()
 
     elapsed_ms = (time.monotonic() - start) * 1000
-    logger.info("Similarity server artifacts reloaded in %.0fms", elapsed_ms)
+    logger.info("ALS server artifacts reloaded in %.0fms", elapsed_ms)
 
 
-class _SimilarityReloadPoller(ModelReloadPoller):
-    """Reload poller bound to the similarity server's artifact set."""
+class _ALSReloadPoller(ModelReloadPoller):
+    """Reload poller bound to the ALS server's artifact set."""
 
     async def _reload_models(self) -> None:
         _reload_artifacts()
@@ -106,7 +96,7 @@ async def lifespan(app: FastAPI):
     """Load artifacts and start reload poller on startup; stop on shutdown."""
     _load_artifacts()
 
-    poller = _SimilarityReloadPoller()
+    poller = _ALSReloadPoller()
     await poller.start()
 
     yield
@@ -115,9 +105,10 @@ async def lifespan(app: FastAPI):
 
 
 app = FastAPI(
-    title="Similarity Model Server",
+    title="ALS Recommendation Model Server",
     description=(
-        "Subject similarity, ALS similarity, hybrid similarity, and subject-based recommendations."
+        "Collaborative filtering recommendations via raw ALS dot product. "
+        "Factor magnitudes carry semantic meaning and are never normalized."
     ),
     version="1.0.0",
     lifespan=lifespan,
@@ -134,11 +125,11 @@ def health() -> HealthResponse:
     """
     Liveness and readiness check.
 
-    HybridScorer is the last artifact initialized on startup, so its
-    presence confirms all other artifacts are also ready.
+    Returns 503 if the ALSModel singleton has not been initialized, covering
+    the startup window and any failed reload.
     """
-    if HybridScorer._instance is None:
-        raise HTTPException(status_code=503, detail="Similarity server not initialized")
+    if ALSModel._instance is None:
+        raise HTTPException(status_code=503, detail="ALS server not initialized")
 
     return HealthResponse(
         status="ok",
@@ -148,137 +139,45 @@ def health() -> HealthResponse:
 
 
 # ===========================================================================
-# Book ALS membership
+# User ALS membership
 # ===========================================================================
 
 
-@app.post("/has_book_als", response_model=HasBookAlsResponse)
-def has_book_als(request: HasBookAlsRequest) -> HasBookAlsResponse:
+@app.post("/has_als_user", response_model=HasAlsUserResponse)
+def has_als_user(request: HasAlsUserRequest) -> HasAlsUserResponse:
     """
-    Check whether a book has a normalized ALS factor in this server's index.
+    Check whether a user has ALS factors (warm/cold gate).
 
-    Uses the ALS similarity index's full item set, which covers all books that
-    have ALS factors regardless of the rating-count threshold applied to the
-    candidate pool. A book absent here will contribute zero ALS signal to
-    hybrid_sim and will return empty results from als_sim.
+    Cold users (absent from the ALS model) should be routed to the subject
+    recommendation pipeline. Warm users may use either pipeline.
     """
-    return HasBookAlsResponse(
-        item_idx=request.item_idx,
-        has_als=get_als_similarity_index().has_item(request.item_idx),
+    return HasAlsUserResponse(
+        user_id=request.user_id,
+        is_warm=ALSModel().has_user(request.user_id),
     )
 
 
 # ===========================================================================
-# Subject similarity
+# ALS recommendations
 # ===========================================================================
 
 
-@app.post("/subject_sim", response_model=SimResponse)
-def subject_sim(request: SubjectSimRequest) -> SimResponse:
+@app.post("/als_recs", response_model=AlsRecsResponse)
+def als_recs(request: AlsRecsRequest) -> AlsRecsResponse:
     """
-    HNSW nearest-neighbour lookup in the subject embedding space.
+    Generate top-k recommendations via raw dot product: book_factors @ user_vector.
 
-    Any item_idx can be queried. No rating threshold on the candidate pool.
-    Returns empty results if item_idx has no subject embedding.
+    Returns an empty result list for cold users rather than raising an error,
+    allowing the application layer to fall back gracefully without special-casing
+    HTTP error codes.
     """
     try:
-        scores, item_ids = get_subject_similarity_index().search(
-            query_item_id=request.item_idx, k=request.k, exclude_query=True
-        )
-        return SimResponse(
+        item_ids, scores = ALSModel().score(user_id=request.user_id, k=request.k)
+        return AlsRecsResponse(
             results=[
                 ScoredItem(item_idx=int(iid), score=float(s)) for iid, s in zip(item_ids, scores)
             ]
         )
     except Exception as e:
-        logger.error("subject_sim failed for item %d: %s", request.item_idx, e, exc_info=True)
-        raise HTTPException(status_code=500, detail="Subject similarity search failed")
-
-
-# ===========================================================================
-# ALS similarity
-# ===========================================================================
-
-
-@app.post("/als_sim", response_model=SimResponse)
-def als_sim(request: AlsSimRequest) -> SimResponse:
-    """
-    HNSW nearest-neighbour lookup in the ALS factor space.
-
-    Candidate pool is restricted to books with 10+ ratings, enforced at
-    index build time. Returns empty results if item_idx has no ALS factors.
-    """
-    try:
-        scores, item_ids = get_als_similarity_index().search(
-            query_item_id=request.item_idx, k=request.k, exclude_query=True
-        )
-        return SimResponse(
-            results=[
-                ScoredItem(item_idx=int(iid), score=float(s)) for iid, s in zip(item_ids, scores)
-            ]
-        )
-    except Exception as e:
-        logger.error("als_sim failed for item %d: %s", request.item_idx, e, exc_info=True)
-        raise HTTPException(status_code=500, detail="ALS similarity search failed")
-
-
-# ===========================================================================
-# Hybrid similarity
-# ===========================================================================
-
-
-@app.post("/hybrid_sim", response_model=SimResponse)
-def hybrid_sim(request: HybridSimRequest) -> SimResponse:
-    """
-    Single-pass joint matmul over subject and ALS embedding matrices.
-
-    Score = (1 - alpha) * subject_cosine + alpha * als_cosine.
-    Books without ALS factors receive a zero ALS contribution.
-    Returns empty results if item_idx has no subject embedding.
-    """
-    try:
-        item_ids, scores = HybridScorer().score(
-            item_idx=request.item_idx,
-            k=request.k,
-            alpha=request.alpha,
-        )
-        return SimResponse(
-            results=[
-                ScoredItem(item_idx=int(iid), score=float(s)) for iid, s in zip(item_ids, scores)
-            ]
-        )
-    except Exception as e:
-        logger.error("hybrid_sim failed for item %d: %s", request.item_idx, e, exc_info=True)
-        raise HTTPException(status_code=500, detail="Hybrid similarity search failed")
-
-
-# ===========================================================================
-# Subject recommendations
-# ===========================================================================
-
-
-@app.post("/subject_recs", response_model=SubjectRecsResponse)
-def subject_recs(request: SubjectRecsRequest) -> SubjectRecsResponse:
-    """
-    Joint scoring over all book subject embeddings and Bayesian popularity scores.
-
-    Score = alpha * normalize(cosine_scores) + (1 - alpha) * normalize(bayesian_scores).
-    The user_vector must be L2-normalized (as returned by the embedder server).
-    """
-    try:
-        import numpy as np
-
-        user_vec = np.array(request.user_vector, dtype="float32")
-        item_ids, scores = SubjectScorer().score(
-            user_vector=user_vec,
-            k=request.k,
-            alpha=request.alpha,
-        )
-        return SubjectRecsResponse(
-            results=[
-                ScoredItem(item_idx=int(iid), score=float(s)) for iid, s in zip(item_ids, scores)
-            ]
-        )
-    except Exception as e:
-        logger.error("subject_recs failed: %s", e, exc_info=True)
-        raise HTTPException(status_code=500, detail="Subject recommendations failed")
+        logger.error("als_recs failed for user %d: %s", request.user_id, e, exc_info=True)
+        raise HTTPException(status_code=500, detail="ALS recommendation failed")
