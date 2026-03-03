@@ -1,14 +1,21 @@
 # tests/unit/models/services/test_recommendation_service.py
 """
 Unit tests for RecommendationService.
-Tests strategy selection, pipeline building, candidate enrichment, and logging.
+
+Architecture under test:
+  - recommend() and _enrich_candidates() are async.
+  - Strategy selection reads user.is_warm (property backed by ALSModel) and
+    user.has_preferences (pure computation on fav_subjects).
+  - Enrichment uses get_metadata_client().enrich() — no local file loaders.
+  - RecommendationPipeline is constructed per-request with singleton
+    generators/filter/ranker passed as keyword arguments.
 """
 
-import pytest
 import sys
 from pathlib import Path
-from unittest.mock import Mock, patch
-import pandas as pd
+from unittest.mock import AsyncMock, Mock, PropertyMock, patch
+
+import pytest
 
 project_root = Path(__file__).resolve().parents[4]
 if str(project_root) not in sys.path:
@@ -16,611 +23,502 @@ if str(project_root) not in sys.path:
 
 from models.services.recommendation_service import RecommendationService
 from models.domain.user import User
-from models.domain.config import RecommendationConfig, HybridConfig
+from models.domain.config import RecommendationConfig
 from models.domain.recommendation import Candidate, RecommendedBook
 from models.core.constants import PAD_IDX
+from model_servers._shared.contracts import BookMeta, EnrichResponse
+
+_SVC = "models.services.recommendation_service"
 
 
-@pytest.fixture
-def mock_book_meta():
-    """Create mock book metadata DataFrame."""
-    data = {
-        "title": ["Book A", "Book B", "Book C"],
-        "author": ["Author 1", "Author 2", "Author 3"],
-        "year": [2020, 2021, 2022],
-        "isbn": ["111", "222", "333"],
-        "cover_id": ["aaa", "bbb", "ccc"],
-        "book_num_ratings": [100, 200, 50],
-        "book_avg_rating": [4.5, 4.2, 3.9],
-    }
-    df = pd.DataFrame(data, index=[1000, 1001, 1002])
-    df.index.name = "item_idx"
-    return df
+# ---------------------------------------------------------------------------
+# Helpers
+# ---------------------------------------------------------------------------
 
 
-@pytest.fixture
-def mock_candidates():
-    """Create mock candidates for testing."""
-    return [
-        Candidate(item_idx=1000, score=0.9, source="test"),
-        Candidate(item_idx=1001, score=0.8, source="test"),
-        Candidate(item_idx=1002, score=0.7, source="test"),
-    ]
+def _enrich_response(*item_ids: int) -> EnrichResponse:
+    """Build an EnrichResponse with minimal but complete metadata."""
+    return EnrichResponse(
+        books=[
+            BookMeta(
+                item_idx=idx,
+                title=f"Book {idx}",
+                author=f"Author {idx}",
+                year=2020,
+                isbn=f"ISBN-{idx}",
+                cover_id=f"cover-{idx}",
+                avg_rating=4.0,
+                num_ratings=100,
+            )
+            for idx in item_ids
+        ]
+    )
+
+
+# ---------------------------------------------------------------------------
+# Fixtures
+# ---------------------------------------------------------------------------
 
 
 @pytest.fixture
 def warm_user():
-    """Create warm user (has ALS factors)."""
-    user = User(user_id=123, fav_subjects=[5, 12, 23])
-    return user
+    """User whose is_warm property will be patched to True in tests."""
+    return User(user_id=123, fav_subjects=[5, 12, 23])
 
 
 @pytest.fixture
 def cold_user_with_prefs():
-    """Create cold user with preferences."""
-    user = User(user_id=456, fav_subjects=[5, 12, 23])
-    return user
+    """User whose is_warm property will be patched to False; has real subjects."""
+    return User(user_id=456, fav_subjects=[5, 12, 23])
 
 
 @pytest.fixture
 def cold_user_no_prefs():
-    """Create cold user without preferences."""
-    user = User(user_id=789, fav_subjects=[PAD_IDX])
-    return user
+    """User whose is_warm property will be patched to False; has only PAD_IDX."""
+    return User(user_id=789, fav_subjects=[PAD_IDX])
 
 
 @pytest.fixture
 def mock_db():
-    """Create mock database session."""
     return Mock()
 
 
-class TestRecommendationServiceInitialization:
-    """Test RecommendationService initialization."""
+@pytest.fixture
+def patched_meta_client():
+    """Patch get_metadata_client; default enrich returns an empty response."""
+    with patch(f"{_SVC}.get_metadata_client") as mock_get:
+        client = AsyncMock()
+        client.enrich.return_value = EnrichResponse(books=[])
+        mock_get.return_value = client
+        yield client
 
-    def test_service_initializes_successfully(self):
-        """Should initialize without errors."""
-        service = RecommendationService()
-        assert service is not None
 
-    def test_book_meta_starts_as_none(self):
-        """Book metadata should be lazily loaded."""
+@pytest.fixture
+def patched_pipeline():
+    """
+    Patch RecommendationPipeline at the service module level.
+
+    Yields (MockClass, mock_instance) so tests can:
+      - Inspect mock_cls.call_args.kwargs to verify constructor arguments.
+      - Set mock_instance.recommend.return_value to control pipeline output.
+    """
+    with patch(f"{_SVC}.RecommendationPipeline") as mock_cls:
+        instance = Mock()
+        instance.recommend = AsyncMock(return_value=[])
+        mock_cls.return_value = instance
+        yield mock_cls, instance
+
+
+# ---------------------------------------------------------------------------
+# Initialization
+# ---------------------------------------------------------------------------
+
+
+class TestInitialization:
+    """Service is a lightweight, stateless object."""
+
+    def test_constructs_without_errors(self):
+        assert RecommendationService() is not None
+
+    def test_holds_no_preloaded_data(self):
+        """No book metadata or model artifacts are loaded at construction time."""
         service = RecommendationService()
-        assert service._book_meta is None
+        assert not hasattr(service, "_book_meta")
+        assert not hasattr(service, "_model")
+
+
+# ---------------------------------------------------------------------------
+# Strategy selection
+# ---------------------------------------------------------------------------
 
 
 class TestStrategySelection:
-    """Test automatic strategy selection based on user type."""
+    """_build_pipeline selects the correct primary generator for each scenario."""
 
-    def test_warm_user_gets_als_pipeline(self, warm_user, mock_db, monkeypatch):
-        """Warm user should use ALS-based pipeline."""
-        # Mock ALSModel to return True for has_user
-        mock_als_model = Mock()
-        mock_als_model.has_user.return_value = True
-
-        with patch("models.infrastructure.als_model.ALSModel", return_value=mock_als_model):
-            with patch("models.services.recommendation_service.load_book_meta") as mock_load_meta:
-                mock_load_meta.return_value = pd.DataFrame(
-                    {"title": ["Test"], "book_num_ratings": [10]}, index=[1000]
-                )
-
-                # Mock pipeline to return empty (we're just testing pipeline selection)
-                with patch(
-                    "models.services.recommendation_service.RecommendationPipeline"
-                ) as mock_pipeline_class:
-                    mock_pipeline = Mock()
-                    mock_pipeline.recommend.return_value = []
-                    mock_pipeline_class.return_value = mock_pipeline
-
-                    service = RecommendationService()
-                    config = RecommendationConfig.default()
-
-                    service.recommend(warm_user, config, mock_db)
-
-                    # Verify ALSBasedGenerator was used
-                    call_args = mock_pipeline_class.call_args
-                    generator = call_args[1]["generator"]
-                    assert generator.__class__.__name__ == "ALSBasedGenerator"
-
-    def test_cold_user_with_prefs_gets_hybrid_pipeline(
-        self, cold_user_with_prefs, mock_db, monkeypatch
+    @pytest.mark.asyncio
+    async def test_auto_warm_user_uses_als_generator(
+        self, warm_user, mock_db, patched_meta_client, patched_pipeline
     ):
-        """Cold user with preferences should use hybrid pipeline."""
-        # Mock ALSModel to return False for has_user
-        mock_als_model = Mock()
-        mock_als_model.has_user.return_value = False
+        mock_cls, _ = patched_pipeline
+        with patch.object(User, "is_warm", new_callable=PropertyMock, return_value=True):
+            await RecommendationService().recommend(
+                warm_user, RecommendationConfig.default(), mock_db
+            )
 
-        with patch("models.infrastructure.als_model.ALSModel", return_value=mock_als_model):
-            with patch("models.services.recommendation_service.load_book_meta") as mock_load_meta:
-                mock_load_meta.return_value = pd.DataFrame(
-                    {"title": ["Test"], "book_num_ratings": [10]}, index=[1000]
-                )
+        assert mock_cls.call_args.kwargs["generator"].__class__.__name__ == "ALSBasedGenerator"
 
-                with patch(
-                    "models.services.recommendation_service.RecommendationPipeline"
-                ) as mock_pipeline_class:
-                    mock_pipeline = Mock()
-                    mock_pipeline.recommend.return_value = []
-                    mock_pipeline_class.return_value = mock_pipeline
-
-                    service = RecommendationService()
-                    config = RecommendationConfig.default()
-
-                    service.recommend(cold_user_with_prefs, config, mock_db)
-
-                    # Verify HybridGenerator was used
-                    call_args = mock_pipeline_class.call_args
-                    generator = call_args[1]["generator"]
-                    assert generator.__class__.__name__ == "HybridGenerator"
-
-    def test_cold_user_no_prefs_gets_popularity_pipeline(
-        self, cold_user_no_prefs, mock_db, monkeypatch
+    @pytest.mark.asyncio
+    async def test_auto_cold_with_prefs_uses_joint_subject_generator(
+        self, cold_user_with_prefs, mock_db, patched_meta_client, patched_pipeline
     ):
-        """Cold user without preferences should use popularity fallback."""
-        # Mock ALSModel to return False
-        mock_als_model = Mock()
-        mock_als_model.has_user.return_value = False
+        mock_cls, _ = patched_pipeline
+        with patch.object(User, "is_warm", new_callable=PropertyMock, return_value=False):
+            await RecommendationService().recommend(
+                cold_user_with_prefs, RecommendationConfig.default(), mock_db
+            )
 
-        with patch("models.infrastructure.als_model.ALSModel", return_value=mock_als_model):
-            with patch("models.services.recommendation_service.load_book_meta") as mock_load_meta:
-                mock_load_meta.return_value = pd.DataFrame(
-                    {"title": ["Test"], "book_num_ratings": [10]}, index=[1000]
-                )
+        assert mock_cls.call_args.kwargs["generator"].__class__.__name__ == "JointSubjectGenerator"
 
-                with patch(
-                    "models.services.recommendation_service.RecommendationPipeline"
-                ) as mock_pipeline_class:
-                    mock_pipeline = Mock()
-                    mock_pipeline.recommend.return_value = []
-                    mock_pipeline_class.return_value = mock_pipeline
+    @pytest.mark.asyncio
+    async def test_auto_cold_no_prefs_uses_popularity_generator(
+        self, cold_user_no_prefs, mock_db, patched_meta_client, patched_pipeline
+    ):
+        mock_cls, _ = patched_pipeline
+        with patch.object(User, "is_warm", new_callable=PropertyMock, return_value=False):
+            await RecommendationService().recommend(
+                cold_user_no_prefs, RecommendationConfig.default(), mock_db
+            )
 
-                    service = RecommendationService()
-                    config = RecommendationConfig.default()
+        assert (
+            mock_cls.call_args.kwargs["generator"].__class__.__name__ == "PopularityBasedGenerator"
+        )
 
-                    service.recommend(cold_user_no_prefs, config, mock_db)
+    @pytest.mark.asyncio
+    async def test_behavioral_mode_forces_als_regardless_of_warmth(
+        self, cold_user_with_prefs, mock_db, patched_meta_client, patched_pipeline
+    ):
+        """mode='behavioral' bypasses the warm/cold gate and always uses ALS."""
+        mock_cls, _ = patched_pipeline
+        with patch.object(User, "is_warm", new_callable=PropertyMock, return_value=False):
+            await RecommendationService().recommend(
+                cold_user_with_prefs, RecommendationConfig(k=20, mode="behavioral"), mock_db
+            )
 
-                    # Verify BayesianPopularityGenerator was used
-                    call_args = mock_pipeline_class.call_args
-                    generator = call_args[1]["generator"]
-                    assert generator.__class__.__name__ == "BayesianPopularityGenerator"
+        assert mock_cls.call_args.kwargs["generator"].__class__.__name__ == "ALSBasedGenerator"
 
-    def test_behavioral_mode_forces_als(self, cold_user_with_prefs, mock_db):
-        """Behavioral mode should force ALS even for cold users."""
-        mock_als_model = Mock()
-        mock_als_model.has_user.return_value = False
+    @pytest.mark.asyncio
+    async def test_subject_mode_forces_joint_subject_regardless_of_warmth(
+        self, warm_user, mock_db, patched_meta_client, patched_pipeline
+    ):
+        """mode='subject' bypasses the warm/cold gate and always uses JointSubjectGenerator."""
+        mock_cls, _ = patched_pipeline
+        with patch.object(User, "is_warm", new_callable=PropertyMock, return_value=True):
+            await RecommendationService().recommend(
+                warm_user, RecommendationConfig(k=20, mode="subject"), mock_db
+            )
 
-        with patch("models.infrastructure.als_model.ALSModel", return_value=mock_als_model):
-            with patch("models.services.recommendation_service.load_book_meta") as mock_load_meta:
-                mock_load_meta.return_value = pd.DataFrame(
-                    {"title": ["Test"], "book_num_ratings": [10]}, index=[1000]
-                )
+        assert mock_cls.call_args.kwargs["generator"].__class__.__name__ == "JointSubjectGenerator"
 
-                with patch(
-                    "models.services.recommendation_service.RecommendationPipeline"
-                ) as mock_pipeline_class:
-                    mock_pipeline = Mock()
-                    mock_pipeline.recommend.return_value = []
-                    mock_pipeline_class.return_value = mock_pipeline
+    @pytest.mark.asyncio
+    async def test_warm_user_gets_popularity_fallback(
+        self, warm_user, mock_db, patched_meta_client, patched_pipeline
+    ):
+        mock_cls, _ = patched_pipeline
+        with patch.object(User, "is_warm", new_callable=PropertyMock, return_value=True):
+            await RecommendationService().recommend(
+                warm_user, RecommendationConfig.default(), mock_db
+            )
 
-                    service = RecommendationService()
-                    config = RecommendationConfig(k=20, mode="behavioral")
+        fallback = mock_cls.call_args.kwargs["fallback_generator"]
+        assert fallback.__class__.__name__ == "PopularityBasedGenerator"
 
-                    service.recommend(cold_user_with_prefs, config, mock_db)
+    @pytest.mark.asyncio
+    async def test_cold_no_prefs_has_no_fallback(
+        self, cold_user_no_prefs, mock_db, patched_meta_client, patched_pipeline
+    ):
+        """Popularity is the primary generator here; there is nothing to fall back to."""
+        mock_cls, _ = patched_pipeline
+        with patch.object(User, "is_warm", new_callable=PropertyMock, return_value=False):
+            await RecommendationService().recommend(
+                cold_user_no_prefs, RecommendationConfig.default(), mock_db
+            )
 
-                    # Should use ALS despite being cold user
-                    call_args = mock_pipeline_class.call_args
-                    generator = call_args[1]["generator"]
-                    assert generator.__class__.__name__ == "ALSBasedGenerator"
+        assert mock_cls.call_args.kwargs["fallback_generator"] is None
 
-    def test_subject_mode_forces_hybrid(self, warm_user, mock_db):
-        """Subject mode should force hybrid even for warm users."""
-        mock_als_model = Mock()
-        mock_als_model.has_user.return_value = True
+    @pytest.mark.asyncio
+    async def test_pipeline_always_uses_read_books_filter(
+        self, warm_user, mock_db, patched_meta_client, patched_pipeline
+    ):
+        mock_cls, _ = patched_pipeline
+        with patch.object(User, "is_warm", new_callable=PropertyMock, return_value=True):
+            await RecommendationService().recommend(
+                warm_user, RecommendationConfig.default(), mock_db
+            )
 
-        with patch("models.infrastructure.als_model.ALSModel", return_value=mock_als_model):
-            with patch("models.services.recommendation_service.load_book_meta") as mock_load_meta:
-                mock_load_meta.return_value = pd.DataFrame(
-                    {"title": ["Test"], "book_num_ratings": [10]}, index=[1000]
-                )
+        assert mock_cls.call_args.kwargs["filter"].__class__.__name__ == "ReadBooksFilter"
 
-                with patch(
-                    "models.services.recommendation_service.RecommendationPipeline"
-                ) as mock_pipeline_class:
-                    mock_pipeline = Mock()
-                    mock_pipeline.recommend.return_value = []
-                    mock_pipeline_class.return_value = mock_pipeline
+    @pytest.mark.asyncio
+    async def test_pipeline_always_uses_noop_ranker(
+        self, warm_user, mock_db, patched_meta_client, patched_pipeline
+    ):
+        mock_cls, _ = patched_pipeline
+        with patch.object(User, "is_warm", new_callable=PropertyMock, return_value=True):
+            await RecommendationService().recommend(
+                warm_user, RecommendationConfig.default(), mock_db
+            )
 
-                    service = RecommendationService()
-                    config = RecommendationConfig(k=20, mode="subject")
+        assert mock_cls.call_args.kwargs["ranker"].__class__.__name__ == "NoOpRanker"
 
-                    service.recommend(warm_user, config, mock_db)
 
-                    # Should use hybrid despite being warm user
-                    call_args = mock_pipeline_class.call_args
-                    generator = call_args[1]["generator"]
-                    assert generator.__class__.__name__ == "HybridGenerator"
+# ---------------------------------------------------------------------------
+# Pipeline call contract
+# ---------------------------------------------------------------------------
+
+
+class TestPipelineCallContract:
+    """recommend() must forward user, k, and db to pipeline.recommend()."""
+
+    @pytest.mark.asyncio
+    async def test_passes_user_as_first_arg(
+        self, warm_user, mock_db, patched_meta_client, patched_pipeline
+    ):
+        _, mock_instance = patched_pipeline
+        with patch.object(User, "is_warm", new_callable=PropertyMock, return_value=True):
+            await RecommendationService().recommend(
+                warm_user, RecommendationConfig.default(), mock_db
+            )
+
+        # pipeline.recommend(user, k, db)
+        assert mock_instance.recommend.call_args.args[0] is warm_user
+
+    @pytest.mark.asyncio
+    async def test_passes_config_k_as_second_arg(
+        self, warm_user, mock_db, patched_meta_client, patched_pipeline
+    ):
+        _, mock_instance = patched_pipeline
+        with patch.object(User, "is_warm", new_callable=PropertyMock, return_value=True):
+            await RecommendationService().recommend(
+                warm_user, RecommendationConfig(k=42, mode="auto"), mock_db
+            )
+
+        assert mock_instance.recommend.call_args.args[1] == 42
+
+    @pytest.mark.asyncio
+    async def test_passes_db_as_third_arg(
+        self, warm_user, mock_db, patched_meta_client, patched_pipeline
+    ):
+        _, mock_instance = patched_pipeline
+        with patch.object(User, "is_warm", new_callable=PropertyMock, return_value=True):
+            await RecommendationService().recommend(
+                warm_user, RecommendationConfig.default(), mock_db
+            )
+
+        assert mock_instance.recommend.call_args.args[2] is mock_db
+
+
+# ---------------------------------------------------------------------------
+# Candidate enrichment
+# ---------------------------------------------------------------------------
 
 
 class TestCandidateEnrichment:
-    """Test candidate enrichment with book metadata."""
+    """_enrich_candidates converts Candidates to RecommendedBooks via the metadata client."""
 
-    def test_enriches_candidates_with_metadata(self, mock_candidates, mock_book_meta, monkeypatch):
-        """Should add metadata from book_meta to candidates."""
-        monkeypatch.setattr(
-            "models.services.recommendation_service.load_book_meta",
-            lambda **kwargs: mock_book_meta,
+    @pytest.mark.asyncio
+    async def test_returns_recommended_book_instances(self, patched_meta_client):
+        patched_meta_client.enrich.return_value = _enrich_response(1000)
+        results = await RecommendationService()._enrich_candidates(
+            [Candidate(item_idx=1000, score=0.9, source="test")]
         )
 
-        service = RecommendationService()
-        recommendations = service._enrich_candidates(mock_candidates)
+        assert len(results) == 1
+        assert isinstance(results[0], RecommendedBook)
 
-        assert len(recommendations) == 3
-        assert all(isinstance(r, RecommendedBook) for r in recommendations)
-
-        # Check first recommendation
-        assert recommendations[0].item_idx == 1000
-        assert recommendations[0].title == "Book A"
-        assert recommendations[0].author == "Author 1"
-        assert recommendations[0].year == 2020
-        assert recommendations[0].isbn == "111"
-        assert recommendations[0].cover_id == "aaa"
-        assert recommendations[0].score == 0.9
-        assert recommendations[0].num_ratings == 100
-        assert recommendations[0].avg_rating == 4.5
-
-    def test_skips_candidates_not_in_metadata(self, mock_book_meta, monkeypatch):
-        """Should skip candidates missing from metadata."""
-        monkeypatch.setattr(
-            "models.services.recommendation_service.load_book_meta",
-            lambda **kwargs: mock_book_meta,
+    @pytest.mark.asyncio
+    async def test_maps_all_metadata_fields(self, patched_meta_client):
+        patched_meta_client.enrich.return_value = EnrichResponse(
+            books=[
+                BookMeta(
+                    item_idx=1000,
+                    title="My Book",
+                    author="Jane Doe",
+                    year=2021,
+                    isbn="978-0",
+                    cover_id="cov42",
+                    avg_rating=3.7,
+                    num_ratings=55,
+                )
+            ]
+        )
+        results = await RecommendationService()._enrich_candidates(
+            [Candidate(item_idx=1000, score=0.9, source="test")]
         )
 
+        rec = results[0]
+        assert rec.item_idx == 1000
+        assert rec.score == 0.9
+        assert rec.title == "My Book"
+        assert rec.author == "Jane Doe"
+        assert rec.year == 2021
+        assert rec.isbn == "978-0"
+        assert rec.cover_id == "cov42"
+        assert rec.avg_rating == 3.7
+        assert rec.num_ratings == 55
+
+    @pytest.mark.asyncio
+    async def test_skips_candidates_absent_from_enrich_response(self, patched_meta_client):
+        patched_meta_client.enrich.return_value = _enrich_response(1000)
         candidates = [
             Candidate(item_idx=1000, score=0.9, source="test"),
-            Candidate(item_idx=9999, score=0.8, source="test"),  # Not in metadata
-            Candidate(item_idx=1001, score=0.7, source="test"),
+            Candidate(item_idx=9999, score=0.8, source="test"),  # absent from response
         ]
 
-        service = RecommendationService()
-        recommendations = service._enrich_candidates(candidates)
+        results = await RecommendationService()._enrich_candidates(candidates)
 
-        # Should skip 9999
-        assert len(recommendations) == 2
-        assert recommendations[0].item_idx == 1000
-        assert recommendations[1].item_idx == 1001
+        assert len(results) == 1
+        assert results[0].item_idx == 1000
 
-    def test_handles_missing_optional_fields(self, monkeypatch):
-        """Should handle books with missing optional metadata."""
-        incomplete_meta = pd.DataFrame(
-            {
-                "title": ["Book A"],
-                "book_num_ratings": [10],
-                # Missing: author, year, isbn, cover_id, book_avg_rating
-            },
-            index=[1000],
+    @pytest.mark.asyncio
+    async def test_empty_input_returns_empty_list(self, patched_meta_client):
+        """Empty candidate list produces empty output; enrich may still be called."""
+        patched_meta_client.enrich.return_value = EnrichResponse(books=[])
+
+        results = await RecommendationService()._enrich_candidates([])
+
+        assert results == []
+
+    @pytest.mark.asyncio
+    async def test_passes_all_item_indices_to_enrich(self, patched_meta_client):
+        patched_meta_client.enrich.return_value = EnrichResponse(books=[])
+        await RecommendationService()._enrich_candidates(
+            [
+                Candidate(item_idx=1000, score=0.9, source="test"),
+                Candidate(item_idx=1001, score=0.8, source="test"),
+                Candidate(item_idx=1002, score=0.7, source="test"),
+            ]
         )
 
-        monkeypatch.setattr(
-            "models.services.recommendation_service.load_book_meta",
-            lambda **kwargs: incomplete_meta,
-        )
-
-        candidates = [Candidate(item_idx=1000, score=0.9, source="test")]
-
-        service = RecommendationService()
-        recommendations = service._enrich_candidates(candidates)
-
-        assert len(recommendations) == 1
-        rec = recommendations[0]
-        assert rec.title == "Book A"
-        assert rec.author is None
-        assert rec.year is None
-        assert rec.isbn is None
-        assert rec.cover_id is None
-        assert rec.avg_rating is None
-
-    def test_handles_empty_candidate_list(self, mock_book_meta, monkeypatch):
-        """Should handle empty candidate list."""
-        monkeypatch.setattr(
-            "models.services.recommendation_service.load_book_meta",
-            lambda **kwargs: mock_book_meta,
-        )
-
-        service = RecommendationService()
-        recommendations = service._enrich_candidates([])
-
-        assert recommendations == []
-
-    def test_caches_book_metadata(self, mock_book_meta, monkeypatch):
-        """Should cache book metadata after first load."""
-        load_count = [0]
-
-        def mock_load(**kwargs):
-            load_count[0] += 1
-            return mock_book_meta
-
-        monkeypatch.setattr("models.services.recommendation_service.load_book_meta", mock_load)
-
-        service = RecommendationService()
-        candidates = [Candidate(item_idx=1000, score=0.9, source="test")]
-
-        # First enrichment
-        service._enrich_candidates(candidates)
-        assert load_count[0] == 1
-
-        # Second enrichment should use cache
-        service._enrich_candidates(candidates)
-        assert load_count[0] == 1  # Still 1, not 2
+        patched_meta_client.enrich.assert_called_once_with([1000, 1001, 1002])
 
 
-class TestLogging:
-    """Test structured logging for observability."""
-
-    def test_logs_recommendation_start(self, warm_user, mock_db, monkeypatch):
-        """Should log when recommendation starts."""
-        monkeypatch.setattr(
-            "models.services.recommendation_service.load_book_meta",
-            lambda **kwargs: pd.DataFrame(
-                {"title": ["Test"], "book_num_ratings": [10]}, index=[1000]
-            ),
-        )
-
-        mock_als_model = Mock()
-        mock_als_model.has_user.return_value = True
-
-        with patch("models.infrastructure.als_model.ALSModel", return_value=mock_als_model):
-            with patch(
-                "models.services.recommendation_service.RecommendationPipeline"
-            ) as mock_pipeline_class:
-                mock_pipeline = Mock()
-                mock_pipeline.recommend.return_value = []
-                mock_pipeline_class.return_value = mock_pipeline
-
-                with patch("models.services.recommendation_service.logger") as mock_logger:
-                    service = RecommendationService()
-                    config = RecommendationConfig.default()
-
-                    service.recommend(warm_user, config, mock_db)
-
-                    # Check start log
-                    mock_logger.info.assert_any_call(
-                        "Recommendation started",
-                        extra={
-                            "user_id": 123,
-                            "mode": "auto",
-                            "is_warm": True,
-                            "has_preferences": True,
-                            "k": 200,
-                        },
-                    )
-
-    def test_logs_recommendation_completion(self, warm_user, mock_db, monkeypatch):
-        """Should log when recommendation completes successfully."""
-        monkeypatch.setattr(
-            "models.services.recommendation_service.load_book_meta",
-            lambda **kwargs: pd.DataFrame(
-                {"title": ["Test"], "book_num_ratings": [10]}, index=[1000]
-            ),
-        )
-
-        mock_als_model = Mock()
-        mock_als_model.has_user.return_value = True
-
-        with patch("models.infrastructure.als_model.ALSModel", return_value=mock_als_model):
-            with patch(
-                "models.services.recommendation_service.RecommendationPipeline"
-            ) as mock_pipeline_class:
-                mock_pipeline = Mock()
-                mock_pipeline.recommend.return_value = []
-                mock_pipeline_class.return_value = mock_pipeline
-
-                with patch("models.services.recommendation_service.logger") as mock_logger:
-                    service = RecommendationService()
-                    config = RecommendationConfig.default()
-
-                    service.recommend(warm_user, config, mock_db)
-
-                    # Check completion log
-                    completion_calls = [
-                        call
-                        for call in mock_logger.info.call_args_list
-                        if "Recommendation completed" in str(call)
-                    ]
-                    assert len(completion_calls) == 1
-
-                    # Verify it includes latency_ms
-                    extra = completion_calls[0][1]["extra"]
-                    assert "latency_ms" in extra
-                    assert "count" in extra
-                    assert extra["user_id"] == 123
-
-    def test_logs_errors_with_context(self, warm_user, mock_db, monkeypatch):
-        """Should log errors with context and traceback."""
-        monkeypatch.setattr(
-            "models.services.recommendation_service.load_book_meta",
-            lambda **kwargs: pd.DataFrame(
-                {"title": ["Test"], "book_num_ratings": [10]}, index=[1000]
-            ),
-        )
-
-        mock_als_model = Mock()
-        mock_als_model.has_user.return_value = True
-
-        with patch("models.infrastructure.als_model.ALSModel", return_value=mock_als_model):
-            with patch(
-                "models.services.recommendation_service.RecommendationPipeline"
-            ) as mock_pipeline_class:
-                # Make pipeline raise an exception
-                mock_pipeline = Mock()
-                mock_pipeline.recommend.side_effect = ValueError("Test error")
-                mock_pipeline_class.return_value = mock_pipeline
-
-                with patch("models.services.recommendation_service.logger") as mock_logger:
-                    service = RecommendationService()
-                    config = RecommendationConfig.default()
-
-                    with pytest.raises(ValueError):
-                        service.recommend(warm_user, config, mock_db)
-
-                    # Check error log
-                    mock_logger.error.assert_called_once()
-                    call_args = mock_logger.error.call_args
-
-                    assert "Recommendation failed" in call_args[0][0]
-                    assert call_args[1]["extra"]["user_id"] == 123
-                    assert "Test error" in call_args[1]["extra"]["error"]
-                    assert call_args[1]["exc_info"] is True
+# ---------------------------------------------------------------------------
+# End-to-end
+# ---------------------------------------------------------------------------
 
 
 class TestEndToEndFlow:
-    """Test complete recommendation flow."""
+    """Full path: user + config → pipeline → enrich → RecommendedBook list."""
 
-    def test_complete_recommendation_flow(self, warm_user, mock_db, monkeypatch):
-        """Test complete flow from request to enriched results."""
-        # Mock book metadata
-        mock_meta = pd.DataFrame(
-            {
-                "title": ["Book A", "Book B"],
-                "author": ["Author 1", "Author 2"],
-                "year": [2020, 2021],
-                "isbn": ["111", "222"],
-                "cover_id": ["aaa", "bbb"],
-                "book_num_ratings": [100, 200],
-                "book_avg_rating": [4.5, 4.2],
+    @pytest.mark.asyncio
+    async def test_complete_flow(self, warm_user, mock_db, patched_pipeline):
+        _, mock_instance = patched_pipeline
+        mock_instance.recommend.return_value = [
+            Candidate(item_idx=1000, score=0.9, source="als"),
+            Candidate(item_idx=1001, score=0.8, source="als"),
+        ]
+
+        with patch(f"{_SVC}.get_metadata_client") as mock_get_meta:
+            meta_client = AsyncMock()
+            meta_client.enrich.return_value = _enrich_response(1000, 1001)
+            mock_get_meta.return_value = meta_client
+
+            with patch.object(User, "is_warm", new_callable=PropertyMock, return_value=True):
+                results = await RecommendationService().recommend(
+                    warm_user, RecommendationConfig(k=10, mode="auto"), mock_db
+                )
+
+        assert len(results) == 2
+        assert all(isinstance(r, RecommendedBook) for r in results)
+        assert results[0].item_idx == 1000
+        assert results[0].score == 0.9
+        assert results[0].title == "Book 1000"
+
+    @pytest.mark.asyncio
+    async def test_empty_pipeline_output_returns_empty_list(
+        self, warm_user, mock_db, patched_meta_client, patched_pipeline
+    ):
+        _, mock_instance = patched_pipeline
+        mock_instance.recommend.return_value = []
+
+        with patch.object(User, "is_warm", new_callable=PropertyMock, return_value=True):
+            results = await RecommendationService().recommend(
+                warm_user, RecommendationConfig.default(), mock_db
+            )
+
+        assert results == []
+
+
+# ---------------------------------------------------------------------------
+# Logging
+# ---------------------------------------------------------------------------
+
+
+class TestLogging:
+    """recommend() emits structured log events for observability."""
+
+    @pytest.mark.asyncio
+    async def test_logs_recommendation_started(
+        self, warm_user, mock_db, patched_meta_client, patched_pipeline
+    ):
+        with patch(f"{_SVC}.logger") as mock_logger:
+            with patch.object(User, "is_warm", new_callable=PropertyMock, return_value=True):
+                await RecommendationService().recommend(
+                    warm_user, RecommendationConfig.default(), mock_db
+                )
+
+        mock_logger.info.assert_any_call(
+            "Recommendation started",
+            extra={
+                "user_id": 123,
+                "mode": "auto",
+                "is_warm": True,
+                "has_preferences": True,  # warm_user has fav_subjects [5, 12, 23]
+                "k": 200,
             },
-            index=[1000, 1001],
         )
 
-        monkeypatch.setattr(
-            "models.services.recommendation_service.load_book_meta",
-            lambda **kwargs: mock_meta,
-        )
+    @pytest.mark.asyncio
+    async def test_logs_recommendation_completed_with_metrics(
+        self, warm_user, mock_db, patched_meta_client, patched_pipeline
+    ):
+        with patch(f"{_SVC}.logger") as mock_logger:
+            with patch.object(User, "is_warm", new_callable=PropertyMock, return_value=True):
+                await RecommendationService().recommend(
+                    warm_user, RecommendationConfig.default(), mock_db
+                )
 
-        # Mock ALSModel
-        mock_als_model = Mock()
-        mock_als_model.has_user.return_value = True
+        completed = [
+            c for c in mock_logger.info.call_args_list if "Recommendation completed" in str(c)
+        ]
+        assert len(completed) == 1
+        extra = completed[0].kwargs["extra"]
+        assert extra["user_id"] == 123
+        assert "count" in extra
+        assert "latency_ms" in extra
 
-        with patch("models.infrastructure.als_model.ALSModel", return_value=mock_als_model):
-            # Mock pipeline to return candidates
-            with patch(
-                "models.services.recommendation_service.RecommendationPipeline"
-            ) as mock_pipeline_class:
-                mock_pipeline = Mock()
-                mock_pipeline.recommend.return_value = [
-                    Candidate(item_idx=1000, score=0.9, source="als"),
-                    Candidate(item_idx=1001, score=0.8, source="als"),
-                ]
-                mock_pipeline_class.return_value = mock_pipeline
+    @pytest.mark.asyncio
+    async def test_logs_error_and_reraises(
+        self, warm_user, mock_db, patched_meta_client, patched_pipeline
+    ):
+        _, mock_instance = patched_pipeline
+        mock_instance.recommend.side_effect = RuntimeError("model server unavailable")
 
-                service = RecommendationService()
-                config = RecommendationConfig(k=10, mode="auto")
+        with patch(f"{_SVC}.logger") as mock_logger:
+            with patch.object(User, "is_warm", new_callable=PropertyMock, return_value=True):
+                with pytest.raises(RuntimeError):
+                    await RecommendationService().recommend(
+                        warm_user, RecommendationConfig.default(), mock_db
+                    )
 
-                results = service.recommend(warm_user, config, mock_db)
-
-                # Verify results
-                assert len(results) == 2
-                assert all(isinstance(r, RecommendedBook) for r in results)
-
-                # Check first result
-                assert results[0].item_idx == 1000
-                assert results[0].title == "Book A"
-                assert results[0].score == 0.9
+        mock_logger.error.assert_called_once()
+        call = mock_logger.error.call_args
+        assert "Recommendation failed" in call.args[0]
+        assert call.kwargs["extra"]["user_id"] == 123
+        assert "model server unavailable" in call.kwargs["extra"]["error"]
+        assert call.kwargs["exc_info"] is True
 
 
-class TestEdgeCases:
-    """Test edge cases and error handling."""
+# ---------------------------------------------------------------------------
+# Config validation
+# ---------------------------------------------------------------------------
 
-    def test_handles_invalid_config(self, warm_user, mock_db):
-        """Should raise error for invalid config."""
+
+class TestConfigValidation:
+    """RecommendationConfig enforces its own invariants independently of the service."""
+
+    def test_k_zero_raises(self):
         with pytest.raises(ValueError):
-            config = RecommendationConfig(k=0, mode="auto")  # k must be >= 1
+            RecommendationConfig(k=0, mode="auto")
 
-    def test_handles_invalid_mode(self, warm_user, mock_db):
-        """Should raise error for invalid mode."""
+    def test_k_above_maximum_raises(self):
         with pytest.raises(ValueError):
-            config = RecommendationConfig(k=10, mode="invalid")
+            RecommendationConfig(k=501, mode="auto")
 
-    def test_handles_empty_pipeline_results(self, warm_user, mock_db, monkeypatch):
-        """Should handle pipeline returning no candidates."""
-        monkeypatch.setattr(
-            "models.services.recommendation_service.load_book_meta",
-            lambda **kwargs: pd.DataFrame(
-                {"title": ["Test"], "book_num_ratings": [10]}, index=[1000]
-            ),
-        )
+    def test_invalid_mode_raises(self):
+        with pytest.raises(ValueError):
+            RecommendationConfig(k=10, mode="invalid")
 
-        mock_als_model = Mock()
-        mock_als_model.has_user.return_value = True
-
-        with patch("models.infrastructure.als_model.ALSModel", return_value=mock_als_model):
-            with patch(
-                "models.services.recommendation_service.RecommendationPipeline"
-            ) as mock_pipeline_class:
-                mock_pipeline = Mock()
-                mock_pipeline.recommend.return_value = []  # Empty results
-                mock_pipeline_class.return_value = mock_pipeline
-
-                service = RecommendationService()
-                config = RecommendationConfig.default()
-
-                results = service.recommend(warm_user, config, mock_db)
-
-                assert results == []
-
-    def test_respects_k_parameter(self, warm_user, mock_db, monkeypatch):
-        """Should respect k parameter when requesting recommendations."""
-        monkeypatch.setattr(
-            "models.services.recommendation_service.load_book_meta",
-            lambda **kwargs: pd.DataFrame(
-                {"title": [f"Book {i}"], "book_num_ratings": [10]} for i in range(100)
-            ),
-        )
-
-        mock_als_model = Mock()
-        mock_als_model.has_user.return_value = True
-
-        with patch("models.infrastructure.als_model.ALSModel", return_value=mock_als_model):
-            with patch(
-                "models.services.recommendation_service.RecommendationPipeline"
-            ) as mock_pipeline_class:
-                mock_pipeline = Mock()
-                mock_pipeline.recommend.return_value = []  # Add return value
-                mock_pipeline_class.return_value = mock_pipeline  # Add this line!
-
-                service = RecommendationService()
-                config = RecommendationConfig(k=20, mode="auto")
-
-                service.recommend(warm_user, config, mock_db)
-
-                # Verify pipeline was called with correct k
-                call_args = mock_pipeline.recommend.call_args
-                assert call_args[0][1] == 20  # k parameter
-
-    def test_passes_db_session_to_pipeline(self, warm_user, mock_db, monkeypatch):
-        """Should pass database session to pipeline for filtering."""
-        monkeypatch.setattr(
-            "models.services.recommendation_service.load_book_meta",
-            lambda **kwargs: pd.DataFrame(
-                {"title": ["Test"], "book_num_ratings": [10]}, index=[1000]
-            ),
-        )
-
-        mock_als_model = Mock()
-        mock_als_model.has_user.return_value = True
-
-        with patch("models.infrastructure.als_model.ALSModel", return_value=mock_als_model):
-            with patch(
-                "models.services.recommendation_service.RecommendationPipeline"
-            ) as mock_pipeline_class:
-                mock_pipeline = Mock()
-                mock_pipeline.recommend.return_value = []
-                mock_pipeline_class.return_value = mock_pipeline
-
-                service = RecommendationService()
-                config = RecommendationConfig.default()
-
-                service.recommend(warm_user, config, mock_db)
-
-                # Verify db was passed to pipeline
-                call_args = mock_pipeline.recommend.call_args
-                assert call_args[0][2] == mock_db  # db parameter
+    def test_default_factory_produces_k200_auto(self):
+        cfg = RecommendationConfig.default()
+        assert cfg.k == 200
+        assert cfg.mode == "auto"
