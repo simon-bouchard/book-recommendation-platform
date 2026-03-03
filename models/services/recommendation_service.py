@@ -29,7 +29,7 @@ class RecommendationService:
     Main recommendation service implementing business logic.
 
     Uses singleton generators/filters/rankers for optimal performance.
-    No instance-level state - can be recreated cheaply.
+    No instance-level state — can be recreated cheaply.
     """
 
     def __init__(self):
@@ -41,19 +41,21 @@ class RecommendationService:
         """Generate personalized recommendations for a user."""
         start_time = time.time()
 
+        is_warm = await user.is_warm()
+
         logger.info(
             "Recommendation started",
             extra={
                 "user_id": user.user_id,
                 "mode": config.mode,
-                "is_warm": user.is_warm,
+                "is_warm": is_warm,
                 "has_preferences": user.has_preferences,
                 "k": config.k,
             },
         )
 
         try:
-            pipeline = self._build_pipeline(user, config)
+            pipeline = await self._build_pipeline(user, config, is_warm)
             candidates = await pipeline.recommend(user, config.k, db)
             recommendations = await self._enrich_candidates(candidates)
 
@@ -79,14 +81,18 @@ class RecommendationService:
             )
             raise
 
-    def _build_pipeline(self, user: User, config: RecommendationConfig) -> RecommendationPipeline:
+    async def _build_pipeline(
+        self, user: User, config: RecommendationConfig, is_warm: bool
+    ) -> RecommendationPipeline:
         """
         Build recommendation pipeline using singleton components.
 
+        Accepts the pre-resolved is_warm flag so the caller can reuse the
+        single awaited value rather than triggering a second server round-trip.
+
         Key insight: Generators/filters/rankers are singletons (one copy),
-        but pipelines are recreated per request (they're lightweight wrappers).
+        but pipelines are recreated per request (they are lightweight wrappers).
         """
-        # Determine strategy based on mode
         if config.mode == "behavioral":
             primary_generator = get_als_generator()
             fallback_generator = get_popularity_generator()
@@ -98,8 +104,8 @@ class RecommendationService:
             fallback_generator = get_popularity_generator()
 
         else:
-            # Auto mode - decide based on user status
-            if user.is_warm:
+            # Auto mode — decide based on user status
+            if is_warm:
                 primary_generator = get_als_generator()
                 fallback_generator = get_popularity_generator()
             elif user.has_preferences:
@@ -111,19 +117,15 @@ class RecommendationService:
                 primary_generator = get_popularity_generator()
                 fallback_generator = None
 
-        # Pipeline is lightweight - recreate each time (just holds references)
-        pipeline = RecommendationPipeline(
+        return RecommendationPipeline(
             generator=primary_generator,
             fallback_generator=fallback_generator,
             filter=get_read_books_filter(),
             ranker=get_noop_ranker(),
         )
 
-        return pipeline
-
     async def _enrich_candidates(self, candidates: List[Candidate]) -> List[RecommendedBook]:
-        """Enrich candidates with book metadata."""
-
+        """Enrich candidates with book metadata via the metadata model server."""
         resp = await get_metadata_client().enrich([c.item_idx for c in candidates])
         meta = {b.item_idx: b for b in resp.books}
 

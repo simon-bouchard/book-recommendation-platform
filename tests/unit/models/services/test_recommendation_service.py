@@ -4,8 +4,8 @@ Unit tests for RecommendationService.
 
 Architecture under test:
   - recommend() and _enrich_candidates() are async.
-  - Strategy selection reads user.is_warm (property backed by ALSModel) and
-    user.has_preferences (pure computation on fav_subjects).
+  - Strategy selection awaits user.is_warm() (async method backed by ALS client)
+    and reads user.has_preferences (pure computation on fav_subjects).
   - Enrichment uses get_metadata_client().enrich() — no local file loaders.
   - RecommendationPipeline is constructed per-request with singleton
     generators/filter/ranker passed as keyword arguments.
@@ -13,7 +13,7 @@ Architecture under test:
 
 import sys
 from pathlib import Path
-from unittest.mock import AsyncMock, Mock, PropertyMock, patch
+from unittest.mock import AsyncMock, Mock, patch
 
 import pytest
 
@@ -62,19 +62,19 @@ def _enrich_response(*item_ids: int) -> EnrichResponse:
 
 @pytest.fixture
 def warm_user():
-    """User whose is_warm property will be patched to True in tests."""
+    """User whose is_warm() method will be patched to return True in tests."""
     return User(user_id=123, fav_subjects=[5, 12, 23])
 
 
 @pytest.fixture
 def cold_user_with_prefs():
-    """User whose is_warm property will be patched to False; has real subjects."""
+    """User whose is_warm() method will be patched to return False; has real subjects."""
     return User(user_id=456, fav_subjects=[5, 12, 23])
 
 
 @pytest.fixture
 def cold_user_no_prefs():
-    """User whose is_warm property will be patched to False; has only PAD_IDX."""
+    """User whose is_warm() method will be patched to return False; has only PAD_IDX."""
     return User(user_id=789, fav_subjects=[PAD_IDX])
 
 
@@ -140,7 +140,7 @@ class TestStrategySelection:
         self, warm_user, mock_db, patched_meta_client, patched_pipeline
     ):
         mock_cls, _ = patched_pipeline
-        with patch.object(User, "is_warm", new_callable=PropertyMock, return_value=True):
+        with patch.object(User, "is_warm", new=AsyncMock(return_value=True)):
             await RecommendationService().recommend(
                 warm_user, RecommendationConfig.default(), mock_db
             )
@@ -152,7 +152,7 @@ class TestStrategySelection:
         self, cold_user_with_prefs, mock_db, patched_meta_client, patched_pipeline
     ):
         mock_cls, _ = patched_pipeline
-        with patch.object(User, "is_warm", new_callable=PropertyMock, return_value=False):
+        with patch.object(User, "is_warm", new=AsyncMock(return_value=False)):
             await RecommendationService().recommend(
                 cold_user_with_prefs, RecommendationConfig.default(), mock_db
             )
@@ -164,7 +164,7 @@ class TestStrategySelection:
         self, cold_user_no_prefs, mock_db, patched_meta_client, patched_pipeline
     ):
         mock_cls, _ = patched_pipeline
-        with patch.object(User, "is_warm", new_callable=PropertyMock, return_value=False):
+        with patch.object(User, "is_warm", new=AsyncMock(return_value=False)):
             await RecommendationService().recommend(
                 cold_user_no_prefs, RecommendationConfig.default(), mock_db
             )
@@ -179,7 +179,7 @@ class TestStrategySelection:
     ):
         """mode='behavioral' bypasses the warm/cold gate and always uses ALS."""
         mock_cls, _ = patched_pipeline
-        with patch.object(User, "is_warm", new_callable=PropertyMock, return_value=False):
+        with patch.object(User, "is_warm", new=AsyncMock(return_value=False)):
             await RecommendationService().recommend(
                 cold_user_with_prefs, RecommendationConfig(k=20, mode="behavioral"), mock_db
             )
@@ -192,7 +192,7 @@ class TestStrategySelection:
     ):
         """mode='subject' bypasses the warm/cold gate and always uses JointSubjectGenerator."""
         mock_cls, _ = patched_pipeline
-        with patch.object(User, "is_warm", new_callable=PropertyMock, return_value=True):
+        with patch.object(User, "is_warm", new=AsyncMock(return_value=True)):
             await RecommendationService().recommend(
                 warm_user, RecommendationConfig(k=20, mode="subject"), mock_db
             )
@@ -204,7 +204,7 @@ class TestStrategySelection:
         self, warm_user, mock_db, patched_meta_client, patched_pipeline
     ):
         mock_cls, _ = patched_pipeline
-        with patch.object(User, "is_warm", new_callable=PropertyMock, return_value=True):
+        with patch.object(User, "is_warm", new=AsyncMock(return_value=True)):
             await RecommendationService().recommend(
                 warm_user, RecommendationConfig.default(), mock_db
             )
@@ -218,7 +218,7 @@ class TestStrategySelection:
     ):
         """Popularity is the primary generator here; there is nothing to fall back to."""
         mock_cls, _ = patched_pipeline
-        with patch.object(User, "is_warm", new_callable=PropertyMock, return_value=False):
+        with patch.object(User, "is_warm", new=AsyncMock(return_value=False)):
             await RecommendationService().recommend(
                 cold_user_no_prefs, RecommendationConfig.default(), mock_db
             )
@@ -230,7 +230,7 @@ class TestStrategySelection:
         self, warm_user, mock_db, patched_meta_client, patched_pipeline
     ):
         mock_cls, _ = patched_pipeline
-        with patch.object(User, "is_warm", new_callable=PropertyMock, return_value=True):
+        with patch.object(User, "is_warm", new=AsyncMock(return_value=True)):
             await RecommendationService().recommend(
                 warm_user, RecommendationConfig.default(), mock_db
             )
@@ -242,7 +242,7 @@ class TestStrategySelection:
         self, warm_user, mock_db, patched_meta_client, patched_pipeline
     ):
         mock_cls, _ = patched_pipeline
-        with patch.object(User, "is_warm", new_callable=PropertyMock, return_value=True):
+        with patch.object(User, "is_warm", new=AsyncMock(return_value=True)):
             await RecommendationService().recommend(
                 warm_user, RecommendationConfig.default(), mock_db
             )
@@ -263,7 +263,7 @@ class TestPipelineCallContract:
         self, warm_user, mock_db, patched_meta_client, patched_pipeline
     ):
         _, mock_instance = patched_pipeline
-        with patch.object(User, "is_warm", new_callable=PropertyMock, return_value=True):
+        with patch.object(User, "is_warm", new=AsyncMock(return_value=True)):
             await RecommendationService().recommend(
                 warm_user, RecommendationConfig.default(), mock_db
             )
@@ -276,7 +276,7 @@ class TestPipelineCallContract:
         self, warm_user, mock_db, patched_meta_client, patched_pipeline
     ):
         _, mock_instance = patched_pipeline
-        with patch.object(User, "is_warm", new_callable=PropertyMock, return_value=True):
+        with patch.object(User, "is_warm", new=AsyncMock(return_value=True)):
             await RecommendationService().recommend(
                 warm_user, RecommendationConfig(k=42, mode="auto"), mock_db
             )
@@ -288,7 +288,7 @@ class TestPipelineCallContract:
         self, warm_user, mock_db, patched_meta_client, patched_pipeline
     ):
         _, mock_instance = patched_pipeline
-        with patch.object(User, "is_warm", new_callable=PropertyMock, return_value=True):
+        with patch.object(User, "is_warm", new=AsyncMock(return_value=True)):
             await RecommendationService().recommend(
                 warm_user, RecommendationConfig.default(), mock_db
             )
@@ -402,7 +402,7 @@ class TestEndToEndFlow:
             meta_client.enrich.return_value = _enrich_response(1000, 1001)
             mock_get_meta.return_value = meta_client
 
-            with patch.object(User, "is_warm", new_callable=PropertyMock, return_value=True):
+            with patch.object(User, "is_warm", new=AsyncMock(return_value=True)):
                 results = await RecommendationService().recommend(
                     warm_user, RecommendationConfig(k=10, mode="auto"), mock_db
                 )
@@ -420,7 +420,7 @@ class TestEndToEndFlow:
         _, mock_instance = patched_pipeline
         mock_instance.recommend.return_value = []
 
-        with patch.object(User, "is_warm", new_callable=PropertyMock, return_value=True):
+        with patch.object(User, "is_warm", new=AsyncMock(return_value=True)):
             results = await RecommendationService().recommend(
                 warm_user, RecommendationConfig.default(), mock_db
             )
@@ -441,7 +441,7 @@ class TestLogging:
         self, warm_user, mock_db, patched_meta_client, patched_pipeline
     ):
         with patch(f"{_SVC}.logger") as mock_logger:
-            with patch.object(User, "is_warm", new_callable=PropertyMock, return_value=True):
+            with patch.object(User, "is_warm", new=AsyncMock(return_value=True)):
                 await RecommendationService().recommend(
                     warm_user, RecommendationConfig.default(), mock_db
                 )
@@ -462,7 +462,7 @@ class TestLogging:
         self, warm_user, mock_db, patched_meta_client, patched_pipeline
     ):
         with patch(f"{_SVC}.logger") as mock_logger:
-            with patch.object(User, "is_warm", new_callable=PropertyMock, return_value=True):
+            with patch.object(User, "is_warm", new=AsyncMock(return_value=True)):
                 await RecommendationService().recommend(
                     warm_user, RecommendationConfig.default(), mock_db
                 )
@@ -484,7 +484,7 @@ class TestLogging:
         mock_instance.recommend.side_effect = RuntimeError("model server unavailable")
 
         with patch(f"{_SVC}.logger") as mock_logger:
-            with patch.object(User, "is_warm", new_callable=PropertyMock, return_value=True):
+            with patch.object(User, "is_warm", new=AsyncMock(return_value=True)):
                 with pytest.raises(RuntimeError):
                     await RecommendationService().recommend(
                         warm_user, RecommendationConfig.default(), mock_db
