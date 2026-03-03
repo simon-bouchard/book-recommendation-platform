@@ -6,7 +6,7 @@ Hybrid mode uses FAISS for initial retrieval then blends scores for accuracy.
 
 import logging
 import time
-from typing import List, Dict, Optional
+from typing import List, Dict
 
 from models.client.registry import get_similarity_client, get_metadata_client
 
