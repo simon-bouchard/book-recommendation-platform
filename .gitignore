@@ -26,6 +26,7 @@ ops/models/migration_report_*
 **/results/**
 **/logs/**
 tests/integration/models/performance_baselines
+models/data/.reload_signal
 
 # Model artifacts
 *.pickle
