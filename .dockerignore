@@ -1,0 +1,86 @@
+# .dockerignore
+#
+# Applies to the build context for docker/model-servers/Dockerfile.
+# The build context is the project root (context: ../.. in docker-compose.yml).
+#
+# The model server images only need two source trees:
+#   model_servers/   — the four FastAPI server modules
+#   models/          — infrastructure, client, domain, core (no artifacts, no training data)
+#
+# Everything else is excluded.
+
+# ---------------------------------------------------------------------------
+# Version control and editor noise
+# ---------------------------------------------------------------------------
+.git/
+.gitignore
+.ruff_cache/
+.mypy_cache/
+.pytest_cache/
+.DS_Store
+Thumbs.db
+*.egg-info/
+
+# ---------------------------------------------------------------------------
+# Main application (not needed in model server images)
+# ---------------------------------------------------------------------------
+app/
+routes/
+templates/
+static/
+main.py
+metrics.py
+security_settings.py
+test.py
+
+# ---------------------------------------------------------------------------
+# Development, ops, and data pipeline code
+# ---------------------------------------------------------------------------
+data/
+spark_apps/
+ops/
+evaluation/
+ontology/
+docs/
+docker/
+system/
+logs/
+
+# ---------------------------------------------------------------------------
+# Python cache everywhere
+# ---------------------------------------------------------------------------
+__pycache__/
+*.py[cod]
+*.pyo
+
+# ---------------------------------------------------------------------------
+# Tests
+# ---------------------------------------------------------------------------
+tests/
+
+# ---------------------------------------------------------------------------
+# Environment and secrets
+# ---------------------------------------------------------------------------
+.env
+.env.*
+.envrc
+env.yml
+environment.yml
+
+# ---------------------------------------------------------------------------
+# Artifacts and training data (provided via volume mount at runtime)
+# ---------------------------------------------------------------------------
+models/artifacts/
+models/training/data/
+
+# Training scripts are not needed for inference
+models/training/
+
+# ---------------------------------------------------------------------------
+# Dependency and build files not needed at runtime
+# ---------------------------------------------------------------------------
+pyproject.toml
+*.md
+README.md
+code_instructions_prompt.txt
+tree.txt
