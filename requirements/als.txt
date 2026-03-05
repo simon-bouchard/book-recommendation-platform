@@ -1,0 +1,7 @@
+# requirements/als.txt
+#
+# ALS recommendation model server dependencies.
+# ALSModel performs pure numpy matrix operations (book_factors @ user_vec)
+# at inference time. No faiss, no torch, no pandas — base is sufficient.
+
+-r base.txt

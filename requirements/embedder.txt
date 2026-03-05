@@ -1,0 +1,9 @@
+# requirements/embedder.txt
+#
+# Embedder model server dependencies.
+# Torch is the only addition over base — SubjectEmbedder runs torch.no_grad()
+# inference at request time. No faiss, no pandas.
+
+-r base.txt
+torch==2.8.0
+pandas==2.3.1

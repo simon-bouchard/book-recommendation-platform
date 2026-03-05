@@ -1,0 +1,9 @@
+# requirements/metadata.txt
+#
+# Metadata model server dependencies.
+# pandas: the metadata server loads book metadata as a DataFrame and serves
+#         it via enrich and popular endpoints. PopularityScorer is pure numpy
+#         (already in base). No faiss, no torch.
+
+-r base.txt
+pandas==2.3.1
