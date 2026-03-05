@@ -1,8 +1,8 @@
 # models/core/paths.py
 """
 Centralized path definitions for all model artifacts and data files.
-Versioned artifact directories (embeddings, attention, scoring) resolve through
-the active_version pointer file, so loaders always read from the correct version.
+Versioned artifact directories (embeddings, attention, scoring, data) resolve
+through the active_version pointer file, so loaders always read from the correct version.
 """
 
 from pathlib import Path
@@ -11,7 +11,7 @@ from typing import Literal
 AttentionStrategy = Literal["scalar", "perdim", "selfattn", "selfattn_perdim"]
 
 _ACTIVE_VERSION_FILENAME = "active_version"
-_VERSIONED_SUBDIRS = ("embeddings", "attention", "scoring")
+_VERSIONED_SUBDIRS = ("embeddings", "attention", "scoring", "data")
 
 
 class ModelPaths:
@@ -30,18 +30,19 @@ class ModelPaths:
         |   |   |-- training_metrics.json
         |   |   |-- embeddings/
         |   |   |-- attention/
-        |   |   `-- scoring/
+        |   |   |-- scoring/
+        |   |   `-- data/
         |   |-- versions/
         |   |   |-- 20260226-1430-a3f9b2/
         |   |   |   |-- manifest.json
         |   |   |   |-- embeddings/
         |   |   |   |-- attention/
-        |   |   |   `-- scoring/
+        |   |   |   |-- scoring/
+        |   |   |   `-- data/
         |   |   `-- 20260110-0900-c8d1e4/  # previous versions kept for rollback
         |   |       `-- ...
         |   `-- semantic_indexes/           # not versioned
         `-- training/
-            `-- data/
     """
 
     def __init__(self, project_root: Path = None):
@@ -66,7 +67,6 @@ class ModelPaths:
         self.active_version_file = self.artifacts_dir / _ACTIVE_VERSION_FILENAME
 
         self.semantic_indexes_dir = self.artifacts_dir / "semantic_indexes"
-        self.training_data_dir = self.training_root / "data"
 
     # -------------------------------------------------------------------------
     # Internal version resolution
@@ -129,6 +129,23 @@ class ModelPaths:
     def scoring_dir(self) -> Path:
         """Scoring models directory for the active model version."""
         return self._active_version_dir / "scoring"
+
+    @property
+    def data_dir(self) -> Path:
+        """Data snapshot directory for the active model version."""
+        return self._active_version_dir / "data"
+
+    @property
+    def staging_data_dir(self) -> Path:
+        """
+        Data snapshot directory inside staging.
+
+        This is the write target for export_training_data.py and the read
+        source for all training scripts during a training run. It is distinct
+        from data_dir, which resolves through the active version and is used
+        by the runtime loaders.
+        """
+        return self.staging_dir / "data"
 
     # -------------------------------------------------------------------------
     # Embeddings (vector representations)
@@ -255,38 +272,38 @@ class ModelPaths:
         return self.semantic_indexes_dir / "enriched_v2_subjects"
 
     # -------------------------------------------------------------------------
-    # Training data
+    # Data snapshots (versioned)
     # -------------------------------------------------------------------------
 
     @property
-    def training_interactions(self) -> Path:
-        """Training data: user-book interactions."""
-        return self.training_data_dir / "interactions.pkl"
+    def data_interactions(self) -> Path:
+        """User-book interaction records for the active model version."""
+        return self.data_dir / "interactions.pkl"
 
     @property
-    def training_users(self) -> Path:
-        """Training data: user metadata."""
-        return self.training_data_dir / "users.pkl"
+    def data_users(self) -> Path:
+        """User metadata for the active model version."""
+        return self.data_dir / "users.pkl"
 
     @property
-    def training_books(self) -> Path:
-        """Training data: book metadata."""
-        return self.training_data_dir / "books.pkl"
+    def data_books(self) -> Path:
+        """Book metadata for the active model version."""
+        return self.data_dir / "books.pkl"
 
     @property
-    def training_book_subjects(self) -> Path:
-        """Training data: book-to-subject mappings."""
-        return self.training_data_dir / "book_subjects.pkl"
+    def data_book_subjects(self) -> Path:
+        """Book-to-subject mappings for the active model version."""
+        return self.data_dir / "book_subjects.pkl"
 
     @property
-    def training_user_fav_subjects(self) -> Path:
-        """Training data: user favorite subjects."""
-        return self.training_data_dir / "user_fav_subjects.pkl"
+    def data_user_fav_subjects(self) -> Path:
+        """User favourite subjects for the active model version."""
+        return self.data_dir / "user_fav_subjects.pkl"
 
     @property
-    def training_subjects(self) -> Path:
-        """Training data: subject metadata."""
-        return self.training_data_dir / "subjects.pkl"
+    def data_subjects(self) -> Path:
+        """Subject vocabulary for the active model version."""
+        return self.data_dir / "subjects.pkl"
 
     # -------------------------------------------------------------------------
     # Directory creation helpers
@@ -307,10 +324,6 @@ class ModelPaths:
         """Create all expected subdirectories inside staging."""
         for subdir in _VERSIONED_SUBDIRS:
             (self.staging_dir / subdir).mkdir(parents=True, exist_ok=True)
-
-    def ensure_training_dirs(self) -> None:
-        """Create training data directory if it does not exist."""
-        self.training_data_dir.mkdir(parents=True, exist_ok=True)
 
 
 # Global singleton instance
