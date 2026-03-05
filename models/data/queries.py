@@ -10,7 +10,6 @@ import pandas as pd
 import torch
 from sqlalchemy.orm import Session
 
-from models.core import PAD_IDX
 from models.data.loaders import (
     load_book_subject_embeddings,
     load_book_meta,

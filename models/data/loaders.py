@@ -5,14 +5,14 @@ Replaces the monolithic ModelStore with focused, cacheable loading functions.
 """
 
 import json
-import pickle
 from typing import Tuple, Optional, Dict, List
 from collections import defaultdict
 
 import numpy as np
 import pandas as pd
 
-from models.core import PATHS, Config
+from models.core.paths import PATHS
+from models.core.config import Config
 
 
 # Module-level cache for large artifacts that shouldn't be reloaded
