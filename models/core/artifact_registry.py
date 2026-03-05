@@ -24,6 +24,7 @@ from models.core.paths import PATHS, _VERSIONED_SUBDIRS
 
 _MANIFEST_FILENAME = "manifest.json"
 _METRICS_FILENAME = "training_metrics.json"
+_EXPORT_SENTINEL = ".export_complete"
 _RELOAD_SIGNAL_PATH = PATHS.models_root / "data" / ".reload_signal"
 _CHECKSUM_BLOCK_SIZE = 1 << 20  # 1 MiB
 
@@ -392,12 +393,14 @@ def _read_manifest(version_dir: Path) -> VersionManifest:
 
 def _compute_checksums(version_dir: Path) -> Dict[str, str]:
     """
-    Compute SHA-256 checksums for all files in the versioned subdirectories.
+    Compute SHA-256 checksums for all artifact files in the versioned subdirectories.
 
     Returns a dict mapping paths relative to version_dir to their hex digest.
-    Skips manifest.json itself since it cannot contain its own checksum.
+    Skips manifest.json (cannot contain its own checksum) and the data export
+    sentinel file (a control file, not a data artifact).
     """
     checksums: Dict[str, str] = {}
+    excluded = {_MANIFEST_FILENAME, f"data/{_EXPORT_SENTINEL}"}
 
     for subdir_name in _VERSIONED_SUBDIRS:
         subdir = version_dir / subdir_name
@@ -407,6 +410,8 @@ def _compute_checksums(version_dir: Path) -> Dict[str, str]:
             if file_path.is_dir():
                 continue
             rel = file_path.relative_to(version_dir)
+            if str(rel) in excluded:
+                continue
             checksums[str(rel)] = _sha256(file_path)
 
     return checksums
@@ -440,16 +445,27 @@ def _load_source_metrics(source_dir: Path) -> Dict:
 
 def _assert_staging_complete() -> None:
     """
-    Raise RuntimeError if any expected subdirectory is absent from staging.
+    Raise RuntimeError if staging is missing any expected subdirectory or if
+    the data export did not complete cleanly.
 
-    A missing subdir means a training script failed or the SCP was incomplete.
-    Better to reject here than to promote a partial version.
+    Directory presence is a necessary but not sufficient condition for the
+    data subdir — a crash mid-export leaves the directory populated but
+    incomplete. The sentinel file written by export_training_data.py as its
+    final step confirms the export finished without error.
     """
     missing = [sub for sub in _VERSIONED_SUBDIRS if not (PATHS.staging_dir / sub).exists()]
     if missing:
         raise RuntimeError(
             f"Staging is incomplete. Missing subdirectories: {missing}. "
             "Ensure all training scripts completed successfully before promoting."
+        )
+
+    sentinel = PATHS.staging_data_dir / _EXPORT_SENTINEL
+    if not sentinel.exists():
+        raise RuntimeError(
+            f"Data export sentinel not found at '{sentinel}'. "
+            "The export script did not complete successfully. "
+            "Re-run export_training_data.py before promoting."
         )
 
 
