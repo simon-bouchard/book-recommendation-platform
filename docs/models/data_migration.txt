@@ -1,0 +1,68 @@
+Execution Order
+1. models/core/paths.py
+Everything else depends on the path definitions being correct first.
+
+Add "data" to _VERSIONED_SUBDIRS — this propagates automatically to _assert_staging_complete and ensure_staging_dirs
+Add a staging_data_dir property pointing to staging_dir / "data" — this is what training scripts read from, since they always run against staged data, not the active version
+Update the training_* properties to resolve through _active_version_dir / "data" / filename — this is what the runtime loaders (metadata server) read from
+Update the directory diagram in the class docstring
+
+
+2. models/training/export_training_data.py
+Depends on paths.py having staging_data_dir.
+
+Write output to PATHS.staging_data_dir instead of data/new_data/
+Fix db.bind → proper engine reference
+Add canonical file header, remove sys.path hack
+
+
+3. models/training/data_loader.py
+Depends on paths.py having staging_data_dir.
+
+Replace the hardcoded DATA_DIR constant with PATHS.staging_data_dir
+No other changes needed — training scripts always run against freshly staged data
+
+
+4. ops/training/automated_training.py
+Depends on all of the above being correct.
+
+Remove TRAINING_DATA_NEW / new_data/ entirely — export now lands directly in staging/data/
+Update remote mkdir to include staging/data
+Replace the scp new_data/* → remote:training/data/ step with scp staging/data/ → remote:staging/data/
+Add "data" to the subdirs pulled back from remote via SCP
+Remove the training data rotation block (step 9 in current main) — promotion handles it
+Move Azure credential loading inside main() with a proper env guard
+Add a timeout to the SSH readiness loop
+Replace the ssh echo log capture with a post-script scp of the remote log file
+
+
+5. Migration script: ops/migrations/migrate_training_data_to_artifacts.py
+Runs once after all code changes are deployed.
+The migration needs to handle two concerns:
+Active version and all rollback-eligible versions: After the code deploy, the metadata server will resolve books.pkl etc. through _active_version_dir / "data" / books.pkl. Any version the system might roll back to also needs a data/ subdir, otherwise a rollback would crash the server at startup. The script should copy the pkl files into every existing version directory, not just the active one.
+Manifest checksums: register_existing_version computed checksums at promotion time. After copying data files in, those checksums are stale. The script should recompute and rewrite each affected manifest.
+Order of operations within the script:
+
+Read the source pkl files from models/training/data/
+For each existing version directory under versions/:
+
+Create versions/<id>/data/
+Copy all pkl files into it
+Recompute checksums across the full version dir
+Rewrite manifest.json with updated checksums
+
+
+Also copy into staging/data/ as a reference baseline (not strictly required since the next export will overwrite it, but keeps staging consistent)
+Print a summary of what was migrated
+
+The script should be idempotent — if versions/<id>/data/ already exists and is populated, skip it with a log message rather than overwriting.
+
+What Does Not Need Changes
+
+artifact_registry.py — _assert_staging_complete and _compute_checksums both already iterate _VERSIONED_SUBDIRS, so adding "data" there is the only required change and it lives in paths.py
+All model servers — they use PATHS.training_books etc. which will resolve correctly once paths.py is updated
+evaluate_gate.py — reads training metrics from staging, not pkl files
+
+
+Rollback Safety
+One important note: after running the migration, the existing active version will have correct data. But if you roll back to a version that was migrated, then roll forward again (re-promote staging), the new version will have freshly exported data while the old rollback target has a snapshot from migration day. This is correct and expected behaviour — it's exactly the version-data consistency guarantee you're trying to establish.
