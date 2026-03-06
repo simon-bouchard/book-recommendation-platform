@@ -55,7 +55,7 @@ class RecommendationService:
         )
 
         try:
-            pipeline = await self._build_pipeline(user, config, is_warm)
+            pipeline = self._build_pipeline(user, config, is_warm)
             candidates = await pipeline.recommend(user, config.k, db)
             recommendations = await self._enrich_candidates(candidates)
 
@@ -81,7 +81,7 @@ class RecommendationService:
             )
             raise
 
-    async def _build_pipeline(
+    def _build_pipeline(
         self, user: User, config: RecommendationConfig, is_warm: bool
     ) -> RecommendationPipeline:
         """
