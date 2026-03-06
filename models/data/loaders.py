@@ -228,7 +228,7 @@ def load_book_meta(use_cache: bool = True) -> pd.DataFrame:
     if use_cache and cache_key in _CACHE:
         return _CACHE[cache_key]
 
-    df = pd.read_pickle(PATHS.training_books).set_index("item_idx")
+    df = pd.read_pickle(PATHS.data_books).set_index("item_idx")
 
     # Add Bayesian scores aligned to item_idx
     bayesian_scores = load_bayesian_scores(use_cache=use_cache)
@@ -268,7 +268,7 @@ def load_user_meta(use_cache: bool = True) -> pd.DataFrame:
     if use_cache and cache_key in _CACHE:
         return _CACHE[cache_key]
 
-    df = pd.read_pickle(PATHS.training_users).set_index("user_id")
+    df = pd.read_pickle(PATHS.data_users).set_index("user_id")
 
     if use_cache:
         _CACHE[cache_key] = df
@@ -295,7 +295,7 @@ def load_book_to_subjects(use_cache: bool = True) -> Dict[int, List[int]]:
         return _CACHE[cache_key]
 
     mapping = defaultdict(list)
-    df = pd.read_pickle(PATHS.training_book_subjects)
+    df = pd.read_pickle(PATHS.data_book_subjects)
 
     for row in df.itertuples(index=False):
         mapping[row.item_idx].append(row.subject_idx)
