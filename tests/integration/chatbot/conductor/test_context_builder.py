@@ -5,7 +5,6 @@ Validates that history truncation and context preparation work correctly.
 """
 
 import pytest
-from app.agents.orchestrator.conductor import Conductor
 from app.agents.schemas import AgentResult, RoutePlan
 
 pytestmark = pytest.mark.asyncio
@@ -18,22 +17,24 @@ class TestContextBuilders:
     Nobody explicitly tests these helper functions. Component tests
     bypass them by constructing inputs directly.
 
-    These tests use mocked agents to verify orchestration logic,
-    not LLM quality.
+    All routing is controlled via the pre-wired mock_router (default: recsys),
+    so no LLM calls are made.
     """
 
     async def test_router_input_truncates_to_k_user(
-        self, db_session, test_user_warm, mock_agent_factory, mock_recsys_agent, collect_result
+        self,
+        db_session,
+        test_user_warm,
+        conductor,
+        collect_result,
     ):
         """
         Verify make_router_input only includes last k_user messages.
 
-        Critical for router prompt size management.
-        Router should only see last k_user user messages, not full history.
+        The router context builder should truncate history to k_user
+        user messages. This test verifies the system doesn't error with
+        a long history and a small k_user window.
         """
-        conductor = Conductor()
-        conductor.factory = mock_agent_factory
-
         history = [{"u": f"user message {i}", "a": f"assistant response {i}"} for i in range(1, 11)]
 
         result = await collect_result(
@@ -50,16 +51,18 @@ class TestContextBuilders:
         assert result.success, f"Request with k_user=2 failed: {result.text}"
 
     async def test_router_input_k_user_larger_than_history(
-        self, db_session, test_user_warm, mock_agent_factory, collect_result
+        self,
+        db_session,
+        test_user_warm,
+        conductor,
+        collect_result,
     ):
         """
         Verify k_user handles edge case when k_user > len(history).
 
-        If history has 2 messages but k_user=5, should use all 2 messages.
+        If history has 2 turns but k_user=5, should use all 2 turns
+        without error.
         """
-        conductor = Conductor()
-        conductor.factory = mock_agent_factory
-
         history = [
             {"u": "first message", "a": "first response"},
             {"u": "second message", "a": "second response"},
@@ -79,17 +82,19 @@ class TestContextBuilders:
         assert result.success, "Failed when k_user > history length"
 
     async def test_branch_input_truncates_to_hist_turns(
-        self, db_session, test_user_warm, mock_agent_factory, mock_recsys_agent, collect_result
+        self,
+        db_session,
+        test_user_warm,
+        conductor,
+        mock_recsys_agent,
+        collect_result,
     ):
         """
         Verify make_branch_input only includes last hist_turns.
 
-        Different from router truncation - affects agent context.
-        Branch agents should only see last hist_turns full turns.
+        Branch agents should only see last hist_turns full turns,
+        not the complete history.
         """
-        conductor = Conductor()
-        conductor.factory = mock_agent_factory
-
         history = [{"u": f"message {i}", "a": f"response {i}"} for i in range(1, 7)]
 
         result = await collect_result(
@@ -113,16 +118,18 @@ class TestContextBuilders:
         )
 
     async def test_branch_input_hist_turns_zero(
-        self, db_session, test_user_warm, mock_agent_factory, mock_recsys_agent, collect_result
+        self,
+        db_session,
+        test_user_warm,
+        conductor,
+        mock_recsys_agent,
+        collect_result,
     ):
         """
         Verify hist_turns=0 sends no history to agent.
 
-        Edge case: agent should see only current query, no history.
+        Agent should see only the current query, no prior history.
         """
-        conductor = Conductor()
-        conductor.factory = mock_agent_factory
-
         history = [
             {"u": "old message 1", "a": "old response 1"},
             {"u": "old message 2", "a": "old response 2"},
@@ -151,21 +158,16 @@ class TestContextBuilders:
         self,
         db_session,
         test_user_warm,
-        mock_agent_factory,
+        conductor,
         mock_docs_agent,
         mock_router,
         collect_result,
     ):
         """
-        Verify force_target parameter skips routing logic.
+        Verify force_target parameter skips routing logic entirely.
 
-        Used for testing/debugging specific agents.
         Router should not be invoked when force_target is set.
         """
-        conductor = Conductor()
-        conductor.factory = mock_agent_factory
-        conductor.router = mock_router
-
         result = await collect_result(
             conductor,
             history=[],
@@ -178,7 +180,6 @@ class TestContextBuilders:
         )
 
         assert result.success, "force_target=docs failed"
-
         assert mock_docs_agent.execute_stream.called, "Docs agent should be called"
 
         # Router must not be invoked when force_target is set
@@ -188,7 +189,7 @@ class TestContextBuilders:
         self,
         db_session,
         test_user_warm,
-        mock_agent_factory,
+        conductor,
         mock_recsys_agent,
         mock_web_agent,
         mock_docs_agent,
@@ -196,13 +197,8 @@ class TestContextBuilders:
         collect_result,
     ):
         """
-        Verify force_target works for all agent types.
-
-        Each target should be callable via force_target.
+        Verify force_target works for all four agent types.
         """
-        conductor = Conductor()
-        conductor.factory = mock_agent_factory
-
         targets_to_test = [
             ("recsys", mock_recsys_agent),
             ("web", mock_web_agent),
@@ -230,16 +226,18 @@ class TestContextBuilders:
             assert mock_agent.execute_stream.called, f"Agent for target={target} was not called"
 
     async def test_context_with_empty_history(
-        self, db_session, test_user_warm, mock_agent_factory, mock_response_agent, collect_result
+        self,
+        db_session,
+        test_user_warm,
+        conductor,
+        collect_result,
     ):
         """
         Verify context builders handle empty history correctly.
 
-        First turn: history=[], both router and agent should handle gracefully.
+        First turn: history=[], both router context and branch context
+        should handle an empty list without error.
         """
-        conductor = Conductor()
-        conductor.factory = mock_agent_factory
-
         result = await collect_result(
             conductor,
             history=[],

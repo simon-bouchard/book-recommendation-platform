@@ -1,7 +1,8 @@
 # tests/integration/chatbot/conductor/conftest.py
 """
 Fixtures for Conductor integration tests.
-Provides mocked agents for testing orchestration logic without LLM calls.
+Provides mocked agents and a pre-wired Conductor for testing orchestration
+logic without any LLM calls.
 """
 
 import pytest
@@ -266,12 +267,6 @@ def mock_agent_factory(
 ):
     """
     Mock AgentFactory that returns mocked agents instead of real ones.
-
-    Inject into Conductor to replace real agents with mocks::
-
-        conductor = Conductor()
-        conductor.factory = mock_agent_factory
-        result = await collect_result(conductor, ...)
     """
     factory = Mock()
 
@@ -295,9 +290,9 @@ def mock_agent_factory(
 @pytest.fixture
 def mock_router():
     """
-    Mock RouterLLM for tests that need to control routing decisions.
+    Mock RouterLLM for controlling routing decisions without LLM calls.
 
-    Defaults to routing to recsys.  Override with::
+    Defaults to routing to recsys.  Override per-test with::
 
         mock_router.classify.return_value = RoutePlan(target="web", reason="...")
 
@@ -310,3 +305,30 @@ def mock_router():
         return_value=RoutePlan(target="recsys", reason="Default mock routing to recsys")
     )
     return router
+
+
+@pytest.fixture
+def conductor(mock_agent_factory, mock_router):
+    """
+    Pre-wired Conductor with both the factory and router mocked.
+
+    Eliminates the need to manually inject mocks in every test, and
+    ensures no real LLM calls are ever made during infrastructure tests.
+
+    Usage::
+
+        async def test_something(self, conductor, collect_result, ...):
+            result = await collect_result(conductor, ...)
+
+    To control routing for a specific test, configure mock_router before
+    calling collect_result::
+
+        mock_router.classify.return_value = RoutePlan(target="docs", reason="...")
+        result = await collect_result(conductor, ...)
+    """
+    from app.agents.orchestrator.conductor import Conductor
+
+    c = Conductor()
+    c.factory = mock_agent_factory
+    c.router = mock_router
+    return c
