@@ -6,6 +6,7 @@ All retrieval tools return consistent schema with enrichment data where availabl
 
 from typing import Callable, Dict, Optional
 from sqlalchemy.orm import Session
+import asyncio
 
 from models.services.recommendation_service import RecommendationService
 from models.domain.user import User
@@ -255,7 +256,7 @@ class InternalTools:
         """ALS-based collaborative filtering recommendations."""
 
         @tool
-        def als_recs(top_k: int = 100) -> list[dict]:
+        async def als_recs(top_k: int = 100) -> list[dict]:
             """
             Get collaborative filtering recommendations based on user's rating history.
 
@@ -282,7 +283,7 @@ class InternalTools:
                 service = RecommendationService()
                 config = RecommendationConfig(k=top_k, mode="behavioral")
 
-                recommendations = service.recommend(domain_user, config, self.db)
+                recommendations = await service.recommend(domain_user, config, self.db)
 
                 # Convert RecommendedBook objects to dicts
                 raw_results = [
@@ -309,7 +310,7 @@ class InternalTools:
         """Subject-based recommendations with popularity blending."""
 
         @tool
-        def subject_hybrid_pool(
+        async def subject_hybrid_pool(
             fav_subjects_idxs: list[int],
             top_k: int = 100,
             subject_weight: float = 0.6,
@@ -361,7 +362,7 @@ class InternalTools:
                     hybrid_config=HybridConfig(subject_weight=subject_weight),
                 )
 
-                recommendations = service.recommend(domain_user, config, self.db)
+                recommendations = await service.recommend(domain_user, config, self.db)
 
                 # Convert RecommendedBook objects to dicts
                 raw_results = [
