@@ -41,6 +41,8 @@ def _make_staging(staging_dir: Path, subdirs: tuple = _VERSIONED_SUBDIRS) -> Non
         d = staging_dir / subdir
         d.mkdir(parents=True, exist_ok=True)
         (d / f"{subdir}_data.npy").write_bytes(b"fake artifact content: " + subdir.encode())
+    if "data" in subdirs:
+        (staging_dir / "data" / ".export_complete").touch()
 
 
 def _make_staging_with_metrics(staging_dir: Path, recall: float = 0.42) -> None:

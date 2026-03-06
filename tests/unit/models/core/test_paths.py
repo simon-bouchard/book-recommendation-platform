@@ -64,9 +64,6 @@ class TestConstructor:
     def test_semantic_indexes_dir_is_under_artifacts(self, paths):
         assert paths.semantic_indexes_dir == paths.artifacts_dir / "semantic_indexes"
 
-    def test_training_data_dir_is_under_training_root(self, paths):
-        assert paths.training_data_dir == paths.models_root / "training" / "data"
-
 
 # ---------------------------------------------------------------------------
 # _active_version_dir resolution
@@ -254,17 +251,8 @@ class TestStaticPaths:
         _ = paths.semantic_index_enriched_v1
         _ = paths.semantic_index_enriched_v2
 
-    def test_training_data_paths_do_not_require_active_version(self, paths):
-        _ = paths.training_interactions
-        _ = paths.training_users
-        _ = paths.training_books
-        _ = paths.training_book_subjects
-
     def test_semantic_index_baseline_is_under_semantic_indexes_dir(self, paths):
         assert paths.semantic_index_baseline.parent == paths.semantic_indexes_dir
-
-    def test_training_interactions_is_under_training_data_dir(self, paths):
-        assert paths.training_interactions.parent == paths.training_data_dir
 
 
 # ---------------------------------------------------------------------------
@@ -302,7 +290,3 @@ class TestEnsureDirs:
         paths.ensure_staging_dirs()
         for subdir in _VERSIONED_SUBDIRS:
             assert (paths.staging_dir / subdir).is_dir()
-
-    def test_ensure_training_dirs_creates_training_data_dir(self, paths):
-        paths.ensure_training_dirs()
-        assert paths.training_data_dir.is_dir()
