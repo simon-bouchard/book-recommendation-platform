@@ -1,6 +1,6 @@
 # tests/integration/models/conftest.py
 """
-Pytest configuration for models performance tests.
+Pytest configuration for models integration/performance tests.
 """
 
 import pytest
@@ -14,16 +14,16 @@ from fastapi.testclient import TestClient
 def test_env():
     """Set up test environment variables."""
     os.environ["TESTING"] = "1"
-    # Add any other test-specific environment variables
     yield
-    # Cleanup if needed
 
 
 @pytest.fixture(scope="session")
 def db() -> Session:
     """
-    Provide a database session for tests.
-    Reuses the application's database connection.
+    Provide a database session for the full test session.
+
+    Reuses the application's database connection pool so tests do not pay
+    repeated connection setup costs.
     """
     from app.database import SessionLocal
 
@@ -35,31 +35,19 @@ def db() -> Session:
 
 
 @pytest.fixture(scope="module")
-def client(db: Session):
+def client():
     """
-    Create a FastAPI test client.
-    Scope is module-level to reuse across tests in same file.
+    Create a FastAPI test client scoped to the module.
+
+    Module scope avoids creating a new event loop per test while still
+    isolating state between test files. The context manager form ensures
+    the app lifespan runs (initialising model server clients) and tears
+    down cleanly (closing connection pools) for every module.
     """
     from main import app
 
-    # Create test client
     with TestClient(app) as test_client:
         yield test_client
-
-
-@pytest.fixture(scope="session")
-def ensure_models_loaded():
-    """
-    Ensure all models are preloaded before tests.
-    This warms up the cache so first test isn't penalized.
-    """
-    from models.data.loaders import preload_all_artifacts
-
-    print("\nPreloading models for performance tests...")
-    preload_all_artifacts()
-    print("Models loaded\n")
-
-    yield
 
 
 @pytest.fixture(scope="session")
@@ -70,17 +58,56 @@ def performance_baselines_dir():
     return baselines_dir
 
 
-# Auto-use fixtures
 @pytest.fixture(scope="session", autouse=True)
-def setup_test_environment(test_env, ensure_models_loaded):
+def ensure_model_servers_ready(test_env):
     """
-    Automatically set up test environment for all tests.
-    This runs once per test session.
+    Block the test session until all model servers report ready.
+
+    Replaces the old preload_all_artifacts() call. The main app is stateless
+    and owns no artifacts; readiness is determined by the model servers, not
+    by local artifact loading.
+
+    Raises RuntimeError if any server is unreachable after the timeout,
+    which surfaces a clear message rather than cryptic 500s in every test.
     """
-    pass
+    import httpx
+    import time
+
+    server_urls = {
+        "embedder": os.environ.get("EMBEDDER_URL", "http://embedder:8001"),
+        "similarity": os.environ.get("SIMILARITY_URL", "http://similarity:8002"),
+        "als": os.environ.get("ALS_URL", "http://als:8003"),
+        "metadata": os.environ.get("METADATA_URL", "http://metadata:8004"),
+    }
+
+    timeout_seconds = 60
+    poll_interval = 2.0
+    deadline = time.monotonic() + timeout_seconds
+
+    print("\nWaiting for model servers to be ready...")
+
+    for name, url in server_urls.items():
+        while time.monotonic() < deadline:
+            try:
+                resp = httpx.get(f"{url}/health", timeout=2.0)
+                if resp.status_code == 200:
+                    print(f"  {name}: ready")
+                    break
+            except httpx.RequestError:
+                pass
+
+            time.sleep(poll_interval)
+        else:
+            raise RuntimeError(
+                f"Model server '{name}' at {url} did not become ready within "
+                f"{timeout_seconds}s. Ensure all containers are running before "
+                f"executing integration tests."
+            )
+
+    print("All model servers ready.\n")
+    yield
 
 
-# Optional: Skip tests if test data not configured
 def pytest_configure(config):
     """Register custom markers."""
     config.addinivalue_line(
@@ -90,10 +117,6 @@ def pytest_configure(config):
 
 def pytest_collection_modifyitems(config, items):
     """Skip tests that require test data if not configured."""
-    import sys
-    from pathlib import Path
-
-    # Check if test data is configured
     test_data_file = Path(__file__).parent / "test_data_config.json"
 
     if not test_data_file.exists():
