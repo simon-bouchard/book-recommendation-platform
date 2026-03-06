@@ -6,7 +6,7 @@ Provides mocks for services, database, and test client setup.
 
 import sys
 import pytest
-from unittest.mock import Mock
+from unittest.mock import AsyncMock, Mock
 from sqlalchemy.orm import Session
 from pathlib import Path
 
@@ -135,17 +135,17 @@ def sample_similar_books():
 
 @pytest.fixture
 def mock_recommendation_service(sample_recommendations):
-    """Mock RecommendationService."""
+    """Mock RecommendationService with async recommend method."""
     service = Mock()
-    service.recommend.return_value = sample_recommendations
+    service.recommend = AsyncMock(return_value=sample_recommendations)
     return service
 
 
 @pytest.fixture
 def mock_similarity_service(sample_similar_books):
-    """Mock SimilarityService."""
+    """Mock SimilarityService with async get_similar method."""
     service = Mock()
-    service.get_similar.return_value = sample_similar_books
+    service.get_similar = AsyncMock(return_value=sample_similar_books)
     return service
 
 
