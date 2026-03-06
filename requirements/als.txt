@@ -5,3 +5,4 @@
 # at inference time. No faiss, no torch, no pandas — base is sufficient.
 
 -r base.txt
+pandas==2.3.1
