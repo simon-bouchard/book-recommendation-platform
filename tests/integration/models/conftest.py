@@ -108,6 +108,29 @@ def ensure_model_servers_ready(test_env):
     yield
 
 
+@pytest.fixture(scope="session", autouse=True)
+def disable_route_caching():
+    """
+    Patch both cache decorators to identity functions for the full test session.
+
+    The decorators are applied at module import time, so routes.models must be
+    removed from sys.modules and re-imported after patching to pick up the
+    inert versions. Without this, measurements reflect cache hits rather than
+    real pipeline latency.
+    """
+    import sys
+    import models.cache as cache_module
+    from unittest.mock import patch
+
+    with (
+        patch.object(cache_module, "cached_recommendations", lambda f: f),
+        patch.object(cache_module, "cached_similarity", lambda f: f),
+    ):
+        sys.modules.pop("routes.models", None)
+        yield
+        sys.modules.pop("routes.models", None)
+
+
 def pytest_configure(config):
     """Register custom markers."""
     config.addinivalue_line(
