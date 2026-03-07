@@ -276,8 +276,19 @@ class InternalTools:
             top_k = max(1, min(500, top_k))
 
             try:
-                # Convert ORM user to domain User
-                domain_user = self._to_domain_user(self.current_user)
+                # Build domain User without accessing lazy ORM relationships.
+                # The behavioral pipeline only needs user_id (for ALS lookup and
+                # read-books filtering), so we avoid touching favorite_subjects
+                # entirely. Accessing lazy relationships in an async SQLAlchemy
+                # context raises MissingGreenlet before the first await, which
+                # the except clause would silently swallow.
+                from models.domain.user import User as DomainUser
+                from models.core.constants import PAD_IDX
+
+                domain_user = DomainUser(
+                    user_id=self.current_user.user_id,
+                    fav_subjects=[PAD_IDX],
+                )
 
                 # Use new recommendation service with behavioral mode
                 service = RecommendationService()
