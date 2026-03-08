@@ -6,7 +6,8 @@ Recommendation service using singleton generators/filters/rankers.
 import logging
 import time
 from typing import List
-from sqlalchemy.orm import Session
+
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from models.domain.user import User
 from models.domain.config import RecommendationConfig
@@ -36,26 +37,24 @@ class RecommendationService:
         """Initialize recommendation service."""
 
     async def recommend(
-        self, user: User, config: RecommendationConfig, db: Session
+        self, user: User, config: RecommendationConfig, db: AsyncSession
     ) -> List[RecommendedBook]:
         """Generate personalized recommendations for a user."""
         start_time = time.time()
 
-        is_warm = await user.is_warm()
-
-        logger.info(
-            "Recommendation started",
-            extra={
-                "user_id": user.user_id,
-                "mode": config.mode,
-                "is_warm": is_warm,
-                "has_preferences": user.has_preferences,
-                "k": config.k,
-            },
-        )
-
         try:
-            pipeline = self._build_pipeline(user, config, is_warm)
+            pipeline = await self._build_pipeline(user, config)
+
+            logger.info(
+                "Recommendation started",
+                extra={
+                    "user_id": user.user_id,
+                    "mode": config.mode,
+                    "has_preferences": user.has_preferences,
+                    "k": config.k,
+                },
+            )
+
             candidates = await pipeline.recommend(user, config.k, db)
             recommendations = await self._enrich_candidates(candidates)
 
@@ -81,14 +80,16 @@ class RecommendationService:
             )
             raise
 
-    def _build_pipeline(
-        self, user: User, config: RecommendationConfig, is_warm: bool
+    async def _build_pipeline(
+        self, user: User, config: RecommendationConfig
     ) -> RecommendationPipeline:
         """
         Build recommendation pipeline using singleton components.
 
-        Accepts the pre-resolved is_warm flag so the caller can reuse the
-        single awaited value rather than triggering a second server round-trip.
+        is_warm() is only called for mode=auto, where the result determines
+        which generator to use. For mode=behavioral and mode=subject the
+        generator is fixed regardless of warmth, so the ALS server round-trip
+        is skipped entirely (~4ms saving per request).
 
         Key insight: Generators/filters/rankers are singletons (one copy),
         but pipelines are recreated per request (they are lightweight wrappers).
@@ -104,7 +105,8 @@ class RecommendationService:
             fallback_generator = get_popularity_generator()
 
         else:
-            # Auto mode — decide based on user status
+            # Auto mode — only here do we need to know warmth.
+            is_warm = await user.is_warm()
             if is_warm:
                 primary_generator = get_als_generator()
                 fallback_generator = get_popularity_generator()
