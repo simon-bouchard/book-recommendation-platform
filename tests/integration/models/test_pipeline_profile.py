@@ -1,24 +1,29 @@
 # tests/integration/models/test_pipeline_profile.py
 """
-Flamegraph profiling for the recommendation pipeline using py-spy.
+Flamegraph profiling for the recommendation and similarity pipeline using py-spy.
 
 Attaches py-spy to the current process (TestClient runs in-process) while
-firing the same request sequences as the performance test suite.  Outputs
-one Speedscope JSON per scenario to tests/integration/profiles/.
+firing the same request sequences as the performance test suite.  Each test
+run writes all profiles into a single timestamped subdirectory under
+tests/integration/profiles/<YYYYMMDD_HHMMSS>/ so runs are never interleaved
+and are easy to locate and compare.
 
-Open the files at https://speedscope.app — drag and drop, no install needed.
+Open the .json files at https://speedscope.app — drag and drop, no install needed.
 
 Usage:
     pytest tests/integration/models/test_pipeline_profile.py -v -s
     pytest tests/integration/models/test_pipeline_profile.py -v -s -k "warm"
+    pytest tests/integration/models/test_pipeline_profile.py -v -s -k "similarity"
 
 Requirements:
     pip install py-spy --break-system-packages
     sudo access required (py-spy attaches to a running process)
 """
 
+import concurrent.futures
 import os
 import shutil
+import signal
 import subprocess
 import time
 from contextlib import contextmanager
@@ -31,12 +36,14 @@ from fastapi.testclient import TestClient
 from tests.integration.models.test_models_performance import (
     COLD_WITH_SUBJECTS_USER_IDS,
     COLD_WITHOUT_SUBJECTS_USER_IDS,
+    TEST_BOOK_IDS,
     WARM_USER_IDS,
     measure_endpoint_latency,
 )
 
 _PROFILES_DIR = Path(__file__).parent / "profiles"
 _TIMESTAMP = datetime.now().strftime("%Y%m%d_%H%M%S")
+_RUN_DIR = _PROFILES_DIR / _TIMESTAMP
 
 _PROFILE_WARMUP = 3
 _PROFILE_REQUESTS = 20
@@ -75,10 +82,12 @@ def _pyspy_record(label: str, duration: int):
     Context manager that runs py-spy record for the lifetime of the block.
 
     Attaches to os.getpid() — valid because TestClient executes the full
-    application stack in the same process as pytest.
+    application stack in the same process as pytest.  All profiles from a
+    single test session are written into the shared _RUN_DIR so they are
+    grouped by run and easy to load together in Speedscope.
 
     Args:
-        label: Short name used in the output filename.
+        label: Short name used as the output filename stem (e.g. "warm_behavioral").
         duration: Maximum recording time in seconds.  Set comfortably above
                   the expected total request duration so py-spy does not stop
                   early and truncate the profile.
@@ -86,8 +95,8 @@ def _pyspy_record(label: str, duration: int):
     Yields:
         Path to the output .json file (exists after the context exits).
     """
-    _PROFILES_DIR.mkdir(parents=True, exist_ok=True)
-    output_path = _PROFILES_DIR / f"profile_{_TIMESTAMP}_{label}.json"
+    _RUN_DIR.mkdir(parents=True, exist_ok=True)
+    output_path = _RUN_DIR / f"{label}.json"
 
     cmd = [
         _PYSPY_BIN,
@@ -111,14 +120,12 @@ def _pyspy_record(label: str, duration: int):
     try:
         yield output_path
     finally:
-        import signal as _signal
-
         try:
             proc.wait(timeout=5)
         except subprocess.TimeoutExpired:
             # SIGKILL prevents py-spy from writing the output file.
             # SIGINT triggers a clean shutdown that flushes the profile.
-            proc.send_signal(_signal.SIGINT)
+            proc.send_signal(signal.SIGINT)
             try:
                 proc.wait(timeout=10)
             except subprocess.TimeoutExpired:
@@ -132,8 +139,14 @@ def _pyspy_record(label: str, duration: int):
             print(f"\n  Warning: profile file not written for label '{label}'")
 
 
+def _print_stats(label: str, s: dict) -> None:
+    print(
+        f"\n  {label} — mean={s['mean_ms']:.1f}ms  p50={s['median_ms']:.1f}ms  p95={s['p95_ms']:.1f}ms"
+    )
+
+
 # ---------------------------------------------------------------------------
-# Profile tests
+# Recommendation profile tests
 # ---------------------------------------------------------------------------
 
 
@@ -158,18 +171,10 @@ def test_profile_warm_behavioral(client: TestClient):
 
     with _pyspy_record("warm_behavioral", duration=_PROFILE_REQUESTS * 2 + 10):
         stats, _ = measure_endpoint_latency(
-            client,
-            endpoint,
-            params,
-            warmup_runs=0,
-            measurement_runs=_PROFILE_REQUESTS,
+            client, endpoint, params, warmup_runs=0, measurement_runs=_PROFILE_REQUESTS
         )
 
-    s = stats.get_stats()
-    print(
-        f"\n  warm_behavioral — mean={s['mean_ms']:.1f}ms  "
-        f"p50={s['median_ms']:.1f}ms  p95={s['p95_ms']:.1f}ms"
-    )
+    _print_stats("warm_behavioral", stats.get_stats())
 
 
 def test_profile_warm_subject(client: TestClient):
@@ -193,18 +198,10 @@ def test_profile_warm_subject(client: TestClient):
 
     with _pyspy_record("warm_subject", duration=_PROFILE_REQUESTS * 2 + 10):
         stats, _ = measure_endpoint_latency(
-            client,
-            endpoint,
-            params,
-            warmup_runs=0,
-            measurement_runs=_PROFILE_REQUESTS,
+            client, endpoint, params, warmup_runs=0, measurement_runs=_PROFILE_REQUESTS
         )
 
-    s = stats.get_stats()
-    print(
-        f"\n  warm_subject — mean={s['mean_ms']:.1f}ms  "
-        f"p50={s['median_ms']:.1f}ms  p95={s['p95_ms']:.1f}ms"
-    )
+    _print_stats("warm_subject", stats.get_stats())
 
 
 def test_profile_cold_with_subjects(client: TestClient):
@@ -225,18 +222,10 @@ def test_profile_cold_with_subjects(client: TestClient):
 
     with _pyspy_record("cold_with_subjects", duration=_PROFILE_REQUESTS * 2 + 10):
         stats, _ = measure_endpoint_latency(
-            client,
-            endpoint,
-            params,
-            warmup_runs=0,
-            measurement_runs=_PROFILE_REQUESTS,
+            client, endpoint, params, warmup_runs=0, measurement_runs=_PROFILE_REQUESTS
         )
 
-    s = stats.get_stats()
-    print(
-        f"\n  cold_with_subjects — mean={s['mean_ms']:.1f}ms  "
-        f"p50={s['median_ms']:.1f}ms  p95={s['p95_ms']:.1f}ms"
-    )
+    _print_stats("cold_with_subjects", stats.get_stats())
 
 
 def test_profile_cold_without_subjects(client: TestClient):
@@ -260,15 +249,163 @@ def test_profile_cold_without_subjects(client: TestClient):
 
     with _pyspy_record("cold_without_subjects", duration=_PROFILE_REQUESTS * 2 + 10):
         stats, _ = measure_endpoint_latency(
-            client,
-            endpoint,
-            params,
-            warmup_runs=0,
-            measurement_runs=_PROFILE_REQUESTS,
+            client, endpoint, params, warmup_runs=0, measurement_runs=_PROFILE_REQUESTS
         )
 
-    s = stats.get_stats()
+    _print_stats("cold_without_subjects", stats.get_stats())
+
+
+# ---------------------------------------------------------------------------
+# Similarity profile tests
+# ---------------------------------------------------------------------------
+
+
+def test_profile_similarity_subject(client: TestClient):
+    """
+    Flamegraph for subject similarity search.
+
+    Expected hot frames: SubjectSimilarityStrategy.get_similar_books ->
+    FAISS index query -> metadata enrichment.  This is the cheapest
+    similarity path and sets the baseline floor for similarity latency.
+    """
+    if not TEST_BOOK_IDS:
+        pytest.skip("No test book IDs configured")
+
+    book_id = TEST_BOOK_IDS[0]
+    endpoint = f"/book/{book_id}/similar"
+    params = {"mode": "subject", "top_k": 200}
+
+    for _ in range(_PROFILE_WARMUP):
+        client.get(endpoint, params=params)
+
+    with _pyspy_record("similarity_subject", duration=_PROFILE_REQUESTS * 2 + 10):
+        stats, _ = measure_endpoint_latency(
+            client, endpoint, params, warmup_runs=0, measurement_runs=_PROFILE_REQUESTS
+        )
+
+    _print_stats("similarity_subject", stats.get_stats())
+
+
+def test_profile_similarity_als(client: TestClient):
+    """
+    Flamegraph for ALS-based item similarity search.
+
+    Expected hot frames: AlsSimilarityStrategy -> AlsClient._post -> metadata
+    enrichment.  Comparing against similarity_subject reveals the cost
+    attributable to ALS item-factor retrieval.
+    """
+    if not TEST_BOOK_IDS:
+        pytest.skip("No test book IDs configured")
+
+    book_id = TEST_BOOK_IDS[0]
+    endpoint = f"/book/{book_id}/similar"
+    params = {"mode": "als", "top_k": 200}
+
+    response = client.get(endpoint, params=params)
+    if response.status_code == 422:
+        pytest.skip(f"Book {book_id} has no ALS data")
+
+    for _ in range(_PROFILE_WARMUP):
+        client.get(endpoint, params=params)
+
+    with _pyspy_record("similarity_als", duration=_PROFILE_REQUESTS * 2 + 10):
+        stats, _ = measure_endpoint_latency(
+            client, endpoint, params, warmup_runs=0, measurement_runs=_PROFILE_REQUESTS
+        )
+
+    _print_stats("similarity_als", stats.get_stats())
+
+
+def test_profile_similarity_hybrid(client: TestClient):
+    """
+    Flamegraph for hybrid similarity (subject + ALS score fusion).
+
+    Expected to show both FAISS and ALS frames plus the fusion step.
+    Comparing against the subject and ALS profiles identifies whether the
+    ~2x latency observed in performance tests is truly additive or whether
+    there is additional overhead in the fusion path itself.
+    """
+    if not TEST_BOOK_IDS:
+        pytest.skip("No test book IDs configured")
+
+    book_id = TEST_BOOK_IDS[0]
+    endpoint = f"/book/{book_id}/similar"
+    params = {"mode": "hybrid", "top_k": 200}
+
+    response = client.get(endpoint, params=params)
+    if response.status_code == 422:
+        pytest.skip(f"Book {book_id} has no ALS data, hybrid unavailable")
+
+    for _ in range(_PROFILE_WARMUP):
+        client.get(endpoint, params=params)
+
+    with _pyspy_record("similarity_hybrid", duration=_PROFILE_REQUESTS * 2 + 10):
+        stats, _ = measure_endpoint_latency(
+            client, endpoint, params, warmup_runs=0, measurement_runs=_PROFILE_REQUESTS
+        )
+
+    _print_stats("similarity_hybrid", stats.get_stats())
+
+
+# ---------------------------------------------------------------------------
+# Concurrency profile test
+# ---------------------------------------------------------------------------
+
+
+def test_profile_concurrent_recommendations(client: TestClient):
+    """
+    Flamegraph for the recommendation pipeline under concurrent load.
+
+    Fires requests from five threads simultaneously, mirroring the
+    concurrency stress test in the performance suite.  py-spy captures all
+    threads, so the profile will show where workers contend — typically GIL
+    pressure around numpy operations, lock acquisition on shared model
+    objects, or serialization in the metadata enrichment step.
+
+    The profile duration is sized for 10 rounds of 5 concurrent requests
+    at the observed ~120ms per-request latency, plus headroom.
+    """
+    if not WARM_USER_IDS:
+        pytest.skip("No warm user IDs configured")
+
+    workers = 5
+    rounds = 10
+    user_ids = WARM_USER_IDS[:workers]
+
+    def make_request(user_id: int) -> float:
+        start = time.perf_counter()
+        response = client.get(
+            "/profile/recommend",
+            params={"user": str(user_id), "_id": True, "top_n": 200, "mode": "behavioral"},
+        )
+        duration_ms = (time.perf_counter() - start) * 1000
+        assert response.status_code == 200, f"Concurrent request failed: {response.status_code}"
+        return duration_ms
+
+    for user_id in user_ids:
+        for _ in range(_PROFILE_WARMUP):
+            client.get(
+                "/profile/recommend",
+                params={"user": str(user_id), "_id": True, "top_n": 200, "mode": "behavioral"},
+            )
+
+    # Budget: rounds * expected_latency_s * 2 + headroom
+    duration = rounds * 3 + 15
+
+    latencies: list[float] = []
+    with _pyspy_record("concurrent_recommendations", duration=duration):
+        with concurrent.futures.ThreadPoolExecutor(max_workers=workers) as executor:
+            for _ in range(rounds):
+                futures = [executor.submit(make_request, uid) for uid in user_ids]
+                for future in concurrent.futures.as_completed(futures):
+                    latencies.append(future.result())
+
+    mean_ms = sum(latencies) / len(latencies)
+    latencies_sorted = sorted(latencies)
+    p95_idx = int(len(latencies_sorted) * 0.95)
+    p95_ms = latencies_sorted[min(p95_idx, len(latencies_sorted) - 1)]
+
     print(
-        f"\n  cold_without_subjects — mean={s['mean_ms']:.1f}ms  "
-        f"p50={s['median_ms']:.1f}ms  p95={s['p95_ms']:.1f}ms"
+        f"\n  concurrent_recommendations ({workers} workers, {rounds} rounds) — "
+        f"mean={mean_ms:.1f}ms  p95={p95_ms:.1f}ms  total_requests={len(latencies)}"
     )
