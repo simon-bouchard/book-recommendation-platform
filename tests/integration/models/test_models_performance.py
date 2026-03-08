@@ -196,19 +196,16 @@ def performance_report(performance_results):
 # ============================================================================
 
 
-@pytest.mark.parametrize(
-    "user_id,mode",
-    [
-        *[(uid, "auto") for uid in WARM_USER_IDS[:3]],
-        *[(uid, "behavioral") for uid in WARM_USER_IDS[:2]],
-    ],
-)
-def test_warm_user_recommendations_latency(
-    client: TestClient, performance_report: Dict, user_id: int, mode: str
-):
-    """Tests recommendation latency for warm users via the ALS strategy."""
+@pytest.mark.parametrize("user_id", WARM_USER_IDS[:3])
+def test_warm_user_behavioral_latency(client: TestClient, performance_report: Dict, user_id: int):
+    """
+    Tests recommendation latency for warm users via the ALS (behavioral) strategy.
+
+    This is the primary warm-user path the UI exercises: the client always
+    sends mode=behavioral when it knows the user is warm.
+    """
     endpoint = "/profile/recommend"
-    params = {"user": str(user_id), "_id": True, "top_n": 200, "mode": mode}
+    params = {"user": str(user_id), "_id": True, "top_n": 200, "mode": "behavioral"}
 
     stats, response = measure_endpoint_latency(client, endpoint, params)
 
@@ -221,16 +218,18 @@ def test_warm_user_recommendations_latency(
         assert "title" in item
         assert "score" in item
 
-    performance_report[f"recommend_warm_user_{user_id}_mode_{mode}"] = stats
+    performance_report[f"recommend_warm_user_{user_id}_behavioral"] = stats
 
 
 @pytest.mark.parametrize("user_id", WARM_USER_IDS[:3])
-def test_warm_user_forced_subject_mode_latency(
-    client: TestClient, performance_report: Dict, user_id: int
-):
+def test_warm_user_subject_mode_latency(client: TestClient, performance_report: Dict, user_id: int):
     """
-    Tests warm user forced onto the subject strategy.
-    Validates that subject similarity scales for high-engagement users.
+    Tests a warm user on the subject (cold) path.
+
+    The UI sends mode=subject regardless of warmth when the user navigates
+    to a subject-discovery context.  Comparing this profile against
+    behavioral isolates path-specific cost versus shared overhead
+    (filter, enrich).
     """
     endpoint = "/profile/recommend"
     params = {"user": str(user_id), "_id": True, "top_n": 200, "mode": "subject"}
@@ -240,7 +239,7 @@ def test_warm_user_forced_subject_mode_latency(
     assert isinstance(response, list)
     assert len(response) > 0
 
-    performance_report[f"recommend_warm_user_{user_id}_forced_subject_mode"] = stats
+    performance_report[f"recommend_warm_user_{user_id}_subject"] = stats
 
 
 @pytest.mark.parametrize("user_id", COLD_WITH_SUBJECTS_USER_IDS[:3])
@@ -249,10 +248,12 @@ def test_cold_user_with_subjects_latency(
 ):
     """
     Tests cold user with favorite subjects via the subject similarity path.
-    Critical path: embedding + similarity + Bayesian blending.
+
+    Critical path: embedding + similarity + Bayesian blending.  The UI
+    always sends mode=subject for cold users.
     """
     endpoint = "/profile/recommend"
-    params = {"user": str(user_id), "_id": True, "top_n": 200, "mode": "auto"}
+    params = {"user": str(user_id), "_id": True, "top_n": 200, "mode": "subject"}
 
     stats, response = measure_endpoint_latency(client, endpoint, params)
 
@@ -267,11 +268,15 @@ def test_cold_user_without_subjects_latency(
     client: TestClient, performance_report: Dict, user_id: int
 ):
     """
-    Tests cold user without subjects via the pure Bayesian popularity fallback.
-    Fastest cold path: no embedding or similarity computation.
+    Tests cold user without favorite subjects via the subject path.
+
+    With no subject embeddings to score against, ColdRecommender falls back
+    to pure Bayesian popularity.  This is the fastest cold path and sets the
+    lower bound for cold-user latency.  The UI sends mode=subject for all
+    cold users regardless of whether they have subjects set.
     """
     endpoint = "/profile/recommend"
-    params = {"user": str(user_id), "_id": True, "top_n": 200, "mode": "auto"}
+    params = {"user": str(user_id), "_id": True, "top_n": 200, "mode": "subject"}
 
     stats, response = measure_endpoint_latency(client, endpoint, params)
 
@@ -289,7 +294,7 @@ def test_cold_recommendations_varying_w(client: TestClient, performance_report: 
 
     user_id = COLD_WITH_SUBJECTS_USER_IDS[0]
     endpoint = "/profile/recommend"
-    params = {"user": str(user_id), "_id": True, "top_n": 200, "mode": "auto", "w": w}
+    params = {"user": str(user_id), "_id": True, "top_n": 200, "mode": "subject", "w": w}
 
     stats, response = measure_endpoint_latency(client, endpoint, params)
 
@@ -301,13 +306,18 @@ def test_cold_recommendations_varying_w(client: TestClient, performance_report: 
 
 @pytest.mark.parametrize("top_n", [50, 200, 500])
 def test_recommendations_varying_top_n(client: TestClient, performance_report: Dict, top_n: int):
-    """Tests how recommendation latency scales with top_n."""
+    """
+    Tests how recommendation latency scales with top_n.
+
+    Uses a warm user on the behavioral path, which is the highest-volume
+    production scenario.
+    """
     if not WARM_USER_IDS:
         pytest.skip("No warm user IDs configured")
 
     user_id = WARM_USER_IDS[0]
     endpoint = "/profile/recommend"
-    params = {"user": str(user_id), "_id": True, "top_n": top_n, "mode": "auto"}
+    params = {"user": str(user_id), "_id": True, "top_n": top_n, "mode": "behavioral"}
 
     stats, response = measure_endpoint_latency(client, endpoint, params)
 
@@ -403,7 +413,12 @@ def test_similarity_varying_top_k(client: TestClient, performance_report: Dict, 
 
 
 def test_concurrent_recommendation_requests(client: TestClient, performance_report: Dict):
-    """Measures latency overhead under simulated concurrent load."""
+    """
+    Measures latency overhead under simulated concurrent load.
+
+    Uses the behavioral path for warm users, which is the realistic dominant
+    traffic pattern in production.
+    """
     if not WARM_USER_IDS:
         pytest.skip("No warm user IDs configured")
 
@@ -414,7 +429,7 @@ def test_concurrent_recommendation_requests(client: TestClient, performance_repo
         start = time.perf_counter()
         response = client.get(
             endpoint,
-            params={"user": str(user_id), "_id": True, "top_n": 200, "mode": "auto"},
+            params={"user": str(user_id), "_id": True, "top_n": 200, "mode": "behavioral"},
         )
         duration_ms = (time.perf_counter() - start) * 1000
         assert response.status_code == 200, f"Concurrent request failed: {response.status_code}"

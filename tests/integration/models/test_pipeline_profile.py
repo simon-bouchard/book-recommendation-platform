@@ -137,13 +137,14 @@ def _pyspy_record(label: str, duration: int):
 # ---------------------------------------------------------------------------
 
 
-def test_profile_warm_als(client: TestClient):
+def test_profile_warm_behavioral(client: TestClient):
     """
-    Flamegraph for the warm ALS recommendation path.
+    Flamegraph for the warm ALS (behavioral) recommendation path.
 
     Expected hot frames: ALSBasedGenerator.generate -> AlsClient._post,
     ReadBooksFilter.apply, MetadataClient._post.  Any unexpectedly wide
-    frame is the bottleneck.
+    frame is the bottleneck.  The UI always sends mode=behavioral for warm
+    users so this is the highest-traffic production path.
     """
     if not WARM_USER_IDS:
         pytest.skip("No warm user IDs configured")
@@ -155,7 +156,7 @@ def test_profile_warm_als(client: TestClient):
     for _ in range(_PROFILE_WARMUP):
         client.get(endpoint, params=params)
 
-    with _pyspy_record("warm_als", duration=_PROFILE_REQUESTS * 2 + 10):
+    with _pyspy_record("warm_behavioral", duration=_PROFILE_REQUESTS * 2 + 10):
         stats, _ = measure_endpoint_latency(
             client,
             endpoint,
@@ -166,17 +167,19 @@ def test_profile_warm_als(client: TestClient):
 
     s = stats.get_stats()
     print(
-        f"\n  warm_als — mean={s['mean_ms']:.1f}ms  "
+        f"\n  warm_behavioral — mean={s['mean_ms']:.1f}ms  "
         f"p50={s['median_ms']:.1f}ms  p95={s['p95_ms']:.1f}ms"
     )
 
 
 def test_profile_warm_subject(client: TestClient):
     """
-    Flamegraph for a warm user forced onto the subject path.
+    Flamegraph for a warm user on the subject path.
 
-    Comparing this profile against warm_als isolates which cost is
-    path-specific versus shared overhead (filter, enrich).
+    Comparing this profile against warm_behavioral isolates which cost is
+    path-specific versus shared overhead (filter, enrich).  Both profiles
+    use the same user so any difference is attributable solely to the
+    candidate generation strategy.
     """
     if not WARM_USER_IDS:
         pytest.skip("No warm user IDs configured")
@@ -205,13 +208,17 @@ def test_profile_warm_subject(client: TestClient):
 
 
 def test_profile_cold_with_subjects(client: TestClient):
-    """Flamegraph for the cold subject path (embed + subject_recs + enrich)."""
+    """
+    Flamegraph for the cold subject path (embed + subject_recs + enrich).
+
+    The UI sends mode=subject for all cold users.
+    """
     if not COLD_WITH_SUBJECTS_USER_IDS:
         pytest.skip("No cold users with subjects configured")
 
     user_id = COLD_WITH_SUBJECTS_USER_IDS[0]
     endpoint = "/profile/recommend"
-    params = {"user": str(user_id), "_id": True, "top_n": 200, "mode": "auto"}
+    params = {"user": str(user_id), "_id": True, "top_n": 200, "mode": "subject"}
 
     for _ in range(_PROFILE_WARMUP):
         client.get(endpoint, params=params)
@@ -233,13 +240,20 @@ def test_profile_cold_with_subjects(client: TestClient):
 
 
 def test_profile_cold_without_subjects(client: TestClient):
-    """Flamegraph for the pure Bayesian fallback path."""
+    """
+    Flamegraph for the pure Bayesian fallback path.
+
+    The UI sends mode=subject for cold users regardless of whether they have
+    favorite subjects set.  With no subject embeddings available,
+    ColdRecommender falls back to Bayesian popularity — this profile isolates
+    that fallback's cost.
+    """
     if not COLD_WITHOUT_SUBJECTS_USER_IDS:
         pytest.skip("No cold users without subjects configured")
 
     user_id = COLD_WITHOUT_SUBJECTS_USER_IDS[0]
     endpoint = "/profile/recommend"
-    params = {"user": str(user_id), "_id": True, "top_n": 200, "mode": "auto"}
+    params = {"user": str(user_id), "_id": True, "top_n": 200, "mode": "subject"}
 
     for _ in range(_PROFILE_WARMUP):
         client.get(endpoint, params=params)
