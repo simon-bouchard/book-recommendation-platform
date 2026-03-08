@@ -12,13 +12,13 @@ import time
 
 from metrics import RECSYS_REQUESTS, RECSYS_LATENCY, SIMILARITY_REQUESTS, SIMILARITY_LATENCY
 
-from app.database import get_db
+from app.database import get_read_only_db
 from app.table_models import User as ORMUser
 
 from models.services.recommendation_service import RecommendationService
 from models.services.similarity_service import SimilarityService
 from models.domain.user import User
-from models.domain.config import RecommendationConfig, HybridConfig, RecommendationMode
+from models.domain.config import RecommendationConfig, HybridConfig
 from models.core.constants import PAD_IDX
 from models.cache import cached_recommendations, cached_similarity
 from models.client.registry import get_similarity_client
@@ -103,7 +103,7 @@ async def recommend_for_user(
         "auto", regex="^(auto|subject|behavioral)$", description="Recommendation mode"
     ),
     w: float = Query(0.6, ge=0, le=1, description="Subject weight for hybrid mode"),
-    db: Session = Depends(get_db),
+    db: Session = Depends(get_read_only_db),
 ) -> list[dict]:
     """
     Generate personalized book recommendations.
