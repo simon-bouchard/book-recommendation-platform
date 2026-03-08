@@ -3,11 +3,13 @@
 Pytest configuration for models integration/performance tests.
 """
 
-import pytest
 import os
+from contextlib import asynccontextmanager
 from pathlib import Path
-from sqlalchemy.orm import Session
+
+import pytest
 from fastapi.testclient import TestClient
+from sqlalchemy.orm import Session
 
 
 @pytest.fixture(scope="session")
@@ -40,14 +42,35 @@ def client():
     Create a FastAPI test client scoped to the module.
 
     Module scope avoids creating a new event loop per test while still
-    isolating state between test files. The context manager form ensures
-    the app lifespan runs (initialising model server clients) and tears
-    down cleanly (closing connection pools) for every module.
+    isolating state between test files.
+
+    The lifespan is wrapped to dispose the async engine before the
+    TestClient's internal event loop closes. Without this, aiomysql
+    connections remain in the pool after the loop shuts down. Python's GC
+    later calls Connection.__del__, which attempts to close the connection
+    through the dead loop and raises RuntimeError: Event loop is closed.
+    Disposing inside the lifespan ensures cleanup runs while the loop is
+    still live.
     """
+    from app.database import async_engine
     from main import app
 
-    with TestClient(app) as test_client:
-        yield test_client
+    original_lifespan = app.router.lifespan_context
+
+    @asynccontextmanager
+    async def _lifespan_with_engine_disposal(app):
+        async with original_lifespan(app):
+            yield
+        if async_engine is not None:
+            await async_engine.dispose()
+
+    app.router.lifespan_context = _lifespan_with_engine_disposal
+
+    try:
+        with TestClient(app) as test_client:
+            yield test_client
+    finally:
+        app.router.lifespan_context = original_lifespan
 
 
 @pytest.fixture(scope="session")
@@ -70,8 +93,9 @@ def ensure_model_servers_ready(test_env):
     Raises RuntimeError if any server is unreachable after the timeout,
     which surfaces a clear message rather than cryptic 500s in every test.
     """
-    import httpx
     import time
+
+    import httpx
 
     server_urls = {
         "embedder": os.environ.get("EMBEDDER_URL", "http://embedder:8001"),
@@ -119,8 +143,9 @@ def disable_route_caching():
     real pipeline latency.
     """
     import sys
-    import models.cache as cache_module
     from unittest.mock import patch
+
+    import models.cache as cache_module
 
     with (
         patch.object(cache_module, "cached_recommendations", lambda f: f),
