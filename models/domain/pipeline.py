@@ -1,10 +1,11 @@
 # models/domain/pipeline.py
 """
 Recommendation pipeline orchestrating candidate generation, filtering, and ranking.
-Provides composable recommendation flow: generate -> fallback -> filter -> rank -> top k.
+Provides composable recommendation flow: generate -> filter -> rank -> top k.
 """
 
 from typing import List, Optional
+
 from sqlalchemy.orm import Session
 
 from models.domain.recommendation import Candidate
@@ -21,7 +22,7 @@ class RecommendationPipeline:
     Pipeline stages:
     1. Generate candidates from primary generator
     2. If no candidates, use fallback generator
-    3. Apply filters (e.g., remove read books)
+    3. Apply filter (async — DB call is dispatched to thread pool)
     4. Rank remaining candidates
     5. Return top k
 
@@ -68,13 +69,6 @@ class RecommendationPipeline:
 
         Returns:
             Top k candidates after generation, filtering, and ranking
-
-        Process:
-            1. Generate candidates (request more than k for filtering buffer)
-            2. If empty and fallback exists, generate from fallback
-            3. Apply filter
-            4. Rank
-            5. Return top k
         """
         if k <= 0:
             return []
@@ -87,19 +81,17 @@ class RecommendationPipeline:
         if not candidates and self.fallback_generator is not None:
             candidates = await self.fallback_generator.generate(user, buffer_k)
 
-        # No candidates available
         if not candidates:
             return []
 
-        # Filter candidates (e.g., remove read books)
-        candidates = self.filter.apply(candidates, user, db)
+        # Filter is async: the DB call runs in a thread pool without blocking
+        # the event loop.  The query is scoped to the candidate IDs (IN clause)
+        # so its cost is bounded by buffer_k, not by interaction history size.
+        candidates = await self.filter.apply(candidates, user, db)
 
-        # No candidates left after filtering
         if not candidates:
             return []
 
-        # Rank candidates
         candidates = self.ranker.rank(candidates, user)
 
-        # Return top k
         return candidates[:k]

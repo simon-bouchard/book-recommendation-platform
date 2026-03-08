@@ -24,7 +24,7 @@ except ImportError:
 
 def get_read_books(user_id: int, db: Session) -> Set[int]:
     """
-    Get set of item_idx that a user has already interacted with.
+    Get the full set of item_idx that a user has already interacted with.
 
     Args:
         user_id: User ID to query
@@ -42,6 +42,38 @@ def get_read_books(user_id: int, db: Session) -> Set[int]:
     }
 
 
+def get_read_books_for_candidates(user_id: int, candidate_ids: List[int], db: Session) -> Set[int]:
+    """
+    Get the subset of candidate_ids that the user has already read or rated.
+
+    Scoped to the candidate list via an IN clause.  With the composite index
+    on (user_id, item_idx), MySQL performs a targeted seek per candidate ID
+    rather than scanning the user's full interaction history.  This is faster
+    than get_read_books() for warm users because it reads fewer index entries:
+    at most len(candidate_ids) seeks versus the user's full interaction count.
+
+    The composite index also makes this a covering index query — item_idx is
+    stored in the index, so MySQL never touches the table rows.
+
+    Args:
+        user_id: User ID to query
+        candidate_ids: Candidate item indices to check membership for
+        db: SQLAlchemy database session
+
+    Returns:
+        Subset of candidate_ids the user has already interacted with
+    """
+    if Interaction is None or not candidate_ids:
+        return set()
+
+    return {
+        row.item_idx
+        for row in db.query(Interaction.item_idx)
+        .filter(Interaction.user_id == user_id, Interaction.item_idx.in_(candidate_ids))
+        .all()
+    }
+
+
 def get_candidate_book_df(candidate_ids: List[int]) -> pd.DataFrame:
     """
     Get DataFrame of book metadata for candidate items.
@@ -55,13 +87,9 @@ def get_candidate_book_df(candidate_ids: List[int]) -> pd.DataFrame:
     """
     book_meta = load_book_meta()
 
-    # Select only candidates that exist in metadata
     df = book_meta.loc[book_meta.index.intersection(candidate_ids)].copy()
-
-    # Add item_idx as column for convenience
     df["item_idx"] = df.index
 
-    # Preserve original candidate order
     df["__sort"] = df["item_idx"].map({idx: i for i, idx in enumerate(candidate_ids)})
     df = df.sort_values("__sort").drop(columns="__sort")
 
@@ -88,8 +116,8 @@ def add_book_embeddings(df: pd.DataFrame) -> pd.DataFrame:
     """
     Add book subject embeddings as columns to DataFrame.
 
-    Uses vectorized operations for optimal performance - significantly faster
-    than row-by-row iteration, especially for large DataFrames.
+    Uses vectorized operations for optimal performance — significantly faster
+    than row-by-row iteration for large DataFrames.
 
     Args:
         df: DataFrame with 'item_idx' column
@@ -97,27 +125,18 @@ def add_book_embeddings(df: pd.DataFrame) -> pd.DataFrame:
     Returns:
         DataFrame with additional 'book_emb_0', 'book_emb_1', ... columns
     """
-    # Load embeddings once (avoid duplicate calls)
     embeddings, book_ids = load_book_subject_embeddings()
     idx_to_row = get_item_idx_to_row(book_ids)
 
     dim = embeddings.shape[1]
 
-    # Vectorized mapping: item_idx -> row index
-    # Use -1 for missing items (will be replaced with zeros)
     item_indices = df["item_idx"].map(idx_to_row).fillna(-1).astype(int).values
-
-    # Pre-allocate result array (much faster than building list)
     emb_matrix = np.zeros((len(df), dim), dtype=embeddings.dtype)
-
-    # Find valid indices (books that exist in embedding matrix)
     valid_mask = item_indices >= 0
 
-    # Use numpy advanced indexing to extract all embeddings at once
     if valid_mask.any():
         emb_matrix[valid_mask] = embeddings[item_indices[valid_mask]]
 
-    # Create DataFrame with embedding columns
     emb_df = pd.DataFrame(emb_matrix, columns=[f"book_emb_{i}" for i in range(dim)])
 
     return pd.concat([df.reset_index(drop=True), emb_df], axis=1)
@@ -198,13 +217,11 @@ def has_book_subjects(item_idx: int) -> bool:
     """
     Check if a book has valid subject embeddings.
 
-    Used by UI to determine if subject-based similarity is available.
-
     Args:
         item_idx: Book item index to check
 
     Returns:
-        True if book has subject embeddings (not just PAD_IDX)
+        True if book has subject embeddings
     """
     try:
         from models.data.loaders import load_book_subject_embeddings
@@ -218,9 +235,6 @@ def has_book_subjects(item_idx: int) -> bool:
 def has_book_als(item_idx: int) -> bool:
     """
     Check if a book has ALS factors.
-
-    Used by UI to determine if behavioral similarity is available.
-    Convenience wrapper around infrastructure layer.
 
     Args:
         item_idx: Book item index to check
