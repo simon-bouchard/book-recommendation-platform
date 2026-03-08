@@ -6,7 +6,7 @@ Provides composable recommendation flow: generate -> filter -> rank -> top k.
 
 from typing import List, Optional
 
-from sqlalchemy.orm import Session
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from models.domain.recommendation import Candidate
 from models.domain.user import User
@@ -22,7 +22,7 @@ class RecommendationPipeline:
     Pipeline stages:
     1. Generate candidates from primary generator
     2. If no candidates, use fallback generator
-    3. Apply filter (async — DB call is dispatched to thread pool)
+    3. Apply filter (async — native aiomysql DB call on the event loop)
     4. Rank remaining candidates
     5. Return top k
 
@@ -34,7 +34,7 @@ class RecommendationPipeline:
             ranker=NoOpRanker()
         )
 
-        recommendations = pipeline.recommend(user, k=20, db=db_session)
+        recommendations = await pipeline.recommend(user, k=20, db=async_session)
     """
 
     def __init__(
@@ -58,14 +58,16 @@ class RecommendationPipeline:
         self.filter = filter or NoFilter()
         self.ranker = ranker or NoOpRanker()
 
-    async def recommend(self, user: User, k: int, db: Session = None) -> List[Candidate]:
+    async def recommend(
+        self, user: User, k: int, db: Optional[AsyncSession] = None
+    ) -> List[Candidate]:
         """
         Generate recommendations for a user.
 
         Args:
             user: User to generate recommendations for
             k: Number of recommendations to return
-            db: Database session (required if filter needs DB access)
+            db: Async database session (required if filter needs DB access)
 
         Returns:
             Top k candidates after generation, filtering, and ranking
@@ -84,9 +86,9 @@ class RecommendationPipeline:
         if not candidates:
             return []
 
-        # Filter is async: the DB call runs in a thread pool without blocking
-        # the event loop.  The query is scoped to the candidate IDs (IN clause)
-        # so its cost is bounded by buffer_k, not by interaction history size.
+        # Filter runs natively on the event loop via aiomysql — no thread pool.
+        # The query is scoped to the candidate IDs (IN clause) so its cost is
+        # bounded by buffer_k, not by the user's total interaction history.
         candidates = await self.filter.apply(candidates, user, db)
 
         if not candidates:

@@ -2,18 +2,25 @@
 """
 Database queries and DataFrame operations for recommendation pipeline.
 Provides utilities for filtering, enriching, and transforming candidate data.
+
+get_read_books_for_candidates_async is the hot-path variant used by
+ReadBooksFilter: it runs natively on the event loop via aiomysql, eliminating
+the asyncio.to_thread dispatch that was the dominant latency contributor in
+the recommendation endpoint.
 """
 
-from typing import Set, List, Dict
+from typing import Dict, List, Set
 import numpy as np
 import pandas as pd
 import torch
+from sqlalchemy import select
+from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import Session
 
 from models.data.loaders import (
-    load_book_subject_embeddings,
-    load_book_meta,
     get_item_idx_to_row,
+    load_book_meta,
+    load_book_subject_embeddings,
 )
 
 try:
@@ -44,21 +51,20 @@ def get_read_books(user_id: int, db: Session) -> Set[int]:
 
 def get_read_books_for_candidates(user_id: int, candidate_ids: List[int], db: Session) -> Set[int]:
     """
+    Synchronous variant — retained for non-async callers and tests.
+
     Get the subset of candidate_ids that the user has already read or rated.
+    Scoped to the candidate list via an IN clause. With the composite index on
+    (user_id, item_idx), MySQL performs a targeted seek per candidate ID rather
+    than scanning the full interaction history. The index is covering, so no
+    table row access is required.
 
-    Scoped to the candidate list via an IN clause.  With the composite index
-    on (user_id, item_idx), MySQL performs a targeted seek per candidate ID
-    rather than scanning the user's full interaction history.  This is faster
-    than get_read_books() for warm users because it reads fewer index entries:
-    at most len(candidate_ids) seeks versus the user's full interaction count.
-
-    The composite index also makes this a covering index query — item_idx is
-    stored in the index, so MySQL never touches the table rows.
+    Prefer get_read_books_for_candidates_async in async request paths.
 
     Args:
         user_id: User ID to query
         candidate_ids: Candidate item indices to check membership for
-        db: SQLAlchemy database session
+        db: Synchronous SQLAlchemy session
 
     Returns:
         Subset of candidate_ids the user has already interacted with
@@ -72,6 +78,36 @@ def get_read_books_for_candidates(user_id: int, candidate_ids: List[int], db: Se
         .filter(Interaction.user_id == user_id, Interaction.item_idx.in_(candidate_ids))
         .all()
     }
+
+
+async def get_read_books_for_candidates_async(
+    user_id: int, candidate_ids: List[int], db: AsyncSession
+) -> Set[int]:
+    """
+    Async variant used by ReadBooksFilter in the recommendation hot path.
+
+    Identical query semantics to get_read_books_for_candidates — scoped IN
+    clause over the composite (user_id, item_idx) covering index — but runs
+    natively on the event loop via aiomysql. No thread pool dispatch, no
+    synchronous socket I/O blocking the event loop.
+
+    Args:
+        user_id: User ID to query
+        candidate_ids: Candidate item indices to check membership for
+        db: Async SQLAlchemy session
+
+    Returns:
+        Subset of candidate_ids the user has already interacted with
+    """
+    if Interaction is None or not candidate_ids:
+        return set()
+
+    stmt = select(Interaction.item_idx).where(
+        Interaction.user_id == user_id,
+        Interaction.item_idx.in_(candidate_ids),
+    )
+    result = await db.execute(stmt)
+    return {row.item_idx for row in result}
 
 
 def get_candidate_book_df(candidate_ids: List[int]) -> pd.DataFrame:

@@ -2,31 +2,44 @@
 """
 SQLAlchemy engine, session factories, and FastAPI dependency providers.
 
-Two session factories share a single connection pool:
-- SessionLocal: full read-write sessions with standard transaction management.
+Three session factories are provided:
+
+- SessionLocal: full read-write sessions using the sync pymysql engine.
   Use for any route that writes to the database.
-- ReadOnlySessionLocal: sessions bound to an AUTOCOMMIT sub-engine. MySQL
-  never opens an explicit transaction, so close() issues no ROLLBACK or COMMIT
-  round-trip. Use for read-only routes (e.g. recommendations).
 
-The read-only sub-engine is created via engine.execution_options(), which
-shares the same underlying connection pool as the main engine. Connections
-are reset to the DBAPI default isolation level when returned to the pool, so
-the two factories do not interfere.
+- ReadOnlySessionLocal: sync sessions bound to an AUTOCOMMIT sub-engine.
+  MySQL never opens an explicit transaction, so close() issues no ROLLBACK
+  or COMMIT round-trip. Retained for sync read-only routes.
 
-pool_pre_ping is intentionally absent. pool_recycle=3600 is sufficient
-given MySQL wait_timeout=28800 — connections are replaced well before the
-server would drop them, without the cost of a SELECT 1 on every checkout.
+- AsyncReadOnlySessionLocal: async sessions using aiomysql. Use for async
+  route handlers that need native non-blocking DB access. Currently used
+  exclusively by the recommendation endpoint to eliminate the asyncio.to_thread
+  dispatch that was the dominant latency contributor.
+
+The sync and async engines are independent objects with separate connection
+pools. The async pool is intentionally smaller (pool_size=5) because async
+connections are multiplexed across concurrent coroutines — fewer connections
+serve the same concurrency as a larger sync pool.
+
+pool_pre_ping is intentionally absent on both engines. pool_recycle=3600 is
+sufficient given MySQL wait_timeout=28800 — connections are replaced well
+before the server would drop them, without the cost of a SELECT 1 on every
+checkout.
 """
 
 import os
 
 from dotenv import load_dotenv
 from sqlalchemy import create_engine
+from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 from sqlalchemy.orm import Session, declarative_base, sessionmaker
 
 load_dotenv()
+
 DATABASE_URL = os.getenv("DATABASE_URL")
+ASYNC_DATABASE_URL = (
+    DATABASE_URL.replace("mysql+pymysql://", "mysql+aiomysql://") if DATABASE_URL else None
+)
 
 Base = declarative_base()
 
@@ -50,6 +63,26 @@ else:
     SessionLocal = None
     ReadOnlySessionLocal = None
 
+if ASYNC_DATABASE_URL:
+    async_engine = create_async_engine(
+        ASYNC_DATABASE_URL,
+        pool_recycle=3600,
+        pool_size=5,
+        max_overflow=10,
+        pool_timeout=30,
+        connect_args={"connect_timeout": 10},
+    )
+    AsyncReadOnlySessionLocal = async_sessionmaker(
+        bind=async_engine.execution_options(isolation_level="AUTOCOMMIT"),
+        class_=AsyncSession,
+        autocommit=False,
+        autoflush=False,
+        expire_on_commit=False,
+    )
+else:
+    async_engine = None
+    AsyncReadOnlySessionLocal = None
+
 
 def get_db() -> Session:
     """Read-write session dependency for routes that modify the database."""
@@ -62,17 +95,29 @@ def get_db() -> Session:
 
 def get_read_only_db() -> Session:
     """
-    Read-only session dependency for routes that never write.
+    Read-only session dependency for sync routes that never write.
 
     The underlying connection operates in AUTOCOMMIT mode — MySQL runs each
     statement without an explicit transaction. close() returns the connection
     to the pool with no ROLLBACK or COMMIT issued to the server.
-
-    All other behaviour is identical to get_db(): same connection pool, same
-    Session API, same ORM query support including joinedload.
     """
     db = ReadOnlySessionLocal()
     try:
         yield db
     finally:
         db.close()
+
+
+async def get_async_read_only_db() -> AsyncSession:
+    """
+    Read-only async session dependency for async routes that never write.
+
+    Uses aiomysql under the hood — the DB call runs natively on the event
+    loop with no thread pool dispatch. AUTOCOMMIT mode means no transaction
+    overhead on session close.
+
+    Usage:
+        db: AsyncSession = Depends(get_async_read_only_db)
+    """
+    async with AsyncReadOnlySessionLocal() as session:
+        yield session

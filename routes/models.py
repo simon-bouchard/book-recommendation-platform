@@ -6,13 +6,15 @@ Maintains backward compatibility with old API response formats.
 """
 
 from fastapi import APIRouter, HTTPException, Query, Depends
-from sqlalchemy.orm import Session, joinedload
+from sqlalchemy import select
+from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import joinedload
 import logging
 import time
 
 from metrics import RECSYS_REQUESTS, RECSYS_LATENCY, SIMILARITY_REQUESTS, SIMILARITY_LATENCY
 
-from app.database import get_read_only_db
+from app.database import get_async_read_only_db
 from app.table_models import User as ORMUser
 
 from models.services.recommendation_service import RecommendationService
@@ -39,7 +41,7 @@ async def _compute_recommendations(
     top_n: int,
     mode: str,
     w: float,
-    db: Session,
+    db: AsyncSession,
 ) -> list[dict]:
     """
     Compute personalized book recommendations.
@@ -47,12 +49,14 @@ async def _compute_recommendations(
     Pure computation layer, separated from the route handler so that telemetry
     in the handler fires on every request regardless of cache state.
     """
-    user_query = db.query(ORMUser).options(joinedload(ORMUser.favorite_subjects))
-
+    stmt = select(ORMUser).options(joinedload(ORMUser.favorite_subjects))
     if _id:
-        user_obj = user_query.filter(ORMUser.user_id == int(user)).first()
+        stmt = stmt.where(ORMUser.user_id == int(user))
     else:
-        user_obj = user_query.filter(ORMUser.username == user).first()
+        stmt = stmt.where(ORMUser.username == user)
+
+    result = await db.execute(stmt)
+    user_obj = result.unique().scalar_one_or_none()
 
     if not user_obj:
         raise HTTPException(status_code=404, detail="User not found")
@@ -103,7 +107,7 @@ async def recommend_for_user(
         "auto", regex="^(auto|subject|behavioral)$", description="Recommendation mode"
     ),
     w: float = Query(0.6, ge=0, le=1, description="Subject weight for hybrid mode"),
-    db: Session = Depends(get_read_only_db),
+    db: AsyncSession = Depends(get_async_read_only_db),
 ) -> list[dict]:
     """
     Generate personalized book recommendations.
