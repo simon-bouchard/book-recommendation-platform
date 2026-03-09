@@ -25,6 +25,7 @@ ops/enrichment/*.html
 ops/models/migration_report_*
 **/results/**
 **/logs/**
+**/performance_baselines/**
 tests/integration/models/performance_baselines
 tests/integration/models/profiles/*
 
