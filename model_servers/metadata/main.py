@@ -2,8 +2,14 @@
 """
 Metadata model server.
 
-Owns the book metadata DataFrame and Bayesian popularity scores. Provides book
-enrichment and popular books retrieval. 
+Owns the book metadata lookup dict and Bayesian popularity scores. Provides
+book enrichment and popular books retrieval.
+
+All enrichment logic lives in models/infrastructure/metadata_enrichment.py.
+This file is purely wiring: lifespan, app instantiation, and endpoint handlers.
+
+Enrich and popular endpoints return raw Response objects with pre-serialized
+JSON bodies, bypassing FastAPI's response_model serialization entirely.
 """
 
 import logging
@@ -12,27 +18,24 @@ import time
 from contextlib import asynccontextmanager
 from typing import Optional
 
-import numpy as np
-import pandas as pd
 from fastapi import FastAPI, HTTPException
+from fastapi.responses import Response
 
 from model_servers._shared.contracts import (
-    BookMeta,
     EnrichRequest,
-    EnrichResponse,
     HealthResponse,
     PopularRequest,
-    PopularResponse,
 )
 from models.core.reload_poller import ModelReloadPoller
 from models.data.loaders import load_book_meta
+from models.infrastructure.metadata_enrichment import build_lookup, enrich_items
 from models.infrastructure.popularity_scorer import PopularityScorer
 
 logger = logging.getLogger(__name__)
 
 _SERVER_NAME = "metadata"
 
-_book_meta: Optional[pd.DataFrame] = None
+_book_lookup: Optional[dict[int, str]] = None
 
 
 def _get_artifact_version() -> str:
@@ -54,28 +57,32 @@ def _get_artifact_version() -> str:
 
 def _load_artifacts() -> None:
     """
-    Initialize the book metadata DataFrame and PopularityScorer singleton.
+    Build the book lookup dict and initialize the PopularityScorer singleton.
 
-    PopularityScorer is initialized second so that the loader cache warmed by
-    load_book_meta can be reused if the scorer needs overlapping data.
+    PopularityScorer is initialized after the lookup dict so that the loader
+    cache warmed by load_book_meta can be reused.
     """
-    global _book_meta
+    global _book_lookup
 
     logger.info("Loading metadata server artifacts...")
     start = time.monotonic()
 
-    _book_meta = load_book_meta(use_cache=True)
+    _book_lookup = build_lookup(load_book_meta(use_cache=True))
     PopularityScorer()
 
     elapsed_ms = (time.monotonic() - start) * 1000
-    logger.info("Metadata server artifacts loaded in %.0fms", elapsed_ms)
+    logger.info(
+        "Metadata server artifacts loaded in %.0fms — %d books indexed",
+        elapsed_ms,
+        len(_book_lookup),
+    )
 
 
 def _reload_artifacts() -> None:
-    """Clear all owned artifacts and reload from disk."""
+    """Clear all owned artifacts and rebuild from disk."""
     from models.data.loaders import clear_cache
 
-    global _book_meta
+    global _book_lookup
 
     logger.info("Reloading metadata server artifacts...")
     start = time.monotonic()
@@ -83,51 +90,11 @@ def _reload_artifacts() -> None:
     PopularityScorer.reset()
     clear_cache()
 
-    _book_meta = load_book_meta(use_cache=True)
+    _book_lookup = build_lookup(load_book_meta(use_cache=True))
     PopularityScorer()
 
     elapsed_ms = (time.monotonic() - start) * 1000
     logger.info("Metadata server artifacts reloaded in %.0fms", elapsed_ms)
-
-
-def _row_to_book_meta(item_idx: int, row: pd.Series) -> BookMeta:
-    """
-    Convert a book metadata DataFrame row to a BookMeta contract object.
-
-    All optional fields are guarded against NaN and empty strings, both of
-    which can appear in the raw DataFrame for books with incomplete records.
-    """
-
-    def _opt_str(key: str) -> Optional[str]:
-        val = row.get(key)
-        return str(val) if val and not (isinstance(val, float) and np.isnan(val)) else None
-
-    def _opt_int(key: str) -> Optional[int]:
-        val = row.get(key)
-        try:
-            return int(val) if val is not None and not (isinstance(val, float) and np.isnan(val)) else None
-        except (ValueError, TypeError):
-            return None
-
-    def _opt_float(key: str) -> Optional[float]:
-        val = row.get(key)
-        try:
-            f = float(val)
-            return f if np.isfinite(f) else None
-        except (ValueError, TypeError):
-            return None
-
-    return BookMeta(
-        item_idx=item_idx,
-        title=str(row["title"]),
-        author=_opt_str("author"),
-        year=_opt_int("year"),
-        isbn=_opt_str("isbn"),
-        cover_id=_opt_str("cover_id"),
-        avg_rating=_opt_float("book_avg_rating"),
-        num_ratings=int(row["book_num_ratings"]) if "book_num_ratings" in row else 0,
-        bayes_score=_opt_float("bayes"),
-    )
 
 
 class _MetadataReloadPoller(ModelReloadPoller):
@@ -168,11 +135,11 @@ def health() -> HealthResponse:
     """
     Liveness and readiness check.
 
-    Both the metadata DataFrame and PopularityScorer must be initialized.
-    PopularityScorer is checked via its singleton since it is the last artifact
-    loaded, making its presence a proxy for full readiness.
+    Both the lookup dict and PopularityScorer must be initialized. The scorer
+    is checked last since it is initialized after the lookup, making its
+    presence a proxy for full readiness.
     """
-    if _book_meta is None or PopularityScorer._instance is None:
+    if _book_lookup is None or PopularityScorer._instance is None:
         raise HTTPException(status_code=503, detail="Metadata server not initialized")
 
     return HealthResponse(
@@ -187,43 +154,28 @@ def health() -> HealthResponse:
 # ===========================================================================
 
 
-@app.post("/enrich", response_model=EnrichResponse)
-def enrich(request: EnrichRequest) -> EnrichResponse:
-    """
-    Fetch full book metadata for a list of item indices.
-
-    Items absent from the metadata store are silently omitted. The response
-    list may therefore be shorter than the request list.
-    """
-    if _book_meta is None:
+@app.post("/enrich")
+def enrich(request: EnrichRequest) -> Response:
+    logger.warning("ENRICH CALLED n=%d", len(request.item_indices))
+    if _book_lookup is None:
         raise HTTPException(status_code=503, detail="Metadata server not initialized")
 
-    books = []
-    for item_idx in request.item_indices:
-        if item_idx not in _book_meta.index:
-            continue
-        try:
-            books.append(_row_to_book_meta(item_idx, _book_meta.loc[item_idx]))
-        except Exception as e:
-            logger.warning("Failed to enrich item %d: %s", item_idx, e)
+    t0 = time.perf_counter()
+    content = enrich_items(_book_lookup, request.item_indices)
+    t1 = time.perf_counter()
+    logger.info("enrich build ms=%.2f n=%d", (t1 - t0) * 1000, len(request.item_indices))
 
-    return EnrichResponse(books=books)
+    return Response(content=content, media_type="application/json")
 
 
-# ===========================================================================
-# Popular
-# ===========================================================================
-
-
-@app.post("/popular", response_model=PopularResponse)
-def popular(request: PopularRequest) -> PopularResponse:
+def popular(request: PopularRequest) -> Response:
     """
     Retrieve the top-k books ranked by precomputed Bayesian score.
 
-    Books in the popularity ranking that are absent from the metadata store
-    are silently skipped, so the response may contain fewer than k items.
+    Returns a raw JSON response body assembled from pre-serialized per-book
+    strings. Books absent from the metadata lookup are silently skipped.
     """
-    if _book_meta is None or PopularityScorer._instance is None:
+    if _book_lookup is None or PopularityScorer._instance is None:
         raise HTTPException(status_code=503, detail="Metadata server not initialized")
 
     try:
@@ -232,13 +184,7 @@ def popular(request: PopularRequest) -> PopularResponse:
         logger.error("popular failed: %s", e, exc_info=True)
         raise HTTPException(status_code=500, detail="Popular books retrieval failed")
 
-    books = []
-    for item_idx in item_ids.tolist():
-        if item_idx not in _book_meta.index:
-            continue
-        try:
-            books.append(_row_to_book_meta(item_idx, _book_meta.loc[item_idx]))
-        except Exception as e:
-            logger.warning("Failed to enrich popular item %d: %s", item_idx, e)
-
-    return PopularResponse(books=books)
+    return Response(
+        content=enrich_items(_book_lookup, item_ids.tolist()),
+        media_type="application/json",
+    )
