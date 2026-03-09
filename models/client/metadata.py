@@ -10,6 +10,7 @@ import os
 import httpx
 
 from model_servers._shared.contracts import (
+    BookMeta,
     EnrichRequest,
     EnrichResponse,
     PopularRequest,
@@ -44,21 +45,11 @@ class MetadataClient(BaseModelServerClient):
         return cls(base_url=os.environ.get("METADATA_URL", _DEFAULT_URL))
 
     async def enrich(self, item_indices: list[int]) -> EnrichResponse:
-        """
-        Fetch full book metadata for a list of item indices.
-
-        Items absent from the metadata store are silently omitted, so the
-        response may contain fewer books than requested.
-
-        Args:
-            item_indices: Non-empty list of item indices to enrich (max 2000).
-
-        Returns:
-            EnrichResponse containing metadata for all found books.
-        """
         body = EnrichRequest(item_indices=item_indices)
         data = await self._post("/enrich", body)
-        return EnrichResponse.model_validate(data)
+        return EnrichResponse.model_construct(
+            books=[BookMeta.model_construct(**b) for b in data["books"]]
+        )
 
     async def popular(self, k: int = 100) -> PopularResponse:
         """

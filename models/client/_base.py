@@ -13,6 +13,7 @@ import logging
 from typing import Any
 
 import httpx
+import orjson
 
 from models.client._exceptions import (
     ModelServerRequestError,
@@ -51,20 +52,24 @@ class BaseModelServerClient:
         """Close the underlying httpx client and release connection pool resources."""
         await self._client.aclose()
 
-    async def _post(self, path: str, body: Any) -> dict:
+    async def _post(self, path: str, body: Any) -> Any:
         """
-        POST a Pydantic model as JSON and return the parsed response dict.
+        POST a Pydantic model as JSON and return the parsed response.
+
+        Uses orjson for response parsing, which is significantly faster than
+        stdlib json for large response bodies. Accepts raw bytes directly from
+        the response without an intermediate decode step.
 
         Args:
-                path: URL path relative to base_url (e.g. '/embed').
-                body: Pydantic model instance; serialized via model_dump().
+            path: URL path relative to base_url (e.g. '/embed').
+            body: Pydantic model instance; serialized via model_dump_json().
 
         Returns:
-                Parsed JSON response as a dict.
+            Parsed response as a dict or list.
 
         Raises:
-                ModelServerUnavailableError: On connection failure, timeout, or 5xx.
-                ModelServerRequestError: On 4xx response from the server.
+            ModelServerUnavailableError: On connection failure, timeout, or 5xx.
+            ModelServerRequestError: On 4xx response from the server.
         """
         try:
             response = await self._client.post(
@@ -73,7 +78,7 @@ class BaseModelServerClient:
                 headers={"Content-Type": "application/json"},
             )
             response.raise_for_status()
-            return response.json()
+            return orjson.loads(response.content)
 
         except httpx.HTTPStatusError as exc:
             status = exc.response.status_code
@@ -120,51 +125,6 @@ class BaseModelServerClient:
             )
             raise ModelServerUnavailableError(f"{self._SERVER_NAME} request failed: {exc}") from exc
 
-    async def _get(self, path: str) -> dict:
-        """
-        GET a path and return the parsed response dict.
-
-        Args:
-                path: URL path relative to base_url (e.g. '/health').
-
-        Returns:
-                Parsed JSON response as a dict.
-
-        Raises:
-                ModelServerUnavailableError: On connection failure, timeout, or 5xx.
-                ModelServerRequestError: On 4xx response from the server.
-        """
-        try:
-            response = await self._client.get(path)
-            response.raise_for_status()
-            return response.json()
-
-        except httpx.HTTPStatusError as exc:
-            status = exc.response.status_code
-            detail = _extract_detail(exc.response)
-            if status >= 500:
-                logger.error(
-                    "%s server error on %s: %s %s", self._SERVER_NAME, path, status, detail
-                )
-                raise ModelServerUnavailableError(
-                    f"{self._SERVER_NAME} returned {status}: {detail}"
-                ) from exc
-            else:
-                logger.warning(
-                    "%s request error on %s: %s %s", self._SERVER_NAME, path, status, detail
-                )
-                raise ModelServerRequestError(
-                    f"{self._SERVER_NAME} rejected request ({status}): {detail}"
-                ) from exc
-
-        except (httpx.ConnectError, httpx.TimeoutException, httpx.RemoteProtocolError) as exc:
-            logger.error("%s unreachable at %s%s: %s", self._SERVER_NAME, self._base_url, path, exc)
-            raise ModelServerUnavailableError(f"{self._SERVER_NAME} unreachable: {exc}") from exc
-
-        except httpx.RequestError as exc:
-            logger.error("%s request failed on %s: %s", self._SERVER_NAME, path, exc)
-            raise ModelServerUnavailableError(f"{self._SERVER_NAME} request failed: {exc}") from exc
-
 
 def _extract_detail(response: httpx.Response) -> str:
     """
@@ -174,6 +134,6 @@ def _extract_detail(response: httpx.Response) -> str:
     back to the raw response text if the body is not valid JSON.
     """
     try:
-        return response.json().get("detail", response.text)
+        return orjson.loads(response.content).get("detail", response.text)
     except Exception:
         return response.text
