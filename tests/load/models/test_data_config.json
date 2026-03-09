@@ -1,0 +1,36 @@
+{
+  "verified_book_ids_with_als": [
+    1666,
+    45959,
+    402,
+    27,
+    41636,
+    166,
+    44327,
+    3240,
+    45503,
+    49865,
+    43852,
+    208,
+    41810,
+    3158,
+    729,
+    2015,
+    46695,
+    46839,
+    45820,
+    1
+  ],
+  "probe_metadata": {
+    "base_url": "http://localhost:8000",
+    "candidates_probed": 40,
+    "modes_checked": [
+      "subject",
+      "als",
+      "hybrid"
+    ],
+    "fully_verified": 36,
+    "partial_or_failed": 4,
+    "elapsed_s": 3.12
+  }
+}
