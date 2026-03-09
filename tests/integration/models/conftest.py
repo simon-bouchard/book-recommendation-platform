@@ -4,11 +4,11 @@ Pytest configuration for models integration/performance tests.
 """
 
 import os
-from contextlib import asynccontextmanager
 from pathlib import Path
 
+import httpx
 import pytest
-from fastapi.testclient import TestClient
+from httpx import ASGITransport
 from sqlalchemy.orm import Session
 
 
@@ -37,40 +37,41 @@ def db() -> Session:
 
 
 @pytest.fixture(scope="module")
-def client():
+async def client() -> httpx.AsyncClient:
     """
-    Create a FastAPI test client scoped to the module.
+    Create an async ASGI test client scoped to the module.
 
-    Module scope avoids creating a new event loop per test while still
-    isolating state between test files.
+    Uses httpx.AsyncClient with ASGITransport instead of TestClient. This
+    eliminates the AnyIO blocking portal bridge that TestClient requires to
+    run an async ASGI app from synchronous test code — that bridge added
+    ~25-30ms of overhead to every request, masking real application latency.
 
-    The lifespan is wrapped to dispose the async engine before the
-    TestClient's internal event loop closes. Without this, aiomysql
-    connections remain in the pool after the loop shuts down. Python's GC
-    later calls Connection.__del__, which attempts to close the connection
-    through the dead loop and raises RuntimeError: Event loop is closed.
-    Disposing inside the lifespan ensures cleanup runs while the loop is
-    still live.
+    ASGITransport does not trigger lifespan events, so the app lifespan is
+    run manually. Without this the model server HTTP clients are never
+    initialised and every request fails.
+
+    The async engine is disposed in the finally block while the event loop
+    is still live, preventing RuntimeError: Event loop is closed from
+    aiomysql's Connection.__del__ running after the loop shuts down.
+
+    Module scope pairs with pytestmark = pytest.mark.asyncio(loop_scope="module")
+    in the test file so the fixture and all tests share one event loop. With
+    asyncio_default_test_loop_scope=function (the project default) a module-
+    scoped async fixture and its tests would otherwise run on different loops
+    and the fixture would be unusable.
     """
     from app.database import async_engine
     from main import app
 
-    original_lifespan = app.router.lifespan_context
+    async with app.router.lifespan_context(app):
+        async with httpx.AsyncClient(
+            transport=ASGITransport(app=app),
+            base_url="http://test",
+        ) as ac:
+            yield ac
 
-    @asynccontextmanager
-    async def _lifespan_with_engine_disposal(app):
-        async with original_lifespan(app):
-            yield
-        if async_engine is not None:
-            await async_engine.dispose()
-
-    app.router.lifespan_context = _lifespan_with_engine_disposal
-
-    try:
-        with TestClient(app) as test_client:
-            yield test_client
-    finally:
-        app.router.lifespan_context = original_lifespan
+    if async_engine is not None:
+        await async_engine.dispose()
 
 
 @pytest.fixture(scope="session")
@@ -86,16 +87,10 @@ def ensure_model_servers_ready(test_env):
     """
     Block the test session until all model servers report ready.
 
-    Replaces the old preload_all_artifacts() call. The main app is stateless
-    and owns no artifacts; readiness is determined by the model servers, not
-    by local artifact loading.
-
     Raises RuntimeError if any server is unreachable after the timeout,
     which surfaces a clear message rather than cryptic 500s in every test.
     """
     import time
-
-    import httpx
 
     server_urls = {
         "embedder": os.environ.get("EMBEDDER_URL", "http://embedder:8001"),
