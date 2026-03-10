@@ -5,7 +5,7 @@ Tests request validation, user lookup, service integration, and response formatt
 """
 
 import pytest
-from unittest.mock import Mock
+from unittest.mock import AsyncMock, MagicMock
 
 from models.domain.user import User
 from models.domain.config import RecommendationConfig
@@ -19,28 +19,12 @@ class TestRecommendEndpointBasics:
         self, test_client, mock_db, mock_orm_user, mock_recommendation_service, monkeypatch
     ):
         """Should return 200 and recommendations for valid user ID."""
-        # Mock database query chain
-        query_mock = Mock()
-        query_mock.filter.return_value.first.return_value = mock_orm_user
-        mock_db.query.return_value.options.return_value = query_mock
-
-        # Mock service
         monkeypatch.setattr(
             "routes.models.RecommendationService", lambda: mock_recommendation_service
         )
 
-        # Mock get_db dependency
-        def override_get_db():
-            yield mock_db
-
-        from routes import models as routes_models
-
-        test_client.app.dependency_overrides[routes_models.get_db] = override_get_db
-
-        # Act
         response = test_client.get("/profile/recommend?user=123&top_n=10")
 
-        # Assert
         assert response.status_code == 200
         data = response.json()
         assert isinstance(data, list)
@@ -50,42 +34,26 @@ class TestRecommendEndpointBasics:
         self, test_client, mock_db, mock_orm_user, mock_recommendation_service, monkeypatch
     ):
         """Should call RecommendationService with properly configured parameters."""
-        query_mock = Mock()
-        query_mock.filter.return_value.first.return_value = mock_orm_user
-        mock_db.query.return_value.options.return_value = query_mock
-
         monkeypatch.setattr(
             "routes.models.RecommendationService", lambda: mock_recommendation_service
         )
 
-        def override_get_db():
-            yield mock_db
-
-        from routes import models as routes_models
-
-        test_client.app.dependency_overrides[routes_models.get_db] = override_get_db
-
-        # Act
         test_client.get("/profile/recommend?user=123&top_n=50&mode=subject&w=0.7")
 
-        # Assert
         assert mock_recommendation_service.recommend.called
         call_args = mock_recommendation_service.recommend.call_args
 
-        # Check User object
         user_arg = call_args[0][0]
         assert isinstance(user_arg, User)
         assert user_arg.user_id == 123
         assert user_arg.fav_subjects == [5, 12, 23]
 
-        # Check Config object
         config_arg = call_args[0][1]
         assert isinstance(config_arg, RecommendationConfig)
         assert config_arg.k == 50
         assert config_arg.mode == "subject"
         assert config_arg.hybrid_config.subject_weight == 0.7
 
-        # Check db session
         db_arg = call_args[0][2]
         assert db_arg is mock_db
 
@@ -97,78 +65,36 @@ class TestRecommendEndpointUserLookup:
         self, test_client, mock_db, mock_orm_user, mock_recommendation_service, monkeypatch
     ):
         """Should query by user_id when _id=true."""
-        query_mock = Mock()
-        filter_mock = Mock()
-        filter_mock.first.return_value = mock_orm_user
-        query_mock.filter.return_value = filter_mock
-        mock_db.query.return_value.options.return_value = query_mock
-
         monkeypatch.setattr(
             "routes.models.RecommendationService", lambda: mock_recommendation_service
         )
 
-        def override_get_db():
-            yield mock_db
-
-        from routes import models as routes_models
-
-        test_client.app.dependency_overrides[routes_models.get_db] = override_get_db
-
-        # Act
         test_client.get("/profile/recommend?user=123&_id=true")
 
-        # Assert - check filter was called with user_id
-        from app.table_models import User as ORMUser
-
-        filter_call = query_mock.filter.call_args[0][0]
-        # The filter expression compares ORMUser.user_id == 123
-        assert "user_id" in str(filter_call)
+        # The route uses `stmt.where(ORMUser.user_id == int(user))`.
+        # The SQLAlchemy Select statement passed to execute() contains the column name.
+        executed_stmt = mock_db.execute.call_args[0][0]
+        assert "user_id" in str(executed_stmt)
 
     def test_lookup_by_username_when_id_false(
         self, test_client, mock_db, mock_orm_user, mock_recommendation_service, monkeypatch
     ):
         """Should query by username when _id=false."""
-        query_mock = Mock()
-        filter_mock = Mock()
-        filter_mock.first.return_value = mock_orm_user
-        query_mock.filter.return_value = filter_mock
-        mock_db.query.return_value.options.return_value = query_mock
-
         monkeypatch.setattr(
             "routes.models.RecommendationService", lambda: mock_recommendation_service
         )
 
-        def override_get_db():
-            yield mock_db
-
-        from routes import models as routes_models
-
-        test_client.app.dependency_overrides[routes_models.get_db] = override_get_db
-
-        # Act
         test_client.get("/profile/recommend?user=testuser&_id=false")
 
-        # Assert - check filter was called with username
-        filter_call = query_mock.filter.call_args[0][0]
-        assert "username" in str(filter_call)
+        executed_stmt = mock_db.execute.call_args[0][0]
+        assert "username" in str(executed_stmt)
 
-    def test_returns_404_when_user_not_found(self, test_client, mock_db, monkeypatch):
+    def test_returns_404_when_user_not_found(self, test_client, mock_db):
         """Should return 404 if user doesn't exist."""
-        query_mock = Mock()
-        query_mock.filter.return_value.first.return_value = None  # User not found
-        mock_db.query.return_value.options.return_value = query_mock
+        mock_db.execute.return_value.unique.return_value.scalar_one_or_none.return_value = None
 
-        def override_get_db():
-            yield mock_db
-
-        from routes import models as routes_models
-
-        test_client.app.dependency_overrides[routes_models.get_db] = override_get_db
-
-        # Act
         response = test_client.get("/profile/recommend?user=99999")
 
-        # Assert
         assert response.status_code == 404
         assert "not found" in response.json()["detail"].lower()
 
@@ -180,25 +106,12 @@ class TestRecommendEndpointUserConversion:
         self, test_client, mock_db, mock_orm_user, mock_recommendation_service, monkeypatch
     ):
         """Should convert ORM user with favorite subjects to domain User."""
-        query_mock = Mock()
-        query_mock.filter.return_value.first.return_value = mock_orm_user
-        mock_db.query.return_value.options.return_value = query_mock
-
         monkeypatch.setattr(
             "routes.models.RecommendationService", lambda: mock_recommendation_service
         )
 
-        def override_get_db():
-            yield mock_db
-
-        from routes import models as routes_models
-
-        test_client.app.dependency_overrides[routes_models.get_db] = override_get_db
-
-        # Act
         test_client.get("/profile/recommend?user=123")
 
-        # Assert
         user_arg = mock_recommendation_service.recommend.call_args[0][0]
         assert user_arg.user_id == 123
         assert user_arg.fav_subjects == [5, 12, 23]
@@ -214,25 +127,15 @@ class TestRecommendEndpointUserConversion:
         monkeypatch,
     ):
         """Should use PAD_IDX when user has no favorite subjects."""
-        query_mock = Mock()
-        query_mock.filter.return_value.first.return_value = mock_orm_user_no_preferences
-        mock_db.query.return_value.options.return_value = query_mock
-
+        mock_db.execute.return_value.unique.return_value.scalar_one_or_none.return_value = (
+            mock_orm_user_no_preferences
+        )
         monkeypatch.setattr(
             "routes.models.RecommendationService", lambda: mock_recommendation_service
         )
 
-        def override_get_db():
-            yield mock_db
-
-        from routes import models as routes_models
-
-        test_client.app.dependency_overrides[routes_models.get_db] = override_get_db
-
-        # Act
         test_client.get("/profile/recommend?user=456")
 
-        # Assert
         user_arg = mock_recommendation_service.recommend.call_args[0][0]
         assert user_arg.fav_subjects == [PAD_IDX]
 
@@ -244,84 +147,45 @@ class TestRecommendEndpointResponseFormat:
         self, test_client, mock_db, mock_orm_user, mock_recommendation_service, monkeypatch
     ):
         """Should return flat list, not nested under 'recommendations' key."""
-        query_mock = Mock()
-        query_mock.filter.return_value.first.return_value = mock_orm_user
-        mock_db.query.return_value.options.return_value = query_mock
-
         monkeypatch.setattr(
             "routes.models.RecommendationService", lambda: mock_recommendation_service
         )
 
-        def override_get_db():
-            yield mock_db
-
-        from routes import models as routes_models
-
-        test_client.app.dependency_overrides[routes_models.get_db] = override_get_db
-
-        # Act
         response = test_client.get("/profile/recommend?user=123")
         data = response.json()
 
-        # Assert - should be a list at root level
         assert isinstance(data, list)
-        assert "recommendations" not in data  # Not nested
+        assert "recommendations" not in data
 
     def test_response_uses_old_field_names(
         self, test_client, mock_db, mock_orm_user, mock_recommendation_service, monkeypatch
     ):
         """Should use book_avg_rating and book_num_ratings (old field names)."""
-        query_mock = Mock()
-        query_mock.filter.return_value.first.return_value = mock_orm_user
-        mock_db.query.return_value.options.return_value = query_mock
-
         monkeypatch.setattr(
             "routes.models.RecommendationService", lambda: mock_recommendation_service
         )
 
-        def override_get_db():
-            yield mock_db
-
-        from routes import models as routes_models
-
-        test_client.app.dependency_overrides[routes_models.get_db] = override_get_db
-
-        # Act
         response = test_client.get("/profile/recommend?user=123")
         data = response.json()
 
-        # Assert - check field names match old API
         first_book = data[0]
-        assert "book_avg_rating" in first_book  # Old name
-        assert "book_num_ratings" in first_book  # Old name
-        assert "avg_rating" not in first_book  # New name should NOT be present
-        assert "num_ratings" not in first_book  # New name should NOT be present
+        assert "book_avg_rating" in first_book
+        assert "book_num_ratings" in first_book
+        assert "avg_rating" not in first_book
+        assert "num_ratings" not in first_book
 
     def test_response_includes_all_required_fields(
         self, test_client, mock_db, mock_orm_user, mock_recommendation_service, monkeypatch
     ):
         """Should include all fields from old API format."""
-        query_mock = Mock()
-        query_mock.filter.return_value.first.return_value = mock_orm_user
-        mock_db.query.return_value.options.return_value = query_mock
-
         monkeypatch.setattr(
             "routes.models.RecommendationService", lambda: mock_recommendation_service
         )
 
-        def override_get_db():
-            yield mock_db
-
-        from routes import models as routes_models
-
-        test_client.app.dependency_overrides[routes_models.get_db] = override_get_db
-
-        # Act
         response = test_client.get("/profile/recommend?user=123")
         data = response.json()
         first_book = data[0]
 
-        # Assert - all required fields present
         assert "item_idx" in first_book
         assert "title" in first_book
         assert "score" in first_book
@@ -340,85 +204,33 @@ class TestRecommendEndpointParameterValidation:
         self, test_client, mock_db, mock_orm_user, mock_recommendation_service, monkeypatch
     ):
         """Should use default values when parameters omitted."""
-        query_mock = Mock()
-        query_mock.filter.return_value.first.return_value = mock_orm_user
-        mock_db.query.return_value.options.return_value = query_mock
-
         monkeypatch.setattr(
             "routes.models.RecommendationService", lambda: mock_recommendation_service
         )
 
-        def override_get_db():
-            yield mock_db
-
-        from routes import models as routes_models
-
-        test_client.app.dependency_overrides[routes_models.get_db] = override_get_db
-
-        # Act - minimal parameters
         test_client.get("/profile/recommend?user=123")
 
-        # Assert - check defaults
         config_arg = mock_recommendation_service.recommend.call_args[0][1]
-        assert config_arg.k == 200  # Default top_n
-        assert config_arg.mode == "auto"  # Default mode
-        assert config_arg.hybrid_config.subject_weight == 0.6  # Default w
+        assert config_arg.k == 200
+        assert config_arg.mode == "auto"
+        assert config_arg.hybrid_config.subject_weight == 0.6
 
-    def test_rejects_invalid_mode(self, test_client, mock_db, mock_orm_user, monkeypatch):
+    def test_rejects_invalid_mode(self, test_client, mock_db, mock_orm_user):
         """Should return 422 for invalid mode."""
-        query_mock = Mock()
-        query_mock.filter.return_value.first.return_value = mock_orm_user
-        mock_db.query.return_value.options.return_value = query_mock
-
-        def override_get_db():
-            yield mock_db
-
-        from routes import models as routes_models
-
-        test_client.app.dependency_overrides[routes_models.get_db] = override_get_db
-
-        # Act
         response = test_client.get("/profile/recommend?user=123&mode=invalid")
 
-        # Assert
         assert response.status_code == 422
 
     def test_rejects_top_n_out_of_range(self, test_client, mock_db, mock_orm_user):
         """Should return 422 for top_n out of valid range."""
-        query_mock = Mock()
-        query_mock.filter.return_value.first.return_value = mock_orm_user
-        mock_db.query.return_value.options.return_value = query_mock
-
-        def override_get_db():
-            yield mock_db
-
-        from routes import models as routes_models
-
-        test_client.app.dependency_overrides[routes_models.get_db] = override_get_db
-
-        # Act - top_n too high
         response = test_client.get("/profile/recommend?user=123&top_n=1000")
 
-        # Assert
         assert response.status_code == 422
 
     def test_rejects_weight_out_of_range(self, test_client, mock_db, mock_orm_user):
         """Should return 422 for w outside [0, 1]."""
-        query_mock = Mock()
-        query_mock.filter.return_value.first.return_value = mock_orm_user
-        mock_db.query.return_value.options.return_value = query_mock
-
-        def override_get_db():
-            yield mock_db
-
-        from routes import models as routes_models
-
-        test_client.app.dependency_overrides[routes_models.get_db] = override_get_db
-
-        # Act
         response = test_client.get("/profile/recommend?user=123&w=1.5")
 
-        # Assert
         assert response.status_code == 422
 
 
@@ -429,25 +241,12 @@ class TestRecommendEndpointModes:
         self, test_client, mock_db, mock_orm_user, mock_recommendation_service, monkeypatch
     ):
         """Should pass mode='auto' to service."""
-        query_mock = Mock()
-        query_mock.filter.return_value.first.return_value = mock_orm_user
-        mock_db.query.return_value.options.return_value = query_mock
-
         monkeypatch.setattr(
             "routes.models.RecommendationService", lambda: mock_recommendation_service
         )
 
-        def override_get_db():
-            yield mock_db
-
-        from routes import models as routes_models
-
-        test_client.app.dependency_overrides[routes_models.get_db] = override_get_db
-
-        # Act
         test_client.get("/profile/recommend?user=123&mode=auto")
 
-        # Assert
         config = mock_recommendation_service.recommend.call_args[0][1]
         assert config.mode == "auto"
 
@@ -455,25 +254,12 @@ class TestRecommendEndpointModes:
         self, test_client, mock_db, mock_orm_user, mock_recommendation_service, monkeypatch
     ):
         """Should pass mode='subject' to service."""
-        query_mock = Mock()
-        query_mock.filter.return_value.first.return_value = mock_orm_user
-        mock_db.query.return_value.options.return_value = query_mock
-
         monkeypatch.setattr(
             "routes.models.RecommendationService", lambda: mock_recommendation_service
         )
 
-        def override_get_db():
-            yield mock_db
-
-        from routes import models as routes_models
-
-        test_client.app.dependency_overrides[routes_models.get_db] = override_get_db
-
-        # Act
         test_client.get("/profile/recommend?user=123&mode=subject")
 
-        # Assert
         config = mock_recommendation_service.recommend.call_args[0][1]
         assert config.mode == "subject"
 
@@ -481,25 +267,12 @@ class TestRecommendEndpointModes:
         self, test_client, mock_db, mock_orm_user, mock_recommendation_service, monkeypatch
     ):
         """Should pass mode='behavioral' to service."""
-        query_mock = Mock()
-        query_mock.filter.return_value.first.return_value = mock_orm_user
-        mock_db.query.return_value.options.return_value = query_mock
-
         monkeypatch.setattr(
             "routes.models.RecommendationService", lambda: mock_recommendation_service
         )
 
-        def override_get_db():
-            yield mock_db
-
-        from routes import models as routes_models
-
-        test_client.app.dependency_overrides[routes_models.get_db] = override_get_db
-
-        # Act
         test_client.get("/profile/recommend?user=123&mode=behavioral")
 
-        # Assert
         config = mock_recommendation_service.recommend.call_args[0][1]
         assert config.mode == "behavioral"
 
@@ -511,56 +284,26 @@ class TestRecommendEndpointErrorHandling:
         self, test_client, mock_db, mock_orm_user, mock_recommendation_service, monkeypatch
     ):
         """Should return 500 if service raises unexpected exception."""
-        query_mock = Mock()
-        query_mock.filter.return_value.first.return_value = mock_orm_user
-        mock_db.query.return_value.options.return_value = query_mock
-
-        # Make service raise exception
         mock_recommendation_service.recommend.side_effect = RuntimeError("Model crashed")
-
         monkeypatch.setattr(
             "routes.models.RecommendationService", lambda: mock_recommendation_service
         )
 
-        def override_get_db():
-            yield mock_db
-
-        from routes import models as routes_models
-
-        test_client.app.dependency_overrides[routes_models.get_db] = override_get_db
-
-        # Act
         response = test_client.get("/profile/recommend?user=123")
 
-        # Assert
         assert response.status_code == 500
 
     def test_returns_422_when_service_raises_value_error(
         self, test_client, mock_db, mock_orm_user, mock_recommendation_service, monkeypatch
     ):
         """Should return 422 if service raises ValueError (validation error)."""
-        query_mock = Mock()
-        query_mock.filter.return_value.first.return_value = mock_orm_user
-        mock_db.query.return_value.options.return_value = query_mock
-
-        # Make service raise ValueError
         mock_recommendation_service.recommend.side_effect = ValueError("Invalid config")
-
         monkeypatch.setattr(
             "routes.models.RecommendationService", lambda: mock_recommendation_service
         )
 
-        def override_get_db():
-            yield mock_db
-
-        from routes import models as routes_models
-
-        test_client.app.dependency_overrides[routes_models.get_db] = override_get_db
-
-        # Act
         response = test_client.get("/profile/recommend?user=123")
 
-        # Assert
         assert response.status_code == 422
         assert "Invalid config" in response.json()["detail"]
 
@@ -568,27 +311,12 @@ class TestRecommendEndpointErrorHandling:
         self, test_client, mock_db, mock_orm_user, mock_recommendation_service, monkeypatch
     ):
         """Should return empty list if service returns no recommendations."""
-        query_mock = Mock()
-        query_mock.filter.return_value.first.return_value = mock_orm_user
-        mock_db.query.return_value.options.return_value = query_mock
-
-        # Service returns empty
         mock_recommendation_service.recommend.return_value = []
-
         monkeypatch.setattr(
             "routes.models.RecommendationService", lambda: mock_recommendation_service
         )
 
-        def override_get_db():
-            yield mock_db
-
-        from routes import models as routes_models
-
-        test_client.app.dependency_overrides[routes_models.get_db] = override_get_db
-
-        # Act
         response = test_client.get("/profile/recommend?user=123")
 
-        # Assert
         assert response.status_code == 200
         assert response.json() == []
