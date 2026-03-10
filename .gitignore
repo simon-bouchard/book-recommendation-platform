@@ -28,6 +28,7 @@ ops/models/migration_report_*
 **/performance_baselines/**
 tests/integration/models/performance_baselines
 tests/integration/models/profiles/*
+tests/load/model_servers/profiles/*
 
 # Model artifacts
 *.pickle
