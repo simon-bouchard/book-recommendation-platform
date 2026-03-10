@@ -6,17 +6,18 @@ Strategy overview
 -----------------
 The metadata server owns two distinct artifacts that require different patching:
 
-- _book_meta: a module-level Optional[pd.DataFrame] — set via direct setattr
-  on the server module. The autouse reset_singleton fixture restores it to
-  None after every test.
+- _book_lookup: a module-level Optional[dict[int, str]] — set via direct
+  assignment on the server module. The autouse reset_singleton fixture restores
+  it to None after every test.
 - PopularityScorer: standard singleton — patched via install_mock_singleton.
 
 Health check requires BOTH artifacts to be present; each can independently
 cause a 503 response.
 
 _row_to_book_meta is a private conversion function with non-trivial NaN
-handling and type coercion. It is tested directly in TestRowToBookMeta before
-the endpoint tests so that endpoint assertions can rely on it being correct.
+handling and type coercion. It lives in metadata_enrichment and is tested
+directly in TestRowToBookMeta before the endpoint tests so that endpoint
+assertions can rely on it being correct.
 """
 
 from __future__ import annotations
@@ -30,8 +31,8 @@ import pytest
 from starlette.testclient import TestClient
 
 import model_servers.metadata.main as metadata_main
-from model_servers.metadata.main import _row_to_book_meta
 from model_servers.metadata.main import app
+from models.infrastructure.metadata_enrichment import _row_to_book_meta, build_lookup
 from models.infrastructure.popularity_scorer import PopularityScorer
 from tests.unit.models.model_servers.conftest import (
     assert_health_ok,
@@ -47,16 +48,16 @@ from tests.unit.models.model_servers.conftest import (
 @pytest.fixture(autouse=True)
 def reset_singleton() -> Generator[None, None, None]:
     """
-    Clear PopularityScorer._instance and _book_meta around every test.
+    Clear PopularityScorer._instance and _book_lookup around every test.
 
     Direct assignment is safe here because the autouse teardown runs after
     every test regardless of pass/fail, ensuring no state leaks between tests.
     """
     PopularityScorer._instance = None
-    metadata_main._book_meta = None
+    metadata_main._book_lookup = None
     yield
     PopularityScorer._instance = None
-    metadata_main._book_meta = None
+    metadata_main._book_lookup = None
 
 
 @pytest.fixture()
@@ -90,8 +91,13 @@ def book_meta_df() -> pd.DataFrame:
 
 @pytest.fixture()
 def with_book_meta(book_meta_df: pd.DataFrame) -> pd.DataFrame:
-    """Install book_meta_df as the active server-level DataFrame."""
-    metadata_main._book_meta = book_meta_df
+    """
+    Build and install the pre-serialized lookup dict from book_meta_df.
+
+    Assigns the result of build_lookup to metadata_main._book_lookup so that
+    endpoint handlers see the same dict structure they would at runtime.
+    """
+    metadata_main._book_lookup = build_lookup(book_meta_df)
     return book_meta_df
 
 
@@ -197,7 +203,7 @@ class TestHealth:
 
         assert_health_ok(response, "metadata")
 
-    def test_503_when_book_meta_is_none(
+    def test_503_when_book_lookup_is_none(
         self, client: TestClient, mock_popularity_scorer: MagicMock
     ) -> None:
         response = client.get("/health")
@@ -329,7 +335,7 @@ class TestEnrich:
 
         assert response.status_code == 422
 
-    def test_503_when_book_meta_is_none(
+    def test_503_when_book_lookup_is_none(
         self, client: TestClient, mock_popularity_scorer: MagicMock
     ) -> None:
         response = client.post("/enrich", json={"item_indices": [101]})
@@ -442,7 +448,7 @@ class TestPopular:
 
         assert response.status_code == 422
 
-    def test_503_when_book_meta_is_none(
+    def test_503_when_book_lookup_is_none(
         self, client: TestClient, mock_popularity_scorer: MagicMock
     ) -> None:
         response = client.post("/popular", json={"k": 10})
