@@ -76,7 +76,7 @@ class RecommendationPipeline:
             return []
 
         # Generate candidates (request 2x k to account for filtering)
-        buffer_k = max(k * 2, 500)
+        buffer_k = k + 50
         candidates = await self.generator.generate(user, buffer_k)
 
         # Fallback if primary generator returned nothing
