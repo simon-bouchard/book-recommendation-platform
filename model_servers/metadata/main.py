@@ -156,14 +156,10 @@ def health() -> HealthResponse:
 
 @app.post("/enrich")
 def enrich(request: EnrichRequest) -> Response:
-    logger.warning("ENRICH CALLED n=%d", len(request.item_indices))
     if _book_lookup is None:
         raise HTTPException(status_code=503, detail="Metadata server not initialized")
 
-    t0 = time.perf_counter()
     content = enrich_items(_book_lookup, request.item_indices)
-    t1 = time.perf_counter()
-    logger.info("enrich build ms=%.2f n=%d", (t1 - t0) * 1000, len(request.item_indices))
 
     return Response(content=content, media_type="application/json")
 
