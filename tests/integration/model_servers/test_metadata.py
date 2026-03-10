@@ -7,6 +7,9 @@ Key invariants under test:
   - enrich silently omits item indices not present in the metadata store.
   - popular returns exactly k books sorted by Bayesian score descending.
   - All returned books carry a non-empty title.
+
+Latency tests cover realistic production batch sizes (200, 500, 1000) so that
+pandas row-access scaling is visible, not just fixed HTTP/serialization overhead.
 """
 
 from __future__ import annotations
@@ -19,6 +22,11 @@ from ._utils import TEST_BOOK_IDS, measure_latency
 
 _SMALL_BATCH = TEST_BOOK_IDS[:5]
 _LARGE_BATCH = TEST_BOOK_IDS
+
+_BATCH_200 = list(range(1, 201))
+_BATCH_500 = list(range(1, 501))
+_BATCH_1000 = list(range(1, 1001))
+
 _UNKNOWN_ITEM_IDX = 999_999_999
 
 
@@ -121,12 +129,42 @@ async def test_enrich_latency_small_batch(metadata_client: MetadataClient, perfo
 
 
 async def test_enrich_latency_large_batch(metadata_client: MetadataClient, performance_report):
-    """enrich latency for the full test batch (20 books)."""
+    """enrich latency for the legacy test batch (20 books)."""
     stats = await measure_latency(
         "metadata_enrich_20",
         lambda: metadata_client.enrich(_LARGE_BATCH),
     )
     performance_report["metadata_enrich_20"] = stats
+    print(f"\n{stats}")
+
+
+async def test_enrich_latency_k200(metadata_client: MetadataClient, performance_report):
+    """enrich latency for 200 books — typical similarity result batch size."""
+    stats = await measure_latency(
+        "metadata_enrich_200",
+        lambda: metadata_client.enrich(_BATCH_200),
+    )
+    performance_report["metadata_enrich_200"] = stats
+    print(f"\n{stats}")
+
+
+async def test_enrich_latency_k500(metadata_client: MetadataClient, performance_report):
+    """enrich latency for 500 books — expected upper bound for FAISS union batches."""
+    stats = await measure_latency(
+        "metadata_enrich_500",
+        lambda: metadata_client.enrich(_BATCH_500),
+    )
+    performance_report["metadata_enrich_500"] = stats
+    print(f"\n{stats}")
+
+
+async def test_enrich_latency_k1000(metadata_client: MetadataClient, performance_report):
+    """enrich latency for 1000 books — stress ceiling to expose scaling curve."""
+    stats = await measure_latency(
+        "metadata_enrich_1000",
+        lambda: metadata_client.enrich(_BATCH_1000),
+    )
+    performance_report["metadata_enrich_1000"] = stats
     print(f"\n{stats}")
 
 
