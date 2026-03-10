@@ -5,7 +5,7 @@ Recommendation service using singleton generators/filters/rankers.
 
 import logging
 import time
-from typing import List
+from typing import Optional, Tuple, List
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -43,13 +43,14 @@ class RecommendationService:
         start_time = time.time()
 
         try:
-            pipeline = await self._build_pipeline(user, config)
+            pipeline, is_warm = await self._build_pipeline(user, config)
 
             logger.info(
                 "Recommendation started",
                 extra={
                     "user_id": user.user_id,
                     "mode": config.mode,
+                    "is_warm": is_warm,
                     "has_preferences": user.has_preferences,
                     "k": config.k,
                 },
@@ -82,14 +83,13 @@ class RecommendationService:
 
     async def _build_pipeline(
         self, user: User, config: RecommendationConfig
-    ) -> RecommendationPipeline:
+    ) -> Tuple[RecommendationPipeline, Optional[bool]]:
         """
         Build recommendation pipeline using singleton components.
 
-        is_warm() is only called for mode=auto, where the result determines
-        which generator to use. For mode=behavioral and mode=subject the
-        generator is fixed regardless of warmth, so the ALS server round-trip
-        is skipped entirely (~4ms saving per request).
+        Returns a (pipeline, is_warm) tuple. is_warm is the result of the ALS
+        server warmth check for mode=auto, and None for all other modes where
+        the generator is fixed regardless of warmth (avoiding the round-trip).
 
         Key insight: Generators/filters/rankers are singletons (one copy),
         but pipelines are recreated per request (they are lightweight wrappers).
@@ -97,12 +97,14 @@ class RecommendationService:
         if config.mode == "behavioral":
             primary_generator = get_als_generator()
             fallback_generator = get_popularity_generator()
+            is_warm = None
 
         elif config.mode == "subject":
             primary_generator = create_joint_subject_generator(
                 alpha=config.hybrid_config.subject_weight,
             )
             fallback_generator = get_popularity_generator()
+            is_warm = None
 
         else:
             # Auto mode — only here do we need to know warmth.
@@ -119,12 +121,14 @@ class RecommendationService:
                 primary_generator = get_popularity_generator()
                 fallback_generator = None
 
-        return RecommendationPipeline(
+        pipeline = RecommendationPipeline(
             generator=primary_generator,
             fallback_generator=fallback_generator,
             filter=get_read_books_filter(),
             ranker=get_noop_ranker(),
         )
+
+        return pipeline, is_warm
 
     async def _enrich_candidates(self, candidates: List[Candidate]) -> List[RecommendedBook]:
         """Enrich candidates with book metadata via the metadata model server."""
