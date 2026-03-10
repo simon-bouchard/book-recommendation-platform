@@ -168,6 +168,7 @@ def enrich(request: EnrichRequest) -> Response:
     return Response(content=content, media_type="application/json")
 
 
+@app.post("/popular")
 def popular(request: PopularRequest) -> Response:
     """
     Retrieve the top-k books ranked by precomputed Bayesian score.
