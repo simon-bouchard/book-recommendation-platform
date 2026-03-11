@@ -8,7 +8,6 @@ artifact directories are touched during the test run.
 """
 
 import json
-import shutil
 import pytest
 from pathlib import Path
 from typing import Optional
@@ -97,19 +96,17 @@ def _stamp(versions_dir: Path, version_id: str, created_at: str) -> None:
 @pytest.fixture(autouse=True)
 def isolated_registry(tmp_path, monkeypatch):
     """
-    Redirect all PATHS attributes and the reload signal path to tmp_path.
+    Redirect all PATHS attributes to tmp_path.
 
     autouse=True means every test in this module gets isolation automatically.
     """
     staging_dir = tmp_path / "staging"
     versions_dir = tmp_path / "versions"
     active_version_file = tmp_path / "active_version"
-    reload_signal = tmp_path / "data" / ".reload_signal"
 
     monkeypatch.setattr(PATHS, "staging_dir", staging_dir)
     monkeypatch.setattr(PATHS, "versions_dir", versions_dir)
     monkeypatch.setattr(PATHS, "active_version_file", active_version_file)
-    monkeypatch.setattr(registry_module, "_RELOAD_SIGNAL_PATH", reload_signal)
 
     return tmp_path
 
@@ -304,13 +301,18 @@ class TestRollback:
 
         assert PATHS.active_version_file.read_text() == "v1"
 
-    def test_rollback_writes_reload_signal(self, isolated_registry):
+    def test_rollback_does_not_signal_workers(self, isolated_registry):
+        """
+        rollback() is pointer-only. Triggering a worker reload is the caller's
+        responsibility (ops/training/reload_signal.signal_workers_reload).
+        """
         _register(PATHS.versions_dir, PATHS.active_version_file, "v1")
         _register(PATHS.versions_dir, PATHS.active_version_file, "v2")
 
-        rollback("v1")
+        with patch("subprocess.run") as mock_run:
+            rollback("v1")
 
-        assert registry_module._RELOAD_SIGNAL_PATH.exists()
+        mock_run.assert_not_called()
 
     def test_rollback_raises_for_unknown_version(self, isolated_registry):
         with pytest.raises(FileNotFoundError, match="not found"):
