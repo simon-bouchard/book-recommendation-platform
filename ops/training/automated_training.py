@@ -20,7 +20,6 @@ sys.path.insert(0, str(PROJECT_ROOT))
 load_dotenv()
 
 from models.core.artifact_registry import (
-    _write_reload_signal,
     generate_version_id,
     promote_staging,
     retire_old_versions,
@@ -28,6 +27,7 @@ from models.core.artifact_registry import (
 from models.core.paths import PATHS
 from ops.training.evaluate_gate import evaluate
 from ops.training.notify import notify, read_tail as _notify_read_tail
+from ops.training.reload_signal import signal_workers_reload
 
 # ---------------------------------------------------------------------------
 # Remote host configuration
@@ -371,8 +371,8 @@ def main() -> None:
         print(f"Promoting staging to version '{version_id}'...")
         manifest = promote_staging(version_id)
 
-        print("Writing reload signal for Gunicorn workers...")
-        _write_reload_signal()
+        print("Signalling model server containers to reload...")
+        signal_workers_reload()
 
         print(f"Retiring old versions (keeping {_VERSIONS_TO_KEEP})...")
         retire_old_versions(keep=_VERSIONS_TO_KEEP)
