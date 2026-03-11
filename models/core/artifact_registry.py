@@ -14,7 +14,6 @@ import shutil
 import subprocess
 import sys
 import tempfile
-import time
 from dataclasses import asdict, dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
@@ -25,7 +24,6 @@ from models.core.paths import PATHS, _VERSIONED_SUBDIRS
 _MANIFEST_FILENAME = "manifest.json"
 _METRICS_FILENAME = "training_metrics.json"
 _EXPORT_SENTINEL = ".export_complete"
-_RELOAD_SIGNAL_PATH = PATHS.models_root / "data" / ".reload_signal"
 _CHECKSUM_BLOCK_SIZE = 1 << 20  # 1 MiB
 
 
@@ -181,9 +179,9 @@ def rollback(version_id: str) -> None:
     """
     Switch the active version to a previously registered version.
 
-    Updates the active_version pointer and writes the reload signal so
-    that all Gunicorn workers pick up the change on their next check.
-    Does not touch or copy any artifact files.
+    Updates the active_version pointer file only. The caller is responsible
+    for triggering a worker reload after rollback so that the new active
+    version takes effect in production.
 
     Args:
         version_id: The version ID to roll back to.
@@ -199,10 +197,8 @@ def rollback(version_id: str) -> None:
         )
 
     _atomic_write_pointer(version_id)
-    _write_reload_signal()
 
     print(f"Rolled back to version '{version_id}'.")
-    print(f"Reload signal written to '{_RELOAD_SIGNAL_PATH}'.")
 
 
 def list_versions() -> List[VersionManifest]:
@@ -359,13 +355,6 @@ def _atomic_write_pointer(version_id: str) -> None:
         tmp_path = tmp.name
 
     os.replace(tmp_path, pointer_path)
-
-
-def _write_reload_signal() -> None:
-    """Write the current timestamp to the reload signal file."""
-    _RELOAD_SIGNAL_PATH.parent.mkdir(parents=True, exist_ok=True)
-    with open(_RELOAD_SIGNAL_PATH, "w") as f:
-        f.write(str(time.time()))
 
 
 def _write_manifest(version_dir: Path, manifest: VersionManifest) -> None:
@@ -537,12 +526,21 @@ def _cli_list() -> None:
 
 
 def _cli_rollback(version_id: str) -> None:
-    """Roll back to the given version ID."""
+    """Roll back to the given version ID and signal containers to reload."""
+    from ops.training.reload_signal import signal_workers_reload
+
     try:
         rollback(version_id)
     except FileNotFoundError as exc:
         print(f"Rollback failed: {exc}")
         sys.exit(1)
+
+    print("Signalling model server containers to reload...")
+    try:
+        signal_workers_reload()
+    except RuntimeError as exc:
+        print(f"Warning: worker reload signal failed: {exc}")
+        print("Active version pointer has been updated. Restart containers manually to apply.")
 
 
 def _cli_retire(keep: int) -> None:
