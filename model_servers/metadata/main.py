@@ -13,9 +13,7 @@ JSON bodies, bypassing FastAPI's response_model serialization entirely.
 """
 
 import logging
-import os
 import time
-from contextlib import asynccontextmanager
 from typing import Optional
 
 from fastapi import FastAPI, HTTPException
@@ -26,7 +24,7 @@ from model_servers._shared.contracts import (
     HealthResponse,
     PopularRequest,
 )
-from models.core.reload_poller import ModelReloadPoller
+from model_servers._shared.server_utils import get_artifact_version, make_lifespan
 from models.data.loaders import load_book_meta
 from models.infrastructure.metadata_enrichment import build_lookup, enrich_items
 from models.infrastructure.popularity_scorer import PopularityScorer
@@ -36,23 +34,6 @@ logger = logging.getLogger(__name__)
 _SERVER_NAME = "metadata"
 
 _book_lookup: Optional[dict[int, str]] = None
-
-
-def _get_artifact_version() -> str:
-    """
-    Read the current artifact version string from the version pointer file.
-
-    Returns 'unknown' if the pointer file is absent, which prevents a missing
-    file from blocking the health check.
-    """
-    pointer_path = os.environ.get("MODEL_VERSION_POINTER", "")
-    if pointer_path and os.path.exists(pointer_path):
-        try:
-            with open(pointer_path) as f:
-                return f.read().strip()
-        except OSError:
-            pass
-    return "unknown"
 
 
 def _load_artifacts() -> None:
@@ -78,44 +59,7 @@ def _load_artifacts() -> None:
     )
 
 
-def _reload_artifacts() -> None:
-    """Clear all owned artifacts and rebuild from disk."""
-    from models.data.loaders import clear_cache
-
-    global _book_lookup
-
-    logger.info("Reloading metadata server artifacts...")
-    start = time.monotonic()
-
-    PopularityScorer.reset()
-    clear_cache()
-
-    _book_lookup = build_lookup(load_book_meta(use_cache=True))
-    PopularityScorer()
-
-    elapsed_ms = (time.monotonic() - start) * 1000
-    logger.info("Metadata server artifacts reloaded in %.0fms", elapsed_ms)
-
-
-class _MetadataReloadPoller(ModelReloadPoller):
-    """Reload poller bound to the metadata server's artifact set."""
-
-    async def _reload_models(self) -> None:
-        _reload_artifacts()
-
-
-@asynccontextmanager
-async def lifespan(app: FastAPI):
-    """Load artifacts and start reload poller on startup; stop on shutdown."""
-    _load_artifacts()
-
-    poller = _MetadataReloadPoller()
-    await poller.start()
-
-    yield
-
-    await poller.stop()
-
+lifespan = make_lifespan(_load_artifacts)
 
 app = FastAPI(
     title="Metadata Model Server",
@@ -145,7 +89,7 @@ def health() -> HealthResponse:
     return HealthResponse(
         status="ok",
         server=_SERVER_NAME,
-        artifact_version=_get_artifact_version(),
+        artifact_version=get_artifact_version(),
     )
 
 
@@ -156,6 +100,12 @@ def health() -> HealthResponse:
 
 @app.post("/enrich")
 def enrich(request: EnrichRequest) -> Response:
+    """
+    Enrich a list of item indices with book metadata.
+
+    Returns a raw JSON response body assembled from pre-serialized per-book
+    strings, bypassing FastAPI serialization for performance.
+    """
     if _book_lookup is None:
         raise HTTPException(status_code=503, detail="Metadata server not initialized")
 

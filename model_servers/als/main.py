@@ -9,9 +9,7 @@ copy for cosine similarity; the two representations cannot be shared.
 """
 
 import logging
-import os
 import time
-from contextlib import asynccontextmanager
 
 from fastapi import FastAPI, HTTPException
 
@@ -23,29 +21,12 @@ from model_servers._shared.contracts import (
     HealthResponse,
     ScoredItem,
 )
-from models.core.reload_poller import ModelReloadPoller
+from model_servers._shared.server_utils import get_artifact_version, make_lifespan
 from models.infrastructure.als_model import ALSModel
 
 logger = logging.getLogger(__name__)
 
 _SERVER_NAME = "als"
-
-
-def _get_artifact_version() -> str:
-    """
-    Read the current artifact version string from the version pointer file.
-
-    Returns 'unknown' if the pointer file is absent, which prevents a missing
-    file from blocking the health check.
-    """
-    pointer_path = os.environ.get("MODEL_VERSION_POINTER", "")
-    if pointer_path and os.path.exists(pointer_path):
-        try:
-            with open(pointer_path) as f:
-                return f.read().strip()
-        except OSError:
-            pass
-    return "unknown"
 
 
 def _load_artifacts() -> None:
@@ -63,46 +44,7 @@ def _load_artifacts() -> None:
     logger.info("ALS server artifacts loaded in %.0fms", elapsed_ms)
 
 
-def _reload_artifacts() -> None:
-    """
-    Clear the ALSModel singleton and reload from disk.
-
-    Called by the reload poller when a new ALS training signal is detected.
-    The loader cache is also cleared so the new factor files are read rather
-    than the old cached arrays.
-    """
-    from models.data.loaders import clear_cache
-
-    logger.info("Reloading ALS server artifacts...")
-    start = time.monotonic()
-
-    ALSModel.reset()
-    clear_cache()
-    ALSModel()
-
-    elapsed_ms = (time.monotonic() - start) * 1000
-    logger.info("ALS server artifacts reloaded in %.0fms", elapsed_ms)
-
-
-class _ALSReloadPoller(ModelReloadPoller):
-    """Reload poller bound to the ALS server's artifact set."""
-
-    async def _reload_models(self) -> None:
-        _reload_artifacts()
-
-
-@asynccontextmanager
-async def lifespan(app: FastAPI):
-    """Load artifacts and start reload poller on startup; stop on shutdown."""
-    _load_artifacts()
-
-    poller = _ALSReloadPoller()
-    await poller.start()
-
-    yield
-
-    await poller.stop()
-
+lifespan = make_lifespan(_load_artifacts)
 
 app = FastAPI(
     title="ALS Recommendation Model Server",
@@ -134,7 +76,7 @@ def health() -> HealthResponse:
     return HealthResponse(
         status="ok",
         server=_SERVER_NAME,
-        artifact_version=_get_artifact_version(),
+        artifact_version=get_artifact_version(),
     )
 
 

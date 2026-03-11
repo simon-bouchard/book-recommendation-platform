@@ -9,9 +9,7 @@ this process because hybrid_sim requires both embedding matrices simultaneously
 """
 
 import logging
-import os
 import time
-from contextlib import asynccontextmanager
 
 from fastapi import FastAPI, HTTPException
 
@@ -27,29 +25,17 @@ from model_servers._shared.contracts import (
     SubjectRecsResponse,
     SubjectSimRequest,
 )
-from models.core.reload_poller import ModelReloadPoller
+from model_servers._shared.server_utils import get_artifact_version, make_lifespan
 from models.infrastructure.hybrid_scorer import HybridScorer
 from models.infrastructure.similarity_indices import (
     get_als_similarity_index,
     get_subject_similarity_index,
-    reset_indices,
 )
 from models.infrastructure.subject_scorer import SubjectScorer
 
 logger = logging.getLogger(__name__)
 
 _SERVER_NAME = "similarity"
-
-
-def _get_artifact_version() -> str:
-    pointer_path = os.environ.get("MODEL_VERSION_POINTER", "")
-    if pointer_path and os.path.exists(pointer_path):
-        try:
-            with open(pointer_path) as f:
-                return f.read().strip()
-        except OSError:
-            pass
-    return "unknown"
 
 
 def _load_artifacts() -> None:
@@ -73,46 +59,7 @@ def _load_artifacts() -> None:
     logger.info("Similarity server artifacts loaded in %.0fms", elapsed_ms)
 
 
-def _reload_artifacts() -> None:
-    """Clear all owned artifacts and reload from disk."""
-    from models.data.loaders import clear_cache
-
-    logger.info("Reloading similarity server artifacts...")
-    start = time.monotonic()
-
-    HybridScorer.reset()
-    SubjectScorer.reset()
-    reset_indices()
-    clear_cache()
-
-    get_subject_similarity_index()
-    get_als_similarity_index()
-    HybridScorer()
-    SubjectScorer()
-
-    elapsed_ms = (time.monotonic() - start) * 1000
-    logger.info("Similarity server artifacts reloaded in %.0fms", elapsed_ms)
-
-
-class _SimilarityReloadPoller(ModelReloadPoller):
-    """Reload poller bound to the similarity server's artifact set."""
-
-    async def _reload_models(self) -> None:
-        _reload_artifacts()
-
-
-@asynccontextmanager
-async def lifespan(app: FastAPI):
-    """Load artifacts and start reload poller on startup; stop on shutdown."""
-    _load_artifacts()
-
-    poller = _SimilarityReloadPoller()
-    await poller.start()
-
-    yield
-
-    await poller.stop()
-
+lifespan = make_lifespan(_load_artifacts)
 
 app = FastAPI(
     title="Similarity Model Server",
@@ -143,7 +90,7 @@ def health() -> HealthResponse:
     return HealthResponse(
         status="ok",
         server=_SERVER_NAME,
-        artifact_version=_get_artifact_version(),
+        artifact_version=get_artifact_version(),
     )
 
 

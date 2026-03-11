@@ -7,9 +7,7 @@ Consumers: similarity server (for subject_recs), application layer (for candidat
 """
 
 import logging
-import os
 import time
-from contextlib import asynccontextmanager
 
 from fastapi import FastAPI, HTTPException
 
@@ -18,30 +16,12 @@ from model_servers._shared.contracts import (
     EmbedResponse,
     HealthResponse,
 )
-from models.core.reload_poller import ModelReloadPoller
+from model_servers._shared.server_utils import get_artifact_version, make_lifespan
 from models.infrastructure.subject_embedder import SubjectEmbedder
 
 logger = logging.getLogger(__name__)
 
 _SERVER_NAME = "embedder"
-_startup_time: float = 0.0
-
-
-def _get_artifact_version() -> str:
-    """
-    Read the current artifact version string from the version pointer file.
-
-    Returns 'unknown' if the pointer file is absent, which prevents a missing
-    file from blocking the health check.
-    """
-    pointer_path = os.environ.get("MODEL_VERSION_POINTER", "")
-    if pointer_path and os.path.exists(pointer_path):
-        try:
-            with open(pointer_path) as f:
-                return f.read().strip()
-        except OSError:
-            pass
-    return "unknown"
 
 
 def _load_artifacts() -> None:
@@ -60,49 +40,7 @@ def _load_artifacts() -> None:
     logger.info("Embedder artifacts loaded in %.0fms", elapsed_ms)
 
 
-def _reload_artifacts() -> None:
-    """
-    Clear the SubjectEmbedder singleton and reload from disk.
-
-    Called by the reload poller when a new signal timestamp is detected.
-    The loaders cache for the attention strategy is also cleared so the
-    new .pth file is read rather than the old cached instance.
-    """
-    from models.data.loaders import clear_cache
-
-    logger.info("Reloading embedder artifacts...")
-    start = time.monotonic()
-
-    SubjectEmbedder.reset()
-    clear_cache()
-    SubjectEmbedder()
-
-    elapsed_ms = (time.monotonic() - start) * 1000
-    logger.info("Embedder artifacts reloaded in %.0fms", elapsed_ms)
-
-
-class _EmbedderReloadPoller(ModelReloadPoller):
-    """Reload poller bound to the embedder's artifact set."""
-
-    async def _reload_models(self) -> None:
-        _reload_artifacts()
-
-
-@asynccontextmanager
-async def lifespan(app: FastAPI):
-    """Load artifacts and start the reload poller on startup; stop poller on shutdown."""
-    global _startup_time
-
-    _load_artifacts()
-    _startup_time = time.monotonic()
-
-    poller = _EmbedderReloadPoller()
-    await poller.start()
-
-    yield
-
-    await poller.stop()
-
+lifespan = make_lifespan(_load_artifacts)
 
 app = FastAPI(
     title="Embedder Model Server",
@@ -126,14 +64,13 @@ def health() -> HealthResponse:
     covers the brief window between container start and artifact load
     completion as well as any failed reload.
     """
-    embedder = SubjectEmbedder._instance
-    if embedder is None:
+    if SubjectEmbedder._instance is None:
         raise HTTPException(status_code=503, detail="Embedder not initialized")
 
     return HealthResponse(
         status="ok",
         server=_SERVER_NAME,
-        artifact_version=_get_artifact_version(),
+        artifact_version=get_artifact_version(),
     )
 
 
