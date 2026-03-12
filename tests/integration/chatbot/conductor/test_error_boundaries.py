@@ -19,20 +19,22 @@ class TestErrorBoundaries:
     Component tests assume happy path. These test failure modes
     and verify system doesn't crash or leak exceptions.
 
-    These tests use mocked agents to inject failures and verify
-    error handling, not LLM quality.
+    All routing is controlled via the pre-wired mock_router (default: recsys),
+    so no LLM calls are made.
     """
 
     async def test_agent_execution_failure_returns_error_result(
-        self, db_session, mock_agent_factory, collect_result
+        self,
+        db_session,
+        mock_router,
+        collect_result,
     ):
         """
         Verify agent execution failures are caught and return error result.
 
-        Conductor catches exceptions and returns a 'complete' chunk with success=False.
-        This ensures users get graceful error messages, not crashes.
+        Conductor catches exceptions and returns a 'complete' chunk with
+        success=False. Users get a graceful error message, not a crash.
         """
-        conductor = Conductor()
 
         # Async generator that raises immediately — simulates a broken agent.
         async def _failing_execute_stream(*args, **kwargs):
@@ -44,7 +46,12 @@ class TestErrorBoundaries:
 
         failing_factory = Mock()
         failing_factory.create_agent = Mock(return_value=failing_agent)
+
+        # Inject both the failing factory and the mock router so no real LLM
+        # is called before the agent itself raises.
+        conductor = Conductor()
         conductor.factory = failing_factory
+        conductor.router = mock_router
 
         result = await collect_result(
             conductor,
@@ -61,18 +68,18 @@ class TestErrorBoundaries:
         assert result.text, "Should have error message"
 
     async def test_router_classification_failure_returns_error_result(
-        self, db_session, mock_agent_factory, collect_result
+        self,
+        db_session,
+        conductor,
+        collect_result,
     ):
         """
         Verify router classification failures are caught and return error result.
 
-        Conductor catches exceptions and returns a 'complete' chunk with success=False.
+        Conductor catches exceptions and returns a 'complete' chunk with
+        success=False.
         """
-        conductor = Conductor()
-        conductor.factory = mock_agent_factory
-
         failing_router = Mock()
-        # classify is awaited in conductor, so must be AsyncMock
         failing_router.classify = AsyncMock(
             side_effect=RuntimeError("Router classification failed")
         )
@@ -92,16 +99,19 @@ class TestErrorBoundaries:
         assert result.text, "Should have error message"
 
     async def test_empty_query_handled_gracefully(
-        self, db_session, mock_agent_factory, mock_response_agent, collect_result
+        self,
+        db_session,
+        conductor,
+        mock_response_agent,
+        collect_result,
     ):
         """
-        Verify empty user_text doesn't break system.
+        Verify empty user_text doesn't break the system.
 
-        Edge case: user submits empty string.
+        Edge case: user submits an empty string.
+        force_target="respond" ensures the response agent path is exercised
+        without relying on routing intelligence.
         """
-        conductor = Conductor()
-        conductor.factory = mock_agent_factory
-
         result = await collect_result(
             conductor,
             history=[],
@@ -109,24 +119,27 @@ class TestErrorBoundaries:
             use_profile=False,
             db=db_session,
             user_num_ratings=0,
+            force_target="respond",
         )
 
         assert isinstance(result, AgentResult), "Should return AgentResult for empty query"
         assert result.text, "Should have response even for empty query"
-
         assert mock_response_agent.execute_stream.called, "Response agent should handle empty query"
 
     async def test_whitespace_only_query_handled(
-        self, db_session, mock_agent_factory, mock_response_agent, collect_result
+        self,
+        db_session,
+        conductor,
+        mock_response_agent,
+        collect_result,
     ):
         """
         Verify whitespace-only query is handled.
 
         Edge case: user submits only spaces/newlines.
+        force_target="respond" ensures the response agent path is exercised
+        without relying on routing intelligence.
         """
-        conductor = Conductor()
-        conductor.factory = mock_agent_factory
-
         result = await collect_result(
             conductor,
             history=[],
@@ -134,20 +147,26 @@ class TestErrorBoundaries:
             use_profile=False,
             db=db_session,
             user_num_ratings=0,
+            force_target="respond",
         )
 
         assert isinstance(result, AgentResult), "Should return AgentResult for whitespace query"
         assert result.text, "Should have response for whitespace query"
+        assert mock_response_agent.execute_stream.called, (
+            "Response agent should handle whitespace query"
+        )
 
-    async def test_very_long_query_handled(self, db_session, mock_agent_factory, collect_result):
+    async def test_very_long_query_handled(
+        self,
+        db_session,
+        conductor,
+        collect_result,
+    ):
         """
-        Verify extremely long queries don't break system.
+        Verify extremely long queries don't break the system.
 
-        Edge case: user submits massive query (potential token overflow).
+        Edge case: user submits a massive query (potential token overflow).
         """
-        conductor = Conductor()
-        conductor.factory = mock_agent_factory
-
         long_query = " ".join(["word"] * 1000)
 
         result = await collect_result(
@@ -164,16 +183,16 @@ class TestErrorBoundaries:
         assert result.text, "Should have response for long query"
 
     async def test_malformed_history_handled(
-        self, db_session, mock_agent_factory, mock_recsys_agent, collect_result
+        self,
+        db_session,
+        conductor,
+        collect_result,
     ):
         """
-        Verify malformed history doesn't crash system.
+        Verify malformed history doesn't crash the system.
 
-        Edge case: history has missing or extra fields.
+        Edge case: history has missing fields (no 'a' key on first turn).
         """
-        conductor = Conductor()
-        conductor.factory = mock_agent_factory
-
         malformed_history = [
             {"u": "first message"},  # Missing 'a'
             {"u": "second message", "a": "response"},
@@ -191,17 +210,17 @@ class TestErrorBoundaries:
         assert isinstance(result, AgentResult), "Should return AgentResult with malformed history"
 
     async def test_database_none_for_agent_requiring_db(
-        self, mock_agent_factory, mock_recsys_agent, collect_result
+        self,
+        conductor,
+        mock_recsys_agent,
+        collect_result,
     ):
         """
-        Verify recsys agent handles db=None appropriately.
+        Verify the recsys agent path handles db=None.
 
-        Recsys requires database but might be called with db=None.
-        Should either work without db or fail clearly.
+        The mock agent itself does not need db, so this tests that the
+        adapter and factory layers don't crash before the agent is reached.
         """
-        conductor = Conductor()
-        conductor.factory = mock_agent_factory
-
         result = await collect_result(
             conductor,
             history=[],
@@ -214,8 +233,7 @@ class TestErrorBoundaries:
         )
 
         assert isinstance(result, AgentResult), "Should return AgentResult when db=None"
-        assert result.text, "Should have response text when db required but missing"
-
+        assert result.text, "Should have response text"
         assert mock_recsys_agent.execute_stream.called, (
             "Recsys agent should be called even with db=None"
         )

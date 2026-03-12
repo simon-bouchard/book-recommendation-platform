@@ -1,191 +1,264 @@
 # tests/unit/routes/models/conftest.py
 """
-Shared fixtures for API layer tests.
-Provides mocks for services, database, and test client setup.
+Shared fixtures for the /profile/recommend endpoint tests.
+
+Key design decisions
+--------------------
+- mock_db is an AsyncMock whose execute() returns a chain matching the
+  SQLAlchemy Core pattern used in the route:
+    result = await db.execute(stmt)
+    user_obj = result.unique().scalar_one_or_none()
+
+- mock_orm_user exposes a `favorite_subjects` list of mocks with a
+  `subject_idx` attribute, matching the relationship the route iterates:
+    fav_subjects = [s.subject_idx for s in user_obj.favorite_subjects]
+
+- The `override_db_dependency` autouse fixture injects mock_db as the
+  get_async_read_only_db dependency for every test and cleans up afterward,
+  so individual tests do not need to repeat the dependency_overrides pattern.
+
+- test_client is session-scoped; dependency_overrides is a plain dict that
+  can be mutated per test without recreating the app.
 """
 
-import sys
+from __future__ import annotations
+
+from unittest.mock import AsyncMock, MagicMock, Mock
+
 import pytest
-from unittest.mock import Mock
-from sqlalchemy.orm import Session
-from pathlib import Path
+from starlette.testclient import TestClient
 
-project_root = Path(__file__).resolve().parents[4]
-if str(project_root) not in sys.path:
-    sys.path.insert(0, str(project_root))
-
-from models.domain.user import User
 from models.domain.recommendation import RecommendedBook
+from models.core.constants import PAD_IDX
+
+
+# ---------------------------------------------------------------------------
+# Application client
+# ---------------------------------------------------------------------------
+
+
+@pytest.fixture(scope="session")
+def test_client() -> TestClient:
+    """
+    TestClient wrapping the main FastAPI application.
+
+    Session-scoped so the app is only instantiated once. Tests override
+    dependencies via app.dependency_overrides, which the autouse fixture
+    manages per test.
+    """
+    from main import app
+
+    return TestClient(app, raise_server_exceptions=False)
+
+
+# ---------------------------------------------------------------------------
+# Database session mock
+# ---------------------------------------------------------------------------
 
 
 @pytest.fixture
-def mock_db():
-    """Mock database session."""
-    db = Mock(spec=Session)
-    db.query = Mock()
-    db.close = Mock()
+def mock_db(mock_orm_user: MagicMock) -> AsyncMock:
+    """
+    AsyncMock standing in for an async SQLAlchemy Session.
+
+    Pre-wired to return mock_orm_user through the execute/unique/
+    scalar_one_or_none chain the route uses. Tests that need a different
+    result (e.g. user not found) can override:
+        mock_db.execute.return_value.unique.return_value.scalar_one_or_none.return_value = None
+    """
+    db = AsyncMock()
+    result = Mock()
+    result.unique.return_value.scalar_one_or_none.return_value = mock_orm_user
+    db.execute.return_value = result
     return db
 
 
+# ---------------------------------------------------------------------------
+# Autouse dependency override
+# ---------------------------------------------------------------------------
+
+
+@pytest.fixture(autouse=True)
+def override_db_dependency(test_client: TestClient, mock_db: AsyncMock):
+    """
+    Replace get_async_read_only_db with mock_db for every test.
+
+    Using autouse eliminates the repeated dependency_overrides boilerplate
+    from every test body. Cleanup removes the override after each test so
+    session-scoped test_client is not polluted between test classes.
+    """
+    from app.database import get_async_read_only_db
+
+    async def _override():
+        yield mock_db
+
+    test_client.app.dependency_overrides[get_async_read_only_db] = _override
+    yield
+    test_client.app.dependency_overrides.pop(get_async_read_only_db, None)
+
+
+# ---------------------------------------------------------------------------
+# ORM user mocks
+# ---------------------------------------------------------------------------
+
+
 @pytest.fixture
-def mock_orm_user():
-    """Mock SQLAlchemy User ORM object."""
-    user = Mock()
+def mock_orm_user() -> MagicMock:
+    """
+    ORM User mock with fully populated profile.
+
+    favorite_subjects is a list of mocks with subject_idx attributes, matching
+    the relationship the route iterates:
+        fav_subjects = [s.subject_idx for s in user_obj.favorite_subjects]
+
+    country, age, and filled_age match the assertions in
+    TestRecommendEndpointUserConversion.
+    """
+    user = MagicMock()
     user.user_id = 123
     user.username = "testuser"
+    user.favorite_subjects = [
+        Mock(subject_idx=5),
+        Mock(subject_idx=12),
+        Mock(subject_idx=23),
+    ]
     user.country = "US"
     user.age = 30
-    user.filled_age = "30-35"
-
-    subject_1 = Mock()
-    subject_1.subject_idx = 5
-    subject_2 = Mock()
-    subject_2.subject_idx = 12
-    subject_3 = Mock()
-    subject_3.subject_idx = 23
-
-    user.favorite_subjects = [subject_1, subject_2, subject_3]
-
+    user.filled_age = None
     return user
 
 
 @pytest.fixture
-def mock_orm_user_no_preferences():
-    """Mock ORM user with no favorite subjects."""
-    user = Mock()
+def mock_orm_user_no_preferences() -> MagicMock:
+    """
+    ORM User mock with no subject preferences.
+
+    favorite_subjects is empty, causing the route to fall back to [PAD_IDX]
+    and exercising the cold-start path.
+    """
+    user = MagicMock()
     user.user_id = 456
     user.username = "colduser"
-    user.country = "CA"
-    user.age = 25
-    user.filled_age = "25-30"
     user.favorite_subjects = []
+    user.country = "US"
+    user.age = 25
+    user.filled_age = None
     return user
 
 
-@pytest.fixture
-def sample_domain_user():
-    """Sample domain User for testing."""
-    return User(user_id=123, fav_subjects=[5, 12, 23], country="US", age=30, filled_age="30-35")
+# ---------------------------------------------------------------------------
+# Sample recommendations
+# ---------------------------------------------------------------------------
 
 
 @pytest.fixture
-def sample_recommendations():
-    """Sample RecommendedBook objects."""
+def sample_recommendations() -> list[RecommendedBook]:
+    """
+    Three fully-populated RecommendedBook instances.
+
+    Used as the default return value of mock_recommendation_service so that
+    response-format and field-name assertions have concrete data to inspect.
+    All optional fields are populated so `assert field in first_book` tests pass.
+    """
     return [
         RecommendedBook(
+            item_idx=1000,
+            title="Book One",
+            score=0.95,
+            num_ratings=500,
+            author="Author One",
+            year=2019,
+            isbn="978-0-00-000001-0",
+            cover_id="OL001M",
+            avg_rating=4.2,
+        ),
+        RecommendedBook(
             item_idx=1001,
-            title="The Great Gatsby",
-            score=0.92,
-            num_ratings=1500,
-            author="F. Scott Fitzgerald",
-            year=1925,
-            isbn="978-0-123456-78-9",
-            cover_id="abc123",
-            avg_rating=4.5,
+            title="Book Two",
+            score=0.88,
+            num_ratings=300,
+            author="Author Two",
+            year=2020,
+            isbn="978-0-00-000002-0",
+            cover_id="OL002M",
+            avg_rating=3.9,
         ),
         RecommendedBook(
             item_idx=1002,
-            title="1984",
-            score=0.88,
-            num_ratings=2000,
-            author="George Orwell",
-            year=1949,
-            isbn="978-0-987654-32-1",
-            cover_id="def456",
-            avg_rating=4.6,
-        ),
-        RecommendedBook(
-            item_idx=1003,
-            title="To Kill a Mockingbird",
-            score=0.85,
-            num_ratings=1800,
-            author="Harper Lee",
-            year=1960,
-            isbn="978-0-111111-11-1",
-            cover_id="ghi789",
-            avg_rating=4.7,
+            title="Book Three",
+            score=0.75,
+            num_ratings=150,
+            author="Author Three",
+            year=2021,
+            isbn="978-0-00-000003-0",
+            cover_id="OL003M",
+            avg_rating=4.5,
         ),
     ]
 
 
+# ---------------------------------------------------------------------------
+# Similarity fixtures
+# ---------------------------------------------------------------------------
+
+
 @pytest.fixture
-def sample_similar_books():
-    """Sample similarity results."""
+def sample_similar_books() -> list[dict]:
+    """
+    Two similar-book dicts matching the format returned by SimilarityService.get_similar().
+
+    All fields the response-format tests assert on are populated.
+    """
     return [
         {
-            "item_idx": 2001,
-            "title": "Tender Is the Night",
-            "score": 0.89,
-            "author": "F. Scott Fitzgerald",
-            "year": 1934,
-            "isbn": "978-0-222222-22-2",
-            "cover_id": "jkl012",
+            "item_idx": 2000,
+            "title": "Similar Book One",
+            "score": 0.92,
+            "author": "Author A",
+            "year": 2018,
+            "isbn": "978-0-00-002000-0",
+            "cover_id": "OL2000M",
         },
         {
-            "item_idx": 2002,
-            "title": "This Side of Paradise",
-            "score": 0.84,
-            "author": "F. Scott Fitzgerald",
-            "year": 1920,
-            "isbn": "978-0-333333-33-3",
-            "cover_id": "mno345",
+            "item_idx": 2001,
+            "title": "Similar Book Two",
+            "score": 0.81,
+            "author": "Author B",
+            "year": 2017,
+            "isbn": "978-0-00-002001-0",
+            "cover_id": "OL2001M",
         },
     ]
 
 
 @pytest.fixture
-def mock_recommendation_service(sample_recommendations):
-    """Mock RecommendationService."""
-    service = Mock()
-    service.recommend.return_value = sample_recommendations
+def mock_similarity_service(sample_similar_books: list[dict]) -> MagicMock:
+    """
+    Mock SimilarityService with an async get_similar method.
+
+    get_similar must be AsyncMock because the endpoint handler awaits it.
+    Returns sample_similar_books by default; individual tests can override
+    return_value or set side_effect as needed.
+    """
+    service = MagicMock()
+    service.get_similar = AsyncMock(return_value=sample_similar_books)
     return service
 
 
+# ---------------------------------------------------------------------------
+# Recommendation service mock
+# ---------------------------------------------------------------------------
+
+
 @pytest.fixture
-def mock_similarity_service(sample_similar_books):
-    """Mock SimilarityService."""
-    service = Mock()
-    service.get_similar.return_value = sample_similar_books
+def mock_recommendation_service(sample_recommendations: list[RecommendedBook]) -> MagicMock:
+    """
+    Mock RecommendationService with an async recommend method.
+
+    recommend must be AsyncMock because the endpoint handler awaits it.
+    Returns sample_recommendations by default; individual tests can override
+    return_value or set side_effect as needed.
+    """
+    service = MagicMock()
+    service.recommend = AsyncMock(return_value=sample_recommendations)
     return service
-
-
-@pytest.fixture
-def test_app(monkeypatch):
-    """
-    Create a test FastAPI app with response caching neutralised.
-
-    The @cached_recommendations and @cached_similarity decorators are applied
-    to the route handlers at module import time.  If routes.models is already
-    in sys.modules the cached wrappers are reused across tests, meaning the
-    real handler is bypassed after the first request with a given parameter
-    combination and mock call assertions fail.
-
-    Fix: patch both decorators to identity functions in the cache module, then
-    remove routes.models from sys.modules so the next import re-executes the
-    module body with the inert decorators.  monkeypatch restores both the
-    decorator patch and the sys.modules entry on teardown, leaving no state
-    between tests.
-    """
-    import models.cache as cache_module
-
-    monkeypatch.setattr(cache_module, "cached_recommendations", lambda f: f)
-    monkeypatch.setattr(cache_module, "cached_similarity", lambda f: f)
-
-    # Force re-execution of routes.models with the patched decorators.
-    monkeypatch.delitem(sys.modules, "routes.models", raising=False)
-
-    from fastapi import FastAPI
-    import routes.models as routes_module
-
-    app = FastAPI()
-    app.include_router(routes_module.router)
-
-    return app
-
-
-@pytest.fixture
-def test_client(test_app):
-    """FastAPI test client."""
-    from fastapi.testclient import TestClient
-
-    return TestClient(test_app)

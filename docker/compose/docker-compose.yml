@@ -1,0 +1,14 @@
+# docker/compose/docker-compose.yml
+"""
+Production orchestration manifest.
+
+Includes all services that must run continuously in production.
+Kafka and Spark are excluded — they are invoked manually as needed.
+"""
+
+name: bookrec
+
+include:
+  - ../model-servers/docker-compose.yml
+  - ../meilisearch/docker-compose.yml
+  - ../prometheus/docker-compose.yml

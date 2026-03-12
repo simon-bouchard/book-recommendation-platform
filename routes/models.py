@@ -6,30 +6,24 @@ Maintains backward compatibility with old API response formats.
 """
 
 from fastapi import APIRouter, HTTPException, Query, Depends
-from sqlalchemy.orm import Session, joinedload
-import os
+from sqlalchemy import select
+from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import joinedload
 import logging
 import time
 
 from metrics import RECSYS_REQUESTS, RECSYS_LATENCY, SIMILARITY_REQUESTS, SIMILARITY_LATENCY
 
-from app.database import get_db
+from app.database import get_async_read_only_db
 from app.table_models import User as ORMUser
 
 from models.services.recommendation_service import RecommendationService
 from models.services.similarity_service import SimilarityService
 from models.domain.user import User
-from models.domain.config import RecommendationConfig, HybridConfig, RecommendationMode
+from models.domain.config import RecommendationConfig, HybridConfig
 from models.core.constants import PAD_IDX
 from models.cache import cached_recommendations, cached_similarity
-from models.data.loaders import (
-    clear_cache,
-    preload_all_artifacts,
-    has_book_als,
-)
-from models.infrastructure.subject_embedder import SubjectEmbedder
-from models.infrastructure.als_model import ALSModel
-from models.infrastructure.similarity_indices import reset_indices
+from models.client.registry import get_similarity_client
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
@@ -47,7 +41,7 @@ async def _compute_recommendations(
     top_n: int,
     mode: str,
     w: float,
-    db: Session,
+    db: AsyncSession,
 ) -> list[dict]:
     """
     Compute personalized book recommendations.
@@ -55,12 +49,14 @@ async def _compute_recommendations(
     Pure computation layer, separated from the route handler so that telemetry
     in the handler fires on every request regardless of cache state.
     """
-    user_query = db.query(ORMUser).options(joinedload(ORMUser.favorite_subjects))
-
+    stmt = select(ORMUser).options(joinedload(ORMUser.favorite_subjects))
     if _id:
-        user_obj = user_query.filter(ORMUser.user_id == int(user)).first()
+        stmt = stmt.where(ORMUser.user_id == int(user))
     else:
-        user_obj = user_query.filter(ORMUser.username == user).first()
+        stmt = stmt.where(ORMUser.username == user)
+
+    result = await db.execute(stmt)
+    user_obj = result.unique().scalar_one_or_none()
 
     if not user_obj:
         raise HTTPException(status_code=404, detail="User not found")
@@ -84,7 +80,7 @@ async def _compute_recommendations(
     )
 
     service = RecommendationService()
-    recommendations = service.recommend(domain_user, config, db)
+    recommendations = await service.recommend(domain_user, config, db)
 
     return [
         {
@@ -111,7 +107,7 @@ async def recommend_for_user(
         "auto", regex="^(auto|subject|behavioral)$", description="Recommendation mode"
     ),
     w: float = Query(0.6, ge=0, le=1, description="Subject weight for hybrid mode"),
-    db: Session = Depends(get_db),
+    db: AsyncSession = Depends(get_async_read_only_db),
 ) -> list[dict]:
     """
     Generate personalized book recommendations.
@@ -145,7 +141,7 @@ async def recommend_for_user(
 
 
 @cached_similarity
-def _compute_similar_books(
+async def _compute_similar_books(
     item_idx: int,
     mode: str,
     alpha: float,
@@ -158,18 +154,16 @@ def _compute_similar_books(
     in the handler fires on every request regardless of cache state.
     """
     service = SimilarityService()
-    return service.get_similar(
+    return await service.get_similar(
         item_idx=item_idx,
         mode=mode,
         k=top_k,
         alpha=alpha,
-        min_rating_count=None,
-        filter_candidates=True,
     )
 
 
 @router.get("/book/{item_idx}/similar")
-def get_similar_books(
+async def get_similar_books(
     item_idx: int,
     mode: str = Query("subject", regex="^(subject|als|hybrid)$"),
     alpha: float = Query(0.6, ge=0, le=1),
@@ -187,15 +181,17 @@ def get_similar_books(
 
     Alpha (hybrid only): 0.0=pure subject, 1.0=pure ALS, 0.6=default
     """
-    if mode == "als" and not has_book_als(item_idx):
-        raise HTTPException(
-            status_code=422,
-            detail="Behavioral similarity unavailable for this book (no ALS data). Try Subject mode.",
-        )
+    if mode in ("als", "hybrid"):
+        resp = await get_similarity_client().has_book_als(item_idx)
+        if not resp.has_als:
+            raise HTTPException(
+                status_code=422,
+                detail="This book doesn't have als factors yet because of a lack of interactions/ratings. Als and hybrid similarity isn't available for this book yet.",
+            )
 
     start_time = time.time()
     try:
-        results = _compute_similar_books(item_idx, mode, alpha, top_k)
+        results = await _compute_similar_books(item_idx, mode, alpha, top_k)
         SIMILARITY_REQUESTS.labels(mode=mode).inc()
         SIMILARITY_LATENCY.labels(mode=mode).observe(time.time() - start_time)
         return results

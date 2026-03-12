@@ -29,7 +29,7 @@ from models.data.loaders import (
     get_item_idx_to_row,
     clear_cache,
 )
-from models.core import PATHS
+from models.core.paths import PATHS
 
 
 class TestBookSubjectEmbeddings:

@@ -3,17 +3,14 @@
 Data loader for training scripts with configurable PAD_IDX.
 """
 
-from pathlib import Path
+from collections import defaultdict
 from typing import Dict, List, Literal
 
+import pandas as pd
 import torch
 from torch.utils.data import Dataset
-import pandas as pd
-from collections import defaultdict
 
-# Repo-relative data dir
-REPO_ROOT = Path(__file__).parent.parent.parent
-DATA_DIR = REPO_ROOT / "models" / "training" / "data"
+from models.core.paths import PATHS
 
 DatasetMode = Literal["supervised", "contrastive"]
 
@@ -22,29 +19,33 @@ def load_training_rows_from_pickle(pad_to: int = 5, pad_idx: int = 0) -> List[Di
     """
     Load interactions + subject mappings from pickle files and build row dicts.
 
+    Reads from PATHS.staging_data_dir, which points to the freshly exported
+    data snapshot in staging. Training scripts always run against staged data,
+    never against a promoted version.
+
     Args:
-        pad_to: Number of favorite subjects to pad to
-        pad_idx: Padding index for invalid/missing subjects
+        pad_to: Number of favorite subjects to pad to.
+        pad_idx: Padding index for invalid/missing subjects.
 
     Returns:
-        List of dicts with keys: user_idx, item_idx, rating, fav_subjects, book_subjects
+        List of dicts with keys: user_idx, item_idx, rating, fav_subjects, book_subjects.
     """
-    print(f"Loading .pkl data from: {DATA_DIR}")
+    data_dir = PATHS.staging_data_dir
+
+    print(f"Loading .pkl data from: {data_dir}")
     print(f"Using PAD_IDX = {pad_idx}")
 
-    interactions = pd.read_pickle(DATA_DIR / "interactions.pkl")
-    user_fav_df = pd.read_pickle(DATA_DIR / "user_fav_subjects.pkl")
-    book_subj_df = pd.read_pickle(DATA_DIR / "book_subjects.pkl")
+    interactions = pd.read_pickle(data_dir / "interactions.pkl")
+    user_fav_df = pd.read_pickle(data_dir / "user_fav_subjects.pkl")
+    book_subj_df = pd.read_pickle(data_dir / "book_subjects.pkl")
 
     interactions = interactions[interactions["rating"].notnull()].copy()
 
-    # Warm-user filter: keep users with >= 10 ratings
     rating_counts = interactions["user_id"].value_counts()
     interactions["is_warm"] = interactions["user_id"].map(
         lambda uid: rating_counts.get(uid, 0) >= 10
     )
 
-    # Build maps
     user_fav = defaultdict(list)
     for row in user_fav_df.itertuples(index=False):
         user_fav[row.user_id].append(row.subject_idx)
@@ -82,7 +83,6 @@ def load_training_rows_from_pickle(pad_to: int = 5, pad_idx: int = 0) -> List[Di
         print("No valid training rows constructed.")
         return []
 
-    # Pad book_subjects to common length
     max_len = max(len(r["book_subjects"]) for r in rows)
     for r in rows:
         r["book_subjects"] = r["book_subjects"] + [pad_idx] * (max_len - len(r["book_subjects"]))
@@ -136,12 +136,12 @@ def load_rows_and_dataset(mode: DatasetMode = "supervised", pad_to: int = 5, pad
     Load rows and return (rows, dataset, n_users, n_items, n_subjects).
 
     Args:
-        mode: "supervised" or "contrastive"
-        pad_to: Number of favorite subjects to pad to
-        pad_idx: Padding index for invalid/missing subjects
+        mode: "supervised" or "contrastive".
+        pad_to: Number of favorite subjects to pad to.
+        pad_idx: Padding index for invalid/missing subjects.
 
     Returns:
-        Tuple of (rows, dataset, n_users, n_items, n_subjects)
+        Tuple of (rows, dataset, n_users, n_items, n_subjects).
     """
     rows = load_training_rows_from_pickle(pad_to=pad_to, pad_idx=pad_idx)
     if not rows:

@@ -5,22 +5,22 @@ Recommendation service using singleton generators/filters/rankers.
 
 import logging
 import time
-from typing import List
-from sqlalchemy.orm import Session
+from typing import Optional, Tuple, List
+
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from models.domain.user import User
 from models.domain.config import RecommendationConfig
 from models.domain.recommendation import Candidate, RecommendedBook
 from models.domain.pipeline import RecommendationPipeline
 from models.domain.candidate_generation import (
-    get_subject_generator,
     get_als_generator,
     get_popularity_generator,
-    create_hybrid_generator,
+    create_joint_subject_generator,
 )
 from models.domain.filters import get_read_books_filter
 from models.domain.rankers import get_noop_ranker
-from models.data.loaders import load_book_meta
+from models.client.registry import get_metadata_client
 
 logger = logging.getLogger(__name__)
 
@@ -30,34 +30,34 @@ class RecommendationService:
     Main recommendation service implementing business logic.
 
     Uses singleton generators/filters/rankers for optimal performance.
-    No instance-level state - can be recreated cheaply.
+    No instance-level state — can be recreated cheaply.
     """
 
     def __init__(self):
         """Initialize recommendation service."""
-        self._book_meta = None
 
-    def recommend(
-        self, user: User, config: RecommendationConfig, db: Session
+    async def recommend(
+        self, user: User, config: RecommendationConfig, db: AsyncSession
     ) -> List[RecommendedBook]:
         """Generate personalized recommendations for a user."""
         start_time = time.time()
 
-        logger.info(
-            "Recommendation started",
-            extra={
-                "user_id": user.user_id,
-                "mode": config.mode,
-                "is_warm": user.is_warm,
-                "has_preferences": user.has_preferences,
-                "k": config.k,
-            },
-        )
-
         try:
-            pipeline = self._build_pipeline(user, config)
-            candidates = pipeline.recommend(user, config.k, db)
-            recommendations = self._enrich_candidates(candidates)
+            pipeline, is_warm = await self._build_pipeline(user, config)
+
+            logger.info(
+                "Recommendation started",
+                extra={
+                    "user_id": user.user_id,
+                    "mode": config.mode,
+                    "is_warm": is_warm,
+                    "has_preferences": user.has_preferences,
+                    "k": config.k,
+                },
+            )
+
+            candidates = await pipeline.recommend(user, config.k, db)
+            recommendations = await self._enrich_candidates(candidates)
 
             latency_ms = int((time.time() - start_time) * 1000)
 
@@ -81,41 +81,46 @@ class RecommendationService:
             )
             raise
 
-    def _build_pipeline(self, user: User, config: RecommendationConfig) -> RecommendationPipeline:
+    async def _build_pipeline(
+        self, user: User, config: RecommendationConfig
+    ) -> Tuple[RecommendationPipeline, Optional[bool]]:
         """
         Build recommendation pipeline using singleton components.
 
+        Returns a (pipeline, is_warm) tuple. is_warm is the result of the ALS
+        server warmth check for mode=auto, and None for all other modes where
+        the generator is fixed regardless of warmth (avoiding the round-trip).
+
         Key insight: Generators/filters/rankers are singletons (one copy),
-        but pipelines are recreated per request (they're lightweight wrappers).
+        but pipelines are recreated per request (they are lightweight wrappers).
         """
-        # Determine strategy based on mode
         if config.mode == "behavioral":
             primary_generator = get_als_generator()
             fallback_generator = get_popularity_generator()
+            is_warm = None
 
         elif config.mode == "subject":
-            primary_generator = create_hybrid_generator(
-                subject_weight=config.hybrid_config.subject_weight,
-                popularity_weight=config.hybrid_config.popularity_weight,
+            primary_generator = create_joint_subject_generator(
+                alpha=config.hybrid_config.subject_weight,
             )
             fallback_generator = get_popularity_generator()
+            is_warm = None
 
         else:
-            # Auto mode - decide based on user status
-            if user.is_warm:
+            # Auto mode — only here do we need to know warmth.
+            is_warm = await user.is_warm()
+            if is_warm:
                 primary_generator = get_als_generator()
                 fallback_generator = get_popularity_generator()
             elif user.has_preferences:
-                primary_generator = create_hybrid_generator(
-                    subject_weight=config.hybrid_config.subject_weight,
-                    popularity_weight=config.hybrid_config.popularity_weight,
+                primary_generator = create_joint_subject_generator(
+                    alpha=config.hybrid_config.subject_weight,
                 )
                 fallback_generator = get_popularity_generator()
             else:
                 primary_generator = get_popularity_generator()
                 fallback_generator = None
 
-        # Pipeline is lightweight - recreate each time (just holds references)
         pipeline = RecommendationPipeline(
             generator=primary_generator,
             fallback_generator=fallback_generator,
@@ -123,37 +128,25 @@ class RecommendationService:
             ranker=get_noop_ranker(),
         )
 
-        return pipeline
+        return pipeline, is_warm
 
-    def _enrich_candidates(self, candidates: List[Candidate]) -> List[RecommendedBook]:
-        """Enrich candidates with book metadata."""
-        if self._book_meta is None:
-            self._book_meta = load_book_meta(use_cache=True)
+    async def _enrich_candidates(self, candidates: List[Candidate]) -> List[RecommendedBook]:
+        """Enrich candidates with book metadata via the metadata model server."""
+        resp = await get_metadata_client().enrich([c.item_idx for c in candidates])
+        meta = {b.item_idx: b for b in resp.books}
 
-        recommendations = []
-
-        for candidate in candidates:
-            if candidate.item_idx not in self._book_meta.index:
-                continue
-
-            row = self._book_meta.loc[candidate.item_idx]
-
-            recommendations.append(
-                RecommendedBook(
-                    item_idx=candidate.item_idx,
-                    title=str(row["title"]),
-                    score=candidate.score,
-                    num_ratings=int(row["book_num_ratings"]) if "book_num_ratings" in row else 0,
-                    author=str(row["author"]) if "author" in row and row["author"] else None,
-                    year=int(row["year"]) if "year" in row and row["year"] else None,
-                    isbn=str(row["isbn"]) if "isbn" in row and row["isbn"] else None,
-                    cover_id=str(row["cover_id"])
-                    if "cover_id" in row and row["cover_id"]
-                    else None,
-                    avg_rating=float(row["book_avg_rating"])
-                    if "book_avg_rating" in row and row["book_avg_rating"]
-                    else None,
-                )
+        return [
+            RecommendedBook(
+                item_idx=c.item_idx,
+                title=meta[c.item_idx].title,
+                score=c.score,
+                num_ratings=meta[c.item_idx].num_ratings,
+                author=meta[c.item_idx].author,
+                year=meta[c.item_idx].year,
+                isbn=meta[c.item_idx].isbn,
+                cover_id=meta[c.item_idx].cover_id,
+                avg_rating=meta[c.item_idx].avg_rating,
             )
-
-        return recommendations
+            for c in candidates
+            if c.item_idx in meta
+        ]

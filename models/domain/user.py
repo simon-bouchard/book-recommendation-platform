@@ -7,6 +7,7 @@ from dataclasses import dataclass
 from typing import Optional
 
 from models.core.constants import PAD_IDX
+from models.client.registry import get_als_client
 
 
 @dataclass
@@ -23,7 +24,9 @@ class User:
 
     Properties:
         has_preferences: True if user has valid non-PAD favorite subjects
-        is_warm: True if user has sufficient interaction history for collaborative filtering
+
+    Async methods:
+        is_warm: True if the ALS model server holds factors for this user.
     """
 
     user_id: int
@@ -43,19 +46,20 @@ class User:
             return False
         return not all(s == PAD_IDX for s in self.fav_subjects)
 
-    @property
-    def is_warm(self) -> bool:
+    async def is_warm(self) -> bool:
         """
-        Check if user is warm (has sufficient interaction history for ALS).
+        Check if user has ALS factors on the model server (warm/cold gate).
 
-        Directly checks if user exists in the trained ALS model.
-        This is faster and more robust than counting ratings.
-        Uses lazy import to avoid circular dependencies.
+        Delegates to the ALS client so the check uses the same HTTP path as
+        all other model server interactions, rather than importing infrastructure
+        directly into the domain layer.
+
+        Returns False on any network or server error to fail safe toward the
+        cold-start path.
         """
         try:
-            from models.infrastructure.als_model import ALSModel
-
-            return ALSModel().has_user(self.user_id)
+            resp = await get_als_client().has_als_user(self.user_id)
+            return resp.is_warm
         except Exception:
             return False
 

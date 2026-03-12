@@ -1,24 +1,22 @@
 # models/domain/candidate_generation.py
 """
-Candidate generation strategies using shared FAISS indices for optimal performance.
-All subject-based operations share a single singleton FAISS index.
+Candidate generation strategies.
+
+Each generator is a thin domain wrapper: it calls one infrastructure method,
+converts the returned (item_ids, scores) arrays into Candidate objects, and
+knows nothing about numpy, loaders, or scoring logic.
 """
 
 from abc import ABC, abstractmethod
-from typing import List, Tuple, Optional
-from collections import defaultdict
-
-import numpy as np
+from typing import List, Optional
 
 from models.domain.recommendation import Candidate
 from models.domain.user import User
-from models.infrastructure.subject_embedder import SubjectEmbedder
-from models.infrastructure.als_model import ALSModel
-from models.infrastructure.similarity_index import SimilarityIndex
-from models.infrastructure.similarity_indices import get_subject_similarity_index
-from models.data.loaders import (
-    load_bayesian_scores,
-    load_book_subject_embeddings,
+from models.client.registry import (
+    get_embedder_client,
+    get_similarity_client,
+    get_als_client,
+    get_metadata_client,
 )
 
 
@@ -26,7 +24,7 @@ class CandidateGenerator(ABC):
     """Abstract base class for candidate generation strategies."""
 
     @abstractmethod
-    def generate(self, user: User, k: int) -> List[Candidate]:
+    async def generate(self, user: User, k: int) -> List[Candidate]:
         pass
 
     @property
@@ -35,208 +33,94 @@ class CandidateGenerator(ABC):
         pass
 
 
-class SubjectBasedGenerator(CandidateGenerator):
+class JointSubjectGenerator(CandidateGenerator):
     """
-    Generate candidates based on subject similarity using FAISS.
+    Cold-start candidates via joint subject-popularity scoring.
 
-    Uses shared singleton FAISS index for optimal performance and memory usage.
+    Embeds the user's subject preferences then delegates to SubjectScorer
+    for a single-pass blended retrieval over all books.
     """
 
-    def __init__(
-        self,
-        embedder: Optional[SubjectEmbedder] = None,
-        similarity_index: Optional[SimilarityIndex] = None,
-    ):
+    def __init__(self, alpha: float = 0.6):
         """
-        Initialize subject-based generator.
-
         Args:
-            embedder: Subject embedder instance. If None, uses singleton.
-            similarity_index: Similarity index instance. If None, uses shared singleton.
-                             Only provide for testing with mock data.
+            alpha: Subject similarity weight in [0, 1].
+                   Popularity weight is (1 - alpha).
         """
-        self.embedder = embedder or SubjectEmbedder()
-        self.similarity_index = similarity_index or get_subject_similarity_index()
+        if not 0.0 <= alpha <= 1.0:
+            raise ValueError(f"alpha must be in [0, 1], got {alpha}")
 
-    def generate(self, user: User, k: int) -> List[Candidate]:
-        if not user.has_preferences:
+        self.alpha = alpha
+
+    async def generate(self, user: User, k: int) -> List[Candidate]:
+        if not user.has_preferences or k <= 0:
             return []
 
-        if k <= 0:
-            return []
+        embed_resp = await get_embedder_client().embed(user.fav_subjects)
 
-        user_embedding = self.embedder.embed(user.fav_subjects)
-        query = user_embedding.reshape(1, -1).astype(np.float32)
+        recs_resp = await get_similarity_client().subject_recs(
+            embed_resp.vector, k=k, alpha=self.alpha
+        )
 
-        search_k = min(k, self.similarity_index.index.ntotal)
-        if search_k == 0:
-            return []
-
-        distances, indices = self.similarity_index.index.search(query, search_k)
-
-        scores = distances[0]
-        item_ids = self.similarity_index.ids_full[indices[0]]
-
-        candidates = [
-            Candidate(item_idx=int(item_id), score=float(score), source=self.name)
-            for item_id, score in zip(item_ids, scores)
+        return [
+            Candidate(item_idx=r.item_idx, score=r.score, source=self.name)
+            for r in recs_resp.results
         ]
-
-        return candidates
 
     @property
     def name(self) -> str:
-        return "subject"
+        return "joint_subject"
 
 
 class ALSBasedGenerator(CandidateGenerator):
-    """Generate candidates using ALS collaborative filtering."""
+    """Warm-user candidates via ALS collaborative filtering."""
 
-    def __init__(self, als_model: Optional[ALSModel] = None):
-        """
-        Initialize ALS-based generator.
+    def __init__(self):
+        pass
 
-        Args:
-            als_model: ALS model instance. If None, uses singleton.
-        """
-        self.als_model = als_model or ALSModel()
-
-    def generate(self, user: User, k: int) -> List[Candidate]:
-        if not self.als_model.has_user(user.user_id):
-            return []
-
+    async def generate(self, user: User, k: int) -> List[Candidate]:
         if k <= 0:
             return []
 
-        user_factors = self.als_model.get_user_factors(user.user_id)
-        if user_factors is None:
-            return []
+        resp = await get_als_client().als_recs(user.user_id, k=k)
 
-        scores = self.als_model.book_factors @ user_factors
-
-        top_indices = np.argsort(-scores)[:k]
-        top_scores = scores[top_indices]
-
-        top_item_ids = [self.als_model.book_row_to_id[int(idx)] for idx in top_indices]
-
-        candidates = [
-            Candidate(item_idx=int(item_id), score=float(score), source=self.name)
-            for item_id, score in zip(top_item_ids, top_scores)
+        return [
+            Candidate(item_idx=r.item_idx, score=r.score, source=self.name) for r in resp.results
         ]
-
-        return candidates
 
     @property
     def name(self) -> str:
         return "als"
 
 
-class BayesianPopularityGenerator(CandidateGenerator):
-    """Generate candidates based on Bayesian popularity scores."""
+class PopularityBasedGenerator(CandidateGenerator):
+    """Fallback candidates ranked by Bayesian popularity score."""
 
     def __init__(self):
-        self.bayesian_scores = load_bayesian_scores(use_cache=True)
-        _, self.book_ids = load_book_subject_embeddings(use_cache=True)
+        pass
 
-    def generate(self, user: User, k: int) -> List[Candidate]:
+    async def generate(self, user: User, k: int) -> List[Candidate]:
         if k <= 0:
             return []
 
-        top_indices = np.argsort(-self.bayesian_scores)[:k]
-        top_scores = self.bayesian_scores[top_indices]
-        top_item_ids = [self.book_ids[idx] for idx in top_indices]
+        resp = await get_metadata_client().popular(k=k)
 
-        candidates = [
-            Candidate(item_idx=int(item_id), score=float(score), source=self.name)
-            for item_id, score in zip(top_item_ids, top_scores)
+        return [
+            Candidate(item_idx=b.item_idx, score=b.bayes_score or 0.0, source=self.name)
+            for b in resp.books
         ]
-
-        return candidates
 
     @property
     def name(self) -> str:
         return "popularity"
 
 
-class HybridGenerator(CandidateGenerator):
-    """Generate candidates by blending multiple generators."""
+# ---------------------------------------------------------------------------
+# Singleton accessors
+# ---------------------------------------------------------------------------
 
-    def __init__(self, generators: List[Tuple[CandidateGenerator, float]]):
-        """
-        Initialize hybrid generator.
-
-        Args:
-            generators: List of (generator, weight) tuples where weights are positive
-
-        Raises:
-            ValueError: If no generators provided or any weight is non-positive
-        """
-        if not generators:
-            raise ValueError("HybridGenerator requires at least one generator")
-
-        if any(weight <= 0 for _, weight in generators):
-            raise ValueError("All generator weights must be positive")
-
-        total_weight = sum(weight for _, weight in generators)
-        self.generators = [(gen, weight / total_weight) for gen, weight in generators]
-
-    def generate(self, user: User, k: int) -> List[Candidate]:
-        if k <= 0:
-            return []
-
-        all_candidates_by_source: List[Tuple[List[Candidate], float]] = []
-
-        for generator, weight in self.generators:
-            candidates = generator.generate(user, k * 2)
-            if candidates:
-                all_candidates_by_source.append((candidates, weight))
-
-        if not all_candidates_by_source:
-            return []
-
-        blended_scores = defaultdict(float)
-        item_sources = defaultdict(list)
-
-        for candidates, weight in all_candidates_by_source:
-            scores = np.array([c.score for c in candidates])
-            if scores.max() > scores.min():
-                normalized_scores = (scores - scores.min()) / (scores.max() - scores.min())
-            else:
-                normalized_scores = np.ones_like(scores)
-
-            for candidate, norm_score in zip(candidates, normalized_scores):
-                blended_scores[candidate.item_idx] += weight * norm_score
-                item_sources[candidate.item_idx].append(candidate.source)
-
-        blended_candidates = [
-            Candidate(
-                item_idx=item_idx,
-                score=score,
-                source=f"hybrid({'+'.join(set(item_sources[item_idx]))})",
-            )
-            for item_idx, score in blended_scores.items()
-        ]
-
-        blended_candidates.sort(key=lambda c: c.score, reverse=True)
-        return blended_candidates[:k]
-
-    @property
-    def name(self) -> str:
-        source_names = [gen.name for gen, _ in self.generators]
-        return f"hybrid({'+'.join(source_names)})"
-
-
-_subject_generator = None
-_als_generator = None
-_popularity_generator = None
-
-
-def get_subject_generator() -> SubjectBasedGenerator:
-    """Get or create singleton SubjectBasedGenerator."""
-    global _subject_generator
-    if _subject_generator is None:
-        _subject_generator = SubjectBasedGenerator()
-    return _subject_generator
+_als_generator: Optional[ALSBasedGenerator] = None
+_popularity_generator: Optional[PopularityBasedGenerator] = None
 
 
 def get_als_generator() -> ALSBasedGenerator:
@@ -247,42 +131,22 @@ def get_als_generator() -> ALSBasedGenerator:
     return _als_generator
 
 
-def get_popularity_generator() -> BayesianPopularityGenerator:
-    """Get or create singleton BayesianPopularityGenerator."""
+def get_popularity_generator() -> PopularityBasedGenerator:
+    """Get or create singleton PopularityBasedGenerator."""
     global _popularity_generator
     if _popularity_generator is None:
-        _popularity_generator = BayesianPopularityGenerator()
+        _popularity_generator = PopularityBasedGenerator()
     return _popularity_generator
 
 
-def create_hybrid_generator(
-    subject_weight: float = 0.6, popularity_weight: float = 0.4
-) -> HybridGenerator:
+def create_joint_subject_generator(alpha: float = 0.6) -> JointSubjectGenerator:
     """
-    Create HybridGenerator using singleton base generators.
+    Create a JointSubjectGenerator with the given blend weight.
 
-    Note: HybridGenerator is NOT cached because weights can vary per request.
-    But it reuses the cached base generators internally for efficiency.
+    Not cached because alpha varies per request. The instance is cheap —
+    it holds references to cached infrastructure singletons, not copies.
 
     Args:
-        subject_weight: Weight for subject-based scoring (0-1)
-        popularity_weight: Weight for popularity-based scoring (0-1)
-
-    Returns:
-        HybridGenerator instance with specified weights
-
-    Raises:
-        ValueError: If both weights are zero
+        alpha: Subject similarity weight; popularity weight is (1 - alpha).
     """
-    generators = []
-
-    if subject_weight > 0:
-        generators.append((get_subject_generator(), subject_weight))
-
-    if popularity_weight > 0:
-        generators.append((get_popularity_generator(), popularity_weight))
-
-    if not generators:
-        raise ValueError("At least one weight must be > 0")
-
-    return HybridGenerator(generators)
+    return JointSubjectGenerator(alpha=alpha)

@@ -20,25 +20,27 @@ from models.infrastructure.subject_embedder import SubjectEmbedder
 
 @pytest.fixture
 def mock_pooler():
-    """Create mock attention pooler for testing."""
+    """
+    Create mock attention pooler for testing.
+
+    Each subject list is mapped to a unique random direction by seeding a
+    generator with the hash of the subject tuple. Uniform-value vectors
+    (e.g. torch.full) collapse to the same unit vector after L2 normalization
+    regardless of magnitude, making distinctness tests impossible. Seeded
+    random vectors are direction-distinct and survive normalization.
+    """
     pooler = Mock()
 
-    # Mock forward method to return deterministic embeddings
     def mock_forward(subjects_list):
-        batch_size = len(subjects_list)
-        emb_dim = 16
+        if not subjects_list:
+            return torch.empty(0, 16)
 
-        # Handle empty batch
-        if batch_size == 0:
-            return torch.empty(0, emb_dim)
-
-        # Create deterministic embeddings based on subject list
         embeddings = []
         for subjects in subjects_list:
-            # Simple deterministic: sum of subject indices
-            val = sum(subjects) if subjects else 0
-            emb = torch.full((emb_dim,), float(val) / 10.0)
-            embeddings.append(emb)
+            seed = hash(tuple(subjects)) % (2**31)
+            rng = torch.Generator()
+            rng.manual_seed(seed)
+            embeddings.append(torch.randn(16, generator=rng))
 
         return torch.stack(embeddings)
 

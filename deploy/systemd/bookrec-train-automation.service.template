@@ -1,0 +1,16 @@
+[Unit]
+Description=BookRec manual automation run (dump -> transfer -> train -> pull -> reload)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+User={{USER}}
+WorkingDirectory={{REPO_ROOT}}
+EnvironmentFile={{ENV_FILE}}
+Environment=PATH={{CONDA_ENV_BIN}}:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin
+Environment=PYTHONUNBUFFERED=1
+ExecStart={{CONDA_ENV_BIN}}/python ops/training/automated_training.py
+
+[Install]
+WantedBy=multi-user.target

@@ -1,5 +1,6 @@
 # Env and Secrets
 .env
+deploy/deploy.env
 
 # System
 gunicorn.conf.py
@@ -25,8 +26,11 @@ ops/enrichment/*.html
 ops/models/migration_report_*
 **/results/**
 **/logs/**
+**/performance_baselines/**
 tests/integration/models/performance_baselines
 models/data/.reload_signal
+tests/integration/models/profiles/*
+tests/load/model_servers/profiles/*
 
 # Model artifacts
 *.pickle

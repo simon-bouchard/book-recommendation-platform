@@ -1,0 +1,9 @@
+[Unit]
+Description=Run BookRec automation once per day
+
+[Timer]
+OnCalendar=daily
+Persistent=true
+
+[Install]
+WantedBy=timers.target

@@ -16,6 +16,9 @@ class SubjectEmbedder:
     Wrapper around subject attention pooling strategies.
 
     Provides clean interface for computing user/book embeddings from subject lists.
+    All outputs are L2-normalized so they are immediately usable for cosine
+    similarity via dot product — callers do not need to normalize separately.
+
     Uses singleton pattern for performance (caching loaded models) but supports
     injection for testing.
 
@@ -45,7 +48,6 @@ class SubjectEmbedder:
             pooler: Injected pooler for testing. If provided, bypasses loading.
         """
         if pooler is not None:
-            # Injection mode - create new instance without singleton
             instance = super().__new__(cls)
             instance._initialized = False
             return instance
@@ -64,18 +66,15 @@ class SubjectEmbedder:
             strategy: Attention strategy name. If None, uses Config.
             pooler: Injected pooler for testing.
         """
-        # Guard against re-initialization of singleton
         if self._initialized:
             return
 
         self._initialized = True
 
         if pooler is not None:
-            # Use injected pooler (for testing)
             self.pooler = pooler
             self.strategy_name = "injected"
         else:
-            # Load strategy from disk
             if strategy is None:
                 strategy = Config.get_attention_strategy()
 
@@ -86,33 +85,36 @@ class SubjectEmbedder:
 
     def embed(self, subjects: List[int]) -> np.ndarray:
         """
-        Compute embedding for a single subject list.
+        Compute L2-normalized embedding for a single subject list.
 
         Args:
             subjects: List of subject indices
 
         Returns:
-            1D embedding array of shape (D,)
+            L2-normalized 1D embedding array of shape (D,) as float32
         """
         with torch.no_grad():
-            embedding = self.pooler([subjects])[0].cpu().numpy()
+            raw = self.pooler([subjects])[0].cpu().numpy().astype(np.float32)
 
-        return embedding
+        norm = np.linalg.norm(raw)
+        return raw / norm if norm > 0 else raw
 
     def embed_batch(self, subjects_list: List[List[int]]) -> np.ndarray:
         """
-        Compute embeddings for multiple subject lists.
+        Compute L2-normalized embeddings for multiple subject lists.
 
         Args:
             subjects_list: List of subject lists
 
         Returns:
-            2D embedding array of shape (N, D)
+            L2-normalized 2D embedding array of shape (N, D) as float32
         """
         with torch.no_grad():
-            embeddings = self.pooler(subjects_list).cpu().numpy()
+            raw = self.pooler(subjects_list).cpu().numpy().astype(np.float32)
 
-        return embeddings
+        norms = np.linalg.norm(raw, axis=1, keepdims=True)
+        norms = np.where(norms == 0, 1.0, norms)
+        return raw / norms
 
     @property
     def embedding_dim(self) -> int:

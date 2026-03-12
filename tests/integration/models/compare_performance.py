@@ -1,57 +1,142 @@
-# test/integration/models/compare_performance.py
+# tests/integration/models/compare_performance.py
 """
-Performance Comparison Tool
-============================
+Compare two performance baseline JSON files produced by test_models_performance.py.
 
-Compare performance baseline (before refactor) with current results (after refactor).
+Results are grouped by request type (als_recs, subject_recs, popular_recs,
+subject_sim, als_sim, hybrid_sim) so the summary mirrors the structure of
+analyze_baseline.py and is easy to read at a glance.
 
 Usage:
-    python tests/integration/models/compare_performance.py baseline_20241216_143022.json baseline_20241216_150045.json
-    python tests/integration/models/compare_performance.py --auto  # Compare latest two baselines
+    python tests/integration/models/compare_performance.py before.json after.json
+    python tests/integration/models/compare_performance.py --auto
 """
 
 import json
 import sys
-from pathlib import Path
-from typing import Dict, List, Tuple
+from collections import defaultdict
 from dataclasses import dataclass
 from datetime import datetime
+from pathlib import Path
+from typing import Dict, List, Optional, Tuple
+
+
+# ---------------------------------------------------------------------------
+# Request-type classification
+# Kept in sync with analyze_baseline.REQUEST_TYPE_PATTERNS.
+# ---------------------------------------------------------------------------
+
+REQUEST_TYPES: List[Tuple[str, str]] = [
+    ("recommend_als", "Recommend  ALS recs"),
+    ("recommend_subject", "Recommend  Subject recs"),
+    ("recommend_popular", "Recommend  Popular (cold no subjects)"),
+    ("similar_subject", "Similarity Subject"),
+    ("similar_als", "Similarity ALS"),
+    ("similar_hybrid", "Similarity Hybrid"),
+    ("concurrent", "Concurrency"),
+]
+
+_PATTERNS: Dict[str, callable] = {
+    "recommend_als": lambda k: (
+        ("recommend_warm_user_" in k and ("mode_auto" in k or "mode_behavioral" in k))
+        or "recommend_top_n_" in k
+    ),
+    "recommend_subject": lambda k: (
+        ("recommend_warm_user_" in k and "forced_subject" in k)
+        or "recommend_cold_with_subjects" in k
+        or "recommend_cold_w_" in k
+    ),
+    "recommend_popular": lambda k: "recommend_cold_without_subjects" in k,
+    "similar_subject": lambda k: "similar_book_" in k
+    and "mode_subject" in k
+    or "similar_top_k_" in k,
+    "similar_als": lambda k: "similar_book_" in k and "mode_als" in k,
+    "similar_hybrid": lambda k: (
+        ("similar_book_" in k and "mode_hybrid" in k) or "similar_hybrid_alpha_" in k
+    ),
+    "concurrent": lambda k: "concurrent_" in k,
+}
+
+
+def classify(test_name: str) -> str:
+    for type_key, pattern_fn in _PATTERNS.items():
+        if pattern_fn(test_name):
+            return type_key
+    return "other"
+
+
+# ---------------------------------------------------------------------------
+# Data classes
+# ---------------------------------------------------------------------------
 
 
 @dataclass
-class MetricComparison:
-    """Comparison of a single metric between two runs."""
+class GroupComparison:
+    """Aggregated before/after comparison for one request-type group."""
 
-    test_name: str
-    metric: str
-    before: float
-    after: float
-    diff_ms: float
-    diff_pct: float
+    type_key: str
+    label: str
+    n_tests: int
+    before_median: float
+    after_median: float
+
+    @property
+    def diff_ms(self) -> float:
+        return self.after_median - self.before_median
+
+    @property
+    def diff_pct(self) -> float:
+        return (self.diff_ms / self.before_median * 100) if self.before_median > 0 else 0.0
 
     @property
     def is_regression(self) -> bool:
-        """Check if this is a performance regression (>5% slower)."""
         return self.diff_pct > 5.0
 
     @property
     def is_improvement(self) -> bool:
-        """Check if this is a performance improvement (>5% faster)."""
         return self.diff_pct < -5.0
 
     @property
     def status(self) -> str:
-        """Get status emoji and label."""
         if self.is_regression:
-            return "🔴 REGRESSION"
-        elif self.is_improvement:
-            return "🟢 IMPROVEMENT"
-        else:
-            return "⚪ NEUTRAL"
+            return "REGRESSION"
+        if self.is_improvement:
+            return "IMPROVEMENT"
+        return "neutral"
+
+
+@dataclass
+class TestComparison:
+    """Before/after comparison for a single individual test (median_ms)."""
+
+    test_name: str
+    type_key: str
+    before: float
+    after: float
+
+    @property
+    def diff_ms(self) -> float:
+        return self.after - self.before
+
+    @property
+    def diff_pct(self) -> float:
+        return (self.diff_ms / self.before * 100) if self.before > 0 else 0.0
+
+    @property
+    def is_regression(self) -> bool:
+        return self.diff_pct > 5.0
+
+    @property
+    def is_improvement(self) -> bool:
+        return self.diff_pct < -5.0
+
+
+# ---------------------------------------------------------------------------
+# Comparator
+# ---------------------------------------------------------------------------
 
 
 class PerformanceComparator:
-    """Compare two performance baseline reports."""
+    """Compare two performance baseline JSON files."""
 
     def __init__(self, before_file: Path, after_file: Path):
         self.before_file = before_file
@@ -59,355 +144,189 @@ class PerformanceComparator:
 
         with open(before_file) as f:
             self.before_data = json.load(f)
-
         with open(after_file) as f:
             self.after_data = json.load(f)
 
-        self.comparisons: List[MetricComparison] = []
-        self._compute_comparisons()
+        self._test_comparisons: List[TestComparison] = self._build_test_comparisons()
+        self._group_comparisons: List[GroupComparison] = self._build_group_comparisons()
 
-    def _compute_comparisons(self):
-        """Compute all metric comparisons."""
-        before_results = self.before_data.get("results", {})
-        after_results = self.after_data.get("results", {})
+    def _build_test_comparisons(self) -> List[TestComparison]:
+        before = self.before_data.get("results", {})
+        after = self.after_data.get("results", {})
+        common = set(before) & set(after)
 
-        # Find common tests
-        common_tests = set(before_results.keys()) & set(after_results.keys())
+        comparisons = []
+        for name in sorted(common):
+            b = before[name].get("median_ms")
+            a = after[name].get("median_ms")
+            if b is None or a is None:
+                continue
+            comparisons.append(
+                TestComparison(
+                    test_name=name,
+                    type_key=classify(name),
+                    before=b,
+                    after=a,
+                )
+            )
+        return comparisons
 
-        for test_name in sorted(common_tests):
-            before_metrics = before_results[test_name]
-            after_metrics = after_results[test_name]
+    def _build_group_comparisons(self) -> List[GroupComparison]:
+        label_map = dict(REQUEST_TYPES)
+        buckets: Dict[str, List[TestComparison]] = defaultdict(list)
+        for tc in self._test_comparisons:
+            buckets[tc.type_key].append(tc)
 
-            # Compare key metrics
-            for metric in ["mean_ms", "median_ms", "p95_ms"]:
-                if metric in before_metrics and metric in after_metrics:
-                    before_val = before_metrics[metric]
-                    after_val = after_metrics[metric]
-                    diff_ms = after_val - before_val
-                    diff_pct = (diff_ms / before_val * 100) if before_val > 0 else 0
+        groups = []
+        for type_key, label in REQUEST_TYPES:
+            tests = buckets.get(type_key, [])
+            if not tests:
+                continue
+            groups.append(
+                GroupComparison(
+                    type_key=type_key,
+                    label=label,
+                    n_tests=len(tests),
+                    before_median=sum(t.before for t in tests) / len(tests),
+                    after_median=sum(t.after for t in tests) / len(tests),
+                )
+            )
+        return groups
 
-                    comp = MetricComparison(
-                        test_name=test_name,
-                        metric=metric,
-                        before=before_val,
-                        after=after_val,
-                        diff_ms=diff_ms,
-                        diff_pct=diff_pct,
-                    )
-                    self.comparisons.append(comp)
+    # ------------------------------------------------------------------
+    # Printing
+    # ------------------------------------------------------------------
 
-    def get_regressions(self) -> List[MetricComparison]:
-        """Get all performance regressions."""
-        return [c for c in self.comparisons if c.is_regression]
+    def print_report(self, detailed: bool = False) -> bool:
+        """
+        Print the comparison report. Returns True if no regressions were found.
+        """
+        W = 80
+        print("=" * W)
+        print("PERFORMANCE COMPARISON")
+        print("=" * W)
+        print(f"\n  Before : {self.before_file.name}  ({self.before_data.get('timestamp', '?')})")
+        print(f"  After  : {self.after_file.name}  ({self.after_data.get('timestamp', '?')})")
 
-    def get_improvements(self) -> List[MetricComparison]:
-        """Get all performance improvements."""
-        return [c for c in self.comparisons if c.is_improvement]
+        self._print_grouped_summary(W)
 
-    def get_summary(self) -> Dict:
-        """Get comparison summary statistics."""
-        regressions = self.get_regressions()
-        improvements = self.get_improvements()
-        neutral = [c for c in self.comparisons if not c.is_regression and not c.is_improvement]
+        if detailed:
+            self._print_detailed_breakdown(W)
 
-        return {
-            "total_comparisons": len(self.comparisons),
-            "regressions": len(regressions),
-            "improvements": len(improvements),
-            "neutral": len(neutral),
-            "max_regression_pct": max((c.diff_pct for c in regressions), default=0),
-            "max_improvement_pct": min((c.diff_pct for c in improvements), default=0),
-        }
+        return self._print_verdict(W)
 
-    def print_report(self):
-        """Print formatted comparison report."""
-        print("=" * 100)
-        print("PERFORMANCE COMPARISON REPORT")
-        print("=" * 100)
+    def _print_grouped_summary(self, width: int) -> None:
+        print(f"\n{'=' * width}")
+        print("BY REQUEST TYPE  (median ms, averaged across parametrized cases)")
+        print("=" * width)
 
-        # Header
-        print(f"\n📊 Comparing:")
-        print(f"  Before: {self.before_file.name} ({self.before_data.get('timestamp', 'unknown')})")
-        print(f"  After:  {self.after_file.name} ({self.after_data.get('timestamp', 'unknown')})")
-
-        # Summary
-        summary = self.get_summary()
-        print(f"\n📈 Summary:")
-        print(f"  Total comparisons: {summary['total_comparisons']}")
-        print(f"  🔴 Regressions: {summary['regressions']}")
-        print(f"  🟢 Improvements: {summary['improvements']}")
-        print(f"  ⚪ Neutral: {summary['neutral']}")
-
-        if summary["regressions"] > 0:
-            print(f"  Worst regression: {summary['max_regression_pct']:.1f}% slower")
-        if summary["improvements"] > 0:
-            print(f"  Best improvement: {abs(summary['max_improvement_pct']):.1f}% faster")
-
-        # Regressions (if any)
-        regressions = self.get_regressions()
-        if regressions:
-            print(f"\n{'=' * 100}")
-            print("🔴 PERFORMANCE REGRESSIONS (>5% slower)")
-            print("=" * 100)
-
-            # Group by test name
-            by_test = {}
-            for comp in regressions:
-                by_test.setdefault(comp.test_name, []).append(comp)
-
-            for test_name in sorted(by_test.keys()):
-                print(f"\n{test_name}:")
-                for comp in sorted(by_test[test_name], key=lambda c: c.diff_pct, reverse=True):
-                    print(
-                        f"  {comp.metric:12s} | Before: {comp.before:7.2f}ms → After: {comp.after:7.2f}ms | "
-                        f"{comp.diff_ms:+7.2f}ms ({comp.diff_pct:+6.1f}%)"
-                    )
-
-        # Improvements
-        improvements = self.get_improvements()
-        if improvements:
-            print(f"\n{'=' * 100}")
-            print("🟢 PERFORMANCE IMPROVEMENTS (>5% faster)")
-            print("=" * 100)
-
-            by_test = {}
-            for comp in improvements:
-                by_test.setdefault(comp.test_name, []).append(comp)
-
-            for test_name in sorted(by_test.keys()):
-                print(f"\n{test_name}:")
-                for comp in sorted(by_test[test_name], key=lambda c: c.diff_pct):
-                    print(
-                        f"  {comp.metric:12s} | Before: {comp.before:7.2f}ms → After: {comp.after:7.2f}ms | "
-                        f"{comp.diff_ms:+7.2f}ms ({comp.diff_pct:+6.1f}%)"
-                    )
-
-        # Detailed comparison (mean_ms only, sorted by absolute change)
-        print(f"\n{'=' * 100}")
-        print("📋 DETAILED COMPARISON (mean_ms)")
-        print("=" * 100)
-
-        mean_comps = [c for c in self.comparisons if c.metric == "mean_ms"]
-        mean_comps.sort(key=lambda c: abs(c.diff_pct), reverse=True)
-
+        col = 36
         print(
-            f"\n{'Test Name':<50} {'Before':>10} {'After':>10} {'Diff':>10} {'Diff %':>10} {'Status':>15}"
+            f"\n  {'Request Type':<{col}} {'Before':>9}  {'After':>9}  {'Diff':>9}  {'Diff %':>7}  Status"
         )
-        print("-" * 100)
+        print(f"  {'-' * (col + 52)}")
 
-        for comp in mean_comps:
-            status = comp.status
+        for g in self._group_comparisons:
+            sign = "+" if g.diff_ms >= 0 else ""
+            status = f"  << {g.status}" if g.status != "neutral" else ""
             print(
-                f"{comp.test_name:<50} {comp.before:>9.2f}ms {comp.after:>9.2f}ms "
-                f"{comp.diff_ms:>+9.2f}ms {comp.diff_pct:>+9.1f}% {status:>15}"
+                f"  {g.label:<{col}} "
+                f"{g.before_median:>8.2f}ms "
+                f"{g.after_median:>8.2f}ms "
+                f"{sign}{g.diff_ms:>8.2f}ms "
+                f"{sign}{g.diff_pct:>6.1f}%"
+                f"{status}"
             )
 
-        # Final verdict
-        print(f"\n{'=' * 100}")
-        if summary["regressions"] > 0:
-            print("⚠️  VERDICT: Performance regressions detected!")
-            print(f"   {summary['regressions']} test(s) are >5% slower")
-            return False
-        elif summary["improvements"] > summary["total_comparisons"] * 0.3:
-            print("🎉 VERDICT: Significant performance improvements!")
-            print(f"   {summary['improvements']} test(s) are >5% faster")
-        else:
-            print("✅ VERDICT: Performance is stable")
-            print("   No significant regressions detected")
+    def _print_detailed_breakdown(self, width: int) -> None:
+        label_map = dict(REQUEST_TYPES)
+        buckets: Dict[str, List[TestComparison]] = defaultdict(list)
+        for tc in self._test_comparisons:
+            buckets[tc.type_key].append(tc)
 
-        print("=" * 100)
+        print(f"\n{'=' * width}")
+        print("INDIVIDUAL TESTS  (median ms)")
+        print("=" * width)
+
+        for type_key, label in REQUEST_TYPES:
+            tests = buckets.get(type_key)
+            if not tests:
+                continue
+            print(f"\n  {label}")
+            print(f"  {'-' * 70}")
+            for t in sorted(tests, key=lambda x: x.diff_pct, reverse=True):
+                sign = "+" if t.diff_ms >= 0 else ""
+                flag = (
+                    "  << REGRESSION"
+                    if t.is_regression
+                    else ("  << improvement" if t.is_improvement else "")
+                )
+                print(
+                    f"    {t.test_name:<52} "
+                    f"{t.before:>7.2f}ms -> {t.after:>7.2f}ms  "
+                    f"{sign}{t.diff_ms:>6.2f}ms ({sign}{t.diff_pct:.1f}%)"
+                    f"{flag}"
+                )
+
+    def _print_verdict(self, width: int) -> bool:
+        regressions = [g for g in self._group_comparisons if g.is_regression]
+        improvements = [g for g in self._group_comparisons if g.is_improvement]
+
+        print(f"\n{'=' * width}")
+        if regressions:
+            print(f"VERDICT: {len(regressions)} group(s) regressed (>5% slower):")
+            for g in regressions:
+                print(f"  {g.label}  {g.diff_pct:+.1f}%")
+            print("=" * width)
+            return False
+
+        if improvements:
+            print(f"VERDICT: {len(improvements)} group(s) improved (>5% faster):")
+            for g in improvements:
+                print(f"  {g.label}  {g.diff_pct:+.1f}%")
+        else:
+            print("VERDICT: Performance is stable — no significant changes detected.")
+        print("=" * width)
         return True
 
-    def export_html_report(self, output_file: Path):
-        """Export comparison as interactive HTML report."""
-        html = f"""
-<!DOCTYPE html>
-<html>
-<head>
-    <meta charset="UTF-8">
-    <title>Performance Comparison Report</title>
-    <style>
-        body {{
-            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
-            max-width: 1200px;
-            margin: 40px auto;
-            padding: 20px;
-            background: #f5f5f5;
-        }}
-        .header {{
-            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-            color: white;
-            padding: 30px;
-            border-radius: 10px;
-            margin-bottom: 30px;
-        }}
-        .summary {{
-            display: grid;
-            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
-            gap: 20px;
-            margin-bottom: 30px;
-        }}
-        .card {{
-            background: white;
-            padding: 20px;
-            border-radius: 8px;
-            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
-        }}
-        .card h3 {{
-            margin: 0 0 10px 0;
-            font-size: 14px;
-            color: #666;
-        }}
-        .card .value {{
-            font-size: 32px;
-            font-weight: bold;
-            color: #333;
-        }}
-        table {{
-            width: 100%;
-            background: white;
-            border-radius: 8px;
-            overflow: hidden;
-            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
-            border-collapse: collapse;
-        }}
-        th {{
-            background: #667eea;
-            color: white;
-            padding: 12px;
-            text-align: left;
-            font-weight: 600;
-        }}
-        td {{
-            padding: 12px;
-            border-bottom: 1px solid #eee;
-        }}
-        tr:hover {{
-            background: #f9f9f9;
-        }}
-        .regression {{ color: #e53e3e; }}
-        .improvement {{ color: #38a169; }}
-        .neutral {{ color: #718096; }}
-        .status {{
-            padding: 4px 8px;
-            border-radius: 4px;
-            font-size: 12px;
-            font-weight: 600;
-        }}
-        .status.regression {{ background: #fed7d7; color: #c53030; }}
-        .status.improvement {{ background: #c6f6d5; color: #22543d; }}
-        .status.neutral {{ background: #e2e8f0; color: #4a5568; }}
-    </style>
-</head>
-<body>
-    <div class="header">
-        <h1>Performance Comparison Report</h1>
-        <p>Before: {self.before_file.name} ({self.before_data.get("timestamp", "unknown")})</p>
-        <p>After: {self.after_file.name} ({self.after_data.get("timestamp", "unknown")})</p>
-    </div>
 
-    <div class="summary">
-        <div class="card">
-            <h3>Total Tests</h3>
-            <div class="value">{self.get_summary()["total_comparisons"]}</div>
-        </div>
-        <div class="card">
-            <h3>Regressions</h3>
-            <div class="value regression">{self.get_summary()["regressions"]}</div>
-        </div>
-        <div class="card">
-            <h3>Improvements</h3>
-            <div class="value improvement">{self.get_summary()["improvements"]}</div>
-        </div>
-        <div class="card">
-            <h3>Neutral</h3>
-            <div class="value neutral">{self.get_summary()["neutral"]}</div>
-        </div>
-    </div>
-
-    <div class="card">
-        <h2>Detailed Results</h2>
-        <table>
-            <thead>
-                <tr>
-                    <th>Test Name</th>
-                    <th>Metric</th>
-                    <th>Before (ms)</th>
-                    <th>After (ms)</th>
-                    <th>Difference</th>
-                    <th>Change %</th>
-                    <th>Status</th>
-                </tr>
-            </thead>
-            <tbody>
-"""
-
-        for comp in sorted(self.comparisons, key=lambda c: abs(c.diff_pct), reverse=True):
-            status_class = (
-                "regression"
-                if comp.is_regression
-                else "improvement"
-                if comp.is_improvement
-                else "neutral"
-            )
-            status_text = (
-                "Regression"
-                if comp.is_regression
-                else "Improvement"
-                if comp.is_improvement
-                else "Neutral"
-            )
-
-            html += f"""
-                <tr>
-                    <td>{comp.test_name}</td>
-                    <td>{comp.metric}</td>
-                    <td>{comp.before:.2f}</td>
-                    <td>{comp.after:.2f}</td>
-                    <td class="{status_class}">{comp.diff_ms:+.2f}</td>
-                    <td class="{status_class}">{comp.diff_pct:+.1f}%</td>
-                    <td><span class="status {status_class}">{status_text}</span></td>
-                </tr>
-"""
-
-        html += """
-            </tbody>
-        </table>
-    </div>
-</body>
-</html>
-"""
-
-        with open(output_file, "w") as f:
-            f.write(html)
-
-        print(f"\n📄 HTML report exported to: {output_file}")
+# ---------------------------------------------------------------------------
+# Helpers
+# ---------------------------------------------------------------------------
 
 
 def find_latest_baselines(baseline_dir: Path) -> Tuple[Path, Path]:
-    """Find the two most recent baseline files."""
+    """Return (before, after) as the two most recent baseline files."""
     baselines = sorted(baseline_dir.glob("baseline_*.json"), reverse=True)
-
     if len(baselines) < 2:
-        raise ValueError(f"Need at least 2 baseline files, found {len(baselines)}")
+        raise ValueError(
+            f"Need at least 2 baseline files in {baseline_dir}, found {len(baselines)}"
+        )
+    return baselines[1], baselines[0]
 
-    return baselines[1], baselines[0]  # Before, After (oldest, newest)
+
+# ---------------------------------------------------------------------------
+# Entry point
+# ---------------------------------------------------------------------------
 
 
-def main():
+def main() -> None:
     import argparse
 
-    parser = argparse.ArgumentParser(description="Compare performance baselines")
-    parser.add_argument("before", nargs="?", help="Before baseline file")
-    parser.add_argument("after", nargs="?", help="After baseline file")
-    parser.add_argument("--auto", action="store_true", help="Auto-compare latest two baselines")
-    parser.add_argument("--html", action="store_true", help="Export HTML report")
+    parser = argparse.ArgumentParser(description="Compare two performance baselines")
+    parser.add_argument("before", nargs="?", help="Before baseline filename or path")
+    parser.add_argument("after", nargs="?", help="After baseline filename or path")
+    parser.add_argument(
+        "--auto", action="store_true", help="Auto-select the two most recent baselines"
+    )
+    parser.add_argument(
+        "--detailed", action="store_true", help="Show per-test breakdown under each group"
+    )
     parser.add_argument(
         "--fail-on-regression",
         action="store_true",
-        help="Exit with error code if regressions detected",
+        help="Exit with code 1 if any group regresses",
     )
-
     args = parser.parse_args()
 
     baseline_dir = Path(__file__).parent / "performance_baselines"
@@ -415,43 +334,32 @@ def main():
     if args.auto:
         try:
             before_file, after_file = find_latest_baselines(baseline_dir)
-            print(f"Auto-detected:")
-            print(f"  Before: {before_file.name}")
-            print(f"  After:  {after_file.name}")
+            print(f"Auto-detected baselines:")
+            print(f"  Before : {before_file.name}")
+            print(f"  After  : {after_file.name}\n")
         except ValueError as e:
-            print(f"❌ {e}")
+            print(f"Error: {e}")
             sys.exit(1)
     else:
         if not args.before or not args.after:
             parser.print_help()
             sys.exit(1)
 
-        before_file = (
-            baseline_dir / args.before if not Path(args.before).is_absolute() else Path(args.before)
-        )
-        after_file = (
-            baseline_dir / args.after if not Path(args.after).is_absolute() else Path(args.after)
-        )
+        def resolve(p: str) -> Path:
+            path = Path(p)
+            return path if path.is_absolute() else baseline_dir / path
 
-        if not before_file.exists():
-            print(f"❌ Before file not found: {before_file}")
-            sys.exit(1)
+        before_file = resolve(args.before)
+        after_file = resolve(args.after)
 
-        if not after_file.exists():
-            print(f"❌ After file not found: {after_file}")
-            sys.exit(1)
+        for f in (before_file, after_file):
+            if not f.exists():
+                print(f"Error: file not found: {f}")
+                sys.exit(1)
 
-    # Run comparison
     comparator = PerformanceComparator(before_file, after_file)
-    no_regressions = comparator.print_report()
+    no_regressions = comparator.print_report(detailed=args.detailed)
 
-    # Export HTML if requested
-    if args.html:
-        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-        html_file = baseline_dir / f"comparison_{timestamp}.html"
-        comparator.export_html_report(html_file)
-
-    # Exit with error if regressions detected and flag is set
     if args.fail_on_regression and not no_regressions:
         sys.exit(1)
 

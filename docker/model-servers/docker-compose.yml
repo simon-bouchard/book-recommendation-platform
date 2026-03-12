@@ -1,0 +1,135 @@
+# docker/model-servers/docker-compose.yml
+#
+# Runs all four model servers on the host network stack.
+#
+# network_mode: host
+# ------------------
+# Containers bind directly to the host NIC — no bridge, no NAT, no veth
+# overhead. The main application (gunicorn/systemd) reaches each server via
+# http://localhost:<PORT> with no extra network hop.
+#
+# Ports (host-direct, no mapping needed with host networking):
+#   embedder   8001
+#   similarity 8002
+#   als        8003
+#   metadata   8004
+#
+# Artifacts volume
+# ----------------
+# Artifacts are bind-mounted read-only from the host at /app/models/artifacts.
+# Set ARTIFACTS_DIR in /etc/bookrec.env to the absolute path of your
+# models/artifacts directory. MODEL_VERSION_POINTER points to the
+# active_version file inside that mount.
+#
+# Building
+# --------
+# Build a single server:
+#   docker compose -f docker/model-servers/docker-compose.yml build embedder
+#
+# Build all:
+#   docker compose -f docker/model-servers/docker-compose.yml build
+
+services:
+  embedder:
+    build:
+      context: ../..
+      dockerfile: docker/model-servers/Dockerfile
+      args:
+        SERVER: embedder
+        REQUIREMENTS_FILE: embedder.txt
+    image: bookrec/model-server-embedder:latest
+    container_name: model-server-embedder
+    network_mode: host
+    env_file:
+      - /etc/bookrec.env
+    environment:
+      SERVER: embedder
+      PORT: "8001"
+      MODEL_VERSION_POINTER: /app/models/artifacts/active_version
+    volumes:
+      - ${ARTIFACTS_DIR}:/app/models/artifacts:ro
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-fs", "http://localhost:8001/health"]
+      interval: 30s
+      timeout: 5s
+      start_period: 90s
+      retries: 3
+
+  similarity:
+    build:
+      context: ../..
+      dockerfile: docker/model-servers/Dockerfile
+      args:
+        SERVER: similarity
+        REQUIREMENTS_FILE: similarity.txt
+    image: bookrec/model-server-similarity:latest
+    container_name: model-server-similarity
+    network_mode: host
+    env_file:
+      - /etc/bookrec.env
+    environment:
+      SERVER: similarity
+      PORT: "8002"
+      MODEL_VERSION_POINTER: /app/models/artifacts/active_version
+    volumes:
+      - ${ARTIFACTS_DIR}:/app/models/artifacts:ro
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-fs", "http://localhost:8002/health"]
+      interval: 30s
+      timeout: 5s
+      start_period: 90s
+      retries: 3
+
+  als:
+    build:
+      context: ../..
+      dockerfile: docker/model-servers/Dockerfile
+      args:
+        SERVER: als
+        REQUIREMENTS_FILE: als.txt
+    image: bookrec/model-server-als:latest
+    container_name: model-server-als
+    network_mode: host
+    env_file:
+      - /etc/bookrec.env
+    environment:
+      SERVER: als
+      PORT: "8003"
+      MODEL_VERSION_POINTER: /app/models/artifacts/active_version
+    volumes:
+      - ${ARTIFACTS_DIR}:/app/models/artifacts:ro
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-fs", "http://localhost:8003/health"]
+      interval: 30s
+      timeout: 5s
+      start_period: 60s
+      retries: 3
+
+  metadata:
+    build:
+      context: ../..
+      dockerfile: docker/model-servers/Dockerfile
+      args:
+        SERVER: metadata
+        REQUIREMENTS_FILE: metadata.txt
+    image: bookrec/model-server-metadata:latest
+    container_name: model-server-metadata
+    network_mode: host
+    env_file:
+      - /etc/bookrec.env
+    environment:
+      SERVER: metadata
+      PORT: "8004"
+      MODEL_VERSION_POINTER: /app/models/artifacts/active_version
+    volumes:
+      - ${ARTIFACTS_DIR}:/app/models/artifacts:ro
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-fs", "http://localhost:8004/health"]
+      interval: 30s
+      timeout: 5s
+      start_period: 90s
+      retries: 3

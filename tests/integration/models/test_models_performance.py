@@ -1,20 +1,22 @@
 # tests/integration/models/test_models_performance.py
 """
 Performance test suite for recommendation and similarity models.
-Measures latency at API level to establish baseline metrics before refactoring.
+Measures latency at the API level to establish baseline metrics before refactoring.
 Results are automatically saved to performance_baselines/ directory.
 """
 
-import pytest
-import time
-import statistics
-import os
+import asyncio
 import json
+import statistics
+import time
 from datetime import datetime
 from pathlib import Path
 from typing import Dict, List, Tuple
-from fastapi.testclient import TestClient
-from sqlalchemy.orm import Session
+
+import httpx
+import pytest
+
+pytestmark = pytest.mark.asyncio(loop_scope="module")
 
 WARMUP_RUNS = 2
 MEASUREMENT_RUNS = 10
@@ -105,29 +107,34 @@ class LatencyStats:
         )
 
 
-def measure_endpoint_latency(
-    client: TestClient,
+async def measure_endpoint_latency(
+    client: httpx.AsyncClient,
     endpoint: str,
     params: Dict = None,
     warmup_runs: int = WARMUP_RUNS,
     measurement_runs: int = MEASUREMENT_RUNS,
 ) -> Tuple[LatencyStats, Dict]:
     """
-    Measures endpoint latency with warmup runs.
-    Returns tuple of (LatencyStats, last_response_json).
+    Measure endpoint latency after discarding warmup runs.
+
+    Returns a tuple of (LatencyStats, last_response_json). Warmup runs prime
+    the connection pool so measurements reflect steady-state latency rather
+    than cold-start overhead.
     """
     stats = LatencyStats(f"GET {endpoint}")
 
     for _ in range(warmup_runs):
-        client.get(endpoint, params=params)
+        await client.get(endpoint, params=params)
 
     last_response = None
     for _ in range(measurement_runs):
         start = time.perf_counter()
-        response = client.get(endpoint, params=params)
+        response = await client.get(endpoint, params=params)
         duration_ms = (time.perf_counter() - start) * 1000
 
-        assert response.status_code == 200, f"Request failed: {response.status_code}"
+        assert response.status_code == 200, (
+            f"Request failed with {response.status_code}: {response.text}"
+        )
         stats.add(duration_ms)
         last_response = response.json()
 
@@ -136,7 +143,10 @@ def measure_endpoint_latency(
 
 @pytest.fixture(scope="session")
 def performance_results():
-    """Session-scoped fixture that collects all performance results."""
+    """
+    Session-scoped fixture that accumulates all performance results and writes
+    them to a timestamped JSON file after the session ends.
+    """
     results = {}
     yield results
 
@@ -166,16 +176,11 @@ def performance_results():
 
 
 @pytest.fixture
-def client(db: Session):
-    """Creates test client for FastAPI app."""
-    from main import app
-
-    return TestClient(app)
-
-
-@pytest.fixture
 def performance_report(performance_results):
-    """Test-scoped fixture that adds results to session-scoped collection."""
+    """
+    Test-scoped fixture that collects results from a single test and merges
+    them into the session-scoped accumulator on teardown.
+    """
     report = {}
     yield report
 
@@ -188,133 +193,151 @@ def performance_report(performance_results):
     print("-" * 80)
 
 
-@pytest.mark.parametrize(
-    "user_id,mode",
-    [
-        *[(uid, "auto") for uid in WARM_USER_IDS[:3]],
-        *[(uid, "behavioral") for uid in WARM_USER_IDS[:2]],
-    ],
-)
-def test_warm_user_recommendations_latency(
-    client: TestClient, performance_report: Dict, user_id: int, mode: str
+# ============================================================================
+# Recommendation tests
+# ============================================================================
+
+
+@pytest.mark.parametrize("user_id", WARM_USER_IDS[:3])
+async def test_warm_user_behavioral_latency(
+    client: httpx.AsyncClient, performance_report: Dict, user_id: int
 ):
-    """Tests recommendation latency for warm users using ALS strategy."""
+    """
+    Tests recommendation latency for warm users via the ALS (behavioral) strategy.
+
+    This is the primary warm-user path the UI exercises: the client always
+    sends mode=behavioral when it knows the user is warm.
+    """
     endpoint = "/profile/recommend"
-    params = {"user": str(user_id), "_id": True, "top_n": 200, "mode": mode}
+    params = {"user": str(user_id), "_id": True, "top_n": 200, "mode": "behavioral"}
 
-    stats, response = measure_endpoint_latency(client, endpoint, params)
+    stats, response = await measure_endpoint_latency(client, endpoint, params)
 
-    assert isinstance(response, list), "Response should be a list"
-    assert len(response) > 0, "Should return recommendations"
-    assert len(response) <= 200, "Should not exceed top_n"
+    assert isinstance(response, list)
+    assert len(response) > 0
+    assert len(response) <= 200
 
     for item in response[:5]:
         assert "item_idx" in item
         assert "title" in item
         assert "score" in item
 
-    test_key = f"recommend_warm_user_{user_id}_mode_{mode}"
-    performance_report[test_key] = stats
+    performance_report[f"recommend_warm_user_{user_id}_behavioral"] = stats
 
 
 @pytest.mark.parametrize("user_id", WARM_USER_IDS[:3])
-def test_warm_user_forced_subject_mode_latency(
-    client: TestClient, performance_report: Dict, user_id: int
+async def test_warm_user_subject_mode_latency(
+    client: httpx.AsyncClient, performance_report: Dict, user_id: int
 ):
     """
-    Tests warm user forced to use subject-based (cold) strategy.
-    Critical path: tests if subject similarity scales for high-engagement users.
+    Tests a warm user on the subject (cold) path.
+
+    The UI sends mode=subject regardless of warmth when the user navigates
+    to a subject-discovery context. Comparing this profile against behavioral
+    isolates path-specific cost versus shared overhead (filter, enrich).
     """
     endpoint = "/profile/recommend"
     params = {"user": str(user_id), "_id": True, "top_n": 200, "mode": "subject"}
 
-    stats, response = measure_endpoint_latency(client, endpoint, params)
+    stats, response = await measure_endpoint_latency(client, endpoint, params)
 
     assert isinstance(response, list)
     assert len(response) > 0
 
-    test_key = f"recommend_warm_user_{user_id}_forced_subject_mode"
-    performance_report[test_key] = stats
+    performance_report[f"recommend_warm_user_{user_id}_subject"] = stats
 
 
 @pytest.mark.parametrize("user_id", COLD_WITH_SUBJECTS_USER_IDS[:3])
-def test_cold_user_with_subjects_latency(
-    client: TestClient, performance_report: Dict, user_id: int
+async def test_cold_user_with_subjects_latency(
+    client: httpx.AsyncClient, performance_report: Dict, user_id: int
 ):
     """
-    Tests cold user WITH favorite subjects.
-    Critical path: similarity computation + Bayesian blending.
+    Tests cold user with favorite subjects via the subject similarity path.
+
+    Critical path: embedding + similarity + Bayesian blending. The UI
+    always sends mode=subject for cold users.
     """
     endpoint = "/profile/recommend"
-    params = {"user": str(user_id), "_id": True, "top_n": 200, "mode": "auto"}
+    params = {"user": str(user_id), "_id": True, "top_n": 200, "mode": "subject"}
 
-    stats, response = measure_endpoint_latency(client, endpoint, params)
+    stats, response = await measure_endpoint_latency(client, endpoint, params)
 
     assert isinstance(response, list)
     assert len(response) > 0
 
-    test_key = f"recommend_cold_with_subjects_user_{user_id}"
-    performance_report[test_key] = stats
+    performance_report[f"recommend_cold_with_subjects_user_{user_id}"] = stats
 
 
 @pytest.mark.parametrize("user_id", COLD_WITHOUT_SUBJECTS_USER_IDS[:3])
-def test_cold_user_without_subjects_latency(
-    client: TestClient, performance_report: Dict, user_id: int
+async def test_cold_user_without_subjects_latency(
+    client: httpx.AsyncClient, performance_report: Dict, user_id: int
 ):
     """
-    Tests cold user WITHOUT favorite subjects (pure Bayesian fallback).
-    Critical path: fastest cold recommendation (no embedding/similarity computation).
+    Tests cold user without favorite subjects via the subject path.
+
+    With no subject embeddings to score against, the pipeline falls back to
+    pure Bayesian popularity. This is the fastest cold path and sets the lower
+    bound for cold-user latency. The UI sends mode=subject for all cold users
+    regardless of whether they have subjects set.
     """
     endpoint = "/profile/recommend"
-    params = {"user": str(user_id), "_id": True, "top_n": 200, "mode": "auto"}
+    params = {"user": str(user_id), "_id": True, "top_n": 200, "mode": "subject"}
 
-    stats, response = measure_endpoint_latency(client, endpoint, params)
+    stats, response = await measure_endpoint_latency(client, endpoint, params)
 
     assert isinstance(response, list)
     assert len(response) > 0
 
-    test_key = f"recommend_cold_without_subjects_user_{user_id}"
-    performance_report[test_key] = stats
+    performance_report[f"recommend_cold_without_subjects_user_{user_id}"] = stats
 
 
 @pytest.mark.parametrize("w", [0.3, 0.6, 0.9])
-def test_cold_recommendations_varying_w(client: TestClient, performance_report: Dict, w: float):
-    """
-    Tests cold recommendation with varying w parameter.
-    Tests similarity vs Bayesian weight balance impact on performance.
-    """
+async def test_cold_recommendations_varying_w(
+    client: httpx.AsyncClient, performance_report: Dict, w: float
+):
+    """Tests cold recommendation performance across subject weight values."""
     if not COLD_WITH_SUBJECTS_USER_IDS:
-        pytest.skip("No cold users with subjects provided")
+        pytest.skip("No cold users with subjects configured")
 
     user_id = COLD_WITH_SUBJECTS_USER_IDS[0]
     endpoint = "/profile/recommend"
-    params = {"user": str(user_id), "_id": True, "top_n": 200, "mode": "auto", "w": w}
+    params = {"user": str(user_id), "_id": True, "top_n": 200, "mode": "subject", "w": w}
 
-    stats, response = measure_endpoint_latency(client, endpoint, params)
+    stats, response = await measure_endpoint_latency(client, endpoint, params)
 
     assert isinstance(response, list)
     assert len(response) > 0
 
-    test_key = f"recommend_cold_w_{w}"
-    performance_report[test_key] = stats
+    performance_report[f"recommend_cold_w_{w}"] = stats
 
 
 @pytest.mark.parametrize("top_n", [50, 200, 500])
-def test_recommendations_varying_top_n(client: TestClient, performance_report: Dict, top_n: int):
-    """Tests how recommendation latency scales with top_n parameter."""
+async def test_recommendations_varying_top_n(
+    client: httpx.AsyncClient, performance_report: Dict, top_n: int
+):
+    """
+    Tests how recommendation latency scales with top_n.
+
+    Uses a warm user on the behavioral path, which is the highest-volume
+    production scenario.
+    """
     if not WARM_USER_IDS:
-        pytest.skip("No warm user IDs provided")
+        pytest.skip("No warm user IDs configured")
 
     user_id = WARM_USER_IDS[0]
     endpoint = "/profile/recommend"
-    params = {"user": str(user_id), "_id": True, "top_n": top_n, "mode": "auto"}
+    params = {"user": str(user_id), "_id": True, "top_n": top_n, "mode": "behavioral"}
 
-    stats, response = measure_endpoint_latency(client, endpoint, params)
+    stats, response = await measure_endpoint_latency(client, endpoint, params)
 
     assert len(response) <= top_n
 
-    test_key = f"recommend_top_n_{top_n}"
-    performance_report[test_key] = stats
+    performance_report[f"recommend_top_n_{top_n}"] = stats
+
+
+# ============================================================================
+# Similarity tests
+# ============================================================================
 
 
 @pytest.mark.parametrize(
@@ -325,17 +348,15 @@ def test_recommendations_varying_top_n(client: TestClient, performance_report: D
         *[(bid, "hybrid") for bid in TEST_BOOK_IDS[:2]],
     ],
 )
-def test_similar_books_latency(
-    client: TestClient, performance_report: Dict, book_id: int, mode: str
+async def test_similar_books_latency(
+    client: httpx.AsyncClient, performance_report: Dict, book_id: int, mode: str
 ):
-    """Tests similarity search latency across different modes."""
+    """Tests similarity search latency across modes."""
     endpoint = f"/book/{book_id}/similar"
     params = {"mode": mode, "top_k": 200}
 
     try:
-        stats, response = measure_endpoint_latency(
-            client, endpoint, params, measurement_runs=MEASUREMENT_RUNS
-        )
+        stats, response = await measure_endpoint_latency(client, endpoint, params)
 
         assert isinstance(response, list)
         assert len(response) > 0
@@ -346,105 +367,52 @@ def test_similar_books_latency(
             assert "title" in item
             assert "score" in item
 
-        test_key = f"similar_book_{book_id}_mode_{mode}"
-        performance_report[test_key] = stats
+        performance_report[f"similar_book_{book_id}_mode_{mode}"] = stats
 
     except AssertionError as e:
         if "422" in str(e):
-            pytest.skip(f"Book {book_id} doesn't have {mode} data")
+            pytest.skip(f"Book {book_id} has no {mode} data, skipping")
         raise
 
 
 @pytest.mark.parametrize("alpha", [0.3, 0.5, 0.7])
-def test_hybrid_similarity_varying_alpha(
-    client: TestClient, performance_report: Dict, alpha: float
+async def test_hybrid_similarity_varying_alpha(
+    client: httpx.AsyncClient, performance_report: Dict, alpha: float
 ):
-    """Tests hybrid similarity performance with different alpha values."""
+    """Tests hybrid similarity performance across alpha values."""
     if not TEST_BOOK_IDS:
-        pytest.skip("No test book IDs provided")
+        pytest.skip("No test book IDs configured")
 
     book_id = TEST_BOOK_IDS[0]
     endpoint = f"/book/{book_id}/similar"
     params = {"mode": "hybrid", "alpha": alpha, "top_k": 200}
 
     try:
-        stats, response = measure_endpoint_latency(client, endpoint, params)
+        stats, response = await measure_endpoint_latency(client, endpoint, params)
         assert isinstance(response, list)
 
-        test_key = f"similar_hybrid_alpha_{alpha}"
-        performance_report[test_key] = stats
+        performance_report[f"similar_hybrid_alpha_{alpha}"] = stats
 
     except AssertionError as e:
         if "422" in str(e):
-            pytest.skip(f"Book {book_id} doesn't have hybrid data")
+            pytest.skip(f"Book {book_id} has no hybrid data, skipping")
         raise
 
 
 @pytest.mark.parametrize("top_k", [10, 50, 200, 500])
-def test_similarity_varying_top_k(client: TestClient, performance_report: Dict, top_k: int):
-    """Tests how similarity search scales with top_k parameter."""
+async def test_similarity_varying_top_k(
+    client: httpx.AsyncClient, performance_report: Dict, top_k: int
+):
+    """Tests how similarity search scales with top_k."""
     if not TEST_BOOK_IDS:
-        pytest.skip("No test book IDs provided")
+        pytest.skip("No test book IDs configured")
 
     book_id = TEST_BOOK_IDS[0]
     endpoint = f"/book/{book_id}/similar"
     params = {"mode": "subject", "top_k": top_k}
 
-    stats, response = measure_endpoint_latency(client, endpoint, params)
+    stats, response = await measure_endpoint_latency(client, endpoint, params)
 
     assert len(response) <= top_k
 
-    test_key = f"similar_top_k_{top_k}"
-    performance_report[test_key] = stats
-
-
-def test_concurrent_recommendation_requests(client: TestClient, performance_report: Dict):
-    """Tests latency under simulated concurrent load."""
-    if not WARM_USER_IDS:
-        pytest.skip("No warm user IDs provided")
-
-    import concurrent.futures
-
-    endpoint = "/profile/recommend"
-    user_ids = WARM_USER_IDS[:5]
-
-    def make_request(user_id: int) -> float:
-        start = time.perf_counter()
-        response = client.get(
-            endpoint, params={"user": str(user_id), "_id": True, "top_n": 200, "mode": "auto"}
-        )
-        duration_ms = (time.perf_counter() - start) * 1000
-        assert response.status_code == 200
-        return duration_ms
-
-    sequential_stats = LatencyStats("concurrent_sequential")
-    for user_id in user_ids:
-        for _ in range(3):
-            duration = make_request(user_id)
-            sequential_stats.add(duration)
-
-    concurrent_stats = LatencyStats("concurrent_parallel_5")
-    with concurrent.futures.ThreadPoolExecutor(max_workers=5) as executor:
-        futures = []
-        for user_id in user_ids:
-            for _ in range(3):
-                futures.append(executor.submit(make_request, user_id))
-
-        for future in concurrent.futures.as_completed(futures):
-            duration = future.result()
-            concurrent_stats.add(duration)
-
-    performance_report["concurrent_sequential"] = sequential_stats
-    performance_report["concurrent_parallel_5"] = concurrent_stats
-
-    seq_mean = sequential_stats.get_stats()["mean_ms"]
-    conc_mean = concurrent_stats.get_stats()["mean_ms"]
-
-    print(f"\nConcurrency overhead: {((conc_mean / seq_mean) - 1) * 100:.1f}%")
-
-
-if __name__ == "__main__":
-    import os
-
-    os.environ.setdefault("TESTING", "1")
-    pytest.main([__file__, "-v", "-s"])
+    performance_report[f"similar_top_k_{top_k}"] = stats

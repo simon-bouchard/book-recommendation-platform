@@ -6,6 +6,7 @@ All retrieval tools return consistent schema with enrichment data where availabl
 
 from typing import Callable, Dict, Optional
 from sqlalchemy.orm import Session
+import asyncio
 
 from models.services.recommendation_service import RecommendationService
 from models.domain.user import User
@@ -255,7 +256,7 @@ class InternalTools:
         """ALS-based collaborative filtering recommendations."""
 
         @tool
-        def als_recs(top_k: int = 100) -> list[dict]:
+        async def als_recs(top_k: int = 100) -> list[dict]:
             """
             Get collaborative filtering recommendations based on user's rating history.
 
@@ -275,14 +276,25 @@ class InternalTools:
             top_k = max(1, min(500, top_k))
 
             try:
-                # Convert ORM user to domain User
-                domain_user = self._to_domain_user(self.current_user)
+                # Build domain User without accessing lazy ORM relationships.
+                # The behavioral pipeline only needs user_id (for ALS lookup and
+                # read-books filtering), so we avoid touching favorite_subjects
+                # entirely. Accessing lazy relationships in an async SQLAlchemy
+                # context raises MissingGreenlet before the first await, which
+                # the except clause would silently swallow.
+                from models.domain.user import User as DomainUser
+                from models.core.constants import PAD_IDX
+
+                domain_user = DomainUser(
+                    user_id=self.current_user.user_id,
+                    fav_subjects=[PAD_IDX],
+                )
 
                 # Use new recommendation service with behavioral mode
                 service = RecommendationService()
                 config = RecommendationConfig(k=top_k, mode="behavioral")
 
-                recommendations = service.recommend(domain_user, config, self.db)
+                recommendations = await service.recommend(domain_user, config, self.db)
 
                 # Convert RecommendedBook objects to dicts
                 raw_results = [
@@ -309,7 +321,7 @@ class InternalTools:
         """Subject-based recommendations with popularity blending."""
 
         @tool
-        def subject_hybrid_pool(
+        async def subject_hybrid_pool(
             fav_subjects_idxs: list[int],
             top_k: int = 100,
             subject_weight: float = 0.6,
@@ -361,7 +373,7 @@ class InternalTools:
                     hybrid_config=HybridConfig(subject_weight=subject_weight),
                 )
 
-                recommendations = service.recommend(domain_user, config, self.db)
+                recommendations = await service.recommend(domain_user, config, self.db)
 
                 # Convert RecommendedBook objects to dicts
                 raw_results = [

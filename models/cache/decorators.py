@@ -9,6 +9,9 @@ from typing import Callable
 import logging
 import time
 
+from sqlalchemy import select
+from sqlalchemy.ext.asyncio import AsyncSession
+
 from app.cache import get_redis_client, cached
 from app.cache.serializers import serialize, deserialize
 from app.table_models import User as ORMUser, UserFavSubject
@@ -31,12 +34,6 @@ def cached_similarity(func: Callable) -> Callable:
         get_similar(item_idx: int, mode: str, k: int, alpha: float = 0.6, **kwargs)
 
     Cache key includes: item_idx, mode, k, alpha (for hybrid mode only)
-
-    Example:
-        @cached_similarity
-        def get_similar_books(item_idx: int, mode: str, k: int, alpha: float):
-            # ... computation
-            return results
     """
 
     def key_func(item_idx: int, mode: str, alpha: float, top_k: int, **kwargs) -> str:
@@ -45,29 +42,41 @@ def cached_similarity(func: Callable) -> Callable:
     return cached(key_func=key_func, ttl=SIMILARITY_TTL, log_hits=True)(func)
 
 
+async def _get_subject_idxs_for_user(db: AsyncSession, user: str, _id: bool) -> list[int]:
+    """
+    Fetch favorite subject indices for a user via the async session.
+
+    Used by cached_recommendations to build a content-addressable cache key
+    for subject-mode requests so that two users with identical subject
+    preferences share the same cached result.
+    """
+    if _id:
+        stmt = select(UserFavSubject.subject_idx).where(UserFavSubject.user_id == int(user))
+    else:
+        user_id_subquery = select(ORMUser.user_id).where(ORMUser.username == user).scalar_subquery()
+        stmt = select(UserFavSubject.subject_idx).where(UserFavSubject.user_id == user_id_subquery)
+
+    result = await db.execute(stmt)
+    return [row[0] for row in result.all()]
+
+
 def cached_recommendations(func: Callable) -> Callable:
     """
     Cache decorator for recommendation endpoints.
 
     Caches results for 1 hour. Key strategy varies by mode:
     - behavioral: user_id based (user-specific)
-    - subject: subject_hash based (shareable across users)
-    - auto: user_id based (decision is user-specific)
+    - subject: subject_hash based (shareable across users with identical subjects)
+    - auto: user_id based (warm/cold decision is user-specific)
 
     Expected function signature:
-        recommend(user: str, _id: bool, top_n: int, mode: str, w: float, db: Session)
-
-    Cache key depends on mode - see recommendation_key() for details.
-
-    Example:
-        @cached_recommendations
-        async def recommend_for_user(user: str, _id: bool, top_n: int, mode: str, w: float, db):
-            # ... computation
-            return results
+        recommend(user: str, _id: bool, top_n: int, mode: str, w: float, db: AsyncSession)
     """
 
     @wraps(func)
-    async def wrapper(user: str, _id: bool, top_n: int, mode: str, w: float, db, **kwargs):
+    async def wrapper(
+        user: str, _id: bool, top_n: int, mode: str, w: float, db: AsyncSession, **kwargs
+    ):
         client = get_redis_client()
 
         if not client.available:
@@ -78,23 +87,7 @@ def cached_recommendations(func: Callable) -> Callable:
         subject_idxs = None
 
         if mode == "subject":
-            if _id:
-                subject_idxs = [
-                    row[0]
-                    for row in db.query(UserFavSubject.subject_idx)
-                    .filter(UserFavSubject.user_id == int(user))
-                    .all()
-                ]
-            else:
-                subquery = (
-                    db.query(ORMUser.user_id).filter(ORMUser.username == user).scalar_subquery()
-                )
-                subject_idxs = [
-                    row[0]
-                    for row in db.query(UserFavSubject.subject_idx)
-                    .filter(UserFavSubject.user_id == subquery)
-                    .all()
-                ]
+            subject_idxs = await _get_subject_idxs_for_user(db, user, _id)
 
         try:
             cache_key = recommendation_key(

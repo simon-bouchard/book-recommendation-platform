@@ -1,0 +1,17 @@
+# requirements/base.txt
+#
+# Shared dependencies for all model server images.
+# Every server-specific requirements file starts with -r base.txt.
+#
+# Pinned to versions confirmed on the production server, 2026-03-03.
+
+fastapi==0.116.1
+starlette==0.47.2
+uvicorn==0.35.0
+gunicorn==23.0.0
+pydantic==2.11.7
+pydantic-core==2.33.2
+httpx==0.28.1
+anyio==4.10.0
+numpy==1.26.4
+prometheus-fastapi-instrumentator==7.1.0

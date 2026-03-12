@@ -5,7 +5,6 @@ Validates that data survives TurnInput→AgentRequest and AgentResponse→AgentR
 """
 
 import pytest
-from app.agents.orchestrator.conductor import Conductor
 from app.agents.schemas import AgentResult
 
 pytestmark = pytest.mark.asyncio
@@ -18,12 +17,17 @@ class TestAdapterDataIntegrity:
     Component tests construct AgentRequest directly, so they don't
     validate that the adapter layer correctly converts TurnInput.
 
-    These tests use mocked agents to verify orchestration logic,
-    not LLM quality.
+    All routing is controlled via the pre-wired mock_router (default: recsys),
+    so no LLM calls are made.
     """
 
     async def test_turn_input_to_request_preserves_data(
-        self, db_session, test_user_warm, mock_agent_factory, mock_recsys_agent, collect_result
+        self,
+        db_session,
+        test_user_warm,
+        conductor,
+        mock_recsys_agent,
+        collect_result,
     ):
         """
         Verify adapter.turn_input_to_request() doesn't lose data.
@@ -31,9 +35,6 @@ class TestAdapterDataIntegrity:
         Tests that all Conductor.run_stream() parameters correctly flow through
         the adapter layer to reach the agent.
         """
-        conductor = Conductor()
-        conductor.factory = mock_agent_factory
-
         result = await collect_result(
             conductor,
             history=[
@@ -71,18 +72,19 @@ class TestAdapterDataIntegrity:
         )
 
     async def test_response_to_result_preserves_metadata(
-        self, db_session, test_user_warm, mock_agent_factory, mock_recsys_agent, collect_result
+        self,
+        db_session,
+        test_user_warm,
+        conductor,
+        mock_recsys_agent,
+        collect_result,
     ):
         """
         Verify adapter.response_to_agent_result() preserves all fields.
 
         Critical for recsys agent which returns rich metadata:
-        - book_ids with book IDs
-        - tool_calls, citations, etc.
+        book_ids, tool_calls, citations, etc.
         """
-        conductor = Conductor()
-        conductor.factory = mock_agent_factory
-
         result = await collect_result(
             conductor,
             history=[],
@@ -114,7 +116,7 @@ class TestAdapterDataIntegrity:
         self,
         db_session,
         test_user_with_profile,
-        mock_agent_factory,
+        conductor,
         mock_recsys_agent,
         collect_result,
     ):
@@ -125,9 +127,6 @@ class TestAdapterDataIntegrity:
 
         Privacy-critical: must not leak profile when use_profile=False.
         """
-        conductor = Conductor()
-        conductor.factory = mock_agent_factory
-
         # Test with profile ENABLED
         result_with = await collect_result(
             conductor,
@@ -173,16 +172,18 @@ class TestAdapterDataIntegrity:
         )
 
     async def test_empty_history_handled_correctly(
-        self, db_session, test_user_warm, mock_agent_factory, mock_recsys_agent, collect_result
+        self,
+        db_session,
+        test_user_warm,
+        conductor,
+        mock_recsys_agent,
+        collect_result,
     ):
         """
         Verify empty history doesn't break adapter conversions.
 
         Edge case: first turn in conversation (history=[]).
         """
-        conductor = Conductor()
-        conductor.factory = mock_agent_factory
-
         result = await collect_result(
             conductor,
             history=[],

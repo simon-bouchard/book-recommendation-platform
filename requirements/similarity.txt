@@ -1,0 +1,14 @@
+# requirements/similarity.txt
+#
+# Similarity model server dependencies.
+# faiss-cpu: SimilarityIndex builds and queries FAISS IndexFlatIP at runtime.
+# pandas: SimilarityIndex.create_filtered_index and HybridScorer both call
+#         load_book_meta() which returns a DataFrame and use DataFrame.reindex().
+#
+# Note: faiss is installed as conda package "faiss==1.9.0" on the production
+# server. The PyPI equivalent is faiss-cpu. If the build fails on this line,
+# verify the available version with: pip index versions faiss-cpu
+
+-r base.txt
+faiss-cpu==1.9.0
+pandas==2.3.1

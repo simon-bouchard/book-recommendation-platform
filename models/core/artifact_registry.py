@@ -14,7 +14,6 @@ import shutil
 import subprocess
 import sys
 import tempfile
-import time
 from dataclasses import asdict, dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
@@ -24,7 +23,7 @@ from models.core.paths import PATHS, _VERSIONED_SUBDIRS
 
 _MANIFEST_FILENAME = "manifest.json"
 _METRICS_FILENAME = "training_metrics.json"
-_RELOAD_SIGNAL_PATH = PATHS.models_root / "data" / ".reload_signal"
+_EXPORT_SENTINEL = ".export_complete"
 _CHECKSUM_BLOCK_SIZE = 1 << 20  # 1 MiB
 
 
@@ -180,9 +179,9 @@ def rollback(version_id: str) -> None:
     """
     Switch the active version to a previously registered version.
 
-    Updates the active_version pointer and writes the reload signal so
-    that all Gunicorn workers pick up the change on their next check.
-    Does not touch or copy any artifact files.
+    Updates the active_version pointer file only. The caller is responsible
+    for triggering a worker reload after rollback so that the new active
+    version takes effect in production.
 
     Args:
         version_id: The version ID to roll back to.
@@ -198,10 +197,8 @@ def rollback(version_id: str) -> None:
         )
 
     _atomic_write_pointer(version_id)
-    _write_reload_signal()
 
     print(f"Rolled back to version '{version_id}'.")
-    print(f"Reload signal written to '{_RELOAD_SIGNAL_PATH}'.")
 
 
 def list_versions() -> List[VersionManifest]:
@@ -360,13 +357,6 @@ def _atomic_write_pointer(version_id: str) -> None:
     os.replace(tmp_path, pointer_path)
 
 
-def _write_reload_signal() -> None:
-    """Write the current timestamp to the reload signal file."""
-    _RELOAD_SIGNAL_PATH.parent.mkdir(parents=True, exist_ok=True)
-    with open(_RELOAD_SIGNAL_PATH, "w") as f:
-        f.write(str(time.time()))
-
-
 def _write_manifest(version_dir: Path, manifest: VersionManifest) -> None:
     """Write a VersionManifest to manifest.json inside version_dir atomically."""
     manifest_path = version_dir / _MANIFEST_FILENAME
@@ -392,12 +382,14 @@ def _read_manifest(version_dir: Path) -> VersionManifest:
 
 def _compute_checksums(version_dir: Path) -> Dict[str, str]:
     """
-    Compute SHA-256 checksums for all files in the versioned subdirectories.
+    Compute SHA-256 checksums for all artifact files in the versioned subdirectories.
 
     Returns a dict mapping paths relative to version_dir to their hex digest.
-    Skips manifest.json itself since it cannot contain its own checksum.
+    Skips manifest.json (cannot contain its own checksum) and the data export
+    sentinel file (a control file, not a data artifact).
     """
     checksums: Dict[str, str] = {}
+    excluded = {_MANIFEST_FILENAME, f"data/{_EXPORT_SENTINEL}"}
 
     for subdir_name in _VERSIONED_SUBDIRS:
         subdir = version_dir / subdir_name
@@ -407,6 +399,8 @@ def _compute_checksums(version_dir: Path) -> Dict[str, str]:
             if file_path.is_dir():
                 continue
             rel = file_path.relative_to(version_dir)
+            if str(rel) in excluded:
+                continue
             checksums[str(rel)] = _sha256(file_path)
 
     return checksums
@@ -440,16 +434,27 @@ def _load_source_metrics(source_dir: Path) -> Dict:
 
 def _assert_staging_complete() -> None:
     """
-    Raise RuntimeError if any expected subdirectory is absent from staging.
+    Raise RuntimeError if staging is missing any expected subdirectory or if
+    the data export did not complete cleanly.
 
-    A missing subdir means a training script failed or the SCP was incomplete.
-    Better to reject here than to promote a partial version.
+    Directory presence is a necessary but not sufficient condition for the
+    data subdir — a crash mid-export leaves the directory populated but
+    incomplete. The sentinel file written by export_training_data.py as its
+    final step confirms the export finished without error.
     """
     missing = [sub for sub in _VERSIONED_SUBDIRS if not (PATHS.staging_dir / sub).exists()]
     if missing:
         raise RuntimeError(
             f"Staging is incomplete. Missing subdirectories: {missing}. "
             "Ensure all training scripts completed successfully before promoting."
+        )
+
+    sentinel = PATHS.staging_data_dir / _EXPORT_SENTINEL
+    if not sentinel.exists():
+        raise RuntimeError(
+            f"Data export sentinel not found at '{sentinel}'. "
+            "The export script did not complete successfully. "
+            "Re-run export_training_data.py before promoting."
         )
 
 
@@ -521,12 +526,21 @@ def _cli_list() -> None:
 
 
 def _cli_rollback(version_id: str) -> None:
-    """Roll back to the given version ID."""
+    """Roll back to the given version ID and signal containers to reload."""
+    from ops.training.reload_signal import signal_workers_reload
+
     try:
         rollback(version_id)
     except FileNotFoundError as exc:
         print(f"Rollback failed: {exc}")
         sys.exit(1)
+
+    print("Signalling model server containers to reload...")
+    try:
+        signal_workers_reload()
+    except RuntimeError as exc:
+        print(f"Warning: worker reload signal failed: {exc}")
+        print("Active version pointer has been updated. Restart containers manually to apply.")
 
 
 def _cli_retire(keep: int) -> None:

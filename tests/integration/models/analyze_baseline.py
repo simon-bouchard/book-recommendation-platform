@@ -6,10 +6,10 @@ Shows average times grouped by request type.
 
 import json
 import sys
-from pathlib import Path
-from typing import Dict, List
 from collections import defaultdict
 from dataclasses import dataclass
+from pathlib import Path
+from typing import Dict, List
 
 
 @dataclass
@@ -40,19 +40,19 @@ class RequestTypeStats:
 class BaselineAnalyzer:
     """Analyzes performance baseline and groups results by request type."""
 
+    # Each lambda matches against the test result key string saved by the test
+    # suite. Keys follow the format: recommend_warm_user_{id}_behavioral,
+    # recommend_cold_with_subjects_user_{id}, similar_book_{id}_mode_subject, etc.
     REQUEST_TYPE_PATTERNS = {
-        "recommend_warm_als": lambda k: "recommend_warm_user_" in k
-        and "mode_auto" in k
-        or "mode_behavioral" in k,
-        "recommend_warm_subject": lambda k: "recommend_warm_user_" in k and "forced_subject" in k,
+        "recommend_warm_als": lambda k: "recommend_warm_user_" in k and "_behavioral" in k,
+        "recommend_warm_subject": lambda k: "recommend_warm_user_" in k and "_subject" in k,
         "recommend_cold_with_subjects": lambda k: "recommend_cold_with_subjects" in k,
         "recommend_cold_without_subjects": lambda k: "recommend_cold_without_subjects" in k,
         "recommend_varying_w": lambda k: "recommend_cold_w_" in k,
         "recommend_varying_topn": lambda k: "recommend_top_n_" in k,
         "similar_subject": lambda k: "similar_book_" in k and "mode_subject" in k,
         "similar_als": lambda k: "similar_book_" in k and "mode_als" in k,
-        "similar_hybrid": lambda k: "similar_book_" in k
-        and "mode_hybrid" in k
+        "similar_hybrid": lambda k: ("similar_book_" in k and "mode_hybrid" in k)
         or "similar_hybrid_alpha" in k,
         "similar_varying_topk": lambda k: "similar_top_k_" in k,
         "concurrent_load": lambda k: "concurrent_" in k,
