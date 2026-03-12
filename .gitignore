@@ -1,5 +1,6 @@
 # Env and Secrets
 .env
+deploy/deploy.env
 
 # System
 gunicorn.conf.py
