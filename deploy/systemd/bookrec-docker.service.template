@@ -1,0 +1,22 @@
+[Unit]
+Description=BookRec Docker Compose Stack (model servers, meilisearch, prometheus)
+After=network.target docker.service
+Requires=docker.service
+
+[Service]
+User={{USER}}
+Group={{USER}}
+
+WorkingDirectory={{REPO_ROOT}}/docker/compose
+
+ExecStart=/usr/bin/docker compose up --wait
+ExecStop=/usr/bin/docker compose down
+
+Type=oneshot
+RemainAfterExit=yes
+
+Restart=on-failure
+RestartSec=10
+
+[Install]
+WantedBy=multi-user.target
