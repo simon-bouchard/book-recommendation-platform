@@ -96,7 +96,7 @@ if [[ ! -L "$NGINX_ENABLED/$NGINX_CONF" ]]; then
     echo "Enabled nginx vhost: $NGINX_CONF"
 fi
 
-if nginx -t 2>/dev/null; then
+if nginx -t; then
     systemctl reload nginx
     echo "nginx reloaded."
 else
