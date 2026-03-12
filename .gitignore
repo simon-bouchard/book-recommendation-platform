@@ -40,6 +40,7 @@ test.py
 /prompts
 .vscode/
 tree.txt
+shallow_tree.txt
 code_instructions_prompt.txt
 .envrc
 pyproject.toml
