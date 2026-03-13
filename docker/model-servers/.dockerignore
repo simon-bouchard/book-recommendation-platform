@@ -1,0 +1,12 @@
+/artifacts/
+models/training/
+models/data_backup*/
+data/
+*.faiss
+*.npy
+*.pkl
+*.pth
+__pycache__/
+**/__pycache__/
+*.pyc
+.git/
