@@ -62,7 +62,7 @@ WORKDIR /app
 
 COPY model_servers/ ./model_servers/
 COPY models/ ./models/
-COPY gunicorn.conf.py ./gunicorn.conf.py
+COPY gunicorn_model_server.conf.py ./gunicorn.conf.py
 
 
 ARG SERVER
