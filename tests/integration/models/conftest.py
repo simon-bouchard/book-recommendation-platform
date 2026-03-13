@@ -93,10 +93,10 @@ def ensure_model_servers_ready(test_env):
     import time
 
     server_urls = {
-        "embedder": os.environ.get("EMBEDDER_URL", "http://embedder:8001"),
-        "similarity": os.environ.get("SIMILARITY_URL", "http://similarity:8002"),
-        "als": os.environ.get("ALS_URL", "http://als:8003"),
-        "metadata": os.environ.get("METADATA_URL", "http://metadata:8004"),
+        "embedder": os.environ.get("EMBEDDER_URL", "http://localhost:8001"),
+        "similarity": os.environ.get("SIMILARITY_URL", "http://localhost:8002"),
+        "als": os.environ.get("ALS_URL", "http://localhost:8003"),
+        "metadata": os.environ.get("METADATA_URL", "http://localhost:8004"),
     }
 
     timeout_seconds = 60
