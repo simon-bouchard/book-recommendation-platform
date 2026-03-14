@@ -23,18 +23,42 @@ Key design decisions
 
 from __future__ import annotations
 
-from unittest.mock import AsyncMock, MagicMock, Mock
+from unittest.mock import AsyncMock, MagicMock, Mock, patch
 
 import pytest
 from starlette.testclient import TestClient
+
+import os
 
 from models.domain.recommendation import RecommendedBook
 from models.core.constants import PAD_IDX
 
 
+os.environ["SECURE_MODE"] = "false"
+
+
 # ---------------------------------------------------------------------------
 # Application client
 # ---------------------------------------------------------------------------
+
+
+@pytest.fixture(autouse=True)
+def disable_cache():
+    """
+    Disable Redis caching for all route tests.
+
+    Both @cached_recommendations and @cached_similarity check client.available
+    and fall through to the real function when False. Patching both import
+    sites prevents any test from polluting the cache seen by a later test.
+    """
+    unavailable = MagicMock()
+    unavailable.available = False
+
+    with (
+        patch("models.cache.decorators.get_redis_client", return_value=unavailable),
+        patch("app.cache.decorators.get_redis_client", return_value=unavailable),
+    ):
+        yield
 
 
 @pytest.fixture(scope="session")
