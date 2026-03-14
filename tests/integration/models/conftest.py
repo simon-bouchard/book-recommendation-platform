@@ -5,11 +5,15 @@ Pytest configuration for models integration/performance tests.
 
 import os
 from pathlib import Path
+import os
 
 import httpx
 import pytest
 from httpx import ASGITransport
 from sqlalchemy.orm import Session
+
+
+os.environ["SECURE_MODE"] = "false"
 
 
 @pytest.fixture(scope="session")
