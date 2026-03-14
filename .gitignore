@@ -27,6 +27,7 @@ ops/models/migration_report_*
 tests/integration/models/performance_baselines
 models/data/.reload_signal
 tests/integration/models/profiles/*
+tests/integration/models/prod_results/*
 tests/load/model_servers/profiles/*
 
 # Model artifacts
