@@ -46,8 +46,8 @@ _PROFILES_DIR = Path(__file__).parent / "profiles"
 _TIMESTAMP = datetime.now().strftime("%Y%m%d_%H%M%S")
 _RUN_DIR = _PROFILES_DIR / _TIMESTAMP
 
-_PROFILE_WARMUP = 3
-_PROFILE_REQUESTS = 20
+_PROFILE_WARMUP = 5
+_PROFILE_REQUESTS = 200
 
 # Resolve the full path under the current user's PATH so that sudo — which
 # runs with a restricted PATH that excludes conda/venv bin directories —
@@ -121,17 +121,12 @@ def _pyspy_record(label: str, duration: int):
     try:
         yield output_path
     finally:
+        proc.send_signal(signal.SIGINT)
         try:
-            proc.wait(timeout=5)
+            proc.wait(timeout=10)
         except subprocess.TimeoutExpired:
-            # SIGKILL prevents py-spy from writing the output file.
-            # SIGINT triggers a clean shutdown that flushes the profile.
-            proc.send_signal(signal.SIGINT)
-            try:
-                proc.wait(timeout=10)
-            except subprocess.TimeoutExpired:
-                proc.kill()
-                proc.wait()
+            proc.kill()
+            proc.wait()
 
         if output_path.exists():
             print(f"\n  Profile written -> {output_path}")
