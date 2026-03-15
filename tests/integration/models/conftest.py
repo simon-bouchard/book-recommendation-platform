@@ -4,16 +4,17 @@ Pytest configuration for models integration/performance tests.
 """
 
 import os
+from datetime import datetime
 from pathlib import Path
-import os
 
 import httpx
 import pytest
 from httpx import ASGITransport
 from sqlalchemy.orm import Session
 
-
 os.environ["SECURE_MODE"] = "false"
+os.environ["OTEL_ENVIRONMENT"] = "test"
+os.environ["TEST_RUN_ID"] = datetime.now().strftime("%Y%m%d_%H%M%S")
 
 
 @pytest.fixture(scope="session")
@@ -52,7 +53,8 @@ async def client() -> httpx.AsyncClient:
 
     ASGITransport does not trigger lifespan events, so the app lifespan is
     run manually. Without this the model server HTTP clients are never
-    initialised and every request fails.
+    initialised and every request fails. The lifespan also calls setup_tracing(),
+    so traces are exported to Jaeger for the full duration of the test module.
 
     The async engine is disposed in the finally block while the event loop
     is still live, preventing RuntimeError: Event loop is closed from
@@ -127,7 +129,7 @@ def ensure_model_servers_ready(test_env):
                 f"executing integration tests."
             )
 
-    print("All model servers ready.\n")
+    print(f"All model servers ready. Trace run_id={os.environ['TEST_RUN_ID']}\n")
     yield
 
 

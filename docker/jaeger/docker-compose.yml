@@ -1,0 +1,38 @@
+# docker/jaeger/docker-compose.yml
+#
+# Jaeger all-in-one trace collector and UI.
+#
+# Receives traces from the bookrec main app via OTLP/gRPC on port 4317.
+# The Jaeger UI is available at http://localhost:16686.
+#
+# Start:
+#   docker compose -f docker/jaeger/docker-compose.yml up -d
+#
+# Stop:
+#   docker compose -f docker/jaeger/docker-compose.yml down
+#
+# Traces are stored in memory and lost when the container stops. This is
+# intentional — traces are a diagnostic tool, not persistent data. The
+# MEMORY_MAX_TRACES cap prevents unbounded growth during long profiling
+# sessions.
+#
+# Ports (all bound to localhost via network_mode: host):
+#   4317  — OTLP gRPC receiver (main app exports here)
+#   16686 — Jaeger UI
+
+services:
+  jaeger:
+    image: jaegertracing/all-in-one:1.62
+    container_name: bookrec-jaeger
+    network_mode: host
+    environment:
+      COLLECTOR_OTLP_ENABLED: "true"
+      SPAN_STORAGE_TYPE: memory
+      MEMORY_MAX_TRACES: "50000"
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "wget", "--spider", "-q", "http://localhost:16686"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+      start_period: 5s

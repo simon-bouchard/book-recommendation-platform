@@ -19,6 +19,7 @@ from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from starlette.middleware.sessions import SessionMiddleware
 
+from app.telemetry.tracing import setup_tracing, shutdown_tracing
 from metrics import apply_metrics
 from models.client._exceptions import ModelServerError, ModelServerUnavailableError
 from models.client.registry import (
@@ -43,12 +44,14 @@ SECURE_MODE = os.getenv("SECURE_MODE", "true").lower() == "true"
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """
-    Initialize client connection pools on startup; drain them on shutdown.
+    Initialize tracing and client connection pools on startup; drain them on shutdown.
 
-    No artifacts are loaded here. The model servers own all ML state. Clients
-    are accessed via the registry and warm their connection pools lazily on
-    first request, so this startup is intentionally fast.
+    Tracing is set up first so that any spans created during client initialization
+    are captured. No artifacts are loaded here — the model servers own all ML state.
+    Clients warm their connection pools lazily on first request, so startup is fast.
     """
+    setup_tracing(app)
+
     get_embedder_client()
     get_similarity_client()
     get_als_client()
@@ -59,6 +62,8 @@ async def lifespan(app: FastAPI):
 
     await close_all()
     logger.info("Model server clients closed")
+
+    shutdown_tracing()
 
 
 app = FastAPI(lifespan=lifespan)

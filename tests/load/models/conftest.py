@@ -7,6 +7,7 @@ runs after all load tests complete.
 """
 
 import json
+import os
 from datetime import datetime
 from pathlib import Path
 from typing import Any
@@ -21,6 +22,9 @@ from tests.load.models._constants import (
     SUSTAINED_WORKERS,
     WARMUP_RUNS,
 )
+
+os.environ["OTEL_ENVIRONMENT"] = "test"
+os.environ["TEST_RUN_ID"] = datetime.now().strftime("%Y%m%d_%H%M%S")
 
 _BASELINES_DIR = Path(__file__).parent / "performance_baselines"
 
