@@ -11,6 +11,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import joinedload
 import logging
 import time
+from opentelemetry import trace
 
 from metrics import RECSYS_REQUESTS, RECSYS_LATENCY, SIMILARITY_REQUESTS, SIMILARITY_LATENCY
 
@@ -27,6 +28,7 @@ from models.client.registry import get_similarity_client
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
+tracer = trace.get_tracer(__name__)
 
 
 # ============================================================================
@@ -55,8 +57,9 @@ async def _compute_recommendations(
     else:
         stmt = stmt.where(ORMUser.username == user)
 
-    result = await db.execute(stmt)
-    user_obj = result.unique().scalar_one_or_none()
+    with tracer.start_as_current_span("db.fetch_user"):
+        result = await db.execute(stmt)
+        user_obj = result.unique().scalar_one_or_none()
 
     if not user_obj:
         raise HTTPException(status_code=404, detail="User not found")
