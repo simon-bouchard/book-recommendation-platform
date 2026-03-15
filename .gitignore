@@ -29,6 +29,8 @@ models/data/.reload_signal
 tests/integration/models/profiles/*
 tests/integration/models/prod_results/*
 tests/load/model_servers/profiles/*
+tests/integration/models/test_data_config.json
+
 
 # Model artifacts
 *.pickle
