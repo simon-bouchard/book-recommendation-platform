@@ -10,7 +10,7 @@ logging.getLogger("implicit").setLevel(logging.ERROR)
 
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "../..")))
 
-from models.core import PATHS
+from models.core.paths import PATHS
 from models.training.metrics import record_training_metrics
 
 ALPHA = 40

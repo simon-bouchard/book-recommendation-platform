@@ -6,7 +6,7 @@ import os, sys
 REPO_ROOT = Path(__file__).parent.parent.parent
 sys.path.append(os.path.abspath(os.path.join(REPO_ROOT)))
 
-from models.core import PATHS
+from models.core.paths import PATHS
 from models.data import load_book_subject_embeddings
 
 # Smoothing parameter

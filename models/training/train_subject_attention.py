@@ -4,8 +4,8 @@ import torch.nn as nn
 from typing import Tuple, Literal
 
 # Import the shared PAD index used across the repo
-from models.core import PAD_IDX
-from models.core import PATHS
+from models.core.constants import PAD_IDX
+from models.core.paths import PATHS
 
 PoolerKind = Literal["scalar", "perdim", "selfattn", "selfattn_perdim"]
 

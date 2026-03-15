@@ -29,7 +29,7 @@ from models.training.train_subject_attention import (
     save_components,
 )
 from models.training.metrics import record_training_metrics
-from models.core import PATHS
+from models.core.paths import PATHS
 
 REPO_ROOT = Path(__file__).parent.parent.parent
 OUT_DIR = PATHS.staging_dir / "attention"
