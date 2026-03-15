@@ -3,13 +3,7 @@ import numpy as np
 from pathlib import Path
 import os, sys
 
-# Config
 REPO_ROOT = Path(__file__).parent.parent.parent
-DATA_DIR = REPO_ROOT / "models" / "training" / "data"
-
-INTERACTIONS_PATH = Path(DATA_DIR / "interactions.pkl")
-BOOKS_PATH = Path(DATA_DIR / "books.pkl")
-
 sys.path.append(os.path.abspath(os.path.join(REPO_ROOT)))
 
 from models.core import PATHS
@@ -21,9 +15,9 @@ m = 30
 
 def main():
     print("📄 Loading files ...")
-    interactions = pd.read_pickle(INTERACTIONS_PATH)
+    interactions = pd.read_pickle(PATHS.staging_data_dir / "interactions.pkl")
 
-    books = pd.read_pickle(BOOKS_PATH).set_index("item_idx")
+    books = pd.read_pickle(PATHS.staging_data_dir / "books.pkl").set_index("item_idx")
 
     _, book_ids = load_book_subject_embeddings(normalized=False, use_cache=False)
 
@@ -62,7 +56,9 @@ def main():
     bayesian_tensor = score_df.loc[book_ids]["score"].fillna(0).values.astype(np.float32)
     PATHS.ensure_staging_dirs()
     np.save(PATHS.staging_dir / "scoring" / "bayesian_scores.npy", bayesian_tensor)
-    print(f"✅ Saved: {PATHS.staging_dir}/scoring/bayesian_scores.npy (shape: {bayesian_tensor.shape})")
+    print(
+        f"✅ Saved: {PATHS.staging_dir}/scoring/bayesian_scores.npy (shape: {bayesian_tensor.shape})"
+    )
 
 
 if __name__ == "__main__":

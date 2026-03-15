@@ -4,14 +4,10 @@ import scipy.sparse as sp
 import json
 import os, sys
 from implicit.als import AlternatingLeastSquares
-from pathlib import Path
-
 import logging, time
 
 logging.getLogger("implicit").setLevel(logging.ERROR)
 
-REPO_ROOT = Path(__file__).parent.parent.parent
-DATA_DIR = REPO_ROOT / "models" / "training" / "data"
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "../..")))
 
 from models.core import PATHS
@@ -26,7 +22,7 @@ RANDOM_STATE = 42
 
 def main():
     print("📦 Loading interactions...")
-    interactions = pd.read_pickle(f"{DATA_DIR}/interactions.pkl")
+    interactions = pd.read_pickle(PATHS.staging_data_dir / "interactions.pkl")
     interactions = interactions[interactions["rating"].notnull()]
 
     # Warm users only

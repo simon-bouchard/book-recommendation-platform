@@ -19,9 +19,6 @@ from models.core import PATHS
 
 DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
 
-REPO_ROOT = Path(__file__).parent.parent.parent
-DATA_DIR = REPO_ROOT / "models" / "training" / "data"
-
 
 def parse_args():
     parser = argparse.ArgumentParser(description="Precompute book subject embeddings")
@@ -45,8 +42,8 @@ def main():
     ATTN_STRATEGY = os.getenv("ATTN_STRATEGY", "perdim")
 
     print("Loading book and subject mappings...")
-    books = pd.read_pickle(DATA_DIR / "books.pkl")
-    book_subjects = pd.read_pickle(DATA_DIR / "book_subjects.pkl")
+    books = pd.read_pickle(PATHS.staging_data_dir / "books.pkl")
+    book_subjects = pd.read_pickle(PATHS.staging_data_dir / "book_subjects.pkl")
 
     book_to_subjects = defaultdict(list)
     for row in book_subjects.itertuples():
@@ -96,8 +93,8 @@ def main():
         json.dump(book_ids, f)
 
     print("Saved:")
-    print(f"   - {REPO_ROOT}/models/artifacts/embeddings/book_subject_embeddings.npy")
-    print(f"   - {REPO_ROOT}/models/artifacts/embeddings/book_subject_ids.json")
+    print(f"   - {PATHS.staging_dir}/embeddings/book_subject_embeddings.npy")
+    print(f"   - {PATHS.staging_dir}/embeddings/book_subject_ids.json")
 
 
 if __name__ == "__main__":
