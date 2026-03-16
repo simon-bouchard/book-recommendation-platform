@@ -322,6 +322,12 @@ def main() -> None:
             f"{remote_log_dir}'"
         )
 
+        print("Seeding remote staging/attention/ with current production weights...")
+        run(
+            f"scp {PATHS.attention_dir}/*.pth "
+            f"{REMOTE_HOST}:{remote_staging}/attention/"
+        )
+
         # --- Remote training ------------------------------------------------
 
         print("Running training scripts remotely...")
