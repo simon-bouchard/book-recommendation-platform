@@ -1,13 +1,15 @@
-import pandas as pd
-import numpy as np
+import json
+import os
+import sys
 from pathlib import Path
-import os, sys
+
+import numpy as np
+import pandas as pd
 
 REPO_ROOT = Path(__file__).parent.parent.parent
 sys.path.append(os.path.abspath(os.path.join(REPO_ROOT)))
 
 from models.core.paths import PATHS
-from models.data.loaders import load_book_subject_embeddings
 
 # Smoothing parameter
 m = 30
@@ -19,7 +21,8 @@ def main():
 
     books = pd.read_pickle(PATHS.staging_data_dir / "books.pkl").set_index("item_idx")
 
-    _, book_ids = load_book_subject_embeddings(normalized=False, use_cache=False)
+    with open(PATHS.staging_dir / "embeddings" / "book_subject_ids.json") as f:
+        book_ids = json.load(f)
 
     rated = interactions[interactions["rating"].notna()]
 
