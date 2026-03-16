@@ -7,7 +7,7 @@ services:
     env_file:
       /etc/bookrec.env
     volumes:
-      - meili_data:/data.ms
+      - meili_data:/meili_data
     restart: unless-stopped
 
 volumes:
