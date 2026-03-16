@@ -19,6 +19,9 @@ from models.core.paths import PATHS
 
 DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
 
+REPO_ROOT = Path(__file__).parent.parent.parent
+DATA_DIR = PATHS.staging_data_dir
+
 
 def parse_args():
     parser = argparse.ArgumentParser(description="Precompute book subject embeddings")
@@ -42,8 +45,8 @@ def main():
     ATTN_STRATEGY = os.getenv("ATTN_STRATEGY", "perdim")
 
     print("Loading book and subject mappings...")
-    books = pd.read_pickle(PATHS.staging_data_dir / "books.pkl")
-    book_subjects = pd.read_pickle(PATHS.staging_data_dir / "book_subjects.pkl")
+    books = pd.read_pickle(DATA_DIR / "books.pkl")
+    book_subjects = pd.read_pickle(DATA_DIR / "book_subjects.pkl")
 
     book_to_subjects = defaultdict(list)
     for row in book_subjects.itertuples():
@@ -61,16 +64,14 @@ def main():
 
     print(f"Books with valid subjects: {len(book_ids)}")
 
-    # Load pooler (need to pass pad_idx to it)
-    from models.data.loaders import load_attention_strategy
+    from models.subject_attention_strategy import STRATEGY_REGISTRY
 
-    pooler = load_attention_strategy(strategy=ATTN_STRATEGY, use_cache=False)
+    if ATTN_STRATEGY not in STRATEGY_REGISTRY:
+        raise ValueError(f"Unknown attention strategy: '{ATTN_STRATEGY}'")
 
-    # Update pooler's padding index
-    if hasattr(pooler, "subject_emb"):
-        pooler.subject_emb.padding_idx = pad_idx
-    elif hasattr(pooler, "shared_subj_emb"):
-        pooler.shared_subj_emb.padding_idx = pad_idx
+    attn_path = PATHS.staging_dir / "attention" / f"subject_attention_{ATTN_STRATEGY}.pth"
+    print(f"Loading attention weights from: {attn_path}")
+    pooler = STRATEGY_REGISTRY[ATTN_STRATEGY](path=str(attn_path))
 
     print("Computing pooled subject embeddings...")
     BATCH_SIZE = 1024
@@ -93,8 +94,8 @@ def main():
         json.dump(book_ids, f)
 
     print("Saved:")
-    print(f"   - {PATHS.staging_dir}/embeddings/book_subject_embeddings.npy")
-    print(f"   - {PATHS.staging_dir}/embeddings/book_subject_ids.json")
+    print(f"   - {REPO_ROOT}/models/artifacts/embeddings/book_subject_embeddings.npy")
+    print(f"   - {REPO_ROOT}/models/artifacts/embeddings/book_subject_ids.json")
 
 
 if __name__ == "__main__":
