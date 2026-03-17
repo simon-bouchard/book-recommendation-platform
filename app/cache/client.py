@@ -1,17 +1,18 @@
 # app/cache/client.py
 """
-Redis connection management with connection pooling and graceful degradation.
-Provides singleton access to a Redis client, reading connection details from
+Redis connection management with async connection pooling and graceful degradation.
+Provides singleton access to an async Redis client, reading connection details from
 REDIS_URL (preferred) or the individual REDIS_HOST / REDIS_PORT / REDIS_DB /
 REDIS_PASSWORD env vars.
 """
 
+import asyncio
 import logging
 import os
 from typing import Optional
 from urllib.parse import urlparse
 
-import redis
+import redis.asyncio as redis
 
 logger = logging.getLogger(__name__)
 
@@ -35,7 +36,10 @@ def _parse_redis_url(url: str) -> dict:
 
 class CacheClient:
     """
-    Redis cache client with connection pooling and graceful degradation.
+    Async Redis cache client with connection pooling and graceful degradation.
+
+    Must be instantiated via the async factory method CacheClient.create() rather
+    than the constructor directly, as the startup connectivity check is async.
 
     Falls back gracefully when Redis is unreachable — all operations become
     no-ops and available returns False, so callers can skip cache logic
@@ -44,14 +48,18 @@ class CacheClient:
 
     def __init__(
         self,
-        host: str = "localhost",
-        port: int = 6379,
-        db: int = 0,
-        password: Optional[str] = None,
-        socket_timeout: int = 5,
-        socket_connect_timeout: int = 5,
-        max_connections: int = 50,
+        host: str,
+        port: int,
+        db: int,
+        password: Optional[str],
+        socket_timeout: int,
+        socket_connect_timeout: int,
+        max_connections: int,
     ):
+        self._host = host
+        self._port = port
+        self._db = db
+
         self.pool = redis.ConnectionPool(
             host=host,
             port=port,
@@ -62,21 +70,50 @@ class CacheClient:
             max_connections=max_connections,
             decode_responses=True,
         )
-
         self.client = redis.Redis(connection_pool=self.pool)
-        self._available = self._check_connection()
+        self._available = False
 
-        if self._available:
+    @classmethod
+    async def create(
+        cls,
+        host: str = "localhost",
+        port: int = 6379,
+        db: int = 0,
+        password: Optional[str] = None,
+        socket_timeout: int = 5,
+        socket_connect_timeout: int = 5,
+        max_connections: int = 50,
+    ) -> "CacheClient":
+        """
+        Async factory that constructs a CacheClient and confirms connectivity.
+
+        Use this instead of instantiating CacheClient directly. The startup
+        ping is awaited here so availability is known before the first request.
+        """
+        instance = cls(
+            host=host,
+            port=port,
+            db=db,
+            password=password,
+            socket_timeout=socket_timeout,
+            socket_connect_timeout=socket_connect_timeout,
+            max_connections=max_connections,
+        )
+        instance._available = await instance._check_connection()
+
+        if instance._available:
             logger.info("Redis cache connected: %s:%s/%s", host, port, db)
         else:
             logger.warning(
                 "Redis cache unavailable: %s:%s/%s - running without cache", host, port, db
             )
 
-    def _check_connection(self) -> bool:
+        return instance
+
+    async def _check_connection(self) -> bool:
         """Ping Redis to confirm the connection is live."""
         try:
-            self.client.ping()
+            await self.client.ping()
             return True
         except (redis.ConnectionError, redis.TimeoutError) as exc:
             logger.warning("Redis connection check failed: %s", exc)
@@ -87,75 +124,80 @@ class CacheClient:
         """True if Redis is reachable and operations will be attempted."""
         return self._available
 
-    def get(self, key: str) -> Optional[str]:
+    async def get(self, key: str) -> Optional[str]:
         """Return the cached value for key, or None on miss or error."""
         if not self._available:
             return None
         try:
-            return self.client.get(key)
+            return await self.client.get(key)
         except Exception as exc:
             logger.warning("Cache get failed for key %s: %s", key, exc)
             return None
 
-    def set(self, key: str, value: str, ttl: Optional[int] = None) -> bool:
+    async def set(self, key: str, value: str, ttl: Optional[int] = None) -> bool:
         """Store value under key with an optional TTL in seconds."""
         if not self._available:
             return False
         try:
             if ttl:
-                return bool(self.client.setex(key, ttl, value))
-            return bool(self.client.set(key, value))
+                return bool(await self.client.setex(key, ttl, value))
+            return bool(await self.client.set(key, value))
         except Exception as exc:
             logger.warning("Cache set failed for key %s: %s", key, exc)
             return False
 
-    def delete(self, key: str) -> bool:
+    async def delete(self, key: str) -> bool:
         """Delete a single key. Returns True on success."""
         if not self._available:
             return False
         try:
-            self.client.delete(key)
+            await self.client.delete(key)
             return True
         except Exception as exc:
             logger.warning("Cache delete failed for key %s: %s", key, exc)
             return False
 
-    def delete_pattern(self, pattern: str) -> int:
-        """Delete all keys matching pattern. Returns the count deleted."""
+    async def delete_pattern(self, pattern: str) -> int:
+        """
+        Delete all keys matching pattern. Returns the count deleted.
+
+        Uses SCAN internally to avoid blocking the server on large keyspaces.
+        """
         if not self._available:
             return 0
         try:
-            keys = self.client.keys(pattern)
+            keys = [key async for key in self.client.scan_iter(pattern)]
             if keys:
-                return self.client.delete(*keys)
+                return await self.client.delete(*keys)
             return 0
         except Exception as exc:
             logger.warning("Cache delete_pattern failed for pattern %s: %s", pattern, exc)
             return 0
 
-    def exists(self, key: str) -> bool:
+    async def exists(self, key: str) -> bool:
         """Return True if key exists in the cache."""
         if not self._available:
             return False
         try:
-            return bool(self.client.exists(key))
+            return bool(await self.client.exists(key))
         except Exception as exc:
             logger.warning("Cache exists check failed for key %s: %s", key, exc)
             return False
 
-    def close(self) -> None:
+    async def aclose(self) -> None:
         """Disconnect the connection pool."""
         try:
-            self.pool.disconnect()
+            await self.client.aclose()
             logger.info("Redis connection pool closed")
         except Exception as exc:
             logger.warning("Error closing Redis connection pool: %s", exc)
 
 
 _cache_client: Optional[CacheClient] = None
+_cache_client_lock: asyncio.Lock = asyncio.Lock()
 
 
-def get_redis_client(
+async def get_redis_client(
     host: Optional[str] = None,
     port: Optional[int] = None,
     db: Optional[int] = None,
@@ -163,6 +205,9 @@ def get_redis_client(
 ) -> CacheClient:
     """
     Return the singleton CacheClient, creating it on first call.
+
+    Thread-safe via asyncio.Lock — concurrent coroutines racing on first call
+    will wait rather than creating multiple clients.
 
     Connection resolution order:
       1. REDIS_URL env var  (e.g. redis://localhost:6379/0)
@@ -176,24 +221,28 @@ def get_redis_client(
     """
     global _cache_client
 
-    if _cache_client is None:
-        redis_url = os.getenv("REDIS_URL")
-        if redis_url:
-            conn = _parse_redis_url(redis_url)
-        else:
-            conn = {
-                "host": host or os.getenv("REDIS_HOST", "localhost"),
-                "port": port or int(os.getenv("REDIS_PORT", "6379")),
-                "db": db or int(os.getenv("REDIS_DB", "0")),
-                "password": password or os.getenv("REDIS_PASSWORD"),
-            }
+    if _cache_client is not None:
+        return _cache_client
 
-        _cache_client = CacheClient(**conn)
+    async with _cache_client_lock:
+        if _cache_client is None:
+            redis_url = os.getenv("REDIS_URL")
+            if redis_url:
+                conn = _parse_redis_url(redis_url)
+            else:
+                conn = {
+                    "host": host or os.getenv("REDIS_HOST", "localhost"),
+                    "port": port or int(os.getenv("REDIS_PORT", "6379")),
+                    "db": db or int(os.getenv("REDIS_DB", "0")),
+                    "password": password or os.getenv("REDIS_PASSWORD"),
+                }
+
+            _cache_client = await CacheClient.create(**conn)
 
     return _cache_client
 
 
-def reset_cache_client() -> None:
+async def reset_cache_client() -> None:
     """
     Tear down the singleton and release its connection pool.
 
@@ -203,5 +252,5 @@ def reset_cache_client() -> None:
     global _cache_client
 
     if _cache_client:
-        _cache_client.close()
+        await _cache_client.aclose()
         _cache_client = None

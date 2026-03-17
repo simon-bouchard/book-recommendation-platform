@@ -4,18 +4,18 @@ ML-specific caching decorators for similarity and recommendation endpoints.
 Wraps generic @cached decorator with ML-optimized key functions and TTLs.
 """
 
-from functools import wraps
-from typing import Callable
 import logging
 import time
+from functools import wraps
+from typing import Callable
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.cache import get_redis_client, cached
-from app.cache.serializers import serialize, deserialize
+from app.cache import cached, get_redis_client
+from app.cache.serializers import deserialize, serialize
 from app.table_models import User as ORMUser, UserFavSubject
-from models.cache.keys import similarity_key, recommendation_key
+from models.cache.keys import recommendation_key, similarity_key
 
 logger = logging.getLogger(__name__)
 
@@ -31,9 +31,9 @@ def cached_similarity(func: Callable) -> Callable:
     Caches results for 24 hours. Similarity results are static between model reloads.
 
     Expected function signature:
-        get_similar(item_idx: int, mode: str, k: int, alpha: float = 0.6, **kwargs)
+        get_similar(item_idx: int, mode: str, alpha: float, top_k: int, **kwargs)
 
-    Cache key includes: item_idx, mode, k, alpha (for hybrid mode only)
+    Cache key includes: item_idx, mode, top_k, alpha (for hybrid mode only).
     """
 
     def key_func(item_idx: int, mode: str, alpha: float, top_k: int, **kwargs) -> str:
@@ -77,7 +77,7 @@ def cached_recommendations(func: Callable) -> Callable:
     async def wrapper(
         user: str, _id: bool, top_n: int, mode: str, w: float, db: AsyncSession, **kwargs
     ):
-        client = get_redis_client()
+        client = await get_redis_client()
 
         if not client.available:
             logger.info("Cache unavailable, falling through to computation")
@@ -97,19 +97,19 @@ def cached_recommendations(func: Callable) -> Callable:
                 top_n=top_n,
                 w=w,
             )
-        except ValueError as e:
-            logger.warning(f"Cache key generation failed: {e}")
+        except ValueError as exc:
+            logger.warning("Cache key generation failed: %s", exc)
             return await func(user, _id, top_n, mode, w, db, **kwargs)
 
-        cached_value = client.get(cache_key)
+        cached_value = await client.get(cache_key)
 
         if cached_value is not None:
             result = deserialize(cached_value)
             if result is not None:
-                logger.info(f"Cache HIT: {cache_key}")
+                logger.info("Cache HIT: %s", cache_key)
                 return result
 
-        logger.info(f"Cache MISS: {cache_key}")
+        logger.info("Cache MISS: %s", cache_key)
 
         start_time = time.time()
         result = await func(user, _id, top_n, mode, w, db, **kwargs)
@@ -117,10 +117,13 @@ def cached_recommendations(func: Callable) -> Callable:
 
         serialized = serialize(result)
         if serialized is not None:
-            success = client.set(cache_key, serialized, RECOMMENDATION_TTL)
+            success = await client.set(cache_key, serialized, RECOMMENDATION_TTL)
             if success:
                 logger.info(
-                    f"Cache SET: {cache_key} (computed in {compute_ms}ms, ttl={RECOMMENDATION_TTL}s)"
+                    "Cache SET: %s (computed in %dms, ttl=%ss)",
+                    cache_key,
+                    compute_ms,
+                    RECOMMENDATION_TTL,
                 )
 
         return result
