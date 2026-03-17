@@ -19,16 +19,13 @@ from typing import List, Optional, Union
 from metrics import RATING_ACTIONS
 from routes.auth import get_current_user
 from app.database import get_db
-from app.table_models import Book, User, Interaction, BookSubject, Subject, UserFavSubject
+from app.table_models import Book, User, Interaction, Subject, UserFavSubject
 from app.models import get_all_subject_counts, clean_float_values
 from app.search.search_utils import update_book_ratings_in_meili
 from app.search.models import SearchRequest, SearchMode
 from app.search.engine import SearchEngine
 from app.search.search_utils import _build_search_request
-from models.client.registry import get_similarity_client
-
-# New refactored imports
-from models.infrastructure.als_model import ALSModel
+from models.client.registry import get_als_client, get_similarity_client
 from app.agents.logging import get_logger
 
 logger = get_logger(__name__)
@@ -80,19 +77,12 @@ def profile_page(
     num_books_read = counts.total
     num_ratings = counts.rated
 
-    # Get warm status from user_meta
-    # Check if user is warm using ALS model
-    is_warm = ALSModel().has_user(current_user.user_id)
-    # is_warm already computed above
-    # (kept for backward compatibility)
-
     user_data = {
         "id": current_user.user_id,
         "username": current_user.username,
         "email": current_user.email,
         "num_books_read": num_books_read,
         "num_ratings": num_ratings,
-        "is_warm": is_warm,
         "favorite_subjects": [
             s.subject.subject
             for s in current_user.favorite_subjects
@@ -105,6 +95,25 @@ def profile_page(
         "profile.html",
         {"request": request, "user": user_data, "page": "profile", "message": message},
     )
+
+
+@router.get("/profile/is_warm")
+async def profile_is_warm(current_user=Depends(get_current_user)):
+    """
+    Check whether the current user has ALS factors (warm/cold gate).
+
+    Separated from the profile page so the sync page route has no async
+    dependency. The frontend fetches this after page load and updates the
+    UI accordingly. Returns is_warm=False on any model server error so the
+    UI degrades gracefully if the ALS server is unavailable.
+    """
+    if not current_user:
+        return {"is_warm": False}
+    try:
+        resp = await get_als_client().has_als_user(current_user.user_id)
+        return {"is_warm": resp.is_warm}
+    except Exception:
+        return {"is_warm": False}
 
 
 @router.post("/profile/update")
@@ -312,7 +321,7 @@ async def delete_rating(
 
 
 @router.get("/book/{item_idx}", response_class=HTMLResponse)
-async def book_recommendation(
+def book_recommendation(
     request: Request,
     item_idx: int,
     current_user: User = Depends(get_current_user),
@@ -370,18 +379,32 @@ async def book_recommendation(
         if interaction and (interaction.rating is not None or interaction.comment):
             user_rating = {"rating": interaction.rating, "comment": interaction.comment}
 
-    has_als = (await get_similarity_client().has_book_als(book.item_idx)).has_als
-
     return templates.TemplateResponse(
         "book.html",
         {
             "request": request,
             "book": book_info,
             "user_rating": user_rating,
-            "has_als": has_als,
             "has_real_subjects": has_real_subjects,
         },
     )
+
+
+@router.get("/book/{item_idx}/has_als")
+async def book_has_als(item_idx: int):
+    """
+    Check whether a book has ALS factors available.
+
+    Separated from the book page so the sync page route has no async
+    dependency. The frontend fetches this after page load and shows or
+    hides behavioral similarity controls accordingly. Returns has_als=False
+    on any model server error so the UI degrades gracefully.
+    """
+    try:
+        resp = await get_similarity_client().has_book_als(item_idx)
+        return {"has_als": resp.has_als}
+    except Exception:
+        return {"has_als": False}
 
 
 @router.get("/book/{item_idx}/comments")
