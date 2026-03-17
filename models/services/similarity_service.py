@@ -29,7 +29,8 @@ class SimilarityService:
         ├── similarity.retrieve
         │   └── POST /subject_sim | /als_sim | /hybrid_sim  (httpx auto-instrumented)
         └── similarity.enrich
-            └── POST /enrich  (httpx auto-instrumented)
+            ├── POST /enrich  (httpx auto-instrumented)
+            └── metadata.build_index
     """
 
     def __init__(self):
@@ -107,6 +108,10 @@ class SimilarityService:
         """
         Enrich similarity results with book metadata under a named span.
 
+        get_metadata_client().enrich() returns a dict[int, dict] keyed by
+        item_idx. Fields are accessed directly from the raw dict, avoiding
+        any Pydantic object construction on the hot path.
+
         The httpx auto-instrumentor attaches POST /enrich as a child of this
         span so enrichment latency is cleanly separated from retrieval latency
         in the Jaeger waterfall.
@@ -114,21 +119,20 @@ class SimilarityService:
         with tracer.start_as_current_span("similarity.enrich") as span:
             span.set_attribute("enrich.input_count", len(results))
             try:
-                enrich_resp = await get_metadata_client().enrich([r.item_idx for r in results])
-                meta = {b.item_idx: b for b in enrich_resp.books}
+                meta = await get_metadata_client().enrich([r.item_idx for r in results])
 
                 enriched = [
                     {
-                        "item_idx": b.item_idx,
-                        "title": b.title,
-                        "author": b.author,
-                        "year": b.year,
-                        "isbn": b.isbn,
-                        "cover_id": b.cover_id,
+                        "item_idx": book["item_idx"],
+                        "title": book["title"],
+                        "author": book["author"],
+                        "year": book["year"],
+                        "isbn": book["isbn"],
+                        "cover_id": book["cover_id"],
                         "score": r.score,
                     }
                     for r in results
-                    if (b := meta.get(r.item_idx)) is not None
+                    if (book := meta.get(r.item_idx)) is not None
                 ]
 
                 span.set_attribute("enrich.output_count", len(enriched))

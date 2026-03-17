@@ -37,13 +37,13 @@ class RecommendationService:
 
     Trace structure per request:
         recommendation.service
-        ├── recommendation.pipeline (from RecommendationPipeline)
-        │   ├── pipeline.generate
-        │   │   └── POST /als_recs  (httpx auto-instrumented)
-        │   └── pipeline.filter
-        │       └── SELECT interactions  (SQLAlchemy auto-instrumented)
+        ├── pipeline.generate
+        │   └── POST /als_recs  (httpx auto-instrumented)
+        ├── pipeline.filter
+        │   └── SELECT interactions  (SQLAlchemy auto-instrumented)
         └── recommendation.enrich
-            └── POST /enrich  (httpx auto-instrumented)
+            ├── POST /enrich  (httpx auto-instrumented)
+            └── metadata.build_index
     """
 
     def __init__(self):
@@ -147,6 +147,10 @@ class RecommendationService:
         """
         Enrich candidates with book metadata via the metadata model server.
 
+        get_metadata_client().enrich() returns a dict[int, dict] keyed by
+        item_idx. Fields are accessed directly from the raw dict, avoiding
+        any Pydantic object construction on the hot path.
+
         The httpx auto-instrumentor attaches POST /enrich as a child of this
         span, making enrichment latency cleanly visible as a sibling of the
         pipeline span in the Jaeger waterfall.
@@ -155,23 +159,22 @@ class RecommendationService:
             span.set_attribute("enrich.input_count", len(candidates))
 
             try:
-                resp = await get_metadata_client().enrich([c.item_idx for c in candidates])
-                meta = {b.item_idx: b for b in resp.books}
+                meta = await get_metadata_client().enrich([c.item_idx for c in candidates])
 
                 result = [
                     RecommendedBook(
                         item_idx=c.item_idx,
-                        title=meta[c.item_idx].title,
+                        title=book["title"],
                         score=c.score,
-                        num_ratings=meta[c.item_idx].num_ratings,
-                        author=meta[c.item_idx].author,
-                        year=meta[c.item_idx].year,
-                        isbn=meta[c.item_idx].isbn,
-                        cover_id=meta[c.item_idx].cover_id,
-                        avg_rating=meta[c.item_idx].avg_rating,
+                        num_ratings=book["num_ratings"],
+                        author=book["author"],
+                        year=book["year"],
+                        isbn=book["isbn"],
+                        cover_id=book["cover_id"],
+                        avg_rating=book["avg_rating"],
                     )
                     for c in candidates
-                    if c.item_idx in meta
+                    if (book := meta.get(c.item_idx)) is not None
                 ]
 
                 span.set_attribute("enrich.output_count", len(result))
