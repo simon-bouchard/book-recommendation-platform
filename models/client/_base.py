@@ -14,6 +14,7 @@ from typing import Any
 
 import httpx
 import orjson
+from opentelemetry import trace
 
 from models.client._exceptions import (
     ModelServerRequestError,
@@ -21,6 +22,7 @@ from models.client._exceptions import (
 )
 
 logger = logging.getLogger(__name__)
+tracer = trace.get_tracer(__name__)
 
 _DEFAULT_TIMEOUT = httpx.Timeout(connect=2.0, read=10.0, write=5.0, pool=2.0)
 
@@ -78,7 +80,12 @@ class BaseModelServerClient:
                 headers={"Content-Type": "application/json"},
             )
             response.raise_for_status()
-            return orjson.loads(response.content)
+
+            with tracer.start_as_current_span("http.parse_response") as span:
+                span.set_attribute("server", self._SERVER_NAME)
+                span.set_attribute("path", path)
+                span.set_attribute("content_length", len(response.content))
+                return orjson.loads(response.content)
 
         except httpx.HTTPStatusError as exc:
             status = exc.response.status_code

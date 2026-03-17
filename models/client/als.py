@@ -8,6 +8,7 @@ from __future__ import annotations
 import os
 
 import httpx
+from opentelemetry import trace
 
 from model_servers._shared.contracts import (
     AlsRecsRequest,
@@ -18,6 +19,8 @@ from model_servers._shared.contracts import (
 from models.client._base import BaseModelServerClient, _DEFAULT_TIMEOUT
 
 _DEFAULT_URL = "http://als:8003"
+
+tracer = trace.get_tracer(__name__)
 
 
 class AlsClient(BaseModelServerClient):
@@ -57,7 +60,10 @@ class AlsClient(BaseModelServerClient):
         """
         body = HasAlsUserRequest(user_id=user_id)
         data = await self._post("/has_als_user", body)
-        return HasAlsUserResponse.model_validate(data)
+
+        with tracer.start_as_current_span("als.model_validate") as span:
+            span.set_attribute("model", "HasAlsUserResponse")
+            return HasAlsUserResponse.model_validate(data)
 
     async def als_recs(self, user_id: int, k: int = 200) -> AlsRecsResponse:
         """
@@ -76,4 +82,8 @@ class AlsClient(BaseModelServerClient):
         """
         body = AlsRecsRequest(user_id=user_id, k=k)
         data = await self._post("/als_recs", body)
-        return AlsRecsResponse.model_validate(data)
+
+        with tracer.start_as_current_span("als.model_validate") as span:
+            span.set_attribute("model", "AlsRecsResponse")
+            span.set_attribute("k", k)
+            return AlsRecsResponse.model_validate(data)
