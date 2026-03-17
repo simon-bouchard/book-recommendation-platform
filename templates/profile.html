@@ -8,7 +8,6 @@
     <link rel="icon" type="image/png" href="{{ url_for('static', path='favicon.png') }}">
     <link rel="shortcut icon" href="{{ url_for('static', path='favicon.ico') }}">
 </head>
-</head>
 <body>
 <div class="layout">
     {% include 'navbar.html' %}
@@ -27,18 +26,24 @@
 
         <div id="profileDisplay" class="profile-card">
 
+            <!--
+                The warm banner is hidden initially; JS fetches /profile/is_warm
+                after page load and reveals it if the user has ALS factors.
+                The cold/eligible banners are rendered server-side from num_ratings
+                since that data is available synchronously. If the user is confirmed
+                warm, JS hides the eligible banner and shows the warm one.
+            -->
             <div class="profile-status-row" style="grid-column: 1 / -1;">
-                {% if user.is_warm %}
-                    <div class="warm-user-banner">
-                        ✅ You're a <strong>warm user</strong> — you've rated enough books to receive personalized recommendations.
-                    </div>
-                {% elif user.num_ratings >= 10 %}
-                    <div class="cold-user-banner">
-                        ⏳ You've rated <strong>{{ user.num_ratings }}</strong> books — you're eligible for personalized recommendations, but the server hasn't updated yet. Please check back soon!
+                <div id="warmBanner" class="warm-user-banner" style="display:none;">
+                    You're a <strong>warm user</strong> — you've rated enough books to receive personalized recommendations.
+                </div>
+                {% if user.num_ratings >= 10 %}
+                    <div id="eligibleBanner" class="cold-user-banner">
+                        You've rated <strong>{{ user.num_ratings }}</strong> books — you're eligible for personalized recommendations, but the server hasn't updated yet. Please check back soon!
                     </div>
                 {% else %}
                     <div class="cold-user-banner">
-                        ⚠️ You're a <strong>cold user</strong> — rate at least 10 books to unlock personalized recommendations.
+                        You're a <strong>cold user</strong> — rate at least 10 books to unlock personalized recommendations.
                     </div>
                 {% endif %}
             </div>
@@ -115,11 +120,13 @@
         </div>
 
         <h3>Personalised Recommendations</h3>
+        <!--
+            Behavioral starts disabled unconditionally. JS fetches /profile/is_warm
+            after page load and enables it if the user has ALS factors.
+        -->
         <div class="toggle-group" id="modeSelector">
             <div class="toggle-option selected" data-mode="subject">Subject</div>
-            <div class="toggle-option {% if not user.is_warm %}disabled{% endif %}" data-mode="behavioral">
-                Behavioral
-            </div>
+            <div class="toggle-option disabled" data-mode="behavioral">Behavioral</div>
         </div>
 
         <div class="blend-controls" id="subjectWeightControls">
@@ -147,7 +154,12 @@
     <script type="module">
     import { setupPaginatedBookDisplay } from "/static/js/paginated_books.js";
 
-    const isWarm = {{ 'true' if user.is_warm else 'false' }};
+    /*
+     * isWarm starts false. initWarmState() fetches /profile/is_warm after page
+     * load and mutates it, then enables the Behavioral toggle and updates the
+     * status banner. All recommendation logic reads isWarm at call time.
+     */
+    let isWarm = false;
     const userId = {{ user.id }};
 
     const modeOptions = document.querySelectorAll("#modeSelector .toggle-option");
@@ -171,12 +183,9 @@
         return el ? el.getAttribute("data-mode") : "subject";
     }
 
-    // --- NEW: centered numeric readout under the slider ---
     function updateWMeta() {
         if (!wSlider || !wMeta) return;
-        const w = clamp01(wSlider.value);
-        const percent = Math.round(w * 100);
-        wMeta.textContent = percent;   // single centered number
+        wMeta.textContent = Math.round(clamp01(wSlider.value) * 100);
     }
 
     function enableSubjectControls(enable) {
@@ -186,12 +195,10 @@
 
     function updateUI() {
         const mode = selectedMode();
-        const subjectSelected = mode === "subject";
-        enableSubjectControls(subjectSelected);
-        updateWMeta(); // always refresh the centered readout
+        enableSubjectControls(mode === "subject");
+        updateWMeta();
     }
 
-    // Toggle mode (block clicks on disabled Behavioral)
     modeOptions.forEach(opt => {
         opt.addEventListener("click", () => {
             if (opt.classList.contains("disabled")) return;
@@ -201,17 +208,15 @@
         });
     });
 
-    // Keep the centered readout live as the user drags the slider
     if (wSlider) {
         wSlider.addEventListener("input", updateWMeta);
         wSlider.addEventListener("change", updateWMeta);
     }
 
-    // Fetch recommendations (button stays visible; classic loading state)
     async function fetchRecommendations() {
         try {
             recommendBtn.disabled = true;
-            recommendBtn.textContent = "Loading…";
+            recommendBtn.textContent = "Loading...";
 
             const mode = selectedMode();
             const params = new URLSearchParams();
@@ -220,9 +225,9 @@
             params.set("_id", "true");
 
             if (mode === "behavioral") {
-                params.set("mode", "behavioral"); // ALS path; w not used
+                params.set("mode", "behavioral");
             } else {
-                params.set("mode", "subject");    // Cold hybrid path; uses w
+                params.set("mode", "subject");
                 params.set("w", clamp01(wSlider?.value ?? 0.6).toString());
             }
 
@@ -254,8 +259,39 @@
 
     recommendBtn.addEventListener("click", fetchRecommendations);
 
-    // Initial render
     updateUI();
+
+    /*
+     * Fetch warm status for the current user. On success, enable the
+     * Behavioral toggle and swap the status banner from "eligible but
+     * pending" to confirmed warm. Degrades silently on error so the page
+     * remains functional in subject/cold mode.
+     */
+    async function initWarmState() {
+        try {
+            const resp = await fetch("/profile/is_warm");
+            if (!resp.ok) return;
+            const data = await resp.json();
+            isWarm = data.is_warm === true;
+        } catch {
+            isWarm = false;
+        }
+
+        if (!isWarm) return;
+
+        modeOptions.forEach(opt => {
+            if (opt.getAttribute("data-mode") === "behavioral") {
+                opt.classList.remove("disabled");
+            }
+        });
+
+        const warmBanner = document.getElementById("warmBanner");
+        const eligibleBanner = document.getElementById("eligibleBanner");
+        if (warmBanner) warmBanner.style.display = "";
+        if (eligibleBanner) eligibleBanner.style.display = "none";
+    }
+
+    document.addEventListener("DOMContentLoaded", initWarmState);
 </script>
 
 {% include 'footer.html' %}
@@ -330,7 +366,6 @@
             const resp = await fetch("/profile", { method: "DELETE" });
 
             if (resp.status === 401) {
-                // Not logged in (or expired): send to login
                 window.location.href = "/login";
                 return;
             }
@@ -339,7 +374,6 @@
 
             if (resp.ok) {
                 alert(data.message || "Profile deleted.");
-                // Clear cookie via your existing logout endpoint, then land on login
                 window.location.href = "/logout";
             } else {
                 alert("Error: " + (data.detail || "Unable to delete profile."));
@@ -350,7 +384,7 @@
 
 <script type="module">
   import { mountBanners } from "/static/js/flash_alert.js";
-  mountBanners({ autoHideMs: 5000 }); // set 0 to disable auto‑dismiss
+  mountBanners({ autoHideMs: 5000 });
 </script>
 
 <script type="module">

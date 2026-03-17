@@ -8,7 +8,6 @@
     <link rel="icon" type="image/png" href="{{ url_for('static', path='favicon.png') }}">
     <link rel="shortcut icon" href="{{ url_for('static', path='favicon.ico') }}">
 </head>
-</head>
 <body>
     <div class="layout">
         {% include 'navbar.html' %}
@@ -97,7 +96,7 @@
                 value="{{ 'rated' if user_rating and user_rating.rating is not none else 'read' }}">
 
             <div id="ratingSection">
-                <label for="rating">Rating (1–10):</label>
+                <label for="rating">Rating (1-10):</label>
                 <input type="number" id="rating" name="rating" min="1" max="10" step="1"
                     value="{{ user_rating.rating if user_rating and user_rating.rating is not none else '' }}">
             </div>
@@ -106,7 +105,7 @@
             <textarea id="comment" name="comment" rows="3">{{ user_rating.comment if user_rating else '' }}</textarea>
 
             <button id="submitRating" class="btn btn--primary btn--sm">Save Rating</button>
-    
+
             {% if user_rating %}
                 <button id="deleteRating" class="btn btn--danger btn--sm">Delete Rating</button>
             {% endif %}
@@ -135,25 +134,26 @@
 
         <h3>See Similar Books</h3>
 
-		<div class="toggle-group" id="simModeSelector">
-			<div class="toggle-option
-				{% if not has_real_subjects %}disabled{% endif %}
-				{% if has_real_subjects and (not has_als or selected_default == 'subject') %}selected{% endif %}"
-				data-mode="subject">
-				Subject
-			</div>
-			<div class="toggle-option
-				{% if not has_als %}disabled{% endif %}
-				{% if has_als and not has_real_subjects %}selected{% endif %}"
-				data-mode="als">
-				Behavioral
-			</div>
-			<div class="toggle-option
-				{% if not has_als or not has_real_subjects %}disabled{% endif %}"
-				data-mode="hybrid">
-				Hybrid
-			</div>
-		</div>
+        <!--
+            Behavioral and Hybrid start disabled unconditionally.
+            JS fetches /book/{item_idx}/has_als after page load and enables
+            them if ALS factors are available for this book.
+            Subject starts selected when the book has real subjects; otherwise
+            it also starts disabled and JS selects Behavioral once confirmed.
+        -->
+        <div class="toggle-group" id="simModeSelector">
+            <div class="toggle-option
+                {% if not has_real_subjects %}disabled{% else %}selected{% endif %}"
+                data-mode="subject">
+                Subject
+            </div>
+            <div class="toggle-option disabled" data-mode="als">
+                Behavioral
+            </div>
+            <div class="toggle-option disabled" data-mode="hybrid">
+                Hybrid
+            </div>
+        </div>
 
         <div class="blend-controls" id="hybridControls">
             <div class="blend-row">
@@ -197,7 +197,7 @@
             .replace(/'/g, '&#039;');
         }
 
-        // SVG placeholder sized to match your CSS (160×240 on detail page)
+        // SVG placeholder sized to match your CSS (160x240 on detail page)
         function placeholderDataURI(titleText) {
           const svg =
 `<svg xmlns="http://www.w3.org/2000/svg" width="160" height="240" viewBox="0 0 160 240">
@@ -238,10 +238,10 @@
     <script>
 		let userRatingElement = document.getElementById('userRating');
 		let userCommentElement = document.getElementById('userComment');
-		let user_rating = {{ user_rating | tojson if user_rating else 'null' }};  
+		let user_rating = {{ user_rating | tojson if user_rating else 'null' }};
 
 		if (user_rating && user_rating.rating !== null && user_rating.rating !== "") {
-	    	userRatingElement.style.display = 'block';
+    		userRatingElement.style.display = 'block';
 		}
 
 		if (user_rating && user_rating.comment !== null && user_rating.comment.trim() !== "") {
@@ -252,7 +252,16 @@
     <script type="module">
         import { setupPaginatedBookDisplay } from "/static/js/paginated_books.js";
 
-        const hasAls = {{ 'true' if has_als else 'false' }};
+        /*
+         * hasAls starts false. initAlsState() fetches /book/{itemIdx}/has_als
+         * after page load and mutates it, then enables the relevant toggle
+         * options and re-evaluates the hybrid UI. All recommendation logic
+         * reads hasAls at call time so it always sees the settled value.
+         */
+        let hasAls = false;
+        const itemIdx = "{{ book.item_idx }}";
+        const hasRealSubjects = {{ 'true' if has_real_subjects else 'false' }};
+
         const recommendBtn = document.getElementById("recommendButton");
         const container = document.getElementById("recommendations");
         const simOptions = document.querySelectorAll("#simModeSelector .toggle-option");
@@ -270,7 +279,7 @@
         function modeRequiresAls(m) {
             return m === "als" || m === "hybrid";
         }
-        
+
         function clamp01(x) {
             x = Number(x);
             return (x >= 0 && x <= 1) ? x : 0.5;
@@ -279,8 +288,7 @@
         function updateAlphaMeta() {
             if (!alphaSlider || !alphaMeta) return;
             const a = clamp01(alphaSlider.value);
-            const percent = Math.round(a * 100);
-            alphaMeta.textContent = percent;    // single centered number, e.g., 50
+            alphaMeta.textContent = Math.round(a * 100);
         }
 
         function updateHybridUI() {
@@ -289,7 +297,7 @@
             hybridControls.classList.toggle("disabled", !enabled);
             if (alphaSlider) alphaSlider.disabled = !enabled;
         }
-        
+
         simOptions.forEach((opt) => {
             opt.addEventListener("click", () => {
                 if (opt.classList.contains("disabled")) return;
@@ -300,25 +308,24 @@
                 updateHybridUI();
             });
         });
-        
+
         async function fetchRecommendations() {
-            const item_idx = "{{ book.item_idx }}";
             const mode = selectedMode();
             const alpha = mode === "hybrid" ? clamp01(alphaSlider.value) : 0.6;
-            
+
             if (!hasAls && modeRequiresAls(mode)) {
                 container.innerHTML = "<p style='color:#a12c2c'>Behavioral similarity is unavailable for this book (no ALS data yet). Try <strong>Subject</strong>.</p>";
                 container.style.display = "block";
                 return;
             }
-            
+
             try {
                 recommendBtn.disabled = true;
-                recommendBtn.textContent = "Loading…";
-                
-                const resp = await fetch(`/book/${item_idx}/similar?mode=${mode}&alpha=${alpha}`);
+                recommendBtn.textContent = "Loading...";
+
+                const resp = await fetch(`/book/${itemIdx}/similar?mode=${mode}&alpha=${alpha}`);
                 const data = await resp.json();
-                
+
                 if (resp.ok) {
                     if (!Array.isArray(data) || data.length === 0) {
                         container.innerHTML = "<p>No similar books found.</p>";
@@ -346,19 +353,55 @@
                 recommendBtn.textContent = "Get Recommendations";
             }
         }
-        
+
         if (recommendBtn) {
             recommendBtn.addEventListener("click", fetchRecommendations);
         }
-        
 
         if (alphaSlider) {
             alphaSlider.addEventListener("input", updateAlphaMeta);
             alphaSlider.addEventListener("change", updateAlphaMeta);
             updateAlphaMeta();
         }
-        
+
         updateHybridUI();
+
+        /*
+         * Fetch ALS availability for this book. On success, enable Behavioral
+         * and (if subjects are also available) Hybrid in the toggle group.
+         * If no real subjects exist, auto-select Behavioral as the default
+         * since Subject is already disabled. Degrades silently on error.
+         */
+        async function initAlsState() {
+            try {
+                const resp = await fetch(`/book/${encodeURIComponent(itemIdx)}/has_als`);
+                if (!resp.ok) return;
+                const data = await resp.json();
+                hasAls = data.has_als === true;
+            } catch {
+                hasAls = false;
+            }
+
+            if (!hasAls) return;
+
+            simOptions.forEach((opt) => {
+                const mode = opt.getAttribute("data-mode");
+                if (mode === "als") {
+                    opt.classList.remove("disabled");
+                    if (!hasRealSubjects) {
+                        simOptions.forEach((o) => o.classList.remove("selected"));
+                        opt.classList.add("selected");
+                    }
+                }
+                if (mode === "hybrid" && hasRealSubjects) {
+                    opt.classList.remove("disabled");
+                }
+            });
+
+            updateHybridUI();
+        }
+
+        document.addEventListener("DOMContentLoaded", initAlsState);
     </script>
 
     <script>
@@ -469,7 +512,7 @@ if (toggleSubjectsBtn && subjectList) {
     }
 
     if (isOverflowing(subjectList)) {
-        subjectList.classList.add("fade-active"); 
+        subjectList.classList.add("fade-active");
         toggleSubjectsBtn.style.display = "inline-block";
 
         toggleSubjectsBtn.onclick = () => {
