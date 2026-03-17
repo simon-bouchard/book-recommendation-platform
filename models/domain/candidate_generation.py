@@ -10,6 +10,9 @@ knows nothing about numpy, loaders, or scoring logic.
 from abc import ABC, abstractmethod
 from typing import List, Optional
 
+from opentelemetry import trace
+from opentelemetry.trace import Status, StatusCode
+
 from models.domain.recommendation import Candidate
 from models.domain.user import User
 from models.client.registry import (
@@ -18,6 +21,8 @@ from models.client.registry import (
     get_als_client,
     get_metadata_client,
 )
+
+tracer = trace.get_tracer(__name__)
 
 
 class CandidateGenerator(ABC):
@@ -56,16 +61,35 @@ class JointSubjectGenerator(CandidateGenerator):
         if not user.has_preferences or k <= 0:
             return []
 
-        embed_resp = await get_embedder_client().embed(user.fav_subjects)
+        with tracer.start_as_current_span("subject.embed") as span:
+            span.set_attribute("subject_count", len(user.fav_subjects))
+            try:
+                embed_resp = await get_embedder_client().embed(user.fav_subjects)
+            except Exception as exc:
+                span.record_exception(exc)
+                span.set_status(Status(StatusCode.ERROR))
+                raise
 
-        recs_resp = await get_similarity_client().subject_recs(
-            embed_resp.vector, k=k, alpha=self.alpha
-        )
+        with tracer.start_as_current_span("subject.recs") as span:
+            span.set_attribute("k", k)
+            span.set_attribute("alpha", self.alpha)
+            try:
+                recs_resp = await get_similarity_client().subject_recs(
+                    embed_resp.vector, k=k, alpha=self.alpha
+                )
+                span.set_attribute("results.count", len(recs_resp.results))
+            except Exception as exc:
+                span.record_exception(exc)
+                span.set_status(Status(StatusCode.ERROR))
+                raise
 
-        return [
-            Candidate(item_idx=r.item_idx, score=r.score, source=self.name)
-            for r in recs_resp.results
-        ]
+        with tracer.start_as_current_span("subject.build_candidates") as span:
+            candidates = [
+                Candidate(item_idx=r.item_idx, score=r.score, source=self.name)
+                for r in recs_resp.results
+            ]
+            span.set_attribute("candidates.count", len(candidates))
+            return candidates
 
     @property
     def name(self) -> str:
@@ -82,11 +106,24 @@ class ALSBasedGenerator(CandidateGenerator):
         if k <= 0:
             return []
 
-        resp = await get_als_client().als_recs(user.user_id, k=k)
+        with tracer.start_as_current_span("als.client_call") as span:
+            span.set_attribute("user_id", user.user_id)
+            span.set_attribute("k", k)
+            try:
+                resp = await get_als_client().als_recs(user.user_id, k=k)
+                span.set_attribute("results.count", len(resp.results))
+            except Exception as exc:
+                span.record_exception(exc)
+                span.set_status(Status(StatusCode.ERROR))
+                raise
 
-        return [
-            Candidate(item_idx=r.item_idx, score=r.score, source=self.name) for r in resp.results
-        ]
+        with tracer.start_as_current_span("als.build_candidates") as span:
+            candidates = [
+                Candidate(item_idx=r.item_idx, score=r.score, source=self.name)
+                for r in resp.results
+            ]
+            span.set_attribute("candidates.count", len(candidates))
+            return candidates
 
     @property
     def name(self) -> str:
@@ -103,12 +140,23 @@ class PopularityBasedGenerator(CandidateGenerator):
         if k <= 0:
             return []
 
-        resp = await get_metadata_client().popular(k=k)
+        with tracer.start_as_current_span("popularity.client_call") as span:
+            span.set_attribute("k", k)
+            try:
+                resp = await get_metadata_client().popular(k=k)
+                span.set_attribute("results.count", len(resp.books))
+            except Exception as exc:
+                span.record_exception(exc)
+                span.set_status(Status(StatusCode.ERROR))
+                raise
 
-        return [
-            Candidate(item_idx=b.item_idx, score=b.bayes_score or 0.0, source=self.name)
-            for b in resp.books
-        ]
+        with tracer.start_as_current_span("popularity.build_candidates") as span:
+            candidates = [
+                Candidate(item_idx=b.item_idx, score=b.bayes_score or 0.0, source=self.name)
+                for b in resp.books
+            ]
+            span.set_attribute("candidates.count", len(candidates))
+            return candidates
 
     @property
     def name(self) -> str:
