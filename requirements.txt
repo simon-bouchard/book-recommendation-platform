@@ -231,7 +231,6 @@ ormsgpack==1.10.0
 packaging @ file:///home/conda/feedstock_root/build_artifacts/bld/rattler-build_packaging_1745345660/work
 pandas @ file:///home/conda/feedstock_root/build_artifacts/pandas_1752081716429/work
 paramiko==3.5.1
-passlib==1.7.4
 pillow==11.3.0
 pkginfo==1.12.1.2
 platformdirs==4.5.1
