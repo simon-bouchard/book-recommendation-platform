@@ -5,11 +5,13 @@ Exposes /metrics endpoint and defines custom application-level metrics.
 Call apply_metrics(app) from main.py before route registration.
 """
 
-from prometheus_fastapi_instrumentator import Instrumentator
-from prometheus_client import Counter, Histogram, make_asgi_app, CollectorRegistry, multiprocess, generate_latest, CONTENT_TYPE_LATEST
 from fastapi import FastAPI
-from fastapi.responses import Response
-import os
+from prometheus_client import (
+    Counter,
+    Histogram,
+    make_asgi_app,
+)
+from prometheus_fastapi_instrumentator import Instrumentator
 
 
 # ---------------------------------------------------------------------------
@@ -75,12 +77,13 @@ CHAT_LATENCY = Histogram(
 # Instrumentation setup
 # ---------------------------------------------------------------------------
 
+
 def apply_metrics(app: FastAPI) -> None:
     """
     Attach Prometheus instrumentation to the FastAPI app.
 
     Instruments all HTTP endpoints for request count and latency, and mounts
-    the /metrics ASGI endpoint directly — bypassing FastAPI middleware so
+    the /metrics ASGI endpoint directly — bypassing FastAPI route handling so
     rate limiting and security headers do not interfere with Prometheus scraping.
 
     make_asgi_app() detects PROMETHEUS_MULTIPROC_DIR automatically and
@@ -94,13 +97,4 @@ def apply_metrics(app: FastAPI) -> None:
         body_handlers=[],
     ).instrument(app)
 
-    @app.get("/metrics/", include_in_schema=False)
-    def metrics_endpoint():
-        if os.getenv("PROMETHEUS_MULTIPROC_DIR"):
-            registry = CollectorRegistry()
-            multiprocess.MultiProcessCollector(registry)
-        else:
-            from prometheus_client import REGISTRY
-            registry = REGISTRY
-        data = generate_latest(registry)
-        return Response(content=data, media_type=CONTENT_TYPE_LATEST)
+    app.mount("/metrics", make_asgi_app())
