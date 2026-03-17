@@ -323,10 +323,7 @@ def main() -> None:
         )
 
         print("Seeding remote staging/attention/ with current production weights...")
-        run(
-            f"scp {PATHS.attention_dir}/*.pth "
-            f"{REMOTE_HOST}:{remote_staging}/attention/"
-        )
+        run(f"scp {PATHS.attention_dir}/*.pth {REMOTE_HOST}:{remote_staging}/attention/")
 
         # --- Remote training ------------------------------------------------
 
@@ -379,6 +376,9 @@ def main() -> None:
 
         print("Signalling model server containers to reload...")
         signal_workers_reload()
+
+        print("Flushing ALS-dependent Redis cache entries...")
+        run(f"python {PROJECT_ROOT}/ops/training/flush_cache.py")
 
         print(f"Retiring old versions (keeping {_VERSIONS_TO_KEEP})...")
         retire_old_versions(keep=_VERSIONS_TO_KEEP)
