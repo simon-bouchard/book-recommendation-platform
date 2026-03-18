@@ -254,7 +254,7 @@ class InternalTools:
                 # the except clause would silently swallow.
                 from models.domain.user import User as DomainUser
                 from models.core.constants import PAD_IDX
-                from app.database import AsyncReadOnlySessionLocal
+                from sqlalchemy.ext.asyncio import AsyncSession as _AsyncSession
 
                 domain_user = DomainUser(
                     user_id=self.current_user.user_id,
@@ -265,8 +265,15 @@ class InternalTools:
                 service = RecommendationService()
                 config = RecommendationConfig(k=top_k, mode="behavioral")
 
-                async with AsyncReadOnlySessionLocal() as async_db:
-                    recommendations = await service.recommend(domain_user, config, async_db)
+                # Use the injected AsyncSession if available (avoids pooled-connection
+                # event-loop conflicts in tests). Fall back to AsyncReadOnlySessionLocal
+                # when self.db is a sync Session (production chat route).
+                if isinstance(self.db, _AsyncSession):
+                    recommendations = await service.recommend(domain_user, config, self.db)
+                else:
+                    from app.database import AsyncReadOnlySessionLocal
+                    async with AsyncReadOnlySessionLocal() as async_db:
+                        recommendations = await service.recommend(domain_user, config, async_db)
 
                 # Convert RecommendedBook objects to dicts
                 raw_results = [
@@ -325,11 +332,14 @@ class InternalTools:
                 else:
                     return [{"error": "Subject hybrid requires at least one subject"}]
 
+            if not self.db:
+                return [{"error": "Subject hybrid requires a database connection"}]
+
             top_k = max(1, min(500, top_k))
             subject_weight = max(0.0, min(1.0, subject_weight))
 
             try:
-                from app.database import AsyncReadOnlySessionLocal
+                from sqlalchemy.ext.asyncio import AsyncSession as _AsyncSession
 
                 subject_indices = fav_subjects_idxs
 
@@ -337,9 +347,9 @@ class InternalTools:
                 domain_user = self._create_user_with_subjects(subject_indices)
 
                 # Use new recommendation service with subject mode.
-                # AsyncReadOnlySessionLocal is used here rather than self.db because
-                # service.recommend() calls await db.execute() internally, requiring
-                # an AsyncSession. self.db is a sync Session from the chat route.
+                # Use the injected AsyncSession if available (avoids pooled-connection
+                # event-loop conflicts in tests). Fall back to AsyncReadOnlySessionLocal
+                # when self.db is a sync Session (production chat route).
                 service = RecommendationService()
                 config = RecommendationConfig(
                     k=top_k,
@@ -347,8 +357,12 @@ class InternalTools:
                     hybrid_config=HybridConfig(subject_weight=subject_weight),
                 )
 
-                async with AsyncReadOnlySessionLocal() as async_db:
-                    recommendations = await service.recommend(domain_user, config, async_db)
+                if isinstance(self.db, _AsyncSession):
+                    recommendations = await service.recommend(domain_user, config, self.db)
+                else:
+                    from app.database import AsyncReadOnlySessionLocal
+                    async with AsyncReadOnlySessionLocal() as async_db:
+                        recommendations = await service.recommend(domain_user, config, async_db)
 
                 # Convert RecommendedBook objects to dicts
                 raw_results = [
