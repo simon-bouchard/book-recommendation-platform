@@ -20,6 +20,7 @@ import pytest
 from models.client.als import AlsClient
 from models.client.embedder import EmbedderClient
 from models.client.metadata import MetadataClient
+from models.client.semantic import SemanticClient
 from models.client.similarity import SimilarityClient
 
 from ._utils import MEASUREMENT_RUNS, WARMUP_RUNS, LatencyStats
@@ -125,5 +126,13 @@ async def als_client():
 async def metadata_client():
     """Per-test MetadataClient, created and closed within the test's own loop."""
     client = MetadataClient.from_env()
+    yield client
+    await client.aclose()
+
+
+@pytest.fixture
+async def semantic_client():
+    """Per-test SemanticClient, created and closed within the test's own loop."""
+    client = SemanticClient.from_env()
     yield client
     await client.aclose()
