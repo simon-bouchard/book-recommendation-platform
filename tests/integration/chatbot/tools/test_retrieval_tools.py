@@ -131,14 +131,15 @@ class TestSemanticSearch:
 
 
 class TestSubjectIdSearch:
-    """Tests for subject_id_search retrieval tool."""
+    """Tests for subject_id_search retrieval tool (async, backed by semantic server)."""
 
-    def test_returns_results_for_phrases(self, db_session: Session):
+    @pytest.mark.asyncio
+    async def test_returns_results_for_phrases(self):
         """Verify subject_id_search returns results for valid phrases."""
-        tools = InternalTools(current_user=None, db=db_session)
+        tools = InternalTools(current_user=None, db=None)
         subject_id_search = tools._create_subject_id_search_tool()
 
-        result = subject_id_search.invoke({"phrases": ["mystery"], "top_k": 3})
+        result = await subject_id_search.ainvoke({"phrases": ["mystery"], "top_k": 3})
 
         assert isinstance(result, list)
         assert len(result) == 1
@@ -146,45 +147,44 @@ class TestSubjectIdSearch:
         assert "candidates" in result[0]
         assert len(result[0]["candidates"]) > 0
 
-    def test_candidate_structure(self, db_session: Session):
-        """Verify each candidate has required fields."""
-        tools = InternalTools(current_user=None, db=db_session)
+    @pytest.mark.asyncio
+    async def test_candidate_structure(self):
+        """Verify each candidate has required fields including count."""
+        tools = InternalTools(current_user=None, db=None)
         subject_id_search = tools._create_subject_id_search_tool()
 
-        result = subject_id_search.invoke({"phrases": ["science fiction"], "top_k": 5})
+        result = await subject_id_search.ainvoke({"phrases": ["science fiction"], "top_k": 5})
 
         candidate = result[0]["candidates"][0]
         assert "subject_idx" in candidate
         assert "subject" in candidate
+        assert "count" in candidate
         assert "score" in candidate
 
-    def test_clamps_top_k_upper_bound(self, db_session: Session):
+    @pytest.mark.asyncio
+    async def test_clamps_top_k_upper_bound(self):
         """Verify subject_id_search clamps top_k to maximum of 10."""
-        tools = InternalTools(current_user=None, db=db_session)
+        tools = InternalTools(current_user=None, db=None)
         subject_id_search = tools._create_subject_id_search_tool()
 
-        result = subject_id_search.invoke({"phrases": ["fantasy"], "top_k": 50})
+        result = await subject_id_search.ainvoke({"phrases": ["fantasy"], "top_k": 50})
 
         assert len(result[0]["candidates"]) <= 10
 
-    def test_clamps_top_k_lower_bound(self, db_session: Session):
-        """Verify subject_id_search clamps top_k to minimum of 1."""
-        tools = InternalTools(current_user=None, db=db_session)
+    @pytest.mark.asyncio
+    async def test_multiple_phrases_return_grouped_results(self):
+        """Verify multiple phrases each return their own candidates group."""
+        tools = InternalTools(current_user=None, db=None)
         subject_id_search = tools._create_subject_id_search_tool()
 
-        result = subject_id_search.invoke({"phrases": ["horror"], "top_k": 0})
+        result = await subject_id_search.ainvoke(
+            {"phrases": ["mystery", "romance"], "top_k": 3}
+        )
 
-        assert len(result[0]["candidates"]) >= 1
-
-    def test_returns_error_without_database(self):
-        """Verify subject_id_search returns error when database is None."""
-        tools_no_db = InternalTools(current_user=None, db=None)
-        subject_id_search = tools_no_db._create_subject_id_search_tool()
-
-        result = subject_id_search.invoke({"phrases": ["mystery"], "top_k": 3})
-
-        assert isinstance(result, list)
-        assert "error" in result[0]
+        assert len(result) == 2
+        phrases = [r["phrase"] for r in result]
+        assert "mystery" in phrases
+        assert "romance" in phrases
 
 
 class TestSubjectHybrid:

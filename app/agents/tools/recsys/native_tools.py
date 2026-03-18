@@ -367,11 +367,11 @@ class InternalTools:
         return subject_hybrid_pool
 
     def _create_subject_id_search_tool(self) -> Callable:
-        """Subject ID search using 3-gram TF-IDF."""
-        from .subject_search import make_subject_id_search_tool
+        """Subject ID search using semantic embeddings."""
+        from app.semantic_index.subject_service import SubjectSearchService
 
         @tool
-        def subject_id_search(phrases: list[str], top_k: int = 5) -> list[dict]:
+        async def subject_id_search(phrases: list[str], top_k: int = 5) -> list[dict]:
             """
             Resolve free-text subject phrases to database subject IDs.
 
@@ -385,20 +385,12 @@ class InternalTools:
             Returns:
                             List of dicts with phrase and candidates
             """
-            if not self.db:
-                return [{"error": "Subject ID search requires database"}]
-
             top_k = max(1, min(10, top_k))
 
-            # Use the existing implementation
-            tool_func = make_subject_id_search_tool(self.db)
-
-            # Call with JSON input
-            import json
-
-            input_json = json.dumps({"phrases": phrases, "top_k": top_k})
-            result_json = tool_func(input_json)
-            return json.loads(result_json)
+            try:
+                return await SubjectSearchService().search(phrases=phrases, top_k=top_k)
+            except Exception as e:
+                return [{"error": f"Subject ID search failed: {e}"}]
 
         subject_id_search.metadata = {"status_message": "Searching books by subject..."}
         return subject_id_search
