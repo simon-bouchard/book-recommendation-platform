@@ -12,6 +12,8 @@ import httpx
 from model_servers._shared.contracts import (
     SemanticSearchRequest,
     SemanticSearchResponse,
+    SubjectSearchRequest,
+    SubjectSearchResponse,
 )
 from models.client._base import BaseModelServerClient, _DEFAULT_TIMEOUT
 
@@ -57,3 +59,21 @@ class SemanticClient(BaseModelServerClient):
         body = SemanticSearchRequest(query=query, top_k=top_k)
         data = await self._post("/semantic_search", body)
         return SemanticSearchResponse.model_validate(data)
+
+    async def subject_search(self, phrase: str, top_k: int = 5) -> SubjectSearchResponse:
+        """
+        Embed a free-text phrase and return the nearest subject name matches.
+
+        Call once per phrase. Grouping across multiple phrases is the caller's
+        responsibility (typically done in the application service layer).
+
+        Args:
+            phrase: Natural language subject phrase, e.g. "cozy mysteries".
+            top_k: Number of candidate subjects to return (max 20).
+
+        Returns:
+            SubjectSearchResponse with matches ordered by cosine similarity.
+        """
+        body = SubjectSearchRequest(phrase=phrase, top_k=top_k)
+        data = await self._post("/subject_search", body)
+        return SubjectSearchResponse.model_validate(data)

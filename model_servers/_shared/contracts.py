@@ -254,18 +254,19 @@ class SemanticSearchResponse(BaseModel):
 
 class SubjectSearchRequest(BaseModel):
     """
-    Resolve free-text subject phrases to candidate subject indices.
+    Resolve a single free-text phrase to candidate subject indices.
 
-    Used by the chatbot to translate natural language subject mentions
-    into subject_idx values suitable for embedding or filtering.
+    Used by the application service layer (called once per phrase) to translate
+    natural language subject mentions into subject_idx values suitable for
+    embedding or filtering.
     """
 
-    phrases: list[str] = Field(..., min_length=1, max_length=20)
-    top_k_per_phrase: int = Field(
+    phrase: str = Field(..., min_length=1, max_length=200)
+    top_k: int = Field(
         default=5,
         ge=1,
         le=20,
-        description="Number of candidate subject indices to return per phrase",
+        description="Number of candidate subject indices to return",
     )
 
 
@@ -275,6 +276,7 @@ class SubjectMatch(BaseModel):
     phrase: str
     subject_idx: int
     subject_name: str
+    count: int
     score: float
 
 
