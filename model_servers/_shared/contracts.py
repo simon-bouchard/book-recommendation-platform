@@ -234,6 +234,24 @@ class PopularResponse(BaseModel):
     books: list[BookMeta]
 
 
+# ===========================================================================
+# Semantic search server
+# ===========================================================================
+
+
+class SemanticSearchRequest(BaseModel):
+    """Dense vector search over book descriptions using a free-text query."""
+
+    query: str = Field(..., min_length=1, max_length=500)
+    top_k: int = Field(default=10, ge=1, le=500)
+
+
+class SemanticSearchResponse(BaseModel):
+    """Ordered list of matching items with scores, highest score first."""
+
+    results: list[ScoredItem]
+
+
 class SubjectSearchRequest(BaseModel):
     """
     Resolve free-text subject phrases to candidate subject indices.

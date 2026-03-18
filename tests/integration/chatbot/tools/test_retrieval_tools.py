@@ -2,11 +2,11 @@
 """
 Integration tests for all retrieval tools using real database.
 
-Sync tools (popular_books, semantic_search, subject_id_search) use .invoke().
-Async tools (subject_hybrid_pool, als_recs) use pytest-asyncio and .ainvoke().
-All async tests share a session-scoped event loop (defined in conftest.py) to
-prevent httpx AsyncClient singletons from binding to a loop that closes between
-tests.
+Sync tools (popular_books, subject_id_search) use .invoke().
+Async tools (book_semantic_search, subject_hybrid_pool, als_recs) use pytest-asyncio
+and .ainvoke(). All async tests share a session-scoped event loop (defined in
+conftest.py) to prevent httpx AsyncClient singletons from binding to a loop that
+closes between tests.
 
 Database session usage
 ----------------------
@@ -17,6 +17,8 @@ Database session usage
   through ReadBooksFilter → get_read_books_for_candidates_async() →
   await db.execute(). Passing a sync Session here raises
   'ChunkedIteratorResult can't be used in await expression'.
+  book_semantic_search calls SemanticSearchService which uses httpx clients;
+  no db session is required but async_db_session is used for consistency.
 """
 
 import pytest
@@ -74,25 +76,27 @@ class TestPopularBooks:
 
 
 class TestSemanticSearch:
-    """Tests for book_semantic_search retrieval tool."""
+    """Tests for book_semantic_search retrieval tool (async)."""
 
-    def test_returns_results_for_query(self, db_session: Session):
+    @pytest.mark.asyncio
+    async def test_returns_results_for_query(self, async_db_session: AsyncSession):
         """Verify semantic_search returns results for a valid query."""
-        tools = InternalTools(current_user=None, db=db_session)
+        tools = InternalTools(current_user=None, db=async_db_session)
         semantic_search = tools._create_semantic_search_tool()
 
-        result = semantic_search.invoke({"query": "science fiction adventures", "top_k": 10})
+        result = await semantic_search.ainvoke({"query": "science fiction adventures", "top_k": 10})
 
         assert isinstance(result, list)
         assert "error" not in result[0], f"Semantic search failed: {result[0].get('error')}"
         assert len(result) == 10
 
-    def test_returns_standardized_fields(self, db_session: Session):
+    @pytest.mark.asyncio
+    async def test_returns_standardized_fields(self, async_db_session: AsyncSession):
         """Verify semantic_search returns standardized output with expected fields."""
-        tools = InternalTools(current_user=None, db=db_session)
+        tools = InternalTools(current_user=None, db=async_db_session)
         semantic_search = tools._create_semantic_search_tool()
 
-        result = semantic_search.invoke({"query": "mystery novels", "top_k": 5})
+        result = await semantic_search.ainvoke({"query": "mystery novels", "top_k": 5})
 
         assert "error" not in result[0], f"Semantic search failed: {result[0].get('error')}"
         book = result[0]
@@ -103,22 +107,24 @@ class TestSemanticSearch:
         assert "num_ratings" in book
         assert "score" in book
 
-    def test_clamps_top_k_upper_bound(self, db_session: Session):
+    @pytest.mark.asyncio
+    async def test_clamps_top_k_upper_bound(self, async_db_session: AsyncSession):
         """Verify semantic_search clamps top_k to maximum of 500."""
-        tools = InternalTools(current_user=None, db=db_session)
+        tools = InternalTools(current_user=None, db=async_db_session)
         semantic_search = tools._create_semantic_search_tool()
 
-        result = semantic_search.invoke({"query": "fantasy", "top_k": 1000})
+        result = await semantic_search.ainvoke({"query": "fantasy", "top_k": 1000})
 
         assert "error" not in result[0], f"Semantic search failed: {result[0].get('error')}"
         assert len(result) == 500
 
-    def test_clamps_top_k_lower_bound(self, db_session: Session):
+    @pytest.mark.asyncio
+    async def test_clamps_top_k_lower_bound(self, async_db_session: AsyncSession):
         """Verify semantic_search clamps top_k to minimum of 1."""
-        tools = InternalTools(current_user=None, db=db_session)
+        tools = InternalTools(current_user=None, db=async_db_session)
         semantic_search = tools._create_semantic_search_tool()
 
-        result = semantic_search.invoke({"query": "romance", "top_k": 0})
+        result = await semantic_search.ainvoke({"query": "romance", "top_k": 0})
 
         assert "error" not in result[0], f"Semantic search failed: {result[0].get('error')}"
         assert len(result) == 1

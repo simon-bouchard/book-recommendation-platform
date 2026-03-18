@@ -12,8 +12,7 @@ from models.services.recommendation_service import RecommendationService
 from models.domain.user import User
 from models.domain.config import RecommendationConfig, HybridConfig
 from models.data.loaders import load_book_meta
-from app.semantic_index.search import SemanticSearcher
-from app.agents.settings import settings
+from app.semantic_index.service import SemanticSearchService
 
 from langchain_core.tools import tool
 
@@ -32,17 +31,7 @@ class InternalTools:
         self.db = db
         self.user_num_ratings = user_num_ratings
         self.allow_profile = allow_profile
-        self._semantic_searcher: Optional[SemanticSearcher] = None
         self._tone_map: Optional[dict[int, str]] = None
-
-    def _get_semantic_searcher(self) -> SemanticSearcher:
-        """Lazy-load semantic searcher."""
-        if self._semantic_searcher is None:
-            self._semantic_searcher = SemanticSearcher(
-                dir_path="models/artifacts/semantic_indexes/enriched_v2",
-                embedder=settings.embedder,
-            )
-        return self._semantic_searcher
 
     def _ensure_tone_map(self) -> dict[int, str]:
         """
@@ -201,49 +190,30 @@ class InternalTools:
         return tools
 
     def _create_semantic_search_tool(self) -> Callable:
-        """Semantic search with enriched metadata."""
+        """Semantic search with metadata enrichment via the semantic search service."""
 
         @tool
-        def book_semantic_search(
-            query: str, top_k: int = 100, filters: Optional[dict] = None
+        async def book_semantic_search(
+            query: str, top_k: int = 100
         ) -> list[dict]:
             """
-            Search books using semantic embeddings with optional subject filters.
+            Search books using semantic embeddings.
 
             Use for specific queries about themes, topics, or vibes.
-            Returns enriched metadata: subjects, tones, genre, vibe.
             Works for both authenticated and anonymous users.
 
             Args:
                             query: Natural language search query
                             top_k: Number of results to return
-                            filters: Optional dict with 'subjects' list for filtering
 
             Returns:
-                            Standardized list of books with enrichment metadata
+                            Standardized list of books with basic metadata
             """
             top_k = max(1, min(500, top_k))
 
             try:
-                searcher = self._get_semantic_searcher()
-
-                """
-				# Extract subject filters if provided
-				subject_filter = None
-				if filters and "subjects" in filters:
-					subject_filter = filters["subjects"]
-				"""
-
-                results = searcher.search(query=query, top_k=top_k)
-
-                for book in results:
-                    if "meta" in book:
-                        meta = book.pop("meta")
-                        book.update(meta)
-
-                # Results already have enrichment data from semantic index
+                results = await SemanticSearchService().search(query=query, top_k=top_k)
                 return self._standardize_tool_output(results)
-
             except Exception as e:
                 return [{"error": f"Semantic search failed: {e}"}]
 

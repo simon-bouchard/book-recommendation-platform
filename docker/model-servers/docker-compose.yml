@@ -133,3 +133,30 @@ services:
       timeout: 5s
       start_period: 90s
       retries: 3
+
+  semantic:
+    build:
+      context: ../..
+      dockerfile: docker/model-servers/Dockerfile
+      args:
+        SERVER: semantic
+        REQUIREMENTS_FILE: semantic.txt
+    image: bookrec/model-server-semantic:latest
+    container_name: model-server-semantic
+    network_mode: host
+    env_file:
+      - /etc/bookrec.env
+    environment:
+      SERVER: semantic
+      PORT: "8005"
+      MODEL_VERSION_POINTER: /app/models/artifacts/active_version
+      SEMANTIC_INDEX_DIR: /app/models/artifacts/semantic_indexes/enriched_v2
+    volumes:
+      - ${ARTIFACTS_DIR}:/app/models/artifacts:ro
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-fs", "http://localhost:8005/health"]
+      interval: 30s
+      timeout: 5s
+      start_period: 120s
+      retries: 3

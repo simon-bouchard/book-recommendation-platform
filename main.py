@@ -27,6 +27,7 @@ from models.client.registry import (
     get_als_client,
     get_embedder_client,
     get_metadata_client,
+    get_semantic_client,
     get_similarity_client,
 )
 from routes.api import router
@@ -56,6 +57,7 @@ async def lifespan(app: FastAPI):
     get_similarity_client()
     get_als_client()
     get_metadata_client()
+    get_semantic_client()
     logger.info("Model server clients initialized")
 
     yield
@@ -160,6 +162,7 @@ async def health_ready():
         "similarity": get_similarity_client(),
         "als": get_als_client(),
         "metadata": get_metadata_client(),
+        "semantic": get_semantic_client(),
     }
 
     async def probe(name: str, client) -> tuple[str, bool, str]:

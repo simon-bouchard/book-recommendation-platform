@@ -14,6 +14,7 @@ import logging
 from models.client.als import AlsClient
 from models.client.embedder import EmbedderClient
 from models.client.metadata import MetadataClient
+from models.client.semantic import SemanticClient
 from models.client.similarity import SimilarityClient
 
 logger = logging.getLogger(__name__)
@@ -22,6 +23,7 @@ _embedder: EmbedderClient | None = None
 _similarity: SimilarityClient | None = None
 _als: AlsClient | None = None
 _metadata: MetadataClient | None = None
+_semantic: SemanticClient | None = None
 
 
 def get_embedder_client() -> EmbedderClient:
@@ -56,6 +58,14 @@ def get_metadata_client() -> MetadataClient:
     return _metadata
 
 
+def get_semantic_client() -> SemanticClient:
+    """Get or create the singleton semantic search client."""
+    global _semantic
+    if _semantic is None:
+        _semantic = SemanticClient.from_env()
+    return _semantic
+
+
 async def close_all() -> None:
     """
     Close all active client connections.
@@ -63,13 +73,14 @@ async def close_all() -> None:
     Should be called from the FastAPI lifespan on application shutdown
     to release connection pool resources cleanly.
     """
-    global _embedder, _similarity, _als, _metadata
+    global _embedder, _similarity, _als, _metadata, _semantic
 
     for name, client in [
         ("embedder", _embedder),
         ("similarity", _similarity),
         ("als", _als),
         ("metadata", _metadata),
+        ("semantic", _semantic),
     ]:
         if client is not None:
             try:
@@ -78,4 +89,4 @@ async def close_all() -> None:
             except Exception as e:
                 logger.warning("Error closing %s client: %s", name, e)
 
-    _embedder = _similarity = _als = _metadata = None
+    _embedder = _similarity = _als = _metadata = _semantic = None

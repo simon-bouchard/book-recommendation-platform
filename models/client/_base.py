@@ -54,6 +54,70 @@ class BaseModelServerClient:
         """Close the underlying httpx client and release connection pool resources."""
         await self._client.aclose()
 
+    async def _get(self, path: str) -> Any:
+        """
+        GET a path and return the parsed response.
+
+        Args:
+            path: URL path relative to base_url (e.g. '/health').
+
+        Returns:
+            Parsed response as a dict or list.
+
+        Raises:
+            ModelServerUnavailableError: On connection failure, timeout, or 5xx.
+            ModelServerRequestError: On 4xx response from the server.
+        """
+        try:
+            response = await self._client.get(path)
+            response.raise_for_status()
+            return orjson.loads(response.content)
+
+        except httpx.HTTPStatusError as exc:
+            status = exc.response.status_code
+            detail = _extract_detail(exc.response)
+            if status >= 500:
+                logger.error(
+                    "%s server error on %s: %s %s",
+                    self._SERVER_NAME,
+                    path,
+                    status,
+                    detail,
+                )
+                raise ModelServerUnavailableError(
+                    f"{self._SERVER_NAME} returned {status}: {detail}"
+                ) from exc
+            else:
+                logger.warning(
+                    "%s request error on %s: %s %s",
+                    self._SERVER_NAME,
+                    path,
+                    status,
+                    detail,
+                )
+                raise ModelServerRequestError(
+                    f"{self._SERVER_NAME} rejected request ({status}): {detail}"
+                ) from exc
+
+        except (httpx.ConnectError, httpx.TimeoutException, httpx.RemoteProtocolError) as exc:
+            logger.error(
+                "%s unreachable at %s%s: %s",
+                self._SERVER_NAME,
+                self._base_url,
+                path,
+                exc,
+            )
+            raise ModelServerUnavailableError(f"{self._SERVER_NAME} unreachable: {exc}") from exc
+
+        except httpx.RequestError as exc:
+            logger.error(
+                "%s request failed on %s: %s",
+                self._SERVER_NAME,
+                path,
+                exc,
+            )
+            raise ModelServerUnavailableError(f"{self._SERVER_NAME} request failed: {exc}") from exc
+
     async def _post(self, path: str, body: Any) -> Any:
         """
         POST a Pydantic model as JSON and return the parsed response.
