@@ -240,7 +240,7 @@ class InternalTools:
             Returns:
                             Standardized list of recommended books with basic metadata
             """
-            if not self.current_user or not self.db:
+            if not self.current_user:
                 return [{"error": "ALS recommendations require authentication"}]
 
             top_k = max(1, min(500, top_k))
@@ -254,6 +254,7 @@ class InternalTools:
                 # the except clause would silently swallow.
                 from models.domain.user import User as DomainUser
                 from models.core.constants import PAD_IDX
+                from app.database import AsyncReadOnlySessionLocal
 
                 domain_user = DomainUser(
                     user_id=self.current_user.user_id,
@@ -264,7 +265,8 @@ class InternalTools:
                 service = RecommendationService()
                 config = RecommendationConfig(k=top_k, mode="behavioral")
 
-                recommendations = await service.recommend(domain_user, config, self.db)
+                async with AsyncReadOnlySessionLocal() as async_db:
+                    recommendations = await service.recommend(domain_user, config, async_db)
 
                 # Convert RecommendedBook objects to dicts
                 raw_results = [
@@ -311,9 +313,6 @@ class InternalTools:
             Returns:
                             Standardized list of recommended books with basic metadata
             """
-            if not self.db:
-                return [{"error": "Subject hybrid requires database connection"}]
-
             # FALLBACK LOGIC: Use user's favorite subjects if empty list provided
             if not fav_subjects_idxs:
                 if self.current_user and hasattr(self.current_user, "favorite_subjects"):
@@ -330,12 +329,17 @@ class InternalTools:
             subject_weight = max(0.0, min(1.0, subject_weight))
 
             try:
+                from app.database import AsyncReadOnlySessionLocal
+
                 subject_indices = fav_subjects_idxs
 
                 # Create domain user with subject preferences
                 domain_user = self._create_user_with_subjects(subject_indices)
 
-                # Use new recommendation service with subject mode
+                # Use new recommendation service with subject mode.
+                # AsyncReadOnlySessionLocal is used here rather than self.db because
+                # service.recommend() calls await db.execute() internally, requiring
+                # an AsyncSession. self.db is a sync Session from the chat route.
                 service = RecommendationService()
                 config = RecommendationConfig(
                     k=top_k,
@@ -343,7 +347,8 @@ class InternalTools:
                     hybrid_config=HybridConfig(subject_weight=subject_weight),
                 )
 
-                recommendations = await service.recommend(domain_user, config, self.db)
+                async with AsyncReadOnlySessionLocal() as async_db:
+                    recommendations = await service.recommend(domain_user, config, async_db)
 
                 # Convert RecommendedBook objects to dicts
                 raw_results = [
