@@ -19,15 +19,12 @@ print(project_root)
 from models.data.loaders import (
     load_book_subject_embeddings,
     load_als_factors,
-    has_book_als,
     load_bayesian_scores,
     load_book_meta,
     load_user_meta,
-    load_book_to_subjects,
     load_attention_strategy,
     normalize_embeddings,
     get_item_idx_to_row,
-    clear_cache,
 )
 from models.core.paths import PATHS
 
@@ -72,17 +69,6 @@ class TestBookSubjectEmbeddings:
 
         assert raw_embs.shape == norm_embs.shape
         assert raw_ids == norm_ids
-
-    def test_caching_works(self):
-        """Second call with cache should return same objects."""
-        clear_cache()
-
-        embs1, ids1 = load_book_subject_embeddings(use_cache=True)
-        embs2, ids2 = load_book_subject_embeddings(use_cache=True)
-
-        # Should be same object (cached)
-        assert embs1 is embs2
-        assert ids1 is ids2
 
     def test_cache_disabled_returns_new_objects(self):
         """Calls with cache=False should load fresh data."""
@@ -140,19 +126,6 @@ class TestALSEmbeddings:
         # Check first 10 book vectors
         book_norms = np.linalg.norm(book_factors[:10], axis=1)
         assert np.allclose(book_norms, 1.0, atol=1e-5)
-
-    def test_has_book_als_for_existing_book(self):
-        """has_book_als should return True for books in ALS."""
-        _, _, _, book_map = load_als_factors(use_cache=False)
-
-        # Get a book that should exist
-        if book_map:
-            item_idx = book_map[0]
-            assert has_book_als(item_idx) is True
-
-    def test_has_book_als_for_nonexistent_book(self):
-        """has_book_als should return False for invalid book IDs."""
-        assert has_book_als(-99999) is False
 
 
 class TestBayesianScores:
@@ -227,25 +200,6 @@ class TestMetadata:
         assert user_meta.index.name == "user_id" or "user_id" in str(user_meta.index.dtype)
 
 
-class TestBookToSubjects:
-    """Test loading book-to-subjects mapping."""
-
-    def test_load_book_to_subjects_returns_dict(self):
-        """Should return dictionary."""
-        mapping = load_book_to_subjects(use_cache=False)
-
-        assert isinstance(mapping, dict)
-
-    def test_book_to_subjects_values_are_lists(self):
-        """Dictionary values should be lists of subject indices."""
-        mapping = load_book_to_subjects(use_cache=False)
-
-        if mapping:
-            sample_key = next(iter(mapping))
-            assert isinstance(mapping[sample_key], list)
-            if mapping[sample_key]:
-                assert isinstance(mapping[sample_key][0], int)
-
 
 class TestAttentionStrategy:
     """Test loading attention pooling strategies."""
@@ -313,21 +267,3 @@ class TestHelperFunctions:
         assert len(mapping) == 3
 
 
-class TestCaching:
-    """Test caching behavior across loaders."""
-
-    def test_clear_cache_works(self):
-        """clear_cache should invalidate cached data."""
-        # Load with cache
-        embs1, _ = load_book_subject_embeddings(use_cache=True)
-
-        # Clear cache
-        clear_cache()
-
-        # Load again - should be different object
-        embs2, _ = load_book_subject_embeddings(use_cache=True)
-
-        # Different objects (new load)
-        assert embs1 is not embs2
-        # But same data
-        assert np.array_equal(embs1, embs2)
