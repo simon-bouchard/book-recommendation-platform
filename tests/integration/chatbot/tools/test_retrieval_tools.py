@@ -31,22 +31,24 @@ from app.table_models import User
 class TestPopularBooks:
     """Tests for popular_books retrieval tool."""
 
-    def test_returns_requested_number(self, db_session: Session):
+    @pytest.mark.asyncio
+    async def test_returns_requested_number(self, db_session: Session):
         """Verify popular_books returns the exact number of books specified by top_k."""
         tools = InternalTools(current_user=None, db=db_session)
         popular_books = tools._create_popular_books_tool()
 
-        result = popular_books.invoke({"top_k": 10})
+        result = await popular_books.ainvoke({"top_k": 10})
 
         assert isinstance(result, list)
         assert len(result) == 10
 
-    def test_returns_standardized_fields(self, db_session: Session):
+    @pytest.mark.asyncio
+    async def test_returns_standardized_fields(self, db_session: Session):
         """Verify popular_books returns standardized output with all expected fields."""
         tools = InternalTools(current_user=None, db=db_session)
         popular_books = tools._create_popular_books_tool()
 
-        result = popular_books.invoke({"top_k": 5})
+        result = await popular_books.ainvoke({"top_k": 5})
 
         book = result[0]
         assert "item_idx" in book
@@ -56,21 +58,23 @@ class TestPopularBooks:
         assert "num_ratings" in book
         assert "score" in book
 
-    def test_clamps_top_k_upper_bound(self, db_session: Session):
+    @pytest.mark.asyncio
+    async def test_clamps_top_k_upper_bound(self, db_session: Session):
         """Verify popular_books clamps top_k to maximum of 500."""
         tools = InternalTools(current_user=None, db=db_session)
         popular_books = tools._create_popular_books_tool()
 
-        result = popular_books.invoke({"top_k": 1000})
+        result = await popular_books.ainvoke({"top_k": 1000})
 
         assert len(result) == 500
 
-    def test_clamps_top_k_lower_bound(self, db_session: Session):
+    @pytest.mark.asyncio
+    async def test_clamps_top_k_lower_bound(self, db_session: Session):
         """Verify popular_books clamps top_k to minimum of 1."""
         tools = InternalTools(current_user=None, db=db_session)
         popular_books = tools._create_popular_books_tool()
 
-        result = popular_books.invoke({"top_k": 0})
+        result = await popular_books.ainvoke({"top_k": 0})
 
         assert len(result) == 1
 
