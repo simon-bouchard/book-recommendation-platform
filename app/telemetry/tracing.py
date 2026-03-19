@@ -2,7 +2,7 @@
 """
 OpenTelemetry tracing setup for the bookrec application.
 
-Configures the global TracerProvider with an OTLP/gRPC exporter targeting
+Configures the global TracerProvider with an OTLP/HTTP exporter targeting
 Jaeger and registers auto-instrumentors for FastAPI, httpx, and SQLAlchemy.
 
 Call setup_tracing(app) once from the FastAPI lifespan before accepting
@@ -17,8 +17,8 @@ Environment variables:
                                 The NoOp provider remains in place, making the
                                 entire tracing path zero-cost. Useful in unit
                                 tests that do not need traces.
-    OTEL_EXPORTER_OTLP_ENDPOINT OTLP/gRPC endpoint for Jaeger. Defaults to
-                                http://localhost:4317.
+    OTEL_EXPORTER_OTLP_ENDPOINT OTLP/HTTP endpoint for Jaeger. Defaults to
+                                http://localhost:4318.
     OTEL_ENVIRONMENT            Deployment environment label attached to every
                                 span as a resource attribute. Defaults to
                                 "production". Set to "test" in test runs.
@@ -36,7 +36,7 @@ import os
 
 from fastapi import FastAPI
 from opentelemetry import trace
-from opentelemetry.exporter.otlp.proto.grpc.trace_exporter import OTLPSpanExporter
+from opentelemetry.exporter.otlp.proto.http.trace_exporter import OTLPSpanExporter
 from opentelemetry.instrumentation.fastapi import FastAPIInstrumentor
 from opentelemetry.instrumentation.httpx import HTTPXClientInstrumentor
 from opentelemetry.instrumentation.sqlalchemy import SQLAlchemyInstrumentor
@@ -48,7 +48,7 @@ logger = logging.getLogger(__name__)
 
 _SERVICE_NAME = "bookrec"
 _EXCLUDED_URLS = "/health/live,/health/ready,/metrics"
-_DEFAULT_OTLP_ENDPOINT = "http://localhost:4317"
+_DEFAULT_OTLP_ENDPOINT = "http://localhost:4318"
 
 
 def _instrument_sqlalchemy() -> None:
@@ -121,7 +121,7 @@ def setup_tracing(app: FastAPI) -> None:
     provider = TracerProvider(resource=resource)
 
     otlp_endpoint = os.getenv("OTEL_EXPORTER_OTLP_ENDPOINT", _DEFAULT_OTLP_ENDPOINT)
-    exporter = OTLPSpanExporter(endpoint=otlp_endpoint, insecure=True)
+    exporter = OTLPSpanExporter(endpoint=otlp_endpoint)
     provider.add_span_processor(BatchSpanProcessor(exporter))
 
     trace.set_tracer_provider(provider)

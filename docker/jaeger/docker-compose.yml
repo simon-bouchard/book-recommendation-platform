@@ -2,7 +2,7 @@
 #
 # Jaeger all-in-one trace collector and UI.
 #
-# Receives traces from the bookrec main app via OTLP/gRPC on port 4317.
+# Receives traces from the bookrec main app via OTLP/HTTP on port 4318.
 # The Jaeger UI is available at http://localhost:16686.
 #
 # Start:
@@ -17,7 +17,8 @@
 # sessions.
 #
 # Ports (all bound to localhost via network_mode: host):
-#   4317  — OTLP gRPC receiver (main app exports here)
+#   4317  — OTLP gRPC receiver
+#   4318  — OTLP HTTP receiver (main app exports here)
 #   16686 — Jaeger UI
 
 services:
