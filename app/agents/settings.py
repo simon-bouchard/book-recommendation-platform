@@ -2,8 +2,6 @@
 import os
 from pydantic_settings import BaseSettings, SettingsConfigDict
 from typing import Any, Dict, Optional
-from sentence_transformers import SentenceTransformer
-import numpy as np
 from langchain_openai import ChatOpenAI
 import httpx
 import logging
@@ -41,37 +39,16 @@ class ChatSettings(BaseSettings):
     llm_model_medium: str = os.getenv("LLM_MODEL_MEDIUM", "meta-llama/Meta-Llama-3.1-70B-Instruct")
     llm_model_large: str = os.getenv("LLM_MODEL_LARGE", "openai/gpt-4")
 
-    # Embedding hook (callable: List[str] -> np.ndarray [n, d])
-    embedder: Any = None
-
     model_config = SettingsConfigDict(
         env_file=os.getenv("ENV_FILE", ".env"),
         extra="ignore",
-        arbitrary_types_allowed=True,
     )
 
 
-# ---- Embedding factory ----
-
-
-def _make_default_embedder():
-    """
-    Returns a callable: List[str] -> np.ndarray [n, d]
-    Uses a cached sentence-transformers model by default.
-    """
-    model = SentenceTransformer("sentence-transformers/all-MiniLM-L6-v2")
-
-    def _emb(texts: list[str]) -> np.ndarray:
-        return model.encode(texts, convert_to_numpy=True).astype("float32")
-
-    return _emb
-
-
 settings = ChatSettings()
-settings.embedder = _make_default_embedder()
+
 
 # ---- LLM provider + factory ----
-
 
 def get_provider() -> Dict[str, Any]:
     """
