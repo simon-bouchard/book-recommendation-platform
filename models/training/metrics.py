@@ -14,7 +14,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Dict, Optional
 
-from models.core import PATHS
+from models.core.paths import PATHS
 
 _METRICS_FILENAME = "training_metrics.json"
 
