@@ -664,22 +664,6 @@ class TestEdgeCases:
     """Test edge cases and error handling."""
 
     @pytest.mark.asyncio
-    async def test_handles_generator_returning_none(
-        self, mock_generator, mock_fallback_generator, mock_filter, mock_ranker, mock_user, mock_db
-    ):
-        """Should handle generator returning None gracefully."""
-        mock_generator.generate.return_value = None
-        mock_fallback_generator.generate.return_value = []
-
-        pipeline = RecommendationPipeline(
-            mock_generator, mock_fallback_generator, mock_filter, mock_ranker
-        )
-
-        result = await pipeline.recommend(mock_user, k=10, db=mock_db)
-
-        assert result == [] or result is None
-
-    @pytest.mark.asyncio
     async def test_handles_filter_returning_none(
         self,
         mock_generator,

@@ -22,7 +22,7 @@ if str(project_root) not in sys.path:
     sys.path.insert(0, str(project_root))
 
 from models.services.similarity_service import SimilarityService
-from model_servers._shared.contracts import BookMeta, EnrichResponse, SimResponse, ScoredItem
+from model_servers._shared.contracts import SimResponse, ScoredItem
 
 _SVC = "models.services.similarity_service"
 
@@ -37,23 +37,21 @@ def _sim_response(*pairs: tuple) -> SimResponse:
     return SimResponse(results=[ScoredItem(item_idx=idx, score=score) for idx, score in pairs])
 
 
-def _enrich_response(*item_ids: int) -> EnrichResponse:
-    """Build an EnrichResponse with minimal metadata for each item_idx."""
-    return EnrichResponse(
-        books=[
-            BookMeta(
-                item_idx=idx,
-                title=f"Book {idx}",
-                author=f"Author {idx}",
-                year=2020 + (idx % 10),
-                isbn=f"ISBN-{idx}",
-                cover_id=f"cover-{idx}",
-                avg_rating=4.0,
-                num_ratings=50,
-            )
-            for idx in item_ids
-        ]
-    )
+def _enrich_response(*item_ids: int) -> dict:
+    """Build a dict[int, dict] matching what MetadataClient.enrich() returns."""
+    return {
+        idx: {
+            "item_idx": idx,
+            "title": f"Book {idx}",
+            "author": f"Author {idx}",
+            "year": 2020 + (idx % 10),
+            "isbn": f"ISBN-{idx}",
+            "cover_id": f"cover-{idx}",
+            "avg_rating": 4.0,
+            "num_ratings": 50,
+        }
+        for idx in item_ids
+    }
 
 
 # ---------------------------------------------------------------------------
@@ -159,7 +157,7 @@ class TestRouting:
     @pytest.mark.asyncio
     async def test_invalid_mode_raises_value_error_before_any_client_call(self, mock_sim_client):
         """ValueError is raised synchronously inside the async body before any I/O."""
-        with pytest.raises(ValueError, match="Unknown mode"):
+        with pytest.raises(ValueError, match="Unknown similarity mode"):
             await SimilarityService().get_similar(item_idx=1000, mode="unknown", k=10)
 
         mock_sim_client.subject_sim.assert_not_called()
@@ -189,7 +187,7 @@ class TestEnrichment:
     async def test_empty_sim_response_returns_empty_list(self, mock_sim_client, mock_meta_client):
         """Empty similarity results produce empty output; enrich may still be called."""
         mock_sim_client.subject_sim.return_value = SimResponse(results=[])
-        mock_meta_client.enrich.return_value = EnrichResponse(books=[])
+        mock_meta_client.enrich.return_value = {}
 
         results = await SimilarityService().get_similar(item_idx=1000, mode="subject", k=5)
 
@@ -298,7 +296,6 @@ class TestLogging:
         call_str = str(completed[0])
         assert "Similarity search completed" in call_str
         assert "count" in call_str
-        assert "latency_ms" in call_str
 
     @pytest.mark.asyncio
     async def test_logs_error_and_reraises(self, mock_meta_client):

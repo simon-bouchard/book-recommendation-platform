@@ -5,10 +5,9 @@ Tests filtering logic with mocked database and metadata.
 """
 
 import pytest
-import pandas as pd
 import sys
 from pathlib import Path
-from unittest.mock import AsyncMock, Mock, MagicMock
+from unittest.mock import AsyncMock, Mock, MagicMock, patch
 
 project_root = Path(__file__).resolve().parents[4]
 if str(project_root) not in sys.path:
@@ -54,16 +53,20 @@ def mock_db():
     return MagicMock()
 
 
-@pytest.fixture
-def mock_book_meta():
-    """Create mock book metadata DataFrame."""
-    return pd.DataFrame(
-        {
-            "item_idx": [100, 101, 102, 103, 104],
-            "book_num_ratings": [50, 5, 100, 8, 200],
-            "title": ["Book A", "Book B", "Book C", "Book D", "Book E"],
-        }
-    ).set_index("item_idx")
+def _meta_dict(ratings_by_id: dict) -> dict:
+    """Build a dict[int, dict] as returned by MetadataClient.enrich()."""
+    return {idx: {"item_idx": idx, "num_ratings": n} for idx, n in ratings_by_id.items()}
+
+
+def _patch_meta_client(enrich_return_value: dict):
+    """Return a context manager that patches get_metadata_client with the given enrich result."""
+    client = AsyncMock()
+    client.enrich.return_value = enrich_return_value
+    return patch("models.client.registry.get_metadata_client", return_value=client)
+
+
+# Default ratings used by most MinRatingCountFilter tests
+_DEFAULT_RATINGS = {100: 50, 101: 5, 102: 100, 103: 8, 104: 200}
 
 
 class TestReadBooksFilter:
@@ -171,16 +174,12 @@ class TestMinRatingCountFilter:
 
     @pytest.mark.asyncio
     async def test_removes_books_with_low_rating_count(
-        self, sample_candidates, mock_user, mock_db, mock_book_meta, monkeypatch
+        self, sample_candidates, mock_user, mock_db
     ):
         """Should filter out books below rating threshold."""
-        monkeypatch.setattr(
-            "models.domain.filters.load_book_meta",
-            lambda use_cache=True: mock_book_meta,
-        )
-
-        filter_obj = MinRatingCountFilter(min_count=10)
-        filtered = await filter_obj.apply(sample_candidates, mock_user, mock_db)
+        with _patch_meta_client(_meta_dict(_DEFAULT_RATINGS)):
+            filter_obj = MinRatingCountFilter(min_count=10)
+            filtered = await filter_obj.apply(sample_candidates, mock_user, mock_db)
 
         remaining_ids = [c.item_idx for c in filtered]
         assert 100 in remaining_ids  # 50 ratings >= 10
@@ -190,69 +189,38 @@ class TestMinRatingCountFilter:
         assert 103 not in remaining_ids  # 8 ratings < 10
 
     @pytest.mark.asyncio
-    async def test_preserves_order_of_candidates(
-        self, sample_candidates, mock_user, mock_db, mock_book_meta, monkeypatch
-    ):
+    async def test_preserves_order_of_candidates(self, sample_candidates, mock_user, mock_db):
         """Should maintain original candidate order."""
-        monkeypatch.setattr(
-            "models.domain.filters.load_book_meta",
-            lambda use_cache=True: mock_book_meta,
-        )
-
-        filter_obj = MinRatingCountFilter(min_count=10)
-        filtered = await filter_obj.apply(sample_candidates, mock_user, mock_db)
+        with _patch_meta_client(_meta_dict(_DEFAULT_RATINGS)):
+            filter_obj = MinRatingCountFilter(min_count=10)
+            filtered = await filter_obj.apply(sample_candidates, mock_user, mock_db)
 
         assert [c.item_idx for c in filtered] == [100, 102, 104]
 
     @pytest.mark.asyncio
     async def test_returns_empty_if_all_below_threshold(
-        self, sample_candidates, mock_user, mock_db, monkeypatch
+        self, sample_candidates, mock_user, mock_db
     ):
         """Should return empty list if all candidates below threshold."""
-        low_rating_meta = pd.DataFrame(
-            {
-                "item_idx": [100, 101, 102, 103, 104],
-                "book_num_ratings": [0, 0, 0, 0, 0],
-            }
-        ).set_index("item_idx")
-
-        monkeypatch.setattr(
-            "models.domain.filters.load_book_meta",
-            lambda use_cache=True: low_rating_meta,
-        )
-
-        filter_obj = MinRatingCountFilter(min_count=10)
-        filtered = await filter_obj.apply(sample_candidates, mock_user, mock_db)
+        with _patch_meta_client(_meta_dict({100: 0, 101: 0, 102: 0, 103: 0, 104: 0})):
+            filter_obj = MinRatingCountFilter(min_count=10)
+            filtered = await filter_obj.apply(sample_candidates, mock_user, mock_db)
 
         assert filtered == []
 
     @pytest.mark.asyncio
-    async def test_handles_missing_books_in_metadata(
-        self, mock_user, mock_db, mock_book_meta, monkeypatch
-    ):
+    async def test_handles_missing_books_in_metadata(self, mock_user, mock_db):
         """Should handle books not in metadata (treats as 0 ratings)."""
-        monkeypatch.setattr(
-            "models.domain.filters.load_book_meta",
-            lambda use_cache=True: mock_book_meta,
-        )
-
-        candidates = [Candidate(item_idx=99999, score=0.9, source="test")]
-
-        filter_obj = MinRatingCountFilter(min_count=10)
-        filtered = await filter_obj.apply(candidates, mock_user, mock_db)
+        with _patch_meta_client({}):  # enrich returns nothing for unknown book
+            candidates = [Candidate(item_idx=99999, score=0.9, source="test")]
+            filter_obj = MinRatingCountFilter(min_count=10)
+            filtered = await filter_obj.apply(candidates, mock_user, mock_db)
 
         assert filtered == []
 
     @pytest.mark.asyncio
-    async def test_min_count_zero_keeps_all(
-        self, sample_candidates, mock_user, mock_db, mock_book_meta, monkeypatch
-    ):
-        """min_count=0 should keep all candidates."""
-        monkeypatch.setattr(
-            "models.domain.filters.load_book_meta",
-            lambda use_cache=True: mock_book_meta,
-        )
-
+    async def test_min_count_zero_keeps_all(self, sample_candidates, mock_user, mock_db):
+        """min_count=0 should keep all candidates without calling enrich."""
         filter_obj = MinRatingCountFilter(min_count=0)
         filtered = await filter_obj.apply(sample_candidates, mock_user, mock_db)
 
@@ -320,23 +288,19 @@ class TestFilterChain:
 
     @pytest.mark.asyncio
     async def test_chain_with_real_filters(
-        self, sample_candidates, mock_user, mock_db, mock_book_meta, monkeypatch
+        self, sample_candidates, mock_user, mock_db, monkeypatch
     ):
         """Test chain with actual filter implementations."""
         monkeypatch.setattr(
             "models.domain.filters.get_read_books_for_candidates_async",
             AsyncMock(return_value={100}),
         )
-        monkeypatch.setattr(
-            "models.domain.filters.load_book_meta",
-            lambda use_cache=True: mock_book_meta,
-        )
 
-        read_filter = ReadBooksFilter()
-        rating_filter = MinRatingCountFilter(min_count=10)
-        chain = FilterChain([read_filter, rating_filter])
-
-        result = await chain.apply(sample_candidates, mock_user, mock_db)
+        with _patch_meta_client(_meta_dict(_DEFAULT_RATINGS)):
+            read_filter = ReadBooksFilter()
+            rating_filter = MinRatingCountFilter(min_count=10)
+            chain = FilterChain([read_filter, rating_filter])
+            result = await chain.apply(sample_candidates, mock_user, mock_db)
 
         remaining_ids = [c.item_idx for c in result]
         assert remaining_ids == [102, 104]
@@ -382,22 +346,11 @@ class TestEdgeCases:
             await filter_obj.apply(sample_candidates, mock_user, None)
 
     @pytest.mark.asyncio
-    async def test_rating_filter_handles_none_db(self, sample_candidates, mock_user, monkeypatch):
-        """MinRatingCountFilter should work without database (uses loader)."""
-        mock_meta = pd.DataFrame(
-            {
-                "item_idx": [100, 101, 102, 103, 104],
-                "book_num_ratings": [50, 5, 100, 8, 200],
-            }
-        ).set_index("item_idx")
-
-        monkeypatch.setattr(
-            "models.domain.filters.load_book_meta",
-            lambda use_cache=True: mock_meta,
-        )
-
-        filter_obj = MinRatingCountFilter(min_count=10)
-        result = await filter_obj.apply(sample_candidates, mock_user, None)
+    async def test_rating_filter_handles_none_db(self, sample_candidates, mock_user):
+        """MinRatingCountFilter should work without database (uses metadata client)."""
+        with _patch_meta_client(_meta_dict(_DEFAULT_RATINGS)):
+            filter_obj = MinRatingCountFilter(min_count=10)
+            result = await filter_obj.apply(sample_candidates, mock_user, None)
 
         assert len(result) == 3  # 100, 102, 104
 

@@ -77,12 +77,12 @@ class TestEnrich:
 
         result = await client.enrich([101, 202])
 
-        assert len(result.books) == 2
-        assert result.books[0].item_idx == 101
-        assert result.books[0].title == "Book Alpha"
-        assert result.books[0].author == "Author One"
-        assert result.books[0].num_ratings == 100
-        assert result.books[1].item_idx == 202
+        assert len(result) == 2
+        assert result[101]["item_idx"] == 101
+        assert result[101]["title"] == "Book Alpha"
+        assert result[101]["author"] == "Author One"
+        assert result[101]["num_ratings"] == 100
+        assert result[202]["item_idx"] == 202
 
     async def test_empty_books_list_is_parsed(
         self, client: MetadataClient, respx_mock: respx.MockRouter
@@ -91,7 +91,7 @@ class TestEnrich:
 
         result = await client.enrich([9999])
 
-        assert result.books == []
+        assert result == {}
 
     async def test_optional_fields_none_are_preserved(
         self, client: MetadataClient, respx_mock: respx.MockRouter
@@ -103,10 +103,10 @@ class TestEnrich:
 
         result = await client.enrich([101])
 
-        book = result.books[0]
-        assert book.author is None
-        assert book.year is None
-        assert book.isbn is None
+        book = result[101]
+        assert book["author"] is None
+        assert book["year"] is None
+        assert book["isbn"] is None
 
     async def test_request_body_contains_item_indices(
         self, client: MetadataClient, respx_mock: respx.MockRouter
@@ -131,7 +131,7 @@ class TestEnrich:
 
         sent = json.loads(route.calls[0].request.content)
         assert sent["item_indices"] == [42]
-        assert len(result.books) == 1
+        assert len(result) == 1
 
 
 # ---------------------------------------------------------------------------

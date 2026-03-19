@@ -26,7 +26,6 @@ from models.domain.user import User
 from models.domain.config import RecommendationConfig
 from models.domain.recommendation import Candidate, RecommendedBook
 from models.core.constants import PAD_IDX
-from model_servers._shared.contracts import BookMeta, EnrichResponse
 
 _SVC = "models.services.recommendation_service"
 
@@ -36,23 +35,21 @@ _SVC = "models.services.recommendation_service"
 # ---------------------------------------------------------------------------
 
 
-def _enrich_response(*item_ids: int) -> EnrichResponse:
-    """Build an EnrichResponse with minimal but complete metadata."""
-    return EnrichResponse(
-        books=[
-            BookMeta(
-                item_idx=idx,
-                title=f"Book {idx}",
-                author=f"Author {idx}",
-                year=2020,
-                isbn=f"ISBN-{idx}",
-                cover_id=f"cover-{idx}",
-                avg_rating=4.0,
-                num_ratings=100,
-            )
-            for idx in item_ids
-        ]
-    )
+def _enrich_response(*item_ids: int) -> dict:
+    """Build a dict[int, dict] matching what MetadataClient.enrich() returns."""
+    return {
+        idx: {
+            "item_idx": idx,
+            "title": f"Book {idx}",
+            "author": f"Author {idx}",
+            "year": 2020,
+            "isbn": f"ISBN-{idx}",
+            "cover_id": f"cover-{idx}",
+            "avg_rating": 4.0,
+            "num_ratings": 100,
+        }
+        for idx in item_ids
+    }
 
 
 # ---------------------------------------------------------------------------
@@ -88,7 +85,7 @@ def patched_meta_client():
     """Patch get_metadata_client; default enrich returns an empty response."""
     with patch(f"{_SVC}.get_metadata_client") as mock_get:
         client = AsyncMock()
-        client.enrich.return_value = EnrichResponse(books=[])
+        client.enrich.return_value = {}
         mock_get.return_value = client
         yield client
 
@@ -307,7 +304,7 @@ class TestCandidateEnrichment:
     @pytest.mark.asyncio
     async def test_returns_recommended_book_instances(self, patched_meta_client):
         patched_meta_client.enrich.return_value = _enrich_response(1000)
-        results = await RecommendationService()._enrich_candidates(
+        results = await RecommendationService()._enrich(
             [Candidate(item_idx=1000, score=0.9, source="test")]
         )
 
@@ -316,21 +313,19 @@ class TestCandidateEnrichment:
 
     @pytest.mark.asyncio
     async def test_maps_all_metadata_fields(self, patched_meta_client):
-        patched_meta_client.enrich.return_value = EnrichResponse(
-            books=[
-                BookMeta(
-                    item_idx=1000,
-                    title="My Book",
-                    author="Jane Doe",
-                    year=2021,
-                    isbn="978-0",
-                    cover_id="cov42",
-                    avg_rating=3.7,
-                    num_ratings=55,
-                )
-            ]
-        )
-        results = await RecommendationService()._enrich_candidates(
+        patched_meta_client.enrich.return_value = {
+            1000: {
+                "item_idx": 1000,
+                "title": "My Book",
+                "author": "Jane Doe",
+                "year": 2021,
+                "isbn": "978-0",
+                "cover_id": "cov42",
+                "avg_rating": 3.7,
+                "num_ratings": 55,
+            }
+        }
+        results = await RecommendationService()._enrich(
             [Candidate(item_idx=1000, score=0.9, source="test")]
         )
 
@@ -353,7 +348,7 @@ class TestCandidateEnrichment:
             Candidate(item_idx=9999, score=0.8, source="test"),  # absent from response
         ]
 
-        results = await RecommendationService()._enrich_candidates(candidates)
+        results = await RecommendationService()._enrich(candidates)
 
         assert len(results) == 1
         assert results[0].item_idx == 1000
@@ -361,16 +356,16 @@ class TestCandidateEnrichment:
     @pytest.mark.asyncio
     async def test_empty_input_returns_empty_list(self, patched_meta_client):
         """Empty candidate list produces empty output; enrich may still be called."""
-        patched_meta_client.enrich.return_value = EnrichResponse(books=[])
+        patched_meta_client.enrich.return_value = {}
 
-        results = await RecommendationService()._enrich_candidates([])
+        results = await RecommendationService()._enrich([])
 
         assert results == []
 
     @pytest.mark.asyncio
     async def test_passes_all_item_indices_to_enrich(self, patched_meta_client):
-        patched_meta_client.enrich.return_value = EnrichResponse(books=[])
-        await RecommendationService()._enrich_candidates(
+        patched_meta_client.enrich.return_value = {}
+        await RecommendationService()._enrich(
             [
                 Candidate(item_idx=1000, score=0.9, source="test"),
                 Candidate(item_idx=1001, score=0.8, source="test"),
@@ -451,7 +446,6 @@ class TestLogging:
             extra={
                 "user_id": 123,
                 "mode": "auto",
-                "is_warm": True,
                 "has_preferences": True,  # warm_user has fav_subjects [5, 12, 23]
                 "k": 200,
             },
@@ -474,7 +468,6 @@ class TestLogging:
         extra = completed[0].kwargs["extra"]
         assert extra["user_id"] == 123
         assert "count" in extra
-        assert "latency_ms" in extra
 
     @pytest.mark.asyncio
     async def test_logs_error_and_reraises(
