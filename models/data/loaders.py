@@ -6,7 +6,6 @@ Replaces the monolithic ModelStore with focused, cacheable loading functions.
 
 import json
 from typing import Tuple, Optional, Dict, List
-from collections import defaultdict
 
 import numpy as np
 import pandas as pd
@@ -147,25 +146,6 @@ def load_als_factors(
     return user_factors, book_factors, user_map, book_map
 
 
-def has_book_als(item_idx: int) -> bool:
-    """
-    Check if a book has ALS factors available.
-
-    Args:
-        item_idx: Book item index to check
-
-    Returns:
-        True if book has ALS factors, False otherwise
-    """
-    cache_key = "als_book_id_set"
-
-    if cache_key not in _CACHE:
-        with open(PATHS.book_als_ids, "r") as f:
-            book_ids = json.load(f)
-        _CACHE[cache_key] = set(int(i) for i in book_ids)
-
-    return int(item_idx) in _CACHE[cache_key]
-
 
 def load_bayesian_scores(normalized: bool = False, use_cache: bool = True) -> np.ndarray:
     """
@@ -276,35 +256,6 @@ def load_user_meta(use_cache: bool = True) -> pd.DataFrame:
     return df
 
 
-def load_book_to_subjects(use_cache: bool = True) -> Dict[int, List[int]]:
-    """
-    Load book-to-subjects mapping.
-
-    Args:
-        use_cache: If True, cache loaded mapping in memory
-
-    Returns:
-        Dictionary mapping item_idx -> list of subject_idx
-
-    Raises:
-        FileNotFoundError: If training data doesn't exist
-    """
-    cache_key = "book_to_subjects"
-
-    if use_cache and cache_key in _CACHE:
-        return _CACHE[cache_key]
-
-    mapping = defaultdict(list)
-    df = pd.read_pickle(PATHS.data_book_subjects)
-
-    for row in df.itertuples(index=False):
-        mapping[row.item_idx].append(row.subject_idx)
-
-    if use_cache:
-        _CACHE[cache_key] = dict(mapping)
-
-    return mapping
-
 
 def load_attention_strategy(strategy: Optional[str] = None, use_cache: bool = True):
     """
@@ -353,27 +304,3 @@ def load_attention_strategy(strategy: Optional[str] = None, use_cache: bool = Tr
     return instance
 
 
-def clear_cache():
-    """Clear all cached artifacts to free memory."""
-    _CACHE.clear()
-
-
-def preload_all_artifacts():
-    """
-    Preload all artifacts into cache for faster subsequent access.
-    Useful for warming up the application at startup.
-    """
-    load_book_subject_embeddings(normalized=False, use_cache=True)
-    load_book_subject_embeddings(normalized=True, use_cache=True)
-    load_als_factors(normalized=False, use_cache=True)
-    load_als_factors(normalized=True, use_cache=True)
-    load_bayesian_scores(use_cache=True)
-    load_bayesian_scores(normalized=True, use_cache=True)
-    load_book_meta(use_cache=True)
-    load_user_meta(use_cache=True)
-    load_book_to_subjects(use_cache=True)
-    load_attention_strategy(use_cache=True)
-
-    from models.infrastructure.similarity_indices import preload_indices
-
-    preload_indices()
