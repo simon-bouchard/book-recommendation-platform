@@ -70,6 +70,8 @@ class SemanticSearchService:
                             "title": book["title"],
                             "author": book.get("author"),
                             "year": book.get("year"),
+                            "num_ratings": book.get("num_ratings", 0),
+                            "cover_id": book.get("cover_id"),
                             "score": item.score,
                         }
                     )

@@ -21,7 +21,6 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from models.domain.recommendation import Candidate
 from models.domain.user import User
 from models.data.queries import get_read_books_for_candidates_async
-from models.data.loaders import load_book_meta
 
 
 # ---------------------------------------------------------------------------
@@ -81,7 +80,6 @@ class MinRatingCountFilter:
             raise ValueError(f"min_count must be non-negative, got {min_count}")
 
         self.min_count = min_count
-        self._book_meta = None
 
     async def apply(
         self,
@@ -92,19 +90,15 @@ class MinRatingCountFilter:
         if self.min_count == 0:
             return candidates
 
-        if self._book_meta is None:
-            self._book_meta = load_book_meta(use_cache=True)
+        from models.client.registry import get_metadata_client
 
-        filtered = []
-        for candidate in candidates:
-            if candidate.item_idx not in self._book_meta.index:
-                continue
+        candidate_ids = [c.item_idx for c in candidates]
+        meta = await get_metadata_client().enrich(candidate_ids)
 
-            rating_count = self._book_meta.loc[candidate.item_idx, "book_num_ratings"]
-            if rating_count >= self.min_count:
-                filtered.append(candidate)
-
-        return filtered
+        return [
+            c for c in candidates
+            if meta.get(c.item_idx, {}).get("num_ratings", 0) >= self.min_count
+        ]
 
 
 class FilterChain:

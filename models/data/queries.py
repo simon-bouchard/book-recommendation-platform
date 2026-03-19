@@ -10,9 +10,7 @@ the recommendation endpoint.
 """
 
 from typing import Dict, List, Set
-import numpy as np
 import pandas as pd
-import torch
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import Session
@@ -149,6 +147,7 @@ def filter_read_books(df: pd.DataFrame, user_id: int, db: Session) -> pd.DataFra
 
 
 def add_book_embeddings(df: pd.DataFrame) -> pd.DataFrame:
+    import numpy as np
     """
     Add book subject embeddings as columns to DataFrame.
 
@@ -192,7 +191,7 @@ def compute_subject_overlap(user_subjects: List[int], book_subjects: List[int]) 
     return len(set(user_subjects) & set(book_subjects))
 
 
-def decompose_embeddings(tensor: torch.Tensor, prefix: str) -> Dict[str, float]:
+def decompose_embeddings(tensor, prefix: str) -> Dict[str, float]:
     """
     Decompose embedding tensor into dictionary of individual dimensions.
 

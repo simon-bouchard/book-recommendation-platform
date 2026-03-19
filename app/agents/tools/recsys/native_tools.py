@@ -11,7 +11,6 @@ import asyncio
 from models.services.recommendation_service import RecommendationService
 from models.domain.user import User
 from models.domain.config import RecommendationConfig, HybridConfig
-from models.data.loaders import load_book_meta
 from app.semantic_index.service import SemanticSearchService
 
 from langchain_core.tools import tool
@@ -79,9 +78,6 @@ class InternalTools:
         if not raw_results:
             return []
 
-        # Load shared resources once
-        book_meta = load_book_meta(use_cache=True)
-
         standardized = []
 
         for book in raw_results:
@@ -94,14 +90,6 @@ class InternalTools:
             if item_idx is None:
                 continue
 
-            # Get num_ratings from book metadata (always available, zero queries)
-            num_ratings = 0
-            cover_id = None
-            if item_idx in book_meta.index:
-                row = book_meta.loc[item_idx]
-                num_ratings = int(row.get("book_num_ratings", 0))
-                cover_id = str(row["cover_id"]) if "cover_id" in row and row["cover_id"] else None
-
             # Build standardized dict - only include fields with content
             result = {
                 # Core metadata (always present)
@@ -109,8 +97,8 @@ class InternalTools:
                 "title": book.get("title", ""),
                 "author": book.get("author", ""),
                 "year": book.get("year"),
-                "num_ratings": num_ratings,
-                "cover_id": cover_id,
+                "num_ratings": int(book.get("num_ratings", 0)),
+                "cover_id": book.get("cover_id") or None,
                 "score": book.get("score", 0.0),
             }
 
@@ -284,6 +272,7 @@ class InternalTools:
                         "year": rec.year,
                         "score": rec.score,
                         "num_ratings": rec.num_ratings,
+                        "cover_id": rec.cover_id,
                     }
                     for rec in recommendations
                 ]
@@ -373,6 +362,7 @@ class InternalTools:
                         "year": rec.year,
                         "score": rec.score,
                         "num_ratings": rec.num_ratings,
+                        "cover_id": rec.cover_id,
                     }
                     for rec in recommendations
                 ]
@@ -418,7 +408,7 @@ class InternalTools:
         """Get popular books ranked by precomputed Bayesian score."""
 
         @tool
-        def popular_books(top_k: int = 100) -> list[dict]:
+        async def popular_books(top_k: int = 100) -> list[dict]:
             """
             Get popular books ranked by Bayesian average rating.
 
@@ -432,34 +422,33 @@ class InternalTools:
             Returns:
                     Standardized list of popular books with basic metadata
             """
-            from models.data.loaders import load_book_meta
             from models.data.queries import get_read_books
+            from models.client.registry import get_metadata_client
 
             top_k = max(1, min(500, top_k))
 
             try:
-                # Already sorted by Bayesian score descending at load time
-                book_meta = load_book_meta(use_cache=True)
+                response = await get_metadata_client().popular(k=top_k)
+
+                results = [
+                    {
+                        "item_idx": book.item_idx,
+                        "title": book.title,
+                        "author": book.author,
+                        "year": book.year,
+                        "num_ratings": book.num_ratings,
+                        "cover_id": book.cover_id,
+                        "score": book.bayes_score or 0.0,
+                    }
+                    for book in response.books
+                ]
 
                 # Filter out books the user has already read
                 if self.current_user and self.db:
                     user_id = getattr(self.current_user, "user_id", None)
                     if user_id:
                         read_ids = get_read_books(user_id, self.db)
-                        book_meta = book_meta[~book_meta.index.isin(read_ids)]
-
-                top_books = book_meta.head(top_k)
-
-                results = [
-                    {
-                        "item_idx": int(item_idx),
-                        "title": str(row["title"]),
-                        "author": str(row["author"]) if row.get("author") else "",
-                        "year": int(row["year"]) if row.get("year") else None,
-                        "score": float(row["bayes"]),
-                    }
-                    for item_idx, row in top_books.iterrows()
-                ]
+                        results = [r for r in results if r["item_idx"] not in read_ids]
 
                 return self._standardize_tool_output(results)
 
