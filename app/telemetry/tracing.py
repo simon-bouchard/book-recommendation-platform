@@ -48,7 +48,7 @@ logger = logging.getLogger(__name__)
 
 _SERVICE_NAME = "bookrec"
 _EXCLUDED_URLS = "/health/live,/health/ready,/metrics"
-_DEFAULT_OTLP_ENDPOINT = "http://localhost:4318"
+_DEFAULT_OTLP_ENDPOINT = "http://localhost:4318/v1/traces"
 
 
 def _instrument_sqlalchemy() -> None:
