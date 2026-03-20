@@ -4,9 +4,10 @@ Serialization utilities for cache values.
 Handles JSON encoding/decoding with special float value handling.
 """
 
-import json
 from typing import Any, Optional
 import logging
+
+import orjson
 
 logger = logging.getLogger(__name__)
 
@@ -49,7 +50,7 @@ def serialize(obj: Any) -> Optional[str]:
     """
     try:
         cleaned = clean_float_values(obj)
-        return json.dumps(cleaned, separators=(",", ":"))
+        return orjson.dumps(cleaned)
     except Exception as e:
         logger.warning(f"Serialization failed: {e}")
         return None
@@ -66,7 +67,7 @@ def deserialize(json_str: str) -> Optional[Any]:
         Deserialized object or None on error
     """
     try:
-        return json.loads(json_str)
+        return orjson.loads(json_str)
     except Exception as e:
         logger.warning(f"Deserialization failed: {e}")
         return None

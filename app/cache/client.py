@@ -68,7 +68,7 @@ class CacheClient:
             socket_timeout=socket_timeout,
             socket_connect_timeout=socket_connect_timeout,
             max_connections=max_connections,
-            decode_responses=True,
+            decode_responses=False,
         )
         self.client = redis.Redis(connection_pool=self.pool)
         self._available = False
