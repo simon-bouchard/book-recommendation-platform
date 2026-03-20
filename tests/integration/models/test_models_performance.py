@@ -21,42 +21,12 @@ pytestmark = pytest.mark.asyncio(loop_scope="module")
 WARMUP_RUNS = 2
 MEASUREMENT_RUNS = 10
 
-WARM_USER_IDS = [11676, 98391, 189835, 153662, 23902, 171118, 235105, 76499, 16795, 248718]
-COLD_WITH_SUBJECTS_USER_IDS = [
-    248965,
-    249650,
-    249939,
-    250634,
-    251575,
-    251744,
-    252628,
-    253310,
-    258352,
-    259734,
-]
-COLD_WITHOUT_SUBJECTS_USER_IDS = [278860, 278855, 52702]
-TEST_BOOK_IDS = [
-    1666,
-    45959,
-    402,
-    27,
-    41636,
-    166,
-    44327,
-    3240,
-    45503,
-    49865,
-    43852,
-    208,
-    41810,
-    12372,
-    3158,
-    729,
-    2015,
-    46695,
-    46839,
-    45820,
-]
+_CONFIG = json.loads((Path(__file__).parent / "test_data_config.json").read_text())
+
+WARM_USER_IDS = _CONFIG["warm_user_ids"]
+COLD_WITH_SUBJECTS_USER_IDS = _CONFIG["cold_with_subjects_user_ids"]
+COLD_WITHOUT_SUBJECTS_USER_IDS = _CONFIG["cold_without_subjects_user_ids"]
+TEST_BOOK_IDS = _CONFIG["test_book_ids"]["all"]
 
 
 class LatencyStats:
