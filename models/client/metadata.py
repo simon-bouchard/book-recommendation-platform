@@ -5,6 +5,7 @@ HTTP client for the metadata model server.
 
 from __future__ import annotations
 
+import logging
 import os
 import time
 
@@ -17,10 +18,15 @@ from model_servers._shared.contracts import (
     EnrichRequest,
 )
 from models.client._base import BaseModelServerClient, _DEFAULT_TIMEOUT
+from models.cache.keys import popularity_key
+from app.cache import get_redis_client
 
 _DEFAULT_URL = "http://metadata:8004"
 
 tracer = trace.get_tracer(__name__)
+logger = logging.getLogger(__name__)
+
+_POPULARITY_TTL = 86400  # 24h — matches daily training cadence
 
 
 class MetadataClient(BaseModelServerClient):
@@ -92,16 +98,41 @@ class MetadataClient(BaseModelServerClient):
         """
         Retrieve the top-k books ranked by precomputed Bayesian score.
 
+        Results are cached in Redis for 24 hours (matching the daily training cadence).
+        Cache is keyed by k, so different page sizes are cached independently.
+
         Args:
             k: Number of books to return.
 
         Returns:
             PopularResponse with books ordered by Bayesian score descending.
         """
+        cache_client = await get_redis_client()
+        key = popularity_key(k)
+
+        if cache_client.available:
+            cached_value = await cache_client.get(key)
+            if cached_value is not None:
+                try:
+                    result = PopularResponse.model_validate_json(cached_value)
+                    logger.info("Cache HIT: %s", key)
+                    return result
+                except Exception as exc:
+                    logger.warning("Cache deserialize failed for %s: %s", key, exc)
+
+        logger.info("Cache MISS: %s", key)
+
         body = PopularRequest(k=k)
         data = await self._post("/popular", body)
 
         with tracer.start_as_current_span("metadata.model_validate") as span:
             span.set_attribute("model", "PopularResponse")
             span.set_attribute("k", k)
-            return PopularResponse.model_validate(data)
+            result = PopularResponse.model_validate(data)
+
+        if cache_client.available:
+            success = await cache_client.set(key, result.model_dump_json(), _POPULARITY_TTL)
+            if success:
+                logger.info("Cache SET: %s (ttl=%ss)", key, _POPULARITY_TTL)
+
+        return result

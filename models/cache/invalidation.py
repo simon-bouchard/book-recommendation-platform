@@ -12,6 +12,26 @@ from app.cache import get_redis_client
 logger = logging.getLogger(__name__)
 
 
+async def clear_popularity_cache() -> int:
+    """
+    Clear all popularity cache entries.
+
+    Should be called after the daily training pipeline updates Bayesian scores.
+
+    Returns:
+        Number of keys deleted.
+    """
+    client = await get_redis_client()
+
+    if not client.available:
+        logger.warning("Cache unavailable, skipping popularity cache clear")
+        return 0
+
+    deleted = await client.delete_pattern("ml:popular:*")
+    logger.info("Cleared %d popularity cache entries", deleted)
+    return deleted
+
+
 async def clear_als_cache() -> int:
     """
     Clear all cache entries that depend on ALS factors.

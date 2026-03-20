@@ -29,6 +29,23 @@ def hash_subjects(subject_idxs: List[int]) -> str:
     return hashlib.md5(subject_str.encode()).hexdigest()[:16]
 
 
+def popularity_key(k: int) -> str:
+    """
+    Build cache key for popularity requests.
+
+    Args:
+        k: Number of popular books requested
+
+    Returns:
+        Cache key string
+
+    Example:
+        popularity_key(100)
+        # "ml:popular:100"
+    """
+    return f"ml:popular:{k}"
+
+
 def similarity_key(item_idx: int, mode: str, k: int, alpha: float = None) -> str:
     """
     Build cache key for book similarity requests.

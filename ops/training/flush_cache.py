@@ -1,6 +1,6 @@
 # ops/training/flush_cache.py
 """
-Flushes ALS-dependent Redis cache entries after a successful model promotion.
+Flushes stale Redis cache entries after a successful model promotion.
 
 Intended to be called as a subprocess step in the automated training pipeline,
 immediately after model server containers have been signalled to reload.
@@ -20,7 +20,7 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
-from models.cache.invalidation import clear_als_cache
+from models.cache.invalidation import clear_als_cache, clear_popularity_cache
 
 logging.basicConfig(
     level=logging.INFO,
@@ -30,9 +30,10 @@ logger = logging.getLogger(__name__)
 
 
 async def main() -> None:
-    """Flush all ALS-dependent cache entries and report the result."""
-    logger.info("Starting ALS cache flush...")
+    """Flush all stale cache entries and report the result."""
+    logger.info("Starting cache flush...")
     deleted = await clear_als_cache()
+    deleted += await clear_popularity_cache()
 
     if deleted == 0:
         logger.warning(
