@@ -4,6 +4,7 @@ ML-specific caching decorators for similarity and recommendation endpoints.
 Wraps generic @cached decorator with ML-optimized key functions and TTLs.
 """
 
+import asyncio
 import logging
 import time
 from functools import wraps
@@ -115,16 +116,19 @@ def cached_recommendations(func: Callable) -> Callable:
         result = await func(user, _id, top_n, mode, w, db, **kwargs)
         compute_ms = int((time.time() - start_time) * 1000)
 
-        serialized = serialize(result)
-        if serialized is not None:
-            success = await client.set(cache_key, serialized, RECOMMENDATION_TTL)
-            if success:
-                logger.info(
-                    "Cache SET: %s (computed in %dms, ttl=%ss)",
-                    cache_key,
-                    compute_ms,
-                    RECOMMENDATION_TTL,
-                )
+        async def _write_cache():
+            serialized = serialize(result)
+            if serialized is not None:
+                success = await client.set(cache_key, serialized, RECOMMENDATION_TTL)
+                if success:
+                    logger.info(
+                        "Cache SET: %s (computed in %dms, ttl=%ss)",
+                        cache_key,
+                        compute_ms,
+                        RECOMMENDATION_TTL,
+                    )
+
+        asyncio.create_task(_write_cache())
 
         return result
 
