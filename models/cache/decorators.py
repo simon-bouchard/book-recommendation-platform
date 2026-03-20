@@ -116,9 +116,9 @@ def cached_recommendations(func: Callable) -> Callable:
         result = await func(user, _id, top_n, mode, w, db, **kwargs)
         compute_ms = int((time.time() - start_time) * 1000)
 
-        async def _write_cache():
-            serialized = serialize(result)
-            if serialized is not None:
+        serialized = serialize(result)
+        if serialized is not None:
+            async def _write_cache():
                 success = await client.set(cache_key, serialized, RECOMMENDATION_TTL)
                 if success:
                     logger.info(
@@ -128,7 +128,7 @@ def cached_recommendations(func: Callable) -> Callable:
                         RECOMMENDATION_TTL,
                     )
 
-        asyncio.create_task(_write_cache())
+            asyncio.create_task(_write_cache())
 
         return result
 

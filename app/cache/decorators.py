@@ -72,9 +72,9 @@ def cached(
             compute_ms = int((time.time() - start_time) * 1000)
 
             if client.available:
-                async def _write_cache():
-                    serialized = serialize(result)
-                    if serialized is not None:
+                serialized = serialize(result)
+                if serialized is not None:
+                    async def _write_cache():
                         success = await client.set(cache_key, serialized, ttl)
                         if success and log_hits:
                             logger.info(
@@ -84,7 +84,7 @@ def cached(
                                 ttl,
                             )
 
-                asyncio.create_task(_write_cache())
+                    asyncio.create_task(_write_cache())
 
             return result
 
