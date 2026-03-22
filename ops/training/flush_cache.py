@@ -20,6 +20,7 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
+from app.cache import get_redis_client
 from models.cache.invalidation import clear_als_cache, clear_popularity_cache
 
 logging.basicConfig(
@@ -32,17 +33,19 @@ logger = logging.getLogger(__name__)
 async def main() -> None:
     """Flush all stale cache entries and report the result."""
     logger.info("Starting cache flush...")
+
+    client = await get_redis_client()
+    if not client.available:
+        logger.error("Redis is unavailable — cannot flush cache.")
+        sys.exit(1)
+
     deleted = await clear_als_cache()
     deleted += await clear_popularity_cache()
 
     if deleted == 0:
-        logger.warning(
-            "No cache entries were deleted. "
-            "Redis may be unavailable or the cache was already empty."
-        )
-        sys.exit(1)
-
-    logger.info("Cache flush complete: %d entries removed.", deleted)
+        logger.warning("No cache entries were deleted — cache may already be empty.")
+    else:
+        logger.info("Cache flush complete: %d entries removed.", deleted)
 
 
 if __name__ == "__main__":
