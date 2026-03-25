@@ -18,8 +18,8 @@ import pytest
 
 pytestmark = pytest.mark.asyncio(loop_scope="module")
 
-WARMUP_RUNS = 2
-MEASUREMENT_RUNS = 10
+WARMUP_RUNS = 10
+MEASUREMENT_RUNS = 50
 
 _CONFIG = json.loads((Path(__file__).parent / "test_data_config.json").read_text())
 
