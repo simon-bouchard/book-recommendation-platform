@@ -1,8 +1,9 @@
 # requirements/als.txt
 #
 # ALS recommendation model server dependencies.
-# ALSModel performs pure numpy matrix operations (book_factors @ user_vec)
-# at inference time. No faiss, no torch, no pandas — base is sufficient.
+# faiss-cpu: ALSModel builds an IndexFlatIP over book_factors at startup and
+#            uses it for fast top-k inner product scoring at inference time.
 
 -r base.txt
+faiss-cpu==1.9.0
 pandas==2.3.1
