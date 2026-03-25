@@ -5,6 +5,7 @@ ALS collaborative filtering model wrapper with clean interface.
 
 from typing import Optional, List, Tuple
 
+import faiss
 import numpy as np
 
 
@@ -109,6 +110,13 @@ class ALSModel:
             self.user_ids = sorted(user_id_map.keys())
             self.book_ids = sorted(self.book_id_to_row.keys())
 
+        # Build FAISS index for fast top-k inner product scoring.
+        # IndexFlatIP is exact (same result as matmul) but uses SIMD + OMP,
+        # which is significantly faster than a NumPy GEMV for large catalogs.
+        book_vecs = self.book_factors.astype(np.float32, copy=False)
+        self._book_index = faiss.IndexFlatIP(book_vecs.shape[1])
+        self._book_index.add(book_vecs)
+
     def has_user(self, user_id: int) -> bool:
         """
         Check if user exists in ALS model.
@@ -151,20 +159,13 @@ class ALSModel:
         if k <= 0:
             return []
 
-        # Get user latent factors
         user_row = self.user_id_to_row[user_id]
-        user_vec = self.user_factors[user_row]
+        user_vec = self.user_factors[user_row].astype(np.float32).reshape(1, -1)
 
-        # Compute scores: book_factors @ user_vec
-        scores = self.book_factors @ user_vec
+        actual_k = min(k, self._book_index.ntotal)
+        _, row_indices = self._book_index.search(user_vec, actual_k)
 
-        # Get top k indices
-        top_indices = np.argsort(-scores)[:k]
-
-        # Map row indices to item_idx
-        recommendations = [self.book_row_to_id[int(i)] for i in top_indices]
-
-        return recommendations
+        return [self.book_row_to_id[int(i)] for i in row_indices[0]]
 
     def score(self, user_id: int, k: int) -> Tuple[np.ndarray, np.ndarray]:
         """
@@ -183,15 +184,15 @@ class ALSModel:
             return np.array([], dtype=np.int64), np.array([], dtype=np.float32)
 
         user_row = self.user_id_to_row[user_id]
-        user_vec = self.user_factors[user_row]
+        user_vec = self.user_factors[user_row].astype(np.float32).reshape(1, -1)
 
-        raw_scores = self.book_factors @ user_vec
-        top_indices = np.argsort(-raw_scores)[:k]
+        actual_k = min(k, self._book_index.ntotal)
+        scores, row_indices = self._book_index.search(user_vec, actual_k)
 
-        item_ids = np.array([self.book_row_to_id[int(i)] for i in top_indices], dtype=np.int64)
-        scores = raw_scores[top_indices].astype(np.float32)
-
-        return item_ids, scores
+        item_ids = np.array(
+            [self.book_row_to_id[int(i)] for i in row_indices[0]], dtype=np.int64
+        )
+        return item_ids, scores[0]
 
     def get_user_factors(self, user_id: int) -> Optional[np.ndarray]:
         """
