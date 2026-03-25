@@ -18,8 +18,27 @@ from pathlib import Path
 
 _BASELINES_DIR = Path(__file__).parent / "performance_baselines"
 
-_COL_WIDTH = 52
+_COL_WIDTH = 42
 _NUM_WIDTH = 8
+
+# ---------------------------------------------------------------------------
+# Category classification
+# ---------------------------------------------------------------------------
+
+_CATEGORIES = [
+    ("Embedder", lambda k: k.startswith("embedder_")),
+    ("Similarity", lambda k: k.startswith("similarity_")),
+    ("ALS", lambda k: k.startswith("als_")),
+    ("Metadata", lambda k: k.startswith("metadata_")),
+    ("Semantic", lambda k: k.startswith("semantic_")),
+]
+
+
+def _classify(name: str) -> str:
+    for label, fn in _CATEGORIES:
+        if fn(name):
+            return label
+    return "Other"
 
 
 # ---------------------------------------------------------------------------
@@ -76,6 +95,51 @@ def _row(label: str, *values: str) -> str:
     return f"  {label:<{_COL_WIDTH}}" + "".join(f"{v:>{_NUM_WIDTH}}" for v in values)
 
 
+def _print_stats_table(results: dict, title: str, key: str | None = None) -> None:
+    """Print a latency stats table grouped by category. If key is set, read from results[name][key]."""
+    header = _row(title, "mean", "±stdev", "median", "p95", "p99", "min", "max")
+    separator = "  " + "-" * (_COL_WIDTH + _NUM_WIDTH * 7)
+    print(f"\n{header}")
+    print(separator)
+
+    # Group names by category, preserving insertion order within each category.
+    from collections import defaultdict
+    buckets: dict[str, list[str]] = defaultdict(list)
+    for name in sorted(results):
+        buckets[_classify(name)].append(name)
+
+    category_order = [label for label, _ in _CATEGORIES] + ["Other"]
+    first = True
+    for category in category_order:
+        names = buckets.get(category)
+        if not names:
+            continue
+        if not first:
+            print()
+        print(f"  {category}")
+        first = False
+        for name in names:
+            entry = results[name]
+            stats = entry.get(key) if key else entry
+            if not stats:
+                print(_row(f"  {name}", *["n/a"] * 7))
+                continue
+            print(
+                _row(
+                    f"  {name}",
+                    f"{stats['mean_ms']:.1f}ms",
+                    f"±{stats['stdev_ms']:.1f}ms",
+                    f"{stats['median_ms']:.1f}ms",
+                    f"{stats['p95_ms']:.1f}ms",
+                    f"{stats['p99_ms']:.1f}ms",
+                    f"{stats['min_ms']:.1f}ms",
+                    f"{stats['max_ms']:.1f}ms",
+                )
+            )
+
+    print()
+
+
 def print_baseline(data: dict, path: Path) -> None:
     config = data.get("config", {})
     results = data.get("results", {})
@@ -90,29 +154,11 @@ def print_baseline(data: dict, path: Path) -> None:
         print("\n  (no results)")
         return
 
-    header = _row("Test", "mean", "median", "p95", "p99", "min", "max")
-    separator = "  " + "-" * (_COL_WIDTH + _NUM_WIDTH * 6)
+    _print_stats_table(results, "Test (HTTP)")
 
-    print(f"\n{header}")
-    print(separator)
-
-    for name, stats in sorted(results.items()):
-        if not stats:
-            print(_row(name, *["n/a"] * 6))
-            continue
-        print(
-            _row(
-                name,
-                f"{stats['mean_ms']:.1f}ms",
-                f"{stats['median_ms']:.1f}ms",
-                f"{stats['p95_ms']:.1f}ms",
-                f"{stats['p99_ms']:.1f}ms",
-                f"{stats['min_ms']:.1f}ms",
-                f"{stats['max_ms']:.1f}ms",
-            )
-        )
-
-    print()
+    compute_results = {n: s for n, s in results.items() if s and s.get("compute")}
+    if compute_results:
+        _print_stats_table(compute_results, "Test (Compute)", key="compute")
 
 
 # ---------------------------------------------------------------------------
@@ -120,42 +166,84 @@ def print_baseline(data: dict, path: Path) -> None:
 # ---------------------------------------------------------------------------
 
 
+def _print_comparison_section(
+    results_a: dict,
+    results_b: dict,
+    title: str,
+    key: str | None = None,
+) -> None:
+    """Print a grouped before/after comparison table with stdev for one stats layer."""
+    header = _row(title, "A mean", "A ±std", "B mean", "B ±std", "delta", "change")
+    separator = "  " + "-" * (_COL_WIDTH + _NUM_WIDTH * 6)
+    print(f"\n{header}")
+    print(separator)
+
+    from collections import defaultdict
+    all_keys = sorted(results_a.keys() | results_b.keys())
+    buckets: dict[str, list[str]] = defaultdict(list)
+    for name in all_keys:
+        buckets[_classify(name)].append(name)
+
+    category_order = [label for label, _ in _CATEGORIES] + ["Other"]
+    first = True
+    for category in category_order:
+        names = buckets.get(category)
+        if not names:
+            continue
+        if not first:
+            print()
+        print(f"  {category}")
+        first = False
+        for name in names:
+            raw_a = results_a.get(name)
+            raw_b = results_b.get(name)
+            sa = (raw_a.get(key) if key else raw_a) if raw_a else None
+            sb = (raw_b.get(key) if key else raw_b) if raw_b else None
+
+            if not sa and not sb:
+                continue
+            if not sa or not sb:
+                label = "(A only)" if not sb else "(B only)"
+                mean = sa["mean_ms"] if sa else sb["mean_ms"]
+                print(_row(f"  {name}", f"{mean:.1f}ms", "-", "-", "-", "-", label))
+                continue
+
+            mean_a, stdev_a = sa["mean_ms"], sa["stdev_ms"]
+            mean_b, stdev_b = sb["mean_ms"], sb["stdev_ms"]
+            delta = mean_b - mean_a
+            pct = (delta / mean_a) * 100 if mean_a else 0
+            print(
+                _row(
+                    f"  {name}",
+                    f"{mean_a:.1f}ms",
+                    f"±{stdev_a:.1f}ms",
+                    f"{mean_b:.1f}ms",
+                    f"±{stdev_b:.1f}ms",
+                    f"{delta:+.1f}ms",
+                    f"{pct:+.1f}%",
+                )
+            )
+
+    print()
+
+
 def print_comparison(data_a: dict, path_a: Path, data_b: dict, path_b: Path) -> None:
     results_a = data_a.get("results", {})
     results_b = data_b.get("results", {})
-    all_keys = sorted(results_a.keys() | results_b.keys())
 
     print(f"\nComparing:")
     print(f"  A: {path_a.name}  ({data_a.get('timestamp', '?')})")
     print(f"  B: {path_b.name}  ({data_b.get('timestamp', '?')})")
 
-    header = _row("Test", "A mean", "B mean", "delta", "change")
-    separator = "  " + "-" * (_COL_WIDTH + _NUM_WIDTH * 4)
+    _print_comparison_section(results_a, results_b, "Test (HTTP)")
 
-    print(f"\n{header}")
-    print(separator)
-
-    for name in all_keys:
-        stats_a = results_a.get(name)
-        stats_b = results_b.get(name)
-
-        if not stats_a or not stats_b:
-            label = "(A only)" if not stats_b else "(B only)"
-            mean = stats_a["mean_ms"] if stats_a else stats_b["mean_ms"]
-            print(_row(name, f"{mean:.1f}ms", "-", "-", label))
-            continue
-
-        mean_a = stats_a["mean_ms"]
-        mean_b = stats_b["mean_ms"]
-        delta = mean_b - mean_a
-        pct = (delta / mean_a) * 100 if mean_a else 0
-
-        delta_str = f"{delta:+.1f}ms"
-        pct_str = f"{pct:+.1f}%"
-
-        print(_row(name, f"{mean_a:.1f}ms", f"{mean_b:.1f}ms", delta_str, pct_str))
-
-    print()
+    has_compute = any(
+        results_a.get(n, {}).get("compute") and results_b.get(n, {}).get("compute")
+        for n in results_a.keys() | results_b.keys()
+    )
+    if has_compute:
+        print("Compute latency  (server-side, from X-Compute-Ms header)")
+        _print_comparison_section(results_a, results_b, "Test (Compute)", key="compute")
 
 
 # ---------------------------------------------------------------------------
