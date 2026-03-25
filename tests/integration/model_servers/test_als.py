@@ -15,12 +15,15 @@ from __future__ import annotations
 
 import pytest
 
+from model_servers._shared.contracts import AlsRecsRequest
+
 from models.client.als import AlsClient
 
 from ._utils import (
     COLD_USER_IDS_WITHOUT_SUBJECTS,
     WARM_USER_IDS,
     measure_latency,
+    measure_latency_with_compute,
 )
 
 _WARM_USER = WARM_USER_IDS[0]
@@ -120,9 +123,12 @@ async def test_has_als_user_latency(als_client: AlsClient, performance_report):
 
 async def test_als_recs_latency_k200(als_client: AlsClient, performance_report):
     """als_recs latency for a warm user at k=200."""
-    stats = await measure_latency(
+    payload = AlsRecsRequest(user_id=_WARM_USER, k=200).model_dump_json()
+    stats = await measure_latency_with_compute(
         "als_recs_warm_k200",
-        lambda: als_client.als_recs(_WARM_USER, k=200),
+        lambda: als_client._client.post(
+            "/als_recs", content=payload, headers={"Content-Type": "application/json"}
+        ),
     )
     performance_report["als_recs_warm_k200"] = stats
     print(f"\n{stats}")
@@ -131,9 +137,12 @@ async def test_als_recs_latency_k200(als_client: AlsClient, performance_report):
 @pytest.mark.parametrize("k", [50, 200, 500])
 async def test_als_recs_latency_varying_k(als_client: AlsClient, performance_report, k: int):
     """als_recs latency across k values to characterize scaling behaviour."""
-    stats = await measure_latency(
+    payload = AlsRecsRequest(user_id=_WARM_USER, k=k).model_dump_json()
+    stats = await measure_latency_with_compute(
         f"als_recs_warm_k{k}",
-        lambda: als_client.als_recs(_WARM_USER, k=k),
+        lambda: als_client._client.post(
+            "/als_recs", content=payload, headers={"Content-Type": "application/json"}
+        ),
     )
     performance_report[f"als_recs_warm_k{k}"] = stats
     print(f"\n{stats}")

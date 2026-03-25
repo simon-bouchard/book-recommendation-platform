@@ -12,6 +12,12 @@ from __future__ import annotations
 
 import pytest
 
+from model_servers._shared.contracts import (
+    AlsSimRequest,
+    HybridSimRequest,
+    SubjectRecsRequest,
+    SubjectSimRequest,
+)
 from models.client.embedder import EmbedderClient
 from models.client.similarity import SimilarityClient
 
@@ -20,6 +26,7 @@ from ._utils import (
     TEST_SUBJECT_INDICES,
     assert_scores_descending,
     measure_latency,
+    measure_latency_with_compute,
 )
 
 _QUERY_BOOK = TEST_BOOK_IDS[0]
@@ -190,9 +197,12 @@ async def test_subject_recs_k_is_respected(
 
 async def test_subject_sim_latency_k200(similarity_client: SimilarityClient, performance_report):
     """subject_sim latency at k=200."""
-    stats = await measure_latency(
+    payload = SubjectSimRequest(item_idx=_QUERY_BOOK, k=200).model_dump_json()
+    stats = await measure_latency_with_compute(
         "similarity_subject_sim_k200",
-        lambda: similarity_client.subject_sim(_QUERY_BOOK, k=200),
+        lambda: similarity_client._client.post(
+            "/subject_sim", content=payload, headers={"Content-Type": "application/json"}
+        ),
     )
     performance_report["similarity_subject_sim_k200"] = stats
     print(f"\n{stats}")
@@ -204,9 +214,12 @@ async def test_als_sim_latency_k200(similarity_client: SimilarityClient, perform
     if not has_als.has_als:
         pytest.skip(f"Book {_QUERY_BOOK} has no ALS factors")
 
-    stats = await measure_latency(
+    payload = AlsSimRequest(item_idx=_QUERY_BOOK, k=200).model_dump_json()
+    stats = await measure_latency_with_compute(
         "similarity_als_sim_k200",
-        lambda: similarity_client.als_sim(_QUERY_BOOK, k=200),
+        lambda: similarity_client._client.post(
+            "/als_sim", content=payload, headers={"Content-Type": "application/json"}
+        ),
     )
     performance_report["similarity_als_sim_k200"] = stats
     print(f"\n{stats}")
@@ -218,9 +231,12 @@ async def test_hybrid_sim_latency_k200(similarity_client: SimilarityClient, perf
     if not has_als.has_als:
         pytest.skip(f"Book {_QUERY_BOOK} has no ALS factors")
 
-    stats = await measure_latency(
+    payload = HybridSimRequest(item_idx=_QUERY_BOOK, k=200, alpha=0.6).model_dump_json()
+    stats = await measure_latency_with_compute(
         "similarity_hybrid_sim_k200",
-        lambda: similarity_client.hybrid_sim(_QUERY_BOOK, k=200, alpha=0.6),
+        lambda: similarity_client._client.post(
+            "/hybrid_sim", content=payload, headers={"Content-Type": "application/json"}
+        ),
     )
     performance_report["similarity_hybrid_sim_k200"] = stats
     print(f"\n{stats}")
@@ -233,11 +249,15 @@ async def test_subject_recs_latency_k200(
 ):
     """subject_recs latency at k=200. The user vector is computed once outside the loop."""
     embed_response = await embedder_client.embed(TEST_SUBJECT_INDICES)
-    vector = embed_response.vector
+    payload = SubjectRecsRequest(
+        user_vector=embed_response.vector, k=200, alpha=0.6
+    ).model_dump_json()
 
-    stats = await measure_latency(
+    stats = await measure_latency_with_compute(
         "similarity_subject_recs_k200",
-        lambda: similarity_client.subject_recs(user_vector=vector, k=200, alpha=0.6),
+        lambda: similarity_client._client.post(
+            "/subject_recs", content=payload, headers={"Content-Type": "application/json"}
+        ),
     )
     performance_report["similarity_subject_recs_k200"] = stats
     print(f"\n{stats}")

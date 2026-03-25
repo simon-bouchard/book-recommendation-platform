@@ -13,14 +13,14 @@ from __future__ import annotations
 import math
 import statistics
 import time
-from typing import Callable, Coroutine, Dict, List
+from typing import Any, Callable, Coroutine, Dict, List, Optional
 
 # ---------------------------------------------------------------------------
 # Measurement configuration
 # ---------------------------------------------------------------------------
 
-WARMUP_RUNS = 2
-MEASUREMENT_RUNS = 10
+WARMUP_RUNS = 10
+MEASUREMENT_RUNS = 50
 
 # ---------------------------------------------------------------------------
 # Test data
@@ -82,14 +82,15 @@ class LatencyStats:
     def __init__(self, name: str) -> None:
         self.name = name
         self.measurements: List[float] = []
+        self.compute: Optional[LatencyStats] = None
 
     def add(self, duration_ms: float) -> None:
         self.measurements.append(duration_ms)
 
-    def get_stats(self) -> Dict[str, float]:
+    def get_stats(self) -> Dict[str, Any]:
         if not self.measurements:
             return {}
-        return {
+        stats: Dict[str, Any] = {
             "min_ms": min(self.measurements),
             "max_ms": max(self.measurements),
             "mean_ms": statistics.mean(self.measurements),
@@ -101,21 +102,34 @@ class LatencyStats:
             ),
             "count": len(self.measurements),
         }
+        if self.compute is not None:
+            compute_stats = self.compute.get_stats()
+            if compute_stats:
+                stats["compute"] = compute_stats
+        return stats
 
     def __str__(self) -> str:
         stats = self.get_stats()
         if not stats:
             return f"{self.name}: No measurements"
-        return (
-            f"{self.name}:\n"
-            f"  Mean:   {stats['mean_ms']:.2f}ms\n"
-            f"  Median: {stats['median_ms']:.2f}ms\n"
-            f"  P95:    {stats['p95_ms']:.2f}ms\n"
-            f"  P99:    {stats['p99_ms']:.2f}ms\n"
-            f"  Range:  [{stats['min_ms']:.2f}ms - {stats['max_ms']:.2f}ms]\n"
-            f"  Stdev:  {stats['stdev_ms']:.2f}ms\n"
-            f"  Count:  {stats['count']}"
-        )
+        lines = [
+            f"{self.name}:",
+            f"  Mean:   {stats['mean_ms']:.2f}ms",
+            f"  Median: {stats['median_ms']:.2f}ms",
+            f"  P95:    {stats['p95_ms']:.2f}ms",
+            f"  P99:    {stats['p99_ms']:.2f}ms",
+            f"  Range:  [{stats['min_ms']:.2f}ms - {stats['max_ms']:.2f}ms]",
+            f"  Stdev:  {stats['stdev_ms']:.2f}ms",
+            f"  Count:  {stats['count']}",
+        ]
+        if self.compute is not None:
+            cs = self.compute.get_stats()
+            if cs:
+                lines.append(
+                    f"  Compute: mean={cs['mean_ms']:.2f}ms  "
+                    f"median={cs['median_ms']:.2f}ms  p95={cs['p95_ms']:.2f}ms"
+                )
+        return "\n".join(lines)
 
 
 def _percentile(data: List[float], percentile: float) -> float:
@@ -158,6 +172,54 @@ async def measure_latency(
         stats.add((time.perf_counter() - start) * 1000)
 
     return stats
+
+
+async def measure_latency_with_compute(
+    name: str,
+    coro_factory: Callable[[], Coroutine],
+    warmup_runs: int = WARMUP_RUNS,
+    measurement_runs: int = MEASUREMENT_RUNS,
+) -> LatencyStats:
+    """
+    Measure end-to-end HTTP latency and server-side compute latency together.
+
+    The factory must return an httpx.Response so that the X-Compute-Ms
+    response header can be read. Use client._client.post(...) directly
+    rather than the typed client methods, which parse the response and
+    discard the raw httpx object.
+
+    Args:
+        name: Label attached to the returned LatencyStats instance.
+        coro_factory: Zero-argument callable returning a coroutine that
+                      resolves to an httpx.Response.
+        warmup_runs: Number of un-timed runs before measurement.
+        measurement_runs: Number of timed runs to collect.
+
+    Returns:
+        LatencyStats with HTTP wall-clock measurements. If X-Compute-Ms
+        headers were present, stats.compute holds the server-side timings.
+    """
+    http_stats = LatencyStats(name)
+    compute_tracker = LatencyStats(name)
+    has_compute = False
+
+    for _ in range(warmup_runs):
+        await coro_factory()
+
+    for _ in range(measurement_runs):
+        start = time.perf_counter()
+        response = await coro_factory()
+        http_stats.add((time.perf_counter() - start) * 1000)
+
+        header = response.headers.get("x-compute-ms")
+        if header is not None:
+            compute_tracker.add(float(header))
+            has_compute = True
+
+    if has_compute:
+        http_stats.compute = compute_tracker
+
+    return http_stats
 
 
 # ---------------------------------------------------------------------------

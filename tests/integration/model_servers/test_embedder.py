@@ -15,10 +15,13 @@ import pytest
 from pydantic import ValidationError
 from models.client.embedder import EmbedderClient
 
+from model_servers._shared.contracts import EmbedRequest
+
 from ._utils import (
     TEST_SUBJECT_INDICES,
     assert_l2_normalized,
     measure_latency,
+    measure_latency_with_compute,
 )
 
 
@@ -83,9 +86,12 @@ async def test_embed_empty_list_is_rejected(embedder_client: EmbedderClient):
 
 async def test_embed_latency_small(embedder_client: EmbedderClient, performance_report):
     """Embedding latency for a small subject list (2 subjects)."""
-    stats = await measure_latency(
+    payload = EmbedRequest(subject_indices=TEST_SUBJECT_INDICES[:2]).model_dump_json()
+    stats = await measure_latency_with_compute(
         "embedder_embed_small",
-        lambda: embedder_client.embed(TEST_SUBJECT_INDICES[:2]),
+        lambda: embedder_client._client.post(
+            "/embed", content=payload, headers={"Content-Type": "application/json"}
+        ),
     )
     performance_report["embedder_embed_small"] = stats
     print(f"\n{stats}")
@@ -93,9 +99,12 @@ async def test_embed_latency_small(embedder_client: EmbedderClient, performance_
 
 async def test_embed_latency_medium(embedder_client: EmbedderClient, performance_report):
     """Embedding latency for a medium subject list (5 subjects)."""
-    stats = await measure_latency(
+    payload = EmbedRequest(subject_indices=TEST_SUBJECT_INDICES).model_dump_json()
+    stats = await measure_latency_with_compute(
         "embedder_embed_medium",
-        lambda: embedder_client.embed(TEST_SUBJECT_INDICES),
+        lambda: embedder_client._client.post(
+            "/embed", content=payload, headers={"Content-Type": "application/json"}
+        ),
     )
     performance_report["embedder_embed_medium"] = stats
     print(f"\n{stats}")
