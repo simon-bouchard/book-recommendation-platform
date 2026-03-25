@@ -55,28 +55,27 @@ async def test_enrich_returns_books_with_required_fields(metadata_client: Metada
     """enrich returns metadata for known books with required fields populated."""
     response = await metadata_client.enrich(_SMALL_BATCH)
 
-    assert len(response.books) > 0
-    for book in response.books:
-        assert book.item_idx in _SMALL_BATCH
-        assert isinstance(book.title, str)
-        assert len(book.title) > 0
+    assert len(response) > 0
+    for item_idx, book in response.items():
+        assert item_idx in _SMALL_BATCH
+        assert isinstance(book["title"], str)
+        assert len(book["title"]) > 0
 
 
 async def test_enrich_unknown_items_are_silently_omitted(metadata_client: MetadataClient):
     """Item indices absent from the metadata store are omitted, not errored."""
     response = await metadata_client.enrich(_SMALL_BATCH + [_UNKNOWN_ITEM_IDX])
 
-    result_ids = {book.item_idx for book in response.books}
-    assert _UNKNOWN_ITEM_IDX not in result_ids
-    assert len(response.books) <= len(_SMALL_BATCH)
+    assert _UNKNOWN_ITEM_IDX not in response
+    assert len(response) <= len(_SMALL_BATCH)
 
 
 async def test_enrich_large_batch_succeeds(metadata_client: MetadataClient):
     """enrich handles the full test batch (20 books) without error."""
     response = await metadata_client.enrich(_LARGE_BATCH)
 
-    assert isinstance(response.books, list)
-    assert len(response.books) > 0
+    assert isinstance(response, dict)
+    assert len(response) > 0
 
 
 # ---------------------------------------------------------------------------
