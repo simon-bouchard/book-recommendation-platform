@@ -46,7 +46,6 @@ services:
       SERVER: embedder
       PORT: "8001"
       MODEL_VERSION_POINTER: /app/models/artifacts/active_version
-      OMP_NUM_THREADS: "2"
     volumes:
       - ${ARTIFACTS_DIR}:/app/models/artifacts:ro
     restart: unless-stopped
@@ -73,7 +72,6 @@ services:
       SERVER: similarity
       PORT: "8002"
       MODEL_VERSION_POINTER: /app/models/artifacts/active_version
-      OMP_NUM_THREADS: "2"
     volumes:
       - ${ARTIFACTS_DIR}:/app/models/artifacts:ro
     restart: unless-stopped
@@ -100,7 +98,6 @@ services:
       SERVER: als
       PORT: "8003"
       MODEL_VERSION_POINTER: /app/models/artifacts/active_version
-      OMP_NUM_THREADS: "2"
     volumes:
       - ${ARTIFACTS_DIR}:/app/models/artifacts:ro
     restart: unless-stopped
