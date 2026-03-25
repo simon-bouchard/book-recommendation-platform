@@ -9,7 +9,7 @@ Consumers: similarity server (for subject_recs), application layer (for candidat
 import logging
 import time
 
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Response
 
 from model_servers._shared.contracts import (
     EmbedRequest,
@@ -80,7 +80,7 @@ def health() -> HealthResponse:
 
 
 @app.post("/embed", response_model=EmbedResponse)
-def embed(request: EmbedRequest) -> EmbedResponse:
+def embed(request: EmbedRequest, response: Response) -> EmbedResponse:
     """
     Compute a normalized embedding vector for a list of subject indices.
 
@@ -92,7 +92,9 @@ def embed(request: EmbedRequest) -> EmbedResponse:
         raise HTTPException(status_code=503, detail="Embedder not initialized")
 
     try:
+        t0 = time.perf_counter()
         vector = embedder.embed(request.subject_indices)
+        response.headers["X-Compute-Ms"] = f"{(time.perf_counter() - t0) * 1000:.3f}"
         return EmbedResponse(vector=vector.tolist())
 
     except Exception as e:

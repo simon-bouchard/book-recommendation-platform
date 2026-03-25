@@ -11,7 +11,7 @@ this process because hybrid_sim requires both embedding matrices simultaneously
 import logging
 import time
 
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Response
 
 from model_servers._shared.contracts import (
     AlsSimRequest,
@@ -121,7 +121,7 @@ def has_book_als(request: HasBookAlsRequest) -> HasBookAlsResponse:
 
 
 @app.post("/subject_sim", response_model=SimResponse)
-def subject_sim(request: SubjectSimRequest) -> SimResponse:
+def subject_sim(request: SubjectSimRequest, response: Response) -> SimResponse:
     """
     HNSW nearest-neighbour lookup in the subject embedding space.
 
@@ -129,9 +129,11 @@ def subject_sim(request: SubjectSimRequest) -> SimResponse:
     Returns empty results if item_idx has no subject embedding.
     """
     try:
+        t0 = time.perf_counter()
         scores, item_ids = get_subject_similarity_index().search(
             query_item_id=request.item_idx, k=request.k, exclude_query=True
         )
+        response.headers["X-Compute-Ms"] = f"{(time.perf_counter() - t0) * 1000:.3f}"
         return SimResponse(
             results=[
                 ScoredItem(item_idx=int(iid), score=float(s)) for iid, s in zip(item_ids, scores)
@@ -148,7 +150,7 @@ def subject_sim(request: SubjectSimRequest) -> SimResponse:
 
 
 @app.post("/als_sim", response_model=SimResponse)
-def als_sim(request: AlsSimRequest) -> SimResponse:
+def als_sim(request: AlsSimRequest, response: Response) -> SimResponse:
     """
     HNSW nearest-neighbour lookup in the ALS factor space.
 
@@ -156,9 +158,11 @@ def als_sim(request: AlsSimRequest) -> SimResponse:
     index build time. Returns empty results if item_idx has no ALS factors.
     """
     try:
+        t0 = time.perf_counter()
         scores, item_ids = get_als_similarity_index().search(
             query_item_id=request.item_idx, k=request.k, exclude_query=True
         )
+        response.headers["X-Compute-Ms"] = f"{(time.perf_counter() - t0) * 1000:.3f}"
         return SimResponse(
             results=[
                 ScoredItem(item_idx=int(iid), score=float(s)) for iid, s in zip(item_ids, scores)
@@ -175,7 +179,7 @@ def als_sim(request: AlsSimRequest) -> SimResponse:
 
 
 @app.post("/hybrid_sim", response_model=SimResponse)
-def hybrid_sim(request: HybridSimRequest) -> SimResponse:
+def hybrid_sim(request: HybridSimRequest, response: Response) -> SimResponse:
     """
     Single-pass joint matmul over subject and ALS embedding matrices.
 
@@ -184,11 +188,13 @@ def hybrid_sim(request: HybridSimRequest) -> SimResponse:
     Returns empty results if item_idx has no subject embedding.
     """
     try:
+        t0 = time.perf_counter()
         item_ids, scores = HybridScorer().score(
             item_idx=request.item_idx,
             k=request.k,
             alpha=request.alpha,
         )
+        response.headers["X-Compute-Ms"] = f"{(time.perf_counter() - t0) * 1000:.3f}"
         return SimResponse(
             results=[
                 ScoredItem(item_idx=int(iid), score=float(s)) for iid, s in zip(item_ids, scores)
@@ -205,7 +211,7 @@ def hybrid_sim(request: HybridSimRequest) -> SimResponse:
 
 
 @app.post("/subject_recs", response_model=SubjectRecsResponse)
-def subject_recs(request: SubjectRecsRequest) -> SubjectRecsResponse:
+def subject_recs(request: SubjectRecsRequest, response: Response) -> SubjectRecsResponse:
     """
     Joint scoring over all book subject embeddings and Bayesian popularity scores.
 
@@ -216,11 +222,13 @@ def subject_recs(request: SubjectRecsRequest) -> SubjectRecsResponse:
         import numpy as np
 
         user_vec = np.array(request.user_vector, dtype="float32")
+        t0 = time.perf_counter()
         item_ids, scores = SubjectScorer().score(
             user_vector=user_vec,
             k=request.k,
             alpha=request.alpha,
         )
+        response.headers["X-Compute-Ms"] = f"{(time.perf_counter() - t0) * 1000:.3f}"
         return SubjectRecsResponse(
             results=[
                 ScoredItem(item_idx=int(iid), score=float(s)) for iid, s in zip(item_ids, scores)
