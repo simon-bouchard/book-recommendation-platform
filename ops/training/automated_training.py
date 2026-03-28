@@ -1,11 +1,11 @@
 # ops/training/automated_training.py
 """
-Automated training pipeline that orchestrates remote training, artifact staging,
+Automated training pipeline that orchestrates local training, artifact staging,
 quality gate evaluation, versioned promotion, and worker reload signaling.
 """
 
 import os
-import shlex
+import shutil
 import subprocess
 import sys
 import time
@@ -30,25 +30,11 @@ from ops.training.notify import notify, read_tail as _notify_read_tail
 from ops.training.reload_signal import signal_workers_reload
 
 # ---------------------------------------------------------------------------
-# Remote host configuration
-# ---------------------------------------------------------------------------
-
-REMOTE_HOST = os.getenv("REMOTE_HOST")
-REMOTE_REPO = os.getenv("REMOTE_REPO_PATH")
-REMOTE_BACKUP_DIR = os.getenv("REMOTE_BACKUP_DIR")
-
-# ---------------------------------------------------------------------------
 # Local configuration
 # ---------------------------------------------------------------------------
 
 LOCAL_PAD_IDX = int(os.getenv("PAD_IDX", "0"))
 LOG_DIR = Path(os.getenv("TRAIN_LOG_DIR", str(PROJECT_ROOT / "models/training/logs")))
-
-# ---------------------------------------------------------------------------
-# SSH configuration
-# ---------------------------------------------------------------------------
-
-_SSH_READY_TIMEOUT = int(os.getenv("SSH_READY_TIMEOUT", "300"))
 
 # ---------------------------------------------------------------------------
 # Training script selection
@@ -74,7 +60,6 @@ TRAIN_SCRIPTS.extend(
 )
 
 _VERSIONS_TO_KEEP = 5
-_REMOTE_BACKUPS_TO_KEEP = 3
 _NOTIFY_ON_SUCCESS = os.getenv("NOTIFY_ON_SUCCESS", "true").lower() != "false"
 
 
@@ -121,80 +106,33 @@ def _read_tail(log_dir: Path) -> str | None:
     return "\n\n".join(parts) if parts else None
 
 
-def _deallocate_vm() -> None:
-    """Deallocate the Azure training VM, logging but not raising on failure."""
-    azure_vm = os.getenv("AZURE_VM_NAME")
-    azure_rg = os.getenv("AZURE_RESOURCE_GROUP")
-    try:
-        run(f'az vm deallocate --name {azure_vm} --resource-group "{azure_rg}"')
-    except subprocess.CalledProcessError as exc:
-        print(f"Warning: VM deallocation failed: {exc}. Continuing.")
-
-
-def _wait_for_ssh(timeout: int = _SSH_READY_TIMEOUT) -> None:
+def _run_local_script(script: str, local_log_dir: Path) -> None:
     """
-    Block until the remote host accepts SSH connections, then return.
+    Execute a single training script locally and capture its output.
 
-    Polls every 5 seconds until the host responds or the timeout is exceeded.
-
-    Args:
-        timeout: Maximum number of seconds to wait before raising.
-
-    Raises:
-        TimeoutError: If the host does not become reachable within timeout seconds.
-    """
-    deadline = time.monotonic() + timeout
-    while time.monotonic() < deadline:
-        result = subprocess.run(
-            f"ssh -o BatchMode=yes -o ConnectTimeout=5 {REMOTE_HOST} 'echo ready'",
-            shell=True,
-            capture_output=True,
-        )
-        if result.returncode == 0:
-            return
-        print("  Still waiting for SSH...")
-        time.sleep(5)
-    raise TimeoutError(f"Remote host '{REMOTE_HOST}' did not become reachable within {timeout}s.")
-
-
-def _run_remote_script(
-    script: str,
-    local_log_dir: Path,
-    remote_log_dir: str,
-) -> None:
-    """
-    Execute a single training script on the remote host and capture its output.
-
-    The remote script's output is piped through tee so that it is written to
-    the remote log file as it runs. The same output is streamed locally in real
-    time and written to the corresponding local log file.
-
-    Log filenames are derived from the script stem, so each script produces its
-    own discrete log file in both the local and remote version log directories.
+    Output is streamed to stdout in real time and written to a log file
+    named after the script stem inside local_log_dir.
 
     Args:
         script: Filename of the training script (e.g. 'train_als.py').
         local_log_dir: Version-specific local log directory.
-        remote_log_dir: Version-specific remote log directory (absolute path string).
 
     Raises:
-        subprocess.CalledProcessError: If the remote script exits with a non-zero code.
+        subprocess.CalledProcessError: If the script exits with a non-zero code.
     """
     script_stem = Path(script).stem
     local_log = local_log_dir / f"{script_stem}.log"
-    remote_log = f"{remote_log_dir}/{script_stem}.log"
 
-    cmd = (
-        f"ssh {REMOTE_HOST} "
-        f"'cd {REMOTE_REPO} && "
-        f"source ~/miniconda3/etc/profile.d/conda.sh && "
-        f"conda activate bookrec-api && "
-        f"python models/training/{script} --pad-idx {LOCAL_PAD_IDX} 2>&1 "
-        f"| tee {remote_log}'"
-    )
+    cmd = [
+        sys.executable,
+        str(PROJECT_ROOT / "models/training" / script),
+        "--pad-idx",
+        str(LOCAL_PAD_IDX),
+    ]
 
+    print(f"Running: {' '.join(cmd)}")
     with subprocess.Popen(
-        cmd, shell=True, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True
+        cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True
     ) as proc:
         lines = []
         for line in proc.stdout:
@@ -215,24 +153,18 @@ def _run_remote_script(
 
 def main() -> None:
     """
-    Execute the full training pipeline:
+    Execute the full local training pipeline:
 
-    1.  Load and validate Azure credentials.
-    2.  Authenticate with Azure and start the training VM.
-    3.  Export training data into local staging/data/.
-    4.  Wait for the VM to accept SSH connections.
-    5.  Back up the local database and upload the dump to the remote.
-    6.  Copy staging/data/ to the remote staging/data/.
-    7.  Prepare the remote artifact staging directory structure.
-    8.  Run all training scripts remotely, streaming output locally.
-    9.  Pull remote version logs back to local log directory.
-    10. SCP produced artifacts into local staging/.
-    11. Deallocate the VM (always, regardless of gate outcome).
-    12. Evaluate the quality gate against staging metrics.
-    13. If rejected: notify and exit — production is untouched.
-    14. If approved: promote staging to a versioned directory, write the
-        reload signal, and retire old versions.
-    15. Update Meilisearch bayes_pop index.
+    1.  Export training data into local staging/data/.
+    2.  Back up the local database.
+    3.  Seed staging/attention/ with the current production attention weights
+        so training warm-starts from the latest checkpoint.
+    4.  Run all training scripts locally, streaming output to stdout and log files.
+    5.  Evaluate the quality gate against staging metrics.
+    6.  If rejected: notify and exit — production is untouched.
+    7.  If approved: promote staging to a versioned directory, signal model
+        server containers to reload, flush Redis cache, and retire old versions.
+    8.  Update Meilisearch bayes_pop index.
 
     Any unexpected exception sends a fail notification and re-raises.
     Gate rejections are handled separately so they exit cleanly without
@@ -243,114 +175,39 @@ def main() -> None:
     local_log_dir = LOG_DIR / version_id
     local_log_dir.mkdir(parents=True, exist_ok=True)
 
-    remote_log_dir = f"{REMOTE_REPO}/models/training/logs/{version_id}"
-
     print(f"Training run version ID : {version_id}")
     print(f"LOCAL PAD_IDX           : {LOCAL_PAD_IDX}")
 
     notify("start", "Training pipeline started", body=f"Version: {version_id}")
 
     try:
-        # --- Azure setup ----------------------------------------------------
-
-        azure_auth_path = os.getenv("AZURE_AUTH_LOCATION")
-        if not azure_auth_path:
-            raise RuntimeError(
-                "AZURE_AUTH_LOCATION is not set. "
-                "Ensure the environment variable points to the service principal JSON file."
-            )
-
-        import json
-
-        with open(azure_auth_path) as f:
-            sp = json.load(f)
-
-        azure_client_id = sp["clientId"]
-        azure_client_secret = sp["clientSecret"]
-        azure_tenant_id = sp["tenantId"]
-        azure_vm = os.getenv("AZURE_VM_NAME")
-        azure_rg = os.getenv("AZURE_RESOURCE_GROUP")
-
-        print("Authenticating with Azure...")
-        run(
-            f"az login --service-principal "
-            f"-u {azure_client_id} -p {azure_client_secret} --tenant {azure_tenant_id}"
-        )
-
-        print("Starting training VM...")
-        run(f'az vm start --name {azure_vm} --resource-group "{azure_rg}"')
-
-        # --- Data preparation -----------------------------------------------
+        # --- Data export ----------------------------------------------------
 
         print("Exporting training data to local staging/data/...")
         run(f"python -m models.training.export_training_data")
 
-        print("Waiting for SSH to be available...")
-        _wait_for_ssh()
+        # --- Database backup ------------------------------------------------
 
         print("Backing up current database...")
         run(f"python {PROJECT_ROOT}/ops/training/backup_db.py")
 
-        db_name = _db_name_from_env()
-        backup_dir = PROJECT_ROOT / "data/backups/db"
-        candidates = sorted(backup_dir.glob(f"*_{db_name}.sql.gz"))
-        if candidates:
-            latest_dump = candidates[-1]
-            run(f"ssh {REMOTE_HOST} 'mkdir -p {REMOTE_BACKUP_DIR}'")
-            run(
-                f"scp {shlex.quote(str(latest_dump))} "
-                f"{REMOTE_HOST}:{REMOTE_BACKUP_DIR.rstrip('/')}/"
-            )
-            run(
-                f"ssh {REMOTE_HOST} "
-                f"'ls -t {REMOTE_BACKUP_DIR}/*.sql.gz 2>/dev/null "
-                f"| tail -n +{_REMOTE_BACKUPS_TO_KEEP + 1} | xargs -r rm -f'"
-            )
+        # --- Seed staging attention from production -------------------------
 
-        print("Copying staging/data/ to remote staging/data/...")
-        remote_staging = f"{REMOTE_REPO}/models/artifacts/staging"
-        run(f"ssh {REMOTE_HOST} 'mkdir -p {remote_staging}/data'")
-        run(f"scp -r {PATHS.staging_data_dir}/ {REMOTE_HOST}:{remote_staging}/data/")
-
-        print("Ensuring remote artifact staging structure is ready...")
-        run(
-            f"ssh {REMOTE_HOST} "
-            f"'mkdir -p "
-            f"{remote_staging}/embeddings "
-            f"{remote_staging}/attention "
-            f"{remote_staging}/scoring "
-            f"{remote_log_dir}'"
-        )
-
-        print("Seeding remote staging/attention/ with current production weights...")
-        run(f"scp {PATHS.attention_dir}/*.pth {REMOTE_HOST}:{remote_staging}/attention/")
-
-        # --- Remote training ------------------------------------------------
-
-        print("Running training scripts remotely...")
-        for script in TRAIN_SCRIPTS:
-            print(f"-> {script}")
-            _run_remote_script(script, local_log_dir, remote_log_dir)
-
-        # --- Log retrieval --------------------------------------------------
-
-        print("Pulling remote version logs to local log directory...")
-        run(f"scp -r {REMOTE_HOST}:{remote_log_dir}/ {local_log_dir}/")
-
-        # --- Artifact retrieval ---------------------------------------------
-
-        print("Ensuring local staging directory exists...")
+        print("Ensuring local staging directory structure exists...")
         PATHS.ensure_staging_dirs()
 
-        print("Copying trained artifacts into local staging...")
-        for subdir in ("embeddings", "attention", "scoring"):
-            run(f"scp -r {REMOTE_HOST}:{remote_staging}/{subdir} {PATHS.staging_dir}/")
-        run(f"scp {REMOTE_HOST}:{remote_staging}/training_metrics.json {PATHS.staging_dir}/")
+        print("Seeding staging/attention/ with current production weights...")
+        src = PATHS.attention_dir
+        dst = PATHS.staging_dir / "attention"
+        for pth_file in src.glob("*.pth"):
+            shutil.copy2(pth_file, dst / pth_file.name)
 
-        # --- VM deallocation (always runs) ----------------------------------
+        # --- Local training -------------------------------------------------
 
-        print("Deallocating training VM...")
-        _deallocate_vm()
+        print("Running training scripts locally...")
+        for script in TRAIN_SCRIPTS:
+            print(f"-> {script}")
+            _run_local_script(script, local_log_dir)
 
         # --- Quality gate ---------------------------------------------------
 
