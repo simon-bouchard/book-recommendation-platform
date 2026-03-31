@@ -5,8 +5,8 @@ model server response type, and optionally measure FastAPI threadpool dispatch
 overhead by timing the /health endpoint on each running server.
 
 Measures two sides of the round-trip:
-  Server  : Pydantic model construction + model_dump_json()
-            vs orjson.dumps(raw dict)
+  Server  : FastAPI actual path — jsonable_encoder() + json.dumps()
+            vs orjson.dumps(raw dict)  [ORJSONResponse path]
   Client  : Model.model_validate_json(bytes)
             vs orjson.loads(bytes)
 
@@ -27,7 +27,9 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parents[3]))
 
 import httpx
+import json
 import orjson
+from fastapi.encoders import jsonable_encoder
 
 from model_servers._shared.contracts import (
     AlsRecsResponse,
@@ -90,14 +92,14 @@ def bench_scored_item_response(n: int, k: int, model_cls) -> tuple[float, float]
     raw_dict = {"results": [{"item_idx": iid, "score": s} for iid, s in zip(item_ids, scores)]}
     raw_bytes = orjson.dumps(raw_dict)
 
-    # Server: build Pydantic model + serialize
+    # Server: actual FastAPI path — jsonable_encoder() + json.dumps()
     server_pydantic = _mean_ms(
-        lambda: model_cls(
-            results=[ScoredItem(item_idx=iid, score=s) for iid, s in zip(item_ids, scores)]
-        ).model_dump_json(),
+        lambda: json.dumps(jsonable_encoder(
+            model_cls(results=[ScoredItem(item_idx=iid, score=s) for iid, s in zip(item_ids, scores)])
+        )),
         n,
     )
-    # Server: raw orjson
+    # Server: raw orjson (ORJSONResponse path, bypasses jsonable_encoder entirely)
     server_orjson = _mean_ms(lambda: orjson.dumps(raw_dict), n)
 
     # Client: Pydantic validation
@@ -161,7 +163,7 @@ def bench_embed_response(n: int, dim: int) -> tuple[float, float, float, float]:
     raw_bytes = orjson.dumps(raw_dict)
 
     server_pydantic = _mean_ms(
-        lambda: EmbedResponse(vector=vector).model_dump_json(), n
+        lambda: json.dumps(jsonable_encoder(EmbedResponse(vector=vector))), n
     )
     server_orjson = _mean_ms(lambda: orjson.dumps(raw_dict), n)
     client_pydantic = _mean_ms(lambda: EmbedResponse.model_validate_json(raw_bytes), n)
@@ -199,7 +201,7 @@ def main() -> None:
     cases[f"EmbedResponse dim={args.embed_dim}"] = bench_embed_response(n, args.embed_dim)
 
     # --- Server table ---
-    print(_header("Server  (model construction + model_dump_json  vs  orjson.dumps)"))
+    print(_header("Server  (jsonable_encoder + json.dumps  vs  orjson.dumps)"))
     server_total_pydantic = server_total_orjson = 0.0
     for label, (sp, so, cp, co) in cases.items():
         print(_row(label, sp, so))
