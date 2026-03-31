@@ -1,7 +1,8 @@
 # tests/integration/model_servers/bench_serialization.py
 """
 Benchmark Pydantic serialization/validation cost vs raw orjson for each
-model server response type.
+model server response type, and optionally measure FastAPI threadpool dispatch
+overhead by timing the /health endpoint on each running server.
 
 Measures two sides of the round-trip:
   Server  : Pydantic model construction + model_dump_json()
@@ -12,17 +13,20 @@ Measures two sides of the round-trip:
 Usage:
     python tests/integration/model_servers/bench_serialization.py
     python tests/integration/model_servers/bench_serialization.py --n 2000
+    python tests/integration/model_servers/bench_serialization.py --http
 """
 
 from __future__ import annotations
 
 import argparse
+import asyncio
 import sys
 import time
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parents[3]))
 
+import httpx
 import orjson
 
 from model_servers._shared.contracts import (
@@ -104,6 +108,52 @@ def bench_scored_item_response(n: int, k: int, model_cls) -> tuple[float, float]
     return (server_pydantic, server_orjson, client_pydantic, client_orjson)
 
 
+_SERVERS = {
+    "embedder":   8001,
+    "similarity": 8002,
+    "als":        8003,
+    "metadata":   8004,
+}
+
+
+async def bench_threadpool_dispatch(n: int) -> None:
+    """
+    Time GET /health on each server — zero compute, minimal payload.
+
+    The median latency here is the FastAPI threadpool dispatch floor:
+    the minimum HTTP cost any sync route can achieve regardless of what
+    it does. Compare this against compute-heavy endpoint HTTP times to
+    see how much headroom exists.
+    """
+    print("\n  Threadpool dispatch floor  (GET /health, zero compute)")
+    print("  " + "-" * 62)
+    print(f"  {'Server':<16} {'median':>8} {'p95':>8} {'p99':>8} {'min':>8}")
+
+    warmup = max(10, n // 10)
+
+    for name, port in _SERVERS.items():
+        url = f"http://localhost:{port}"
+        try:
+            async with httpx.AsyncClient(base_url=url, timeout=5.0) as client:
+                for _ in range(warmup):
+                    await client.get("/health")
+                times = []
+                for _ in range(n):
+                    t = time.perf_counter()
+                    await client.get("/health")
+                    times.append((time.perf_counter() - t) * 1000)
+            times.sort()
+            p50 = times[n // 2]
+            p95 = times[int(n * 0.95)]
+            p99 = times[int(n * 0.99)]
+            mn  = times[0]
+            print(f"  {name:<16} {p50:>7.1f}ms {p95:>7.1f}ms {p99:>7.1f}ms {mn:>7.1f}ms")
+        except Exception as e:
+            print(f"  {name:<16} unreachable ({e})")
+
+    print()
+
+
 def bench_embed_response(n: int, dim: int) -> tuple[float, float, float, float]:
     """Benchmark EmbedResponse (vector of floats)."""
     vector = [float(i) * 0.001 for i in range(dim)]
@@ -129,6 +179,7 @@ def main() -> None:
     parser = argparse.ArgumentParser(description="Benchmark Pydantic vs orjson serialization.")
     parser.add_argument("--n", type=int, default=_DEFAULT_N, help="Iterations per case")
     parser.add_argument("--embed-dim", type=int, default=128, help="Embedding vector dimension")
+    parser.add_argument("--http", action="store_true", help="Also benchmark threadpool dispatch via /health")
     args = parser.parse_args()
 
     n = args.n
@@ -172,6 +223,9 @@ def main() -> None:
         print(f"    {label:<{_COL}}  {total_saving:+.3f}ms")
 
     print()
+
+    if args.http:
+        asyncio.run(bench_threadpool_dispatch(n))
 
 
 if __name__ == "__main__":
