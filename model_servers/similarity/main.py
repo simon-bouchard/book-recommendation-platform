@@ -8,6 +8,7 @@ this process because hybrid_sim requires both embedding matrices simultaneously
 — splitting them would force data duplication or a degraded two-list merge.
 """
 
+import asyncio
 import logging
 import time
 
@@ -98,7 +99,7 @@ def health() -> HealthResponse:
 
 
 @app.post("/has_book_als", response_model=HasBookAlsResponse)
-def has_book_als(request: HasBookAlsRequest) -> HasBookAlsResponse:
+async def has_book_als(request: HasBookAlsRequest) -> HasBookAlsResponse:
     """
     Check whether a book has a normalized ALS factor in this server's index.
 
@@ -119,7 +120,7 @@ def has_book_als(request: HasBookAlsRequest) -> HasBookAlsResponse:
 
 
 @app.post("/subject_sim")
-def subject_sim(request: SubjectSimRequest) -> ORJSONResponse:
+async def subject_sim(request: SubjectSimRequest) -> ORJSONResponse:
     """
     HNSW nearest-neighbour lookup in the subject embedding space.
 
@@ -127,9 +128,13 @@ def subject_sim(request: SubjectSimRequest) -> ORJSONResponse:
     Returns empty results if item_idx has no subject embedding.
     """
     try:
+        loop = asyncio.get_running_loop()
         t0 = time.perf_counter()
-        scores, item_ids = get_subject_similarity_index().search(
-            query_item_id=request.item_idx, k=request.k, exclude_query=True
+        scores, item_ids = await loop.run_in_executor(
+            None,
+            lambda: get_subject_similarity_index().search(
+                query_item_id=request.item_idx, k=request.k, exclude_query=True
+            ),
         )
         compute_ms = (time.perf_counter() - t0) * 1000
         resp = ORJSONResponse(
@@ -148,7 +153,7 @@ def subject_sim(request: SubjectSimRequest) -> ORJSONResponse:
 
 
 @app.post("/als_sim")
-def als_sim(request: AlsSimRequest) -> ORJSONResponse:
+async def als_sim(request: AlsSimRequest) -> ORJSONResponse:
     """
     HNSW nearest-neighbour lookup in the ALS factor space.
 
@@ -156,9 +161,13 @@ def als_sim(request: AlsSimRequest) -> ORJSONResponse:
     index build time. Returns empty results if item_idx has no ALS factors.
     """
     try:
+        loop = asyncio.get_running_loop()
         t0 = time.perf_counter()
-        scores, item_ids = get_als_similarity_index().search(
-            query_item_id=request.item_idx, k=request.k, exclude_query=True
+        scores, item_ids = await loop.run_in_executor(
+            None,
+            lambda: get_als_similarity_index().search(
+                query_item_id=request.item_idx, k=request.k, exclude_query=True
+            ),
         )
         compute_ms = (time.perf_counter() - t0) * 1000
         resp = ORJSONResponse(
@@ -177,7 +186,7 @@ def als_sim(request: AlsSimRequest) -> ORJSONResponse:
 
 
 @app.post("/hybrid_sim")
-def hybrid_sim(request: HybridSimRequest) -> ORJSONResponse:
+async def hybrid_sim(request: HybridSimRequest) -> ORJSONResponse:
     """
     Single-pass joint matmul over subject and ALS embedding matrices.
 
@@ -186,11 +195,15 @@ def hybrid_sim(request: HybridSimRequest) -> ORJSONResponse:
     Returns empty results if item_idx has no subject embedding.
     """
     try:
+        loop = asyncio.get_running_loop()
         t0 = time.perf_counter()
-        item_ids, scores = HybridScorer().score(
-            item_idx=request.item_idx,
-            k=request.k,
-            alpha=request.alpha,
+        item_ids, scores = await loop.run_in_executor(
+            None,
+            lambda: HybridScorer().score(
+                item_idx=request.item_idx,
+                k=request.k,
+                alpha=request.alpha,
+            ),
         )
         compute_ms = (time.perf_counter() - t0) * 1000
         resp = ORJSONResponse(
@@ -209,7 +222,7 @@ def hybrid_sim(request: HybridSimRequest) -> ORJSONResponse:
 
 
 @app.post("/subject_recs")
-def subject_recs(request: SubjectRecsRequest) -> ORJSONResponse:
+async def subject_recs(request: SubjectRecsRequest) -> ORJSONResponse:
     """
     Joint scoring over all book subject embeddings and Bayesian popularity scores.
 
@@ -220,11 +233,15 @@ def subject_recs(request: SubjectRecsRequest) -> ORJSONResponse:
         import numpy as np
 
         user_vec = np.array(request.user_vector, dtype="float32")
+        loop = asyncio.get_running_loop()
         t0 = time.perf_counter()
-        item_ids, scores = SubjectScorer().score(
-            user_vector=user_vec,
-            k=request.k,
-            alpha=request.alpha,
+        item_ids, scores = await loop.run_in_executor(
+            None,
+            lambda: SubjectScorer().score(
+                user_vector=user_vec,
+                k=request.k,
+                alpha=request.alpha,
+            ),
         )
         compute_ms = (time.perf_counter() - t0) * 1000
         resp = ORJSONResponse(

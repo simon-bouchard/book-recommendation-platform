@@ -6,6 +6,7 @@ Owns the PyTorch attention model weights and exposes a single embed operation.
 Consumers: similarity server (for subject_recs), application layer (for candidate generation).
 """
 
+import asyncio
 import logging
 import time
 
@@ -80,7 +81,7 @@ def health() -> HealthResponse:
 
 
 @app.post("/embed", response_model=EmbedResponse)
-def embed(request: EmbedRequest, response: Response) -> EmbedResponse:
+async def embed(request: EmbedRequest, response: Response) -> EmbedResponse:
     """
     Compute a normalized embedding vector for a list of subject indices.
 
@@ -92,8 +93,11 @@ def embed(request: EmbedRequest, response: Response) -> EmbedResponse:
         raise HTTPException(status_code=503, detail="Embedder not initialized")
 
     try:
+        loop = asyncio.get_running_loop()
         t0 = time.perf_counter()
-        vector = embedder.embed(request.subject_indices)
+        vector = await loop.run_in_executor(
+            None, lambda: embedder.embed(request.subject_indices)
+        )
         response.headers["X-Compute-Ms"] = f"{(time.perf_counter() - t0) * 1000:.3f}"
         return EmbedResponse(vector=vector.tolist())
 

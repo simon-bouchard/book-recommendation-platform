@@ -8,6 +8,7 @@ strength and must be preserved. The similarity server holds a separate normalize
 copy for cosine similarity; the two representations cannot be shared.
 """
 
+import asyncio
 import logging
 import time
 
@@ -85,7 +86,7 @@ def health() -> HealthResponse:
 
 
 @app.post("/has_als_user", response_model=HasAlsUserResponse)
-def has_als_user(request: HasAlsUserRequest) -> HasAlsUserResponse:
+async def has_als_user(request: HasAlsUserRequest) -> HasAlsUserResponse:
     """
     Check whether a user has ALS factors (warm/cold gate).
 
@@ -104,7 +105,7 @@ def has_als_user(request: HasAlsUserRequest) -> HasAlsUserResponse:
 
 
 @app.post("/als_recs")
-def als_recs(request: AlsRecsRequest) -> ORJSONResponse:
+async def als_recs(request: AlsRecsRequest) -> ORJSONResponse:
     """
     Generate top-k recommendations via raw dot product: book_factors @ user_vector.
 
@@ -113,8 +114,11 @@ def als_recs(request: AlsRecsRequest) -> ORJSONResponse:
     HTTP error codes.
     """
     try:
+        loop = asyncio.get_running_loop()
         t0 = time.perf_counter()
-        item_ids, scores = ALSModel().score(user_id=request.user_id, k=request.k)
+        item_ids, scores = await loop.run_in_executor(
+            None, lambda: ALSModel().score(user_id=request.user_id, k=request.k)
+        )
         compute_ms = (time.perf_counter() - t0) * 1000
         resp = ORJSONResponse(
             {"results": [{"item_idx": int(iid), "score": float(s)} for iid, s in zip(item_ids, scores)]}

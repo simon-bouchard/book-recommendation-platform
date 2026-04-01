@@ -12,6 +12,7 @@ Enrich and popular endpoints return raw Response objects with pre-serialized
 JSON bodies, bypassing FastAPI's response_model serialization entirely.
 """
 
+import asyncio
 import logging
 import time
 from typing import Optional
@@ -99,7 +100,7 @@ def health() -> HealthResponse:
 
 
 @app.post("/enrich")
-def enrich(request: EnrichRequest) -> Response:
+async def enrich(request: EnrichRequest) -> Response:
     """
     Enrich a list of item indices with book metadata.
 
@@ -109,13 +110,16 @@ def enrich(request: EnrichRequest) -> Response:
     if _book_lookup is None:
         raise HTTPException(status_code=503, detail="Metadata server not initialized")
 
-    content = enrich_items(_book_lookup, request.item_indices)
+    loop = asyncio.get_running_loop()
+    content = await loop.run_in_executor(
+        None, lambda: enrich_items(_book_lookup, request.item_indices)
+    )
 
     return Response(content=content, media_type="application/json")
 
 
 @app.post("/popular")
-def popular(request: PopularRequest) -> Response:
+async def popular(request: PopularRequest) -> Response:
     """
     Retrieve the top-k books ranked by precomputed Bayesian score.
 
@@ -126,7 +130,10 @@ def popular(request: PopularRequest) -> Response:
         raise HTTPException(status_code=503, detail="Metadata server not initialized")
 
     try:
-        item_ids, _ = PopularityScorer().top_k(k=request.k)
+        loop = asyncio.get_running_loop()
+        item_ids, _ = await loop.run_in_executor(
+            None, lambda: PopularityScorer().top_k(k=request.k)
+        )
     except Exception as e:
         logger.error("popular failed: %s", e, exc_info=True)
         raise HTTPException(status_code=500, detail="Popular books retrieval failed")
