@@ -128,13 +128,9 @@ async def subject_sim(request: SubjectSimRequest) -> ORJSONResponse:
     Returns empty results if item_idx has no subject embedding.
     """
     try:
-        loop = asyncio.get_running_loop()
         t0 = time.perf_counter()
-        scores, item_ids = await loop.run_in_executor(
-            None,
-            lambda: get_subject_similarity_index().search(
-                query_item_id=request.item_idx, k=request.k, exclude_query=True
-            ),
+        scores, item_ids = get_subject_similarity_index().search(
+            query_item_id=request.item_idx, k=request.k, exclude_query=True
         )
         compute_ms = (time.perf_counter() - t0) * 1000
         resp = ORJSONResponse(
@@ -161,13 +157,9 @@ async def als_sim(request: AlsSimRequest) -> ORJSONResponse:
     index build time. Returns empty results if item_idx has no ALS factors.
     """
     try:
-        loop = asyncio.get_running_loop()
         t0 = time.perf_counter()
-        scores, item_ids = await loop.run_in_executor(
-            None,
-            lambda: get_als_similarity_index().search(
-                query_item_id=request.item_idx, k=request.k, exclude_query=True
-            ),
+        scores, item_ids = get_als_similarity_index().search(
+            query_item_id=request.item_idx, k=request.k, exclude_query=True
         )
         compute_ms = (time.perf_counter() - t0) * 1000
         resp = ORJSONResponse(
