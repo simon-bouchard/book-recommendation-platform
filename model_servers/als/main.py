@@ -11,15 +11,14 @@ copy for cosine similarity; the two representations cannot be shared.
 import logging
 import time
 
-from fastapi import FastAPI, HTTPException, Response
+from fastapi import FastAPI, HTTPException
+from fastapi.responses import ORJSONResponse
 
 from model_servers._shared.contracts import (
     AlsRecsRequest,
-    AlsRecsResponse,
     HasAlsUserRequest,
     HasAlsUserResponse,
     HealthResponse,
-    ScoredItem,
 )
 from model_servers._shared.server_utils import get_artifact_version, make_lifespan
 from models.infrastructure.als_model import ALSModel
@@ -104,8 +103,8 @@ def has_als_user(request: HasAlsUserRequest) -> HasAlsUserResponse:
 # ===========================================================================
 
 
-@app.post("/als_recs", response_model=AlsRecsResponse)
-def als_recs(request: AlsRecsRequest, response: Response) -> AlsRecsResponse:
+@app.post("/als_recs")
+def als_recs(request: AlsRecsRequest) -> ORJSONResponse:
     """
     Generate top-k recommendations via raw dot product: book_factors @ user_vector.
 
@@ -116,12 +115,12 @@ def als_recs(request: AlsRecsRequest, response: Response) -> AlsRecsResponse:
     try:
         t0 = time.perf_counter()
         item_ids, scores = ALSModel().score(user_id=request.user_id, k=request.k)
-        response.headers["X-Compute-Ms"] = f"{(time.perf_counter() - t0) * 1000:.3f}"
-        return AlsRecsResponse(
-            results=[
-                ScoredItem(item_idx=int(iid), score=float(s)) for iid, s in zip(item_ids, scores)
-            ]
+        compute_ms = (time.perf_counter() - t0) * 1000
+        resp = ORJSONResponse(
+            {"results": [{"item_idx": int(iid), "score": float(s)} for iid, s in zip(item_ids, scores)]}
         )
+        resp.headers["X-Compute-Ms"] = f"{compute_ms:.3f}"
+        return resp
     except Exception as e:
         logger.error("als_recs failed for user %d: %s", request.user_id, e, exc_info=True)
         raise HTTPException(status_code=500, detail="ALS recommendation failed")
