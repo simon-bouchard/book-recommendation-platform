@@ -44,6 +44,10 @@ class SimilarityIndex:
         ids: list[int],
         normalize: bool = True,
         candidate_mask: Optional[np.ndarray] = None,
+        use_hnsw: bool = False,
+        hnsw_m: int = 32,
+        hnsw_ef_construction: int = 200,
+        hnsw_ef_search: int = 200,
     ):
         """
         Initialize similarity index with optional candidate filtering.
@@ -54,6 +58,16 @@ class SimilarityIndex:
             normalize: If True, L2 normalize embeddings for cosine similarity
             candidate_mask: Boolean array (length N) - True = valid candidate.
                            If None, all items are candidates.
+            use_hnsw: If True, build an IndexHNSWFlat instead of IndexFlatIP.
+                      HNSW is approximate but much faster for large catalogs.
+                      Recommended only for normalized embeddings where inner
+                      product equals cosine similarity.
+            hnsw_m: HNSW graph connectivity (edges per node). Higher = better
+                    recall and more memory. Typical range: 16-64.
+            hnsw_ef_construction: Build-time search depth. Higher = better
+                    graph quality but slower startup. Typical range: 100-400.
+            hnsw_ef_search: Query-time search depth. Higher = better recall
+                    but slower search. Should be >= k. Typical range: 100-500.
 
         Raises:
             ValueError: If embeddings and ids have mismatched lengths
@@ -91,7 +105,12 @@ class SimilarityIndex:
 
         # Build FAISS index over CANDIDATES only
         dim = embs.shape[1]
-        self.index = faiss.IndexFlatIP(dim)  # Inner product for cosine similarity
+        if use_hnsw:
+            self.index = faiss.IndexHNSWFlat(dim, hnsw_m, faiss.METRIC_INNER_PRODUCT)
+            self.index.hnsw.efConstruction = hnsw_ef_construction
+            self.index.hnsw.efSearch = hnsw_ef_search
+        else:
+            self.index = faiss.IndexFlatIP(dim)
         if candidate_embs.shape[0] > 0:
             self.index.add(candidate_embs)
 

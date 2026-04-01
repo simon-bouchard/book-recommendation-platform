@@ -36,6 +36,10 @@ def get_subject_similarity_index() -> SimilarityIndex:
             embeddings=embeddings,
             ids=ids,
             normalize=False,
+            use_hnsw=True,
+            hnsw_m=32,
+            hnsw_ef_construction=200,
+            hnsw_ef_search=200,
         )
 
     return _subject_index
