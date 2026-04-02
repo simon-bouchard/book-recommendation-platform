@@ -242,7 +242,6 @@ class InternalTools:
                 # the except clause would silently swallow.
                 from models.domain.user import User as DomainUser
                 from models.core.constants import PAD_IDX
-                from sqlalchemy.ext.asyncio import AsyncSession as _AsyncSession
 
                 domain_user = DomainUser(
                     user_id=self.current_user.user_id,
@@ -252,16 +251,7 @@ class InternalTools:
                 # Use new recommendation service with behavioral mode
                 service = RecommendationService()
                 config = RecommendationConfig(k=top_k, mode="behavioral")
-
-                # Use the injected AsyncSession if available (avoids pooled-connection
-                # event-loop conflicts in tests). Fall back to AsyncReadOnlySessionLocal
-                # when self.db is a sync Session (production chat route).
-                if isinstance(self.db, _AsyncSession):
-                    recommendations = await service.recommend(domain_user, config, self.db)
-                else:
-                    from app.database import AsyncReadOnlySessionLocal
-                    async with AsyncReadOnlySessionLocal() as async_db:
-                        recommendations = await service.recommend(domain_user, config, async_db)
+                recommendations = await service.recommend(domain_user, config)
 
                 # Convert RecommendedBook objects to dicts
                 raw_results = [
@@ -328,30 +318,19 @@ class InternalTools:
             subject_weight = max(0.0, min(1.0, subject_weight))
 
             try:
-                from sqlalchemy.ext.asyncio import AsyncSession as _AsyncSession
-
                 subject_indices = fav_subjects_idxs
 
                 # Create domain user with subject preferences
                 domain_user = self._create_user_with_subjects(subject_indices)
 
                 # Use new recommendation service with subject mode.
-                # Use the injected AsyncSession if available (avoids pooled-connection
-                # event-loop conflicts in tests). Fall back to AsyncReadOnlySessionLocal
-                # when self.db is a sync Session (production chat route).
                 service = RecommendationService()
                 config = RecommendationConfig(
                     k=top_k,
                     mode="subject",
                     hybrid_config=HybridConfig(subject_weight=subject_weight),
                 )
-
-                if isinstance(self.db, _AsyncSession):
-                    recommendations = await service.recommend(domain_user, config, self.db)
-                else:
-                    from app.database import AsyncReadOnlySessionLocal
-                    async with AsyncReadOnlySessionLocal() as async_db:
-                        recommendations = await service.recommend(domain_user, config, async_db)
+                recommendations = await service.recommend(domain_user, config)
 
                 # Convert RecommendedBook objects to dicts
                 raw_results = [

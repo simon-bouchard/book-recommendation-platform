@@ -8,7 +8,6 @@ from typing import List, Optional
 
 from opentelemetry import trace
 from opentelemetry.trace import Status, StatusCode
-from sqlalchemy.ext.asyncio import AsyncSession
 
 from models.domain.candidate_generation import CandidateGenerator
 from models.domain.filters import Filter, NoFilter
@@ -68,16 +67,13 @@ class RecommendationPipeline:
         self.filter = filter or NoFilter()
         self.ranker = ranker or NoOpRanker()
 
-    async def recommend(
-        self, user: User, k: int, db: Optional[AsyncSession] = None
-    ) -> List[Candidate]:
+    async def recommend(self, user: User, k: int) -> List[Candidate]:
         """
         Generate recommendations for a user.
 
         Args:
             user: User to generate recommendations for.
             k: Number of recommendations to return.
-            db: Async database session (required if filter needs DB access).
 
         Returns:
             Top k candidates after generation, filtering, and ranking.
@@ -95,7 +91,7 @@ class RecommendationPipeline:
         if not candidates:
             return []
 
-        candidates = await self._filter(candidates, user, db)
+        candidates = await self._filter(candidates, user)
 
         if not candidates:
             return []
@@ -152,20 +148,17 @@ class RecommendationPipeline:
         self,
         candidates: List[Candidate],
         user: User,
-        db: Optional[AsyncSession],
     ) -> List[Candidate]:
         """
         Apply the filter under a named span.
 
-        The SQLAlchemy auto-instrumentor attaches the DB query as a child of
-        this span, giving the waterfall: filter -> SELECT interactions WHERE
-        user_id = ? AND item_idx IN (?...).
+        The filter uses the raw aiomysql pool directly — no session argument needed.
         """
         with tracer.start_as_current_span("pipeline.filter") as span:
             span.set_attribute("filter.type", type(self.filter).__name__)
             span.set_attribute("filter.input_count", len(candidates))
             try:
-                result = await self.filter.apply(candidates, user, db)
+                result = await self.filter.apply(candidates, user)
                 span.set_attribute("filter.output_count", len(result))
                 span.set_attribute("filter.removed_count", len(candidates) - len(result))
                 return result

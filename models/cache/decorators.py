@@ -10,12 +10,8 @@ import time
 from functools import wraps
 from typing import Callable
 
-from sqlalchemy import select
-from sqlalchemy.ext.asyncio import AsyncSession
-
 from app.cache import cached, get_redis_client
 from app.cache.serializers import deserialize, serialize
-from app.table_models import User as ORMUser, UserFavSubject
 from models.cache.keys import recommendation_key, similarity_key
 
 logger = logging.getLogger(__name__)
@@ -43,22 +39,33 @@ def cached_similarity(func: Callable) -> Callable:
     return cached(key_func=key_func, ttl=SIMILARITY_TTL, log_hits=True)(func)
 
 
-async def _get_subject_idxs_for_user(db: AsyncSession, user: str, _id: bool) -> list[int]:
+async def _get_subject_idxs_for_user(user: str, _id: bool) -> list[int]:
     """
-    Fetch favorite subject indices for a user via the async session.
+    Fetch favorite subject indices for a user via raw aiomysql.
 
     Used by cached_recommendations to build a content-addressable cache key
     for subject-mode requests so that two users with identical subject
     preferences share the same cached result.
     """
-    if _id:
-        stmt = select(UserFavSubject.subject_idx).where(UserFavSubject.user_id == int(user))
-    else:
-        user_id_subquery = select(ORMUser.user_id).where(ORMUser.username == user).scalar_subquery()
-        stmt = select(UserFavSubject.subject_idx).where(UserFavSubject.user_id == user_id_subquery)
+    from app.database import get_aiomysql_pool
 
-    result = await db.execute(stmt)
-    return [row[0] for row in result.all()]
+    pool = get_aiomysql_pool()
+    async with pool.acquire() as conn:
+        async with conn.cursor() as cur:
+            if _id:
+                await cur.execute(
+                    "SELECT subject_idx FROM user_fav_subjects WHERE user_id = %s",
+                    (int(user),),
+                )
+            else:
+                await cur.execute(
+                    "SELECT subject_idx FROM user_fav_subjects"
+                    " WHERE user_id = (SELECT user_id FROM users WHERE username = %s)",
+                    (user,),
+                )
+            rows = await cur.fetchall()
+
+    return [row[0] for row in rows]
 
 
 def cached_recommendations(func: Callable) -> Callable:
@@ -76,19 +83,19 @@ def cached_recommendations(func: Callable) -> Callable:
 
     @wraps(func)
     async def wrapper(
-        user: str, _id: bool, top_n: int, mode: str, w: float, db: AsyncSession, **kwargs
+        user: str, _id: bool, top_n: int, mode: str, w: float, **kwargs
     ):
         client = await get_redis_client()
 
         if not client.available:
             logger.info("Cache unavailable, falling through to computation")
-            return await func(user, _id, top_n, mode, w, db, **kwargs)
+            return await func(user, _id, top_n, mode, w, **kwargs)
 
         user_id = int(user) if _id else None
         subject_idxs = None
 
         if mode == "subject":
-            subject_idxs = await _get_subject_idxs_for_user(db, user, _id)
+            subject_idxs = await _get_subject_idxs_for_user(user, _id)
 
         try:
             cache_key = recommendation_key(
@@ -100,7 +107,7 @@ def cached_recommendations(func: Callable) -> Callable:
             )
         except ValueError as exc:
             logger.warning("Cache key generation failed: %s", exc)
-            return await func(user, _id, top_n, mode, w, db, **kwargs)
+            return await func(user, _id, top_n, mode, w, **kwargs)
 
         cached_value = await client.get(cache_key)
 
@@ -113,7 +120,7 @@ def cached_recommendations(func: Callable) -> Callable:
         logger.info("Cache MISS: %s", cache_key)
 
         start_time = time.time()
-        result = await func(user, _id, top_n, mode, w, db, **kwargs)
+        result = await func(user, _id, top_n, mode, w, **kwargs)
         compute_ms = int((time.time() - start_time) * 1000)
 
         serialized = serialize(result)

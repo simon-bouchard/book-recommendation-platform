@@ -5,18 +5,12 @@ Provides clean interface to recommendation and similarity services.
 Maintains backward compatibility with old API response formats.
 """
 
-from fastapi import APIRouter, HTTPException, Query, Depends
-from sqlalchemy import select
-from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy.orm import joinedload
+from fastapi import APIRouter, HTTPException, Query
 import logging
 import time
 from opentelemetry import trace
 
 from metrics import RECSYS_REQUESTS, RECSYS_LATENCY, SIMILARITY_REQUESTS, SIMILARITY_LATENCY
-
-from app.database import get_async_read_only_db
-from app.table_models import User as ORMUser
 
 from models.services.recommendation_service import RecommendationService
 from models.services.similarity_service import SimilarityService
@@ -36,6 +30,42 @@ tracer = trace.get_tracer(__name__)
 # ============================================================================
 
 
+async def _fetch_user_and_subjects(user: str, _id: bool) -> tuple:
+    """
+    Fetch user row and favorite subject indices via raw aiomysql.
+
+    Returns (user_id, country, age, filled_age, fav_subjects) or None if not found.
+    """
+    from app.database import get_aiomysql_pool
+
+    pool = get_aiomysql_pool()
+    async with pool.acquire() as conn:
+        async with conn.cursor() as cur:
+            if _id:
+                await cur.execute(
+                    "SELECT user_id, country, age, filled_age FROM users WHERE user_id = %s",
+                    (int(user),),
+                )
+            else:
+                await cur.execute(
+                    "SELECT user_id, country, age, filled_age FROM users WHERE username = %s",
+                    (user,),
+                )
+            row = await cur.fetchone()
+            if row is None:
+                return None
+
+            user_id, country, age, filled_age = row
+
+            await cur.execute(
+                "SELECT subject_idx FROM user_fav_subjects WHERE user_id = %s",
+                (user_id,),
+            )
+            fav_subjects = [r[0] for r in await cur.fetchall()]
+
+    return user_id, country, age, filled_age, fav_subjects
+
+
 @cached_recommendations
 async def _compute_recommendations(
     user: str,
@@ -43,7 +73,6 @@ async def _compute_recommendations(
     top_n: int,
     mode: str,
     w: float,
-    db: AsyncSession,
 ) -> list[dict]:
     """
     Compute personalized book recommendations.
@@ -51,29 +80,22 @@ async def _compute_recommendations(
     Pure computation layer, separated from the route handler so that telemetry
     in the handler fires on every request regardless of cache state.
     """
-    stmt = select(ORMUser).options(joinedload(ORMUser.favorite_subjects))
-    if _id:
-        stmt = stmt.where(ORMUser.user_id == int(user))
-    else:
-        stmt = stmt.where(ORMUser.username == user)
-
     with tracer.start_as_current_span("db.fetch_user"):
-        result = await db.execute(stmt)
-        user_obj = result.unique().scalar_one_or_none()
+        row = await _fetch_user_and_subjects(user, _id)
 
-    if not user_obj:
+    if row is None:
         raise HTTPException(status_code=404, detail="User not found")
 
-    fav_subjects = [s.subject_idx for s in user_obj.favorite_subjects]
+    user_id, country, age, filled_age, fav_subjects = row
     if not fav_subjects:
         fav_subjects = [PAD_IDX]
 
     domain_user = User(
-        user_id=user_obj.user_id,
+        user_id=user_id,
         fav_subjects=fav_subjects,
-        country=user_obj.country,
-        age=user_obj.age,
-        filled_age=user_obj.filled_age,
+        country=country,
+        age=age,
+        filled_age=filled_age,
     )
 
     config = RecommendationConfig(
@@ -83,7 +105,7 @@ async def _compute_recommendations(
     )
 
     service = RecommendationService()
-    recommendations = await service.recommend(domain_user, config, db)
+    recommendations = await service.recommend(domain_user, config)
 
     return [
         {
@@ -110,7 +132,6 @@ async def recommend_for_user(
         "auto", regex="^(auto|subject|behavioral)$", description="Recommendation mode"
     ),
     w: float = Query(0.6, ge=0, le=1, description="Subject weight for hybrid mode"),
-    db: AsyncSession = Depends(get_async_read_only_db),
 ) -> list[dict]:
     """
     Generate personalized book recommendations.
@@ -124,7 +145,7 @@ async def recommend_for_user(
     """
     start_time = time.time()
     try:
-        result = await _compute_recommendations(user, _id, top_n, mode, w, db)
+        result = await _compute_recommendations(user, _id, top_n, mode, w)
         RECSYS_REQUESTS.labels(mode=mode).inc()
         RECSYS_LATENCY.labels(mode=mode).observe(time.time() - start_time)
         return result
@@ -195,6 +216,8 @@ async def get_similar_books(
         SIMILARITY_REQUESTS.labels(mode=mode).inc()
         SIMILARITY_LATENCY.labels(mode=mode).observe(time.time() - start_time)
         return results
+    except HTTPException:
+        raise
     except ValueError as e:
         logger.error(f"Validation error in get_similar_books: {str(e)}")
         raise HTTPException(status_code=422, detail=str(e))

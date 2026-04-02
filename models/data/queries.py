@@ -11,7 +11,6 @@ the recommendation endpoint.
 from typing import List, Set
 
 from sqlalchemy import select
-from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import Session
 
 try:
@@ -72,33 +71,40 @@ def get_read_books_for_candidates(user_id: int, candidate_ids: List[int], db: Se
 
 
 async def get_read_books_for_candidates_async(
-    user_id: int, candidate_ids: List[int], db: AsyncSession
+    user_id: int, candidate_ids: List[int]
 ) -> Set[int]:
     """
     Async variant used by ReadBooksFilter in the recommendation hot path.
 
-    Identical query semantics to get_read_books_for_candidates — scoped IN
-    clause over the composite (user_id, item_idx) covering index — but runs
-    natively on the event loop via aiomysql. No thread pool dispatch, no
-    synchronous socket I/O blocking the event loop.
+    Uses a raw aiomysql connection from the module-level pool, bypassing
+    SQLAlchemy's ORM and expanding-bind-parameter overhead. The composite
+    (user_id, item_idx) covering index is used by MySQL for this query.
 
     Args:
         user_id: User ID to query
         candidate_ids: Candidate item indices to check membership for
-        db: Async SQLAlchemy session
 
     Returns:
         Subset of candidate_ids the user has already interacted with
     """
-    if Interaction is None or not candidate_ids:
+    if not candidate_ids:
         return set()
 
-    stmt = select(Interaction.item_idx).where(
-        Interaction.user_id == user_id,
-        Interaction.item_idx.in_(candidate_ids),
+    from app.database import get_aiomysql_pool
+
+    placeholders = ",".join(["%s"] * len(candidate_ids))
+    sql = (
+        f"SELECT item_idx FROM interactions "
+        f"WHERE user_id = %s AND item_idx IN ({placeholders})"
     )
-    result = await db.execute(stmt)
-    return {row.item_idx for row in result}
+
+    pool = get_aiomysql_pool()
+    async with pool.acquire() as conn:
+        async with conn.cursor() as cur:
+            await cur.execute(sql, [user_id] + list(candidate_ids))
+            rows = await cur.fetchall()
+
+    return {row[0] for row in rows}
 
 
 def get_user_num_ratings(user_id: int) -> int:

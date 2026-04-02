@@ -28,7 +28,10 @@ checkout.
 """
 
 import os
+from typing import Optional
+from urllib.parse import urlparse
 
+import aiomysql
 from dotenv import load_dotenv
 from sqlalchemy import create_engine
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
@@ -40,6 +43,54 @@ DATABASE_URL = os.getenv("DATABASE_URL")
 ASYNC_DATABASE_URL = (
     DATABASE_URL.replace("mysql+pymysql://", "mysql+aiomysql://") if DATABASE_URL else None
 )
+
+# ---------------------------------------------------------------------------
+# Raw aiomysql pool — used by hot-path queries that bypass SQLAlchemy overhead
+# ---------------------------------------------------------------------------
+
+_aiomysql_pool: Optional[aiomysql.Pool] = None
+
+
+def _parse_mysql_url(url: str) -> dict:
+    """Extract aiomysql connect kwargs from a SQLAlchemy MySQL URL."""
+    stripped = url.replace("mysql+pymysql://", "mysql://").replace("mysql+aiomysql://", "mysql://")
+    parsed = urlparse(stripped)
+    return {
+        "host": parsed.hostname or "127.0.0.1",
+        "port": parsed.port or 3306,
+        "user": parsed.username,
+        "password": parsed.password,
+        "db": parsed.path.lstrip("/"),
+        "autocommit": True,
+        "charset": "utf8mb4",
+    }
+
+
+async def init_aiomysql_pool() -> None:
+    """Create the raw aiomysql connection pool. Call once at application startup."""
+    global _aiomysql_pool
+    if DATABASE_URL and _aiomysql_pool is None:
+        _aiomysql_pool = await aiomysql.create_pool(
+            minsize=2,
+            maxsize=5,
+            **_parse_mysql_url(DATABASE_URL),
+        )
+
+
+async def close_aiomysql_pool() -> None:
+    """Drain and close the pool. Call at application shutdown."""
+    global _aiomysql_pool
+    if _aiomysql_pool is not None:
+        _aiomysql_pool.close()
+        await _aiomysql_pool.wait_closed()
+        _aiomysql_pool = None
+
+
+def get_aiomysql_pool() -> aiomysql.Pool:
+    """Return the active pool. Raises if called before init_aiomysql_pool()."""
+    if _aiomysql_pool is None:
+        raise RuntimeError("aiomysql pool not initialized — call init_aiomysql_pool() at startup")
+    return _aiomysql_pool
 
 Base = declarative_base()
 

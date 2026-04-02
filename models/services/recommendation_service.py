@@ -8,7 +8,6 @@ from typing import List
 
 from opentelemetry import trace
 from opentelemetry.trace import Status, StatusCode
-from sqlalchemy.ext.asyncio import AsyncSession
 
 from models.client.registry import get_metadata_client
 from models.domain.candidate_generation import (
@@ -50,7 +49,7 @@ class RecommendationService:
         """Initialize recommendation service."""
 
     async def recommend(
-        self, user: User, config: RecommendationConfig, db: AsyncSession
+        self, user: User, config: RecommendationConfig
     ) -> List[RecommendedBook]:
         """Generate personalized recommendations for a user."""
         with tracer.start_as_current_span("recommendation.service") as span:
@@ -72,7 +71,7 @@ class RecommendationService:
                     },
                 )
 
-                candidates = await pipeline.recommend(user, config.k, db)
+                candidates = await pipeline.recommend(user, config.k)
                 recommendations = await self._enrich(candidates)
 
                 span.set_attribute("recommendation.result_count", len(recommendations))

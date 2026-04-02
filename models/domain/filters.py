@@ -16,8 +16,6 @@ full interaction history.
 
 from typing import List, Optional, Protocol, Set
 
-from sqlalchemy.ext.asyncio import AsyncSession
-
 from models.domain.recommendation import Candidate
 from models.domain.user import User
 from models.data.queries import get_read_books_for_candidates_async
@@ -35,7 +33,6 @@ class Filter(Protocol):
         self,
         candidates: List[Candidate],
         user: User,
-        db: Optional[AsyncSession] = None,
     ) -> List[Candidate]: ...
 
 
@@ -59,16 +56,11 @@ class ReadBooksFilter:
         self,
         candidates: List[Candidate],
         user: User,
-        db: Optional[AsyncSession] = None,
     ) -> List[Candidate]:
-        if db is None:
-            raise ValueError("ReadBooksFilter requires a database session")
-
         candidate_ids = [c.item_idx for c in candidates]
         read_item_ids: Set[int] = await get_read_books_for_candidates_async(
-            user.user_id, candidate_ids, db
+            user.user_id, candidate_ids
         )
-
         return [c for c in candidates if c.item_idx not in read_item_ids]
 
 
@@ -85,7 +77,6 @@ class MinRatingCountFilter:
         self,
         candidates: List[Candidate],
         user: User,
-        db: Optional[AsyncSession] = None,
     ) -> List[Candidate]:
         if self.min_count == 0:
             return candidates
@@ -111,11 +102,10 @@ class FilterChain:
         self,
         candidates: List[Candidate],
         user: User,
-        db: Optional[AsyncSession] = None,
     ) -> List[Candidate]:
         result = candidates
         for f in self.filters:
-            result = await f.apply(result, user, db)
+            result = await f.apply(result, user)
         return result
 
 
@@ -126,7 +116,6 @@ class NoFilter:
         self,
         candidates: List[Candidate],
         user: User,
-        db: Optional[AsyncSession] = None,
     ) -> List[Candidate]:
         return candidates
 

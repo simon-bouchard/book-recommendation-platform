@@ -53,6 +53,10 @@ async def lifespan(app: FastAPI):
     """
     setup_tracing(app)
 
+    from app.database import init_aiomysql_pool, close_aiomysql_pool
+    await init_aiomysql_pool()
+    logger.info("aiomysql pool initialized")
+
     get_embedder_client()
     get_similarity_client()
     get_als_client()
@@ -64,6 +68,9 @@ async def lifespan(app: FastAPI):
 
     await close_all()
     logger.info("Model server clients closed")
+
+    await close_aiomysql_pool()
+    logger.info("aiomysql pool closed")
 
     shutdown_tracing()
 
