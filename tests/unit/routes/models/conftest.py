@@ -4,26 +4,17 @@ Shared fixtures for the /profile/recommend endpoint tests.
 
 Key design decisions
 --------------------
-- mock_db is an AsyncMock whose execute() returns a chain matching the
-  SQLAlchemy Core pattern used in the route:
-    result = await db.execute(stmt)
-    user_obj = result.unique().scalar_one_or_none()
+- mock_fetch_user is an autouse AsyncMock that patches _fetch_user_and_subjects,
+  the raw-aiomysql helper the route calls to load user + subjects. Tests that
+  need a different result (e.g. user not found) override its return_value.
 
-- mock_orm_user exposes a `favorite_subjects` list of mocks with a
-  `subject_idx` attribute, matching the relationship the route iterates:
-    fav_subjects = [s.subject_idx for s in user_obj.favorite_subjects]
-
-- The `override_db_dependency` autouse fixture injects mock_db as the
-  get_async_read_only_db dependency for every test and cleans up afterward,
-  so individual tests do not need to repeat the dependency_overrides pattern.
-
-- test_client is session-scoped; dependency_overrides is a plain dict that
-  can be mutated per test without recreating the app.
+- test_client is session-scoped; the mock_fetch_user patch is function-scoped
+  so each test gets a fresh mock without cross-test pollution.
 """
 
 from __future__ import annotations
 
-from unittest.mock import AsyncMock, MagicMock, Mock, patch
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 from starlette.testclient import TestClient
@@ -66,9 +57,7 @@ def test_client() -> TestClient:
     """
     TestClient wrapping the main FastAPI application.
 
-    Session-scoped so the app is only instantiated once. Tests override
-    dependencies via app.dependency_overrides, which the autouse fixture
-    manages per test.
+    Session-scoped so the app is only instantiated once.
     """
     from main import app
 
@@ -76,98 +65,38 @@ def test_client() -> TestClient:
 
 
 # ---------------------------------------------------------------------------
-# Database session mock
+# User fetch mock
 # ---------------------------------------------------------------------------
 
 
 @pytest.fixture
-def mock_db(mock_orm_user: MagicMock) -> AsyncMock:
+def mock_fetch_user() -> AsyncMock:
     """
-    AsyncMock standing in for an async SQLAlchemy Session.
+    Patch _fetch_user_and_subjects for every test.
 
-    Pre-wired to return mock_orm_user through the execute/unique/
-    scalar_one_or_none chain the route uses. Tests that need a different
-    result (e.g. user not found) can override:
-        mock_db.execute.return_value.unique.return_value.scalar_one_or_none.return_value = None
+    Returns the default user tuple (user_id=123, country="US", age=30,
+    filled_age=None, fav_subjects=[5, 12, 23]). Tests that need a different
+    result override mock_fetch_user.return_value before making the request.
     """
-    db = AsyncMock()
-    result = Mock()
-    result.unique.return_value.scalar_one_or_none.return_value = mock_orm_user
-    db.execute.return_value = result
-    return db
+    default = (123, "US", 30, None, [5, 12, 23])
+    with patch(
+        "routes.models._fetch_user_and_subjects",
+        new_callable=AsyncMock,
+        return_value=default,
+    ) as m:
+        yield m
 
 
 # ---------------------------------------------------------------------------
-# Autouse dependency override
-# ---------------------------------------------------------------------------
-
-
-@pytest.fixture(autouse=True)
-def override_db_dependency(test_client: TestClient, mock_db: AsyncMock):
-    """
-    Replace get_async_read_only_db with mock_db for every test.
-
-    Using autouse eliminates the repeated dependency_overrides boilerplate
-    from every test body. Cleanup removes the override after each test so
-    session-scoped test_client is not polluted between test classes.
-    """
-    from app.database import get_async_read_only_db
-
-    async def _override():
-        yield mock_db
-
-    test_client.app.dependency_overrides[get_async_read_only_db] = _override
-    yield
-    test_client.app.dependency_overrides.pop(get_async_read_only_db, None)
-
-
-# ---------------------------------------------------------------------------
-# ORM user mocks
+# User data variants
 # ---------------------------------------------------------------------------
 
 
 @pytest.fixture
-def mock_orm_user() -> MagicMock:
-    """
-    ORM User mock with fully populated profile.
-
-    favorite_subjects is a list of mocks with subject_idx attributes, matching
-    the relationship the route iterates:
-        fav_subjects = [s.subject_idx for s in user_obj.favorite_subjects]
-
-    country, age, and filled_age match the assertions in
-    TestRecommendEndpointUserConversion.
-    """
-    user = MagicMock()
-    user.user_id = 123
-    user.username = "testuser"
-    user.favorite_subjects = [
-        Mock(subject_idx=5),
-        Mock(subject_idx=12),
-        Mock(subject_idx=23),
-    ]
-    user.country = "US"
-    user.age = 30
-    user.filled_age = None
-    return user
-
-
-@pytest.fixture
-def mock_orm_user_no_preferences() -> MagicMock:
-    """
-    ORM User mock with no subject preferences.
-
-    favorite_subjects is empty, causing the route to fall back to [PAD_IDX]
-    and exercising the cold-start path.
-    """
-    user = MagicMock()
-    user.user_id = 456
-    user.username = "colduser"
-    user.favorite_subjects = []
-    user.country = "US"
-    user.age = 25
-    user.filled_age = None
-    return user
+def mock_user_no_preferences(mock_fetch_user: AsyncMock) -> AsyncMock:
+    """Override mock_fetch_user to return a user with no subject preferences."""
+    mock_fetch_user.return_value = (456, "US", 25, None, [])
+    return mock_fetch_user
 
 
 # ---------------------------------------------------------------------------

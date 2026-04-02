@@ -75,10 +75,6 @@ def cold_user_no_prefs():
     return User(user_id=789, fav_subjects=[PAD_IDX])
 
 
-@pytest.fixture
-def mock_db():
-    return Mock()
-
 
 @pytest.fixture
 def patched_meta_client():
@@ -134,36 +130,36 @@ class TestStrategySelection:
 
     @pytest.mark.asyncio
     async def test_auto_warm_user_uses_als_generator(
-        self, warm_user, mock_db, patched_meta_client, patched_pipeline
+        self, warm_user, patched_meta_client, patched_pipeline
     ):
         mock_cls, _ = patched_pipeline
         with patch.object(User, "is_warm", new=AsyncMock(return_value=True)):
             await RecommendationService().recommend(
-                warm_user, RecommendationConfig.default(), mock_db
+                warm_user, RecommendationConfig.default()
             )
 
         assert mock_cls.call_args.kwargs["generator"].__class__.__name__ == "ALSBasedGenerator"
 
     @pytest.mark.asyncio
     async def test_auto_cold_with_prefs_uses_joint_subject_generator(
-        self, cold_user_with_prefs, mock_db, patched_meta_client, patched_pipeline
+        self, cold_user_with_prefs, patched_meta_client, patched_pipeline
     ):
         mock_cls, _ = patched_pipeline
         with patch.object(User, "is_warm", new=AsyncMock(return_value=False)):
             await RecommendationService().recommend(
-                cold_user_with_prefs, RecommendationConfig.default(), mock_db
+                cold_user_with_prefs, RecommendationConfig.default()
             )
 
         assert mock_cls.call_args.kwargs["generator"].__class__.__name__ == "JointSubjectGenerator"
 
     @pytest.mark.asyncio
     async def test_auto_cold_no_prefs_uses_popularity_generator(
-        self, cold_user_no_prefs, mock_db, patched_meta_client, patched_pipeline
+        self, cold_user_no_prefs, patched_meta_client, patched_pipeline
     ):
         mock_cls, _ = patched_pipeline
         with patch.object(User, "is_warm", new=AsyncMock(return_value=False)):
             await RecommendationService().recommend(
-                cold_user_no_prefs, RecommendationConfig.default(), mock_db
+                cold_user_no_prefs, RecommendationConfig.default()
             )
 
         assert (
@@ -172,38 +168,38 @@ class TestStrategySelection:
 
     @pytest.mark.asyncio
     async def test_behavioral_mode_forces_als_regardless_of_warmth(
-        self, cold_user_with_prefs, mock_db, patched_meta_client, patched_pipeline
+        self, cold_user_with_prefs, patched_meta_client, patched_pipeline
     ):
         """mode='behavioral' bypasses the warm/cold gate and always uses ALS."""
         mock_cls, _ = patched_pipeline
         with patch.object(User, "is_warm", new=AsyncMock(return_value=False)):
             await RecommendationService().recommend(
-                cold_user_with_prefs, RecommendationConfig(k=20, mode="behavioral"), mock_db
+                cold_user_with_prefs, RecommendationConfig(k=20, mode="behavioral")
             )
 
         assert mock_cls.call_args.kwargs["generator"].__class__.__name__ == "ALSBasedGenerator"
 
     @pytest.mark.asyncio
     async def test_subject_mode_forces_joint_subject_regardless_of_warmth(
-        self, warm_user, mock_db, patched_meta_client, patched_pipeline
+        self, warm_user, patched_meta_client, patched_pipeline
     ):
         """mode='subject' bypasses the warm/cold gate and always uses JointSubjectGenerator."""
         mock_cls, _ = patched_pipeline
         with patch.object(User, "is_warm", new=AsyncMock(return_value=True)):
             await RecommendationService().recommend(
-                warm_user, RecommendationConfig(k=20, mode="subject"), mock_db
+                warm_user, RecommendationConfig(k=20, mode="subject")
             )
 
         assert mock_cls.call_args.kwargs["generator"].__class__.__name__ == "JointSubjectGenerator"
 
     @pytest.mark.asyncio
     async def test_warm_user_gets_popularity_fallback(
-        self, warm_user, mock_db, patched_meta_client, patched_pipeline
+        self, warm_user, patched_meta_client, patched_pipeline
     ):
         mock_cls, _ = patched_pipeline
         with patch.object(User, "is_warm", new=AsyncMock(return_value=True)):
             await RecommendationService().recommend(
-                warm_user, RecommendationConfig.default(), mock_db
+                warm_user, RecommendationConfig.default()
             )
 
         fallback = mock_cls.call_args.kwargs["fallback_generator"]
@@ -211,37 +207,37 @@ class TestStrategySelection:
 
     @pytest.mark.asyncio
     async def test_cold_no_prefs_has_no_fallback(
-        self, cold_user_no_prefs, mock_db, patched_meta_client, patched_pipeline
+        self, cold_user_no_prefs, patched_meta_client, patched_pipeline
     ):
         """Popularity is the primary generator here; there is nothing to fall back to."""
         mock_cls, _ = patched_pipeline
         with patch.object(User, "is_warm", new=AsyncMock(return_value=False)):
             await RecommendationService().recommend(
-                cold_user_no_prefs, RecommendationConfig.default(), mock_db
+                cold_user_no_prefs, RecommendationConfig.default()
             )
 
         assert mock_cls.call_args.kwargs["fallback_generator"] is None
 
     @pytest.mark.asyncio
     async def test_pipeline_always_uses_read_books_filter(
-        self, warm_user, mock_db, patched_meta_client, patched_pipeline
+        self, warm_user, patched_meta_client, patched_pipeline
     ):
         mock_cls, _ = patched_pipeline
         with patch.object(User, "is_warm", new=AsyncMock(return_value=True)):
             await RecommendationService().recommend(
-                warm_user, RecommendationConfig.default(), mock_db
+                warm_user, RecommendationConfig.default()
             )
 
         assert mock_cls.call_args.kwargs["filter"].__class__.__name__ == "ReadBooksFilter"
 
     @pytest.mark.asyncio
     async def test_pipeline_always_uses_noop_ranker(
-        self, warm_user, mock_db, patched_meta_client, patched_pipeline
+        self, warm_user, patched_meta_client, patched_pipeline
     ):
         mock_cls, _ = patched_pipeline
         with patch.object(User, "is_warm", new=AsyncMock(return_value=True)):
             await RecommendationService().recommend(
-                warm_user, RecommendationConfig.default(), mock_db
+                warm_user, RecommendationConfig.default()
             )
 
         assert mock_cls.call_args.kwargs["ranker"].__class__.__name__ == "NoOpRanker"
@@ -257,12 +253,12 @@ class TestPipelineCallContract:
 
     @pytest.mark.asyncio
     async def test_passes_user_as_first_arg(
-        self, warm_user, mock_db, patched_meta_client, patched_pipeline
+        self, warm_user, patched_meta_client, patched_pipeline
     ):
         _, mock_instance = patched_pipeline
         with patch.object(User, "is_warm", new=AsyncMock(return_value=True)):
             await RecommendationService().recommend(
-                warm_user, RecommendationConfig.default(), mock_db
+                warm_user, RecommendationConfig.default()
             )
 
         # pipeline.recommend(user, k, db)
@@ -270,27 +266,26 @@ class TestPipelineCallContract:
 
     @pytest.mark.asyncio
     async def test_passes_config_k_as_second_arg(
-        self, warm_user, mock_db, patched_meta_client, patched_pipeline
+        self, warm_user, patched_meta_client, patched_pipeline
     ):
         _, mock_instance = patched_pipeline
         with patch.object(User, "is_warm", new=AsyncMock(return_value=True)):
             await RecommendationService().recommend(
-                warm_user, RecommendationConfig(k=42, mode="auto"), mock_db
+                warm_user, RecommendationConfig(k=42, mode="auto")
             )
 
         assert mock_instance.recommend.call_args.args[1] == 42
 
     @pytest.mark.asyncio
     async def test_passes_db_as_third_arg(
-        self, warm_user, mock_db, patched_meta_client, patched_pipeline
+        self, warm_user, patched_meta_client, patched_pipeline
     ):
         _, mock_instance = patched_pipeline
         with patch.object(User, "is_warm", new=AsyncMock(return_value=True)):
             await RecommendationService().recommend(
-                warm_user, RecommendationConfig.default(), mock_db
+                warm_user, RecommendationConfig.default()
             )
 
-        assert mock_instance.recommend.call_args.args[2] is mock_db
 
 
 # ---------------------------------------------------------------------------
@@ -385,7 +380,7 @@ class TestEndToEndFlow:
     """Full path: user + config → pipeline → enrich → RecommendedBook list."""
 
     @pytest.mark.asyncio
-    async def test_complete_flow(self, warm_user, mock_db, patched_pipeline):
+    async def test_complete_flow(self, warm_user, patched_pipeline):
         _, mock_instance = patched_pipeline
         mock_instance.recommend.return_value = [
             Candidate(item_idx=1000, score=0.9, source="als"),
@@ -399,7 +394,7 @@ class TestEndToEndFlow:
 
             with patch.object(User, "is_warm", new=AsyncMock(return_value=True)):
                 results = await RecommendationService().recommend(
-                    warm_user, RecommendationConfig(k=10, mode="auto"), mock_db
+                    warm_user, RecommendationConfig(k=10, mode="auto")
                 )
 
         assert len(results) == 2
@@ -410,14 +405,14 @@ class TestEndToEndFlow:
 
     @pytest.mark.asyncio
     async def test_empty_pipeline_output_returns_empty_list(
-        self, warm_user, mock_db, patched_meta_client, patched_pipeline
+        self, warm_user, patched_meta_client, patched_pipeline
     ):
         _, mock_instance = patched_pipeline
         mock_instance.recommend.return_value = []
 
         with patch.object(User, "is_warm", new=AsyncMock(return_value=True)):
             results = await RecommendationService().recommend(
-                warm_user, RecommendationConfig.default(), mock_db
+                warm_user, RecommendationConfig.default()
             )
 
         assert results == []
@@ -433,12 +428,12 @@ class TestLogging:
 
     @pytest.mark.asyncio
     async def test_logs_recommendation_started(
-        self, warm_user, mock_db, patched_meta_client, patched_pipeline
+        self, warm_user, patched_meta_client, patched_pipeline
     ):
         with patch(f"{_SVC}.logger") as mock_logger:
             with patch.object(User, "is_warm", new=AsyncMock(return_value=True)):
                 await RecommendationService().recommend(
-                    warm_user, RecommendationConfig.default(), mock_db
+                    warm_user, RecommendationConfig.default()
                 )
 
         mock_logger.info.assert_any_call(
@@ -453,12 +448,12 @@ class TestLogging:
 
     @pytest.mark.asyncio
     async def test_logs_recommendation_completed_with_metrics(
-        self, warm_user, mock_db, patched_meta_client, patched_pipeline
+        self, warm_user, patched_meta_client, patched_pipeline
     ):
         with patch(f"{_SVC}.logger") as mock_logger:
             with patch.object(User, "is_warm", new=AsyncMock(return_value=True)):
                 await RecommendationService().recommend(
-                    warm_user, RecommendationConfig.default(), mock_db
+                    warm_user, RecommendationConfig.default()
                 )
 
         completed = [
@@ -471,7 +466,7 @@ class TestLogging:
 
     @pytest.mark.asyncio
     async def test_logs_error_and_reraises(
-        self, warm_user, mock_db, patched_meta_client, patched_pipeline
+        self, warm_user, patched_meta_client, patched_pipeline
     ):
         _, mock_instance = patched_pipeline
         mock_instance.recommend.side_effect = RuntimeError("model server unavailable")
@@ -480,7 +475,7 @@ class TestLogging:
             with patch.object(User, "is_warm", new=AsyncMock(return_value=True)):
                 with pytest.raises(RuntimeError):
                     await RecommendationService().recommend(
-                        warm_user, RecommendationConfig.default(), mock_db
+                        warm_user, RecommendationConfig.default()
                     )
 
         mock_logger.error.assert_called_once()

@@ -113,8 +113,11 @@ class TestSimilarityEndpointModes:
         assert call_kwargs["mode"] == "als"
 
     def test_als_mode_returns_422_when_book_has_no_als_data(self, test_client, monkeypatch):
-        """Should return 422 when the requested book has no ALS factors."""
-        _patch_als_unavailable(monkeypatch)
+        """Should return 422 when the requested book has no ALS factors (empty results)."""
+        from unittest.mock import AsyncMock, Mock
+        mock_service = Mock()
+        mock_service.get_similar = AsyncMock(return_value=[])
+        monkeypatch.setattr("routes.models.SimilarityService", lambda: mock_service)
 
         response = test_client.get("/book/9999/similar?mode=als")
 

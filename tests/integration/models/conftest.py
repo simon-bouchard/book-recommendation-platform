@@ -66,7 +66,6 @@ async def client() -> httpx.AsyncClient:
     scoped async fixture and its tests would otherwise run on different loops
     and the fixture would be unusable.
     """
-    from app.database import async_engine
     from main import app
 
     async with app.router.lifespan_context(app):
@@ -75,9 +74,6 @@ async def client() -> httpx.AsyncClient:
             base_url="http://test",
         ) as ac:
             yield ac
-
-    if async_engine is not None:
-        await async_engine.dispose()
 
 
 @pytest.fixture(scope="session")

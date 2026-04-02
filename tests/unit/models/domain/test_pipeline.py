@@ -64,11 +64,6 @@ def fallback_candidates():
     ]
 
 
-@pytest.fixture
-def mock_db():
-    """Create mock database session."""
-    return MagicMock()
-
 
 @pytest.fixture
 def mock_generator():
@@ -153,7 +148,6 @@ class TestBasicFlow:
         mock_filter,
         mock_ranker,
         mock_user,
-        mock_db,
         sample_candidates,
     ):
         """Should call generator with user and buffer_k (k + 50)."""
@@ -165,7 +159,7 @@ class TestBasicFlow:
             mock_generator, mock_fallback_generator, mock_filter, mock_ranker
         )
 
-        await pipeline.recommend(mock_user, k=10, db=mock_db)
+        await pipeline.recommend(mock_user, k=10)
 
         # buffer_k = k + 50 = 60
         mock_generator.generate.assert_called_once_with(mock_user, 60)
@@ -178,7 +172,6 @@ class TestBasicFlow:
         mock_filter,
         mock_ranker,
         mock_user,
-        mock_db,
         sample_candidates,
     ):
         """Should apply filter to generated candidates."""
@@ -191,9 +184,9 @@ class TestBasicFlow:
             mock_generator, mock_fallback_generator, mock_filter, mock_ranker
         )
 
-        await pipeline.recommend(mock_user, k=10, db=mock_db)
+        await pipeline.recommend(mock_user, k=10)
 
-        mock_filter.apply.assert_called_once_with(sample_candidates, mock_user, mock_db)
+        mock_filter.apply.assert_called_once_with(sample_candidates, mock_user)
 
     @pytest.mark.asyncio
     async def test_applies_ranker_to_filtered_candidates(
@@ -203,7 +196,6 @@ class TestBasicFlow:
         mock_filter,
         mock_ranker,
         mock_user,
-        mock_db,
         sample_candidates,
     ):
         """Should apply ranker to filtered candidates."""
@@ -216,7 +208,7 @@ class TestBasicFlow:
             mock_generator, mock_fallback_generator, mock_filter, mock_ranker
         )
 
-        await pipeline.recommend(mock_user, k=10, db=mock_db)
+        await pipeline.recommend(mock_user, k=10)
 
         mock_ranker.rank.assert_called_once_with(filtered, mock_user)
 
@@ -228,7 +220,6 @@ class TestBasicFlow:
         mock_filter,
         mock_ranker,
         mock_user,
-        mock_db,
         sample_candidates,
     ):
         """Should return top k candidates after ranking."""
@@ -240,7 +231,7 @@ class TestBasicFlow:
             mock_generator, mock_fallback_generator, mock_filter, mock_ranker
         )
 
-        result = await pipeline.recommend(mock_user, k=3, db=mock_db)
+        result = await pipeline.recommend(mock_user, k=3)
 
         assert len(result) == 3
         assert result == sample_candidates[:3]
@@ -253,7 +244,6 @@ class TestBasicFlow:
         mock_filter,
         mock_ranker,
         mock_user,
-        mock_db,
         sample_candidates,
     ):
         """Should execute complete pipeline in correct order."""
@@ -267,7 +257,7 @@ class TestBasicFlow:
             mock_generator, mock_fallback_generator, mock_filter, mock_ranker
         )
 
-        result = await pipeline.recommend(mock_user, k=2, db=mock_db)
+        result = await pipeline.recommend(mock_user, k=2)
 
         assert mock_generator.generate.called
         assert mock_filter.apply.called
@@ -288,7 +278,6 @@ class TestFallbackBehavior:
         mock_filter,
         mock_ranker,
         mock_user,
-        mock_db,
         fallback_candidates,
     ):
         """Should use fallback when primary returns empty."""
@@ -301,7 +290,7 @@ class TestFallbackBehavior:
             mock_generator, mock_fallback_generator, mock_filter, mock_ranker
         )
 
-        result = await pipeline.recommend(mock_user, k=10, db=mock_db)
+        result = await pipeline.recommend(mock_user, k=10)
 
         mock_fallback_generator.generate.assert_called_once()
         assert len(result) > 0
@@ -315,7 +304,6 @@ class TestFallbackBehavior:
         mock_filter,
         mock_ranker,
         mock_user,
-        mock_db,
         sample_candidates,
     ):
         """Should return empty when filter removes all candidates (no fallback retry)."""
@@ -326,7 +314,7 @@ class TestFallbackBehavior:
             mock_generator, mock_fallback_generator, mock_filter, mock_ranker
         )
 
-        result = await pipeline.recommend(mock_user, k=10, db=mock_db)
+        result = await pipeline.recommend(mock_user, k=10)
 
         assert len(result) == 0
         mock_fallback_generator.generate.assert_not_called()
@@ -339,7 +327,6 @@ class TestFallbackBehavior:
         mock_filter,
         mock_ranker,
         mock_user,
-        mock_db,
         sample_candidates,
     ):
         """Should not call fallback when primary returns results."""
@@ -351,7 +338,7 @@ class TestFallbackBehavior:
             mock_generator, mock_fallback_generator, mock_filter, mock_ranker
         )
 
-        await pipeline.recommend(mock_user, k=10, db=mock_db)
+        await pipeline.recommend(mock_user, k=10)
 
         mock_fallback_generator.generate.assert_not_called()
 
@@ -363,7 +350,6 @@ class TestFallbackBehavior:
         mock_filter,
         mock_ranker,
         mock_user,
-        mock_db,
     ):
         """Should return empty when both primary and fallback fail."""
         mock_generator.generate.return_value = []
@@ -373,7 +359,7 @@ class TestFallbackBehavior:
             mock_generator, mock_fallback_generator, mock_filter, mock_ranker
         )
 
-        result = await pipeline.recommend(mock_user, k=10, db=mock_db)
+        result = await pipeline.recommend(mock_user, k=10)
 
         assert result == []
 
@@ -383,7 +369,7 @@ class TestOptionalComponents:
 
     @pytest.mark.asyncio
     async def test_works_without_fallback_generator(
-        self, mock_generator, mock_filter, mock_ranker, mock_user, mock_db, sample_candidates
+        self, mock_generator, mock_filter, mock_ranker, mock_user, sample_candidates
     ):
         """Should work when fallback_generator is None."""
         mock_generator.generate.return_value = sample_candidates
@@ -397,7 +383,7 @@ class TestOptionalComponents:
             ranker=mock_ranker,
         )
 
-        result = await pipeline.recommend(mock_user, k=10, db=mock_db)
+        result = await pipeline.recommend(mock_user, k=10)
 
         assert len(result) > 0
 
@@ -408,7 +394,6 @@ class TestOptionalComponents:
         mock_fallback_generator,
         mock_ranker,
         mock_user,
-        mock_db,
         sample_candidates,
     ):
         """Should work when filter is None (no filtering)."""
@@ -422,7 +407,7 @@ class TestOptionalComponents:
             ranker=mock_ranker,
         )
 
-        result = await pipeline.recommend(mock_user, k=10, db=mock_db)
+        result = await pipeline.recommend(mock_user, k=10)
 
         assert len(result) > 0
         assert len(result) <= len(sample_candidates)
@@ -434,7 +419,6 @@ class TestOptionalComponents:
         mock_fallback_generator,
         mock_filter,
         mock_user,
-        mock_db,
         sample_candidates,
     ):
         """Should work when ranker is None (preserves generator order)."""
@@ -448,13 +432,13 @@ class TestOptionalComponents:
             ranker=None,
         )
 
-        result = await pipeline.recommend(mock_user, k=10, db=mock_db)
+        result = await pipeline.recommend(mock_user, k=10)
 
         assert len(result) > 0
 
     @pytest.mark.asyncio
     async def test_minimal_pipeline_with_only_generator(
-        self, mock_generator, mock_user, mock_db, sample_candidates
+        self, mock_generator, mock_user, sample_candidates
     ):
         """Should work with only generator (all other components None)."""
         mock_generator.generate.return_value = sample_candidates
@@ -466,7 +450,7 @@ class TestOptionalComponents:
             ranker=None,
         )
 
-        result = await pipeline.recommend(mock_user, k=3, db=mock_db)
+        result = await pipeline.recommend(mock_user, k=3)
 
         assert len(result) == 3
         assert result == sample_candidates[:3]
@@ -483,7 +467,6 @@ class TestKHandling:
         mock_filter,
         mock_ranker,
         mock_user,
-        mock_db,
         sample_candidates,
     ):
         """Should return at most k candidates."""
@@ -495,7 +478,7 @@ class TestKHandling:
             mock_generator, mock_fallback_generator, mock_filter, mock_ranker
         )
 
-        result = await pipeline.recommend(mock_user, k=3, db=mock_db)
+        result = await pipeline.recommend(mock_user, k=3)
 
         assert len(result) <= 3
 
@@ -507,7 +490,6 @@ class TestKHandling:
         mock_filter,
         mock_ranker,
         mock_user,
-        mock_db,
         sample_candidates,
     ):
         """Should handle k larger than available candidates."""
@@ -519,7 +501,7 @@ class TestKHandling:
             mock_generator, mock_fallback_generator, mock_filter, mock_ranker
         )
 
-        result = await pipeline.recommend(mock_user, k=100, db=mock_db)
+        result = await pipeline.recommend(mock_user, k=100)
 
         assert len(result) == len(sample_candidates)
 
@@ -531,7 +513,6 @@ class TestKHandling:
         mock_filter,
         mock_ranker,
         mock_user,
-        mock_db,
         sample_candidates,
     ):
         """Should handle k=0 gracefully."""
@@ -543,7 +524,7 @@ class TestKHandling:
             mock_generator, mock_fallback_generator, mock_filter, mock_ranker
         )
 
-        result = await pipeline.recommend(mock_user, k=0, db=mock_db)
+        result = await pipeline.recommend(mock_user, k=0)
 
         assert result == []
 
@@ -559,7 +540,6 @@ class TestMultipleFallbackAttempts:
         mock_filter,
         mock_ranker,
         mock_user,
-        mock_db,
         fallback_candidates,
     ):
         """Fallback candidates should also go through filter."""
@@ -574,7 +554,7 @@ class TestMultipleFallbackAttempts:
             mock_generator, mock_fallback_generator, mock_filter, mock_ranker
         )
 
-        result = await pipeline.recommend(mock_user, k=10, db=mock_db)
+        result = await pipeline.recommend(mock_user, k=10)
 
         assert len(result) == 2
 
@@ -586,7 +566,6 @@ class TestMultipleFallbackAttempts:
         mock_filter,
         mock_ranker,
         mock_user,
-        mock_db,
         fallback_candidates,
     ):
         """Fallback candidates should be ranked."""
@@ -601,7 +580,7 @@ class TestMultipleFallbackAttempts:
             mock_generator, mock_fallback_generator, mock_filter, mock_ranker
         )
 
-        result = await pipeline.recommend(mock_user, k=10, db=mock_db)
+        result = await pipeline.recommend(mock_user, k=10)
 
         assert result == ranked
 
@@ -610,7 +589,7 @@ class TestPipelineWithRealComponents:
     """Test pipeline with real (simple) component implementations."""
 
     @pytest.mark.asyncio
-    async def test_pipeline_with_noop_components(self, mock_user, mock_db):
+    async def test_pipeline_with_noop_components(self, mock_user):
         """Test pipeline with NoOp filter and ranker."""
         mock_gen = Mock()
         mock_gen.generate = AsyncMock()
@@ -627,14 +606,14 @@ class TestPipelineWithRealComponents:
             ranker=NoOpRanker(),
         )
 
-        result = await pipeline.recommend(mock_user, k=2, db=mock_db)
+        result = await pipeline.recommend(mock_user, k=2)
 
         assert len(result) == 2
         assert result[0].item_idx == 100
         assert result[1].item_idx == 101
 
     @pytest.mark.asyncio
-    async def test_pipeline_with_score_ranker(self, mock_user, mock_db):
+    async def test_pipeline_with_score_ranker(self, mock_user):
         """Test pipeline with ScoreRanker."""
         from models.domain.rankers import ScoreRanker
 
@@ -653,7 +632,7 @@ class TestPipelineWithRealComponents:
             ranker=ScoreRanker(),
         )
 
-        result = await pipeline.recommend(mock_user, k=3, db=mock_db)
+        result = await pipeline.recommend(mock_user, k=3)
 
         assert result[0].item_idx == 101  # 0.9
         assert result[1].item_idx == 102  # 0.7
@@ -671,7 +650,6 @@ class TestEdgeCases:
         mock_filter,
         mock_ranker,
         mock_user,
-        mock_db,
         sample_candidates,
     ):
         """Should handle filter returning None."""
@@ -684,13 +662,13 @@ class TestEdgeCases:
         )
 
         try:
-            result = await pipeline.recommend(mock_user, k=10, db=mock_db)
+            result = await pipeline.recommend(mock_user, k=10)
         except (TypeError, AttributeError):
             pass
 
     @pytest.mark.asyncio
     async def test_handles_all_components_returning_empty(
-        self, mock_generator, mock_fallback_generator, mock_filter, mock_ranker, mock_user, mock_db
+        self, mock_generator, mock_fallback_generator, mock_filter, mock_ranker, mock_user
     ):
         """Should handle case where everything returns empty."""
         mock_generator.generate.return_value = []
@@ -700,27 +678,9 @@ class TestEdgeCases:
             mock_generator, mock_fallback_generator, mock_filter, mock_ranker
         )
 
-        result = await pipeline.recommend(mock_user, k=10, db=mock_db)
+        result = await pipeline.recommend(mock_user, k=10)
 
         assert result == []
-
-    @pytest.mark.asyncio
-    async def test_pipeline_without_db_when_filter_doesnt_need_it(self, mock_user):
-        """Should work when db is None if filter doesn't use it."""
-        mock_gen = Mock()
-        mock_gen.generate = AsyncMock()
-        mock_gen.generate.return_value = [Candidate(100, 0.9, "test")]
-
-        pipeline = RecommendationPipeline(
-            generator=mock_gen,
-            fallback_generator=None,
-            filter=NoFilter(),
-            ranker=NoOpRanker(),
-        )
-
-        result = await pipeline.recommend(mock_user, k=10, db=None)
-
-        assert len(result) > 0
 
     @pytest.mark.asyncio
     async def test_preserves_candidate_attributes_through_pipeline(
@@ -730,7 +690,6 @@ class TestEdgeCases:
         mock_filter,
         mock_ranker,
         mock_user,
-        mock_db,
         sample_candidates,
     ):
         """Candidate attributes should be preserved through pipeline."""
@@ -742,7 +701,7 @@ class TestEdgeCases:
             mock_generator, mock_fallback_generator, mock_filter, mock_ranker
         )
 
-        result = await pipeline.recommend(mock_user, k=10, db=mock_db)
+        result = await pipeline.recommend(mock_user, k=10)
 
         for candidate in result:
             assert hasattr(candidate, "item_idx")
