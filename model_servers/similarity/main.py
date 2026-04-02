@@ -183,9 +183,11 @@ async def hybrid_sim(request: HybridSimRequest) -> ORJSONResponse:
     Single-pass joint matmul over subject and ALS embedding matrices.
 
     Score = (1 - alpha) * subject_cosine + alpha * als_cosine.
-    Books without ALS factors receive a zero ALS contribution.
-    Returns empty results if item_idx has no subject embedding.
+    Returns empty results if item_idx has no ALS embedding or no subject embedding.
     """
+    if not get_als_similarity_index().has_item(request.item_idx):
+        return ORJSONResponse({"results": []})
+
     try:
         loop = asyncio.get_running_loop()
         t0 = time.perf_counter()

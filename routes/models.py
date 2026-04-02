@@ -184,17 +184,14 @@ async def get_similar_books(
 
     Alpha (hybrid only): 0.0=pure subject, 1.0=pure ALS, 0.6=default
     """
-    if mode in ("als", "hybrid"):
-        resp = await get_similarity_client().has_book_als(item_idx)
-        if not resp.has_als:
+    start_time = time.time()
+    try:
+        results = await _compute_similar_books(item_idx, mode, alpha, top_k)
+        if mode in ("als", "hybrid") and not results:
             raise HTTPException(
                 status_code=422,
                 detail="This book doesn't have als factors yet because of a lack of interactions/ratings. Als and hybrid similarity isn't available for this book yet.",
             )
-
-    start_time = time.time()
-    try:
-        results = await _compute_similar_books(item_idx, mode, alpha, top_k)
         SIMILARITY_REQUESTS.labels(mode=mode).inc()
         SIMILARITY_LATENCY.labels(mode=mode).observe(time.time() - start_time)
         return results
