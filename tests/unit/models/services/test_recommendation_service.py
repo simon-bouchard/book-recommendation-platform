@@ -219,18 +219,6 @@ class TestStrategySelection:
         assert mock_cls.call_args.kwargs["fallback_generator"] is None
 
     @pytest.mark.asyncio
-    async def test_pipeline_always_uses_read_books_filter(
-        self, warm_user, patched_meta_client, patched_pipeline
-    ):
-        mock_cls, _ = patched_pipeline
-        with patch.object(User, "is_warm", new=AsyncMock(return_value=True)):
-            await RecommendationService().recommend(
-                warm_user, RecommendationConfig.default()
-            )
-
-        assert mock_cls.call_args.kwargs["filter"].__class__.__name__ == "ReadBooksFilter"
-
-    @pytest.mark.asyncio
     async def test_pipeline_always_uses_noop_ranker(
         self, warm_user, patched_meta_client, patched_pipeline
     ):
@@ -275,16 +263,6 @@ class TestPipelineCallContract:
             )
 
         assert mock_instance.recommend.call_args.args[1] == 42
-
-    @pytest.mark.asyncio
-    async def test_passes_db_as_third_arg(
-        self, warm_user, patched_meta_client, patched_pipeline
-    ):
-        _, mock_instance = patched_pipeline
-        with patch.object(User, "is_warm", new=AsyncMock(return_value=True)):
-            await RecommendationService().recommend(
-                warm_user, RecommendationConfig.default()
-            )
 
 
 
@@ -387,7 +365,8 @@ class TestEndToEndFlow:
             Candidate(item_idx=1001, score=0.8, source="als"),
         ]
 
-        with patch(f"{_SVC}.get_metadata_client") as mock_get_meta:
+        with patch(f"{_SVC}.get_metadata_client") as mock_get_meta, \
+             patch(f"{_SVC}.get_read_books_for_candidates_async", new=AsyncMock(return_value=set())) as _:
             meta_client = AsyncMock()
             meta_client.enrich.return_value = _enrich_response(1000, 1001)
             mock_get_meta.return_value = meta_client
@@ -448,13 +427,22 @@ class TestLogging:
 
     @pytest.mark.asyncio
     async def test_logs_recommendation_completed_with_metrics(
-        self, warm_user, patched_meta_client, patched_pipeline
+        self, warm_user, patched_pipeline
     ):
-        with patch(f"{_SVC}.logger") as mock_logger:
-            with patch.object(User, "is_warm", new=AsyncMock(return_value=True)):
-                await RecommendationService().recommend(
-                    warm_user, RecommendationConfig.default()
-                )
+        _, mock_instance = patched_pipeline
+        mock_instance.recommend.return_value = [Candidate(item_idx=1000, score=0.9, source="als")]
+
+        with patch(f"{_SVC}.get_metadata_client") as mock_get_meta, \
+             patch(f"{_SVC}.get_read_books_for_candidates_async", new=AsyncMock(return_value=set())):
+            meta_client = AsyncMock()
+            meta_client.enrich.return_value = _enrich_response(1000)
+            mock_get_meta.return_value = meta_client
+
+            with patch(f"{_SVC}.logger") as mock_logger:
+                with patch.object(User, "is_warm", new=AsyncMock(return_value=True)):
+                    await RecommendationService().recommend(
+                        warm_user, RecommendationConfig.default()
+                    )
 
         completed = [
             c for c in mock_logger.info.call_args_list if "Recommendation completed" in str(c)
