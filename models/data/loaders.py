@@ -5,6 +5,7 @@ Replaces the monolithic ModelStore with focused, cacheable loading functions.
 """
 
 import json
+import pickle
 from typing import Tuple, Optional, Dict, List
 
 import numpy as np
@@ -228,6 +229,33 @@ def load_book_meta(use_cache: bool = True) -> pd.DataFrame:
         _CACHE[cache_key] = df
 
     return df
+
+
+def load_book_lookup(use_cache: bool = True) -> dict[int, str]:
+    """
+    Load the pre-built book metadata lookup dict.
+
+    Args:
+        use_cache: If True, cache the loaded dict in memory
+
+    Returns:
+        Mapping of item_idx -> pre-serialized JSON string for all books
+
+    Raises:
+        FileNotFoundError: If book_lookup.pkl does not exist
+    """
+    cache_key = "book_lookup"
+
+    if use_cache and cache_key in _CACHE:
+        return _CACHE[cache_key]
+
+    with open(PATHS.book_lookup, "rb") as f:
+        lookup = pickle.load(f)
+
+    if use_cache:
+        _CACHE[cache_key] = lookup
+
+    return lookup
 
 
 def load_user_meta(use_cache: bool = True) -> pd.DataFrame:

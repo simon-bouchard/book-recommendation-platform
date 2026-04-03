@@ -5,6 +5,7 @@ FAISS-based similarity index with two-pool filtering system.
 Supports querying any item while only returning high-quality candidates.
 """
 
+from pathlib import Path
 from typing import Optional, Tuple
 
 import numpy as np
@@ -164,6 +165,52 @@ class SimilarityIndex:
             scores = scores[mask][:k]
 
         return scores, item_ids
+
+    def save(self, dir_path) -> None:
+        """
+        Persist the index to disk.
+
+        Writes five files into dir_path:
+            index.faiss         — FAISS index over the candidate pool
+            ids_full.npy        — item IDs for every item that can be queried
+            embeddings_full.npy — normalized embeddings for every item
+            candidate_rows.npy  — row indices (into the full matrix) of candidates
+            candidate_ids.npy   — item IDs of candidates
+
+        Args:
+            dir_path: Directory to write into (created if absent).
+        """
+        d = Path(dir_path)
+        d.mkdir(parents=True, exist_ok=True)
+        faiss.write_index(self.index, str(d / "index.faiss"))
+        np.save(d / "ids_full.npy", self.ids_full)
+        np.save(d / "embeddings_full.npy", self.embeddings_full)
+        np.save(d / "candidate_rows.npy", self.candidate_rows)
+        np.save(d / "candidate_ids.npy", self.candidate_ids)
+
+    @classmethod
+    def load(cls, dir_path) -> "SimilarityIndex":
+        """
+        Restore a previously saved index from disk without rebuilding.
+
+        Args:
+            dir_path: Directory written by save().
+
+        Returns:
+            Fully functional SimilarityIndex ready for search.
+
+        Raises:
+            FileNotFoundError: If any expected file is missing.
+        """
+        d = Path(dir_path)
+        obj = cls.__new__(cls)
+        obj.ids_full = np.load(d / "ids_full.npy")
+        obj.id_to_row_full = {int(item_id): row for row, item_id in enumerate(obj.ids_full)}
+        obj.embeddings_full = np.load(d / "embeddings_full.npy")
+        obj.candidate_rows = np.load(d / "candidate_rows.npy")
+        obj.candidate_ids = np.load(d / "candidate_ids.npy")
+        obj.index = faiss.read_index(str(d / "index.faiss"))
+        return obj
 
     def has_item(self, item_id: int) -> bool:
         """

@@ -11,7 +11,7 @@ from typing import Literal
 AttentionStrategy = Literal["scalar", "perdim", "selfattn", "selfattn_perdim"]
 
 _ACTIVE_VERSION_FILENAME = "active_version"
-_VERSIONED_SUBDIRS = ("embeddings", "attention", "scoring", "data")
+_VERSIONED_SUBDIRS = ("embeddings", "attention", "scoring", "data", "similarity")
 
 
 class ModelPaths:
@@ -304,6 +304,30 @@ class ModelPaths:
     def data_subjects(self) -> Path:
         """Subject vocabulary for the active model version."""
         return self.data_dir / "subjects.pkl"
+
+    @property
+    def book_lookup(self) -> Path:
+        """Pre-built book metadata lookup dict for the active model version."""
+        return self.data_dir / "book_lookup.pkl"
+
+    # -------------------------------------------------------------------------
+    # Similarity indexes (FAISS, versioned)
+    # -------------------------------------------------------------------------
+
+    @property
+    def similarity_dir(self) -> Path:
+        """Similarity index directory for the active model version."""
+        return self._active_version_dir / "similarity"
+
+    @property
+    def subject_similarity_index_dir(self) -> Path:
+        """Pre-built subject embedding similarity FAISS index directory."""
+        return self._active_version_dir / "similarity" / "subject"
+
+    @property
+    def als_similarity_index_dir(self) -> Path:
+        """Pre-built ALS factor similarity FAISS index directory."""
+        return self._active_version_dir / "similarity" / "als"
 
     # -------------------------------------------------------------------------
     # Directory creation helpers

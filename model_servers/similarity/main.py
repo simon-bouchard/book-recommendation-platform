@@ -41,10 +41,9 @@ def _load_artifacts() -> None:
     """
     Initialize all artifacts owned by this server.
 
-    FAISS indices are built first because their factory functions pull the
-    embedding arrays into the loader cache as a side effect. HybridScorer
-    and SubjectScorer then build from those cached arrays, avoiding redundant
-    disk reads.
+    Similarity indices are loaded first because they are the heaviest
+    artifacts. HybridScorer and SubjectScorer load embedding arrays
+    independently via the loader cache.
     """
     logger.info("Loading similarity server artifacts...")
     start = time.monotonic()

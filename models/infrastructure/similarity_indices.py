@@ -6,12 +6,8 @@ All similarity operations use the same underlying indices to avoid duplicate ind
 
 from typing import Optional
 
+from models.core.paths import PATHS
 from models.infrastructure.similarity_index import SimilarityIndex
-from models.data.loaders import (
-    load_book_subject_embeddings,
-    load_als_factors,
-    load_book_meta,
-)
 
 
 _subject_index: Optional[SimilarityIndex] = None
@@ -20,10 +16,11 @@ _als_index: Optional[SimilarityIndex] = None
 
 def get_subject_similarity_index() -> SimilarityIndex:
     """
-    Get or create the shared subject-based similarity index.
+    Get or lazily load the shared subject-based similarity index.
 
-    Used by both SubjectBasedGenerator and SimilarityService.
-    Built once, reused everywhere for memory efficiency.
+    The index is pre-built by build_similarity_indices.py during training
+    and stored as a versioned artifact. First call loads from disk; subsequent
+    calls return the cached instance.
 
     Returns:
         Shared SimilarityIndex for subject-based similarity
@@ -31,25 +28,19 @@ def get_subject_similarity_index() -> SimilarityIndex:
     global _subject_index
 
     if _subject_index is None:
-        embeddings, ids = load_book_subject_embeddings(normalized=True, use_cache=True)
-        _subject_index = SimilarityIndex(
-            embeddings=embeddings,
-            ids=ids,
-            normalize=False,
-            use_hnsw=True,
-            hnsw_m=32,
-            hnsw_ef_construction=200,
-            hnsw_ef_search=200,
-        )
+        _subject_index = SimilarityIndex.load(PATHS.subject_similarity_index_dir)
 
     return _subject_index
 
 
 def get_als_similarity_index() -> SimilarityIndex:
     """
-    Get or create the shared ALS-based similarity index with filtering.
+    Get or lazily load the shared ALS-based similarity index.
 
-    Filters out books with fewer than 10 ratings for quality control.
+    The index is pre-built by build_similarity_indices.py during training
+    with a min_rating_count=10 candidate filter, and stored as a versioned
+    artifact. First call loads from disk; subsequent calls return the cached
+    instance.
 
     Returns:
         Shared SimilarityIndex for ALS-based similarity with rating filter
@@ -57,17 +48,7 @@ def get_als_similarity_index() -> SimilarityIndex:
     global _als_index
 
     if _als_index is None:
-        _, book_factors, _, book_row_map = load_als_factors(normalized=True, use_cache=True)
-        book_ids = [book_row_map[i] for i in range(book_factors.shape[0])]
-        metadata = load_book_meta(use_cache=True)
-
-        _als_index = SimilarityIndex.create_filtered_index(
-            embeddings=book_factors,
-            ids=book_ids,
-            metadata=metadata,
-            min_rating_count=10,
-            normalize=False,
-        )
+        _als_index = SimilarityIndex.load(PATHS.als_similarity_index_dir)
 
     return _als_index
 

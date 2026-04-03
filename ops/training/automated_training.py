@@ -55,7 +55,9 @@ TRAIN_SCRIPTS.extend(
     [
         "precompute_embs.py",
         "precompute_bayesian.py",
+        "build_metadata_lookup.py",
         "train_als.py",
+        "build_similarity_indices.py",
     ]
 )
 

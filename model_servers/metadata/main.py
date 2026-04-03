@@ -26,8 +26,8 @@ from model_servers._shared.contracts import (
     PopularRequest,
 )
 from model_servers._shared.server_utils import get_artifact_version, make_lifespan
-from models.data.loaders import load_book_meta
-from models.infrastructure.metadata_enrichment import build_lookup, enrich_items
+from models.data.loaders import load_book_lookup
+from models.infrastructure.metadata_enrichment import enrich_items
 from models.infrastructure.popularity_scorer import PopularityScorer
 
 logger = logging.getLogger(__name__)
@@ -38,18 +38,13 @@ _book_lookup: Optional[dict[int, str]] = None
 
 
 def _load_artifacts() -> None:
-    """
-    Build the book lookup dict and initialize the PopularityScorer singleton.
-
-    PopularityScorer is initialized after the lookup dict so that the loader
-    cache warmed by load_book_meta can be reused.
-    """
+    """Load the pre-built book lookup dict and initialize the PopularityScorer singleton."""
     global _book_lookup
 
     logger.info("Loading metadata server artifacts...")
     start = time.monotonic()
 
-    _book_lookup = build_lookup(load_book_meta(use_cache=True))
+    _book_lookup = load_book_lookup(use_cache=True)
     PopularityScorer()
 
     elapsed_ms = (time.monotonic() - start) * 1000
