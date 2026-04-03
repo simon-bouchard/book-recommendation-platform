@@ -1,6 +1,7 @@
 # Env and Secrets
 .env
 deploy/deploy.env
+images
 
 # Data paths
 /models/data/
