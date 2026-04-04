@@ -48,6 +48,17 @@ class BaseModelServerClient:
         self._client = httpx.AsyncClient(
             base_url=self._base_url,
             timeout=timeout,
+            limits=httpx.Limits(
+                # Each model server runs 2 gunicorn workers; the main app also
+                # runs 2 workers, each with its own client instance per server.
+                # 10 connections is a safe ceiling that prevents pool bloat
+                # while keeping spare capacity for concurrent requests.
+                max_connections=10,
+                # Match the number of model server workers so every keepalive
+                # slot corresponds to a real connection the server will hold.
+                # Prevents httpx from silently evicting live connections.
+                max_keepalive_connections=4,
+            ),
         )
 
     async def aclose(self) -> None:

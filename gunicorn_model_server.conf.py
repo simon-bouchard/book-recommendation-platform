@@ -70,7 +70,11 @@ preload_app = True
 # 60 s covers worst-case cold-cache inference on constrained hardware.
 timeout = 60
 graceful_timeout = 30
-keepalive = 5
+# Keep connections alive long enough to outlast the httpx client's idle
+# pool on the main app side (main gunicorn keepalive=150s). 5s was too
+# short: any lull longer than 5s caused httpx to attempt reuse of a dead
+# socket, forcing a new TCP handshake on the next request and spiking p99.
+keepalive = 75
 
 # ---------------------------------------------------------------------------
 # Logging
