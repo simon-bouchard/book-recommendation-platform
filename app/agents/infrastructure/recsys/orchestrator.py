@@ -143,7 +143,7 @@ class RecommendationAgent(BaseAgent):
         # ============================================================
         # STAGE 1: PLANNING
         # ============================================================
-        yield StreamChunk(type="status", content="Analyzing your request...")
+        yield StreamChunk(type="status", content="Building a search strategy...")
 
         available_tools = [
             "book_semantic_search",

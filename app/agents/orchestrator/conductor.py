@@ -84,7 +84,7 @@ class Conductor:
 
         try:
             # Yield initial status
-            yield StreamChunk(type="status", content="Analyzing request...")
+            yield StreamChunk(type="status", content="Analyzing your request...")
 
             # 1) Route to determine target
             if force_target:
