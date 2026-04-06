@@ -12,13 +12,14 @@ import asyncio
 import logging
 import time
 
+import numpy as np
+
 from fastapi import FastAPI, HTTPException
 from fastapi.responses import ORJSONResponse
 
 from model_servers._shared.contracts import (
     AlsSimRequest,
     HasBookAlsRequest,
-    HasBookAlsResponse,
     HealthResponse,
     HybridSimRequest,
     SubjectRecsRequest,
@@ -97,8 +98,8 @@ def health() -> HealthResponse:
 # ===========================================================================
 
 
-@app.post("/has_book_als", response_model=HasBookAlsResponse)
-async def has_book_als(request: HasBookAlsRequest) -> HasBookAlsResponse:
+@app.post("/has_book_als")
+async def has_book_als(request: HasBookAlsRequest) -> ORJSONResponse:
     """
     Check whether a book has a normalized ALS factor in this server's index.
 
@@ -107,10 +108,10 @@ async def has_book_als(request: HasBookAlsRequest) -> HasBookAlsResponse:
     candidate pool. A book absent here will contribute zero ALS signal to
     hybrid_sim and will return empty results from als_sim.
     """
-    return HasBookAlsResponse(
-        item_idx=request.item_idx,
-        has_als=get_als_similarity_index().has_item(request.item_idx),
-    )
+    return ORJSONResponse({
+        "item_idx": request.item_idx,
+        "has_als": get_als_similarity_index().has_item(request.item_idx),
+    })
 
 
 # ===========================================================================
@@ -223,8 +224,6 @@ async def subject_recs(request: SubjectRecsRequest) -> ORJSONResponse:
     The user_vector must be L2-normalized (as returned by the embedder server).
     """
     try:
-        import numpy as np
-
         user_vec = np.array(request.user_vector, dtype="float32")
         loop = asyncio.get_running_loop()
         t0 = time.perf_counter()

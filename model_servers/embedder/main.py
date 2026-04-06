@@ -10,11 +10,11 @@ import asyncio
 import logging
 import time
 
-from fastapi import FastAPI, HTTPException, Response
+from fastapi import FastAPI, HTTPException
+from fastapi.responses import ORJSONResponse
 
 from model_servers._shared.contracts import (
     EmbedRequest,
-    EmbedResponse,
     HealthResponse,
 )
 from model_servers._shared.server_utils import get_artifact_version, make_lifespan
@@ -80,8 +80,8 @@ def health() -> HealthResponse:
 # ===========================================================================
 
 
-@app.post("/embed", response_model=EmbedResponse)
-async def embed(request: EmbedRequest, response: Response) -> EmbedResponse:
+@app.post("/embed")
+async def embed(request: EmbedRequest) -> ORJSONResponse:
     """
     Compute a normalized embedding vector for a list of subject indices.
 
@@ -98,8 +98,10 @@ async def embed(request: EmbedRequest, response: Response) -> EmbedResponse:
         vector = await loop.run_in_executor(
             None, lambda: embedder.embed(request.subject_indices)
         )
-        response.headers["X-Compute-Ms"] = f"{(time.perf_counter() - t0) * 1000:.3f}"
-        return EmbedResponse(vector=vector.tolist())
+        compute_ms = (time.perf_counter() - t0) * 1000
+        resp = ORJSONResponse({"vector": vector.tolist()})
+        resp.headers["X-Compute-Ms"] = f"{compute_ms:.3f}"
+        return resp
 
     except Exception as e:
         logger.error("Embed failed for subjects %s: %s", request.subject_indices, e, exc_info=True)
