@@ -117,6 +117,7 @@ def profile_json(
         "email": current_user.email,
         "num_books_read": counts.total,
         "num_ratings": counts.rated,
+        "num_interactions": counts.total,
         "favorite_subjects": [
             s.subject.subject
             for s in current_user.favorite_subjects

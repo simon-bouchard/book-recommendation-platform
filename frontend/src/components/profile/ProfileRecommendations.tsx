@@ -6,7 +6,7 @@ import { BookGrid } from '@/components/search/BookGrid'
 
 interface ProfileRecommendationsProps {
   userId: number
-  numRatings: number
+  numInteractions: number
 }
 
 type Mode = 'subject' | 'behavioral'
@@ -24,9 +24,9 @@ function toSearchResult(b: SimilarBook): SearchResult {
   }
 }
 
-const RATINGS_THRESHOLD = 10
+const INTERACTIONS_THRESHOLD = 10
 
-export function ProfileRecommendations({ userId, numRatings }: ProfileRecommendationsProps) {
+export function ProfileRecommendations({ userId, numInteractions }: ProfileRecommendationsProps) {
   const [isWarm, setIsWarm] = useState(false)
   const [mode, setMode] = useState<Mode>('subject')
   const [w, setW] = useState(0.6)
@@ -39,8 +39,8 @@ export function ProfileRecommendations({ userId, numRatings }: ProfileRecommenda
     fetchIsWarm().then(setIsWarm)
   }, [userId])
 
-  const coldUser = numRatings < RATINGS_THRESHOLD
-  const eligibleNotWarm = !isWarm && numRatings >= RATINGS_THRESHOLD
+  const coldUser = numInteractions < INTERACTIONS_THRESHOLD
+  const eligibleNotWarm = !isWarm && numInteractions >= INTERACTIONS_THRESHOLD
 
   async function getRecommendations() {
     setLoading(true)
@@ -68,8 +68,8 @@ export function ProfileRecommendations({ userId, numRatings }: ProfileRecommenda
         <div className="mb-4 flex items-start gap-2 rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800">
           <span className="shrink-0">⚠</span>
           <span>
-            Rate at least <strong>{RATINGS_THRESHOLD}</strong> books to unlock personalised recommendations.
-            You've rated <strong>{numRatings}</strong> so far.
+            Interact with at least <strong>{INTERACTIONS_THRESHOLD}</strong> books to unlock personalised recommendations.
+            You've logged <strong>{numInteractions}</strong> so far.
           </span>
         </div>
       )}
@@ -77,7 +77,7 @@ export function ProfileRecommendations({ userId, numRatings }: ProfileRecommenda
         <div className="mb-4 flex items-start gap-2 rounded-lg border border-blue-200 bg-blue-50 px-4 py-3 text-sm text-blue-800">
           <span className="shrink-0">ℹ</span>
           <span>
-            You've rated <strong>{numRatings}</strong> books — you're eligible for personalised recommendations,
+            You've logged <strong>{numInteractions}</strong> interactions — you're eligible for personalised recommendations,
             but the server hasn't updated yet. Check back soon!
           </span>
         </div>

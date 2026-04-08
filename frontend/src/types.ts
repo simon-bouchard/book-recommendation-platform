@@ -81,6 +81,7 @@ export interface UserProfile {
   email: string;
   num_books_read: number;
   num_ratings: number;
+  num_interactions: number;
   favorite_subjects: string[];
 }
 

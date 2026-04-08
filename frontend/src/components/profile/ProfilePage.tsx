@@ -44,7 +44,7 @@ export function ProfilePage() {
       <InteractionsList />
 
       <div className="border-t border-border pt-10">
-        <ProfileRecommendations userId={profile.id} numRatings={profile.num_ratings} />
+        <ProfileRecommendations userId={profile.id} numInteractions={profile.num_interactions} />
       </div>
     </div>
   )
