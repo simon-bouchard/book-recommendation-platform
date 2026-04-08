@@ -6,7 +6,7 @@
 # Keep in sync with what tests/unit/ actually imports.
 
 # --- linting / formatting ---
-ruff==0.12.1
+ruff==0.14.6
 
 # --- test runner ---
 pytest==9.0.0
@@ -31,8 +31,8 @@ sqlalchemy==2.0.43
 # --- LLM / agent ---
 langchain-core==0.3.76
 
-# --- torch (CPU-only build, avoids multi-GB CUDA wheels) ---
-torch==2.8.0 --index-url https://download.pytorch.org/whl/cpu
+# torch is installed separately in CI via --index-url to get the CPU-only wheel
+# See .github/workflows/ci.yml
 
 # --- OpenTelemetry (imported in app modules loaded by tests) ---
 opentelemetry-api
