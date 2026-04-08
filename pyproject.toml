@@ -1,0 +1,45 @@
+[project]
+name = "book-recsys"
+version = "0.4.0"
+description = "Full-stack book recommendation project with chatbot"
+
+[tool.ruff]
+line-length = 100
+
+[tool.ruff.lint]
+select = [
+    "E", # pycodestyle errors
+    "F", # pyflakes
+    "W", # pycodestyle warnings
+    "I", # isort (import sorting)
+]
+ignore = [
+    "E501", # line-too-long: formatter already enforces 100-char limit where possible
+]
+
+[tool.ruff.lint.per-file-ignores]
+# Scripts that use sys.path.insert before imports to run standalone
+"tests/**" = ["E402"]
+"ops/**" = ["E402"]
+"evaluation/**" = ["E402"]
+"data/**" = ["E402"]
+"models/training/**" = ["E402"]
+"app/enrichment/**" = ["E402"]
+"app/semantic_index/**" = ["E402"]
+
+[tool.ruff.format]
+quote-style = "double"
+indent-style = "space"
+
+[tool.pyright]
+pythonVersion = "3.9"
+typeCheckingMode = "basic"
+
+[tool.pyright.diagnosticSeverityOverrides]
+reportLineTooLong = "none"
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+python_files = ["test_*.py", "*_test.py"]
+asyncio_mode = "auto"
+pythonpath = ["."]
