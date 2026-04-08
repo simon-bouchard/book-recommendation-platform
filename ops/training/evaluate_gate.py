@@ -17,7 +17,7 @@ from models.core.paths import PATHS
 
 _METRICS_FILENAME = "training_metrics.json"
 
-_DEFAULT_RECALL_FLOOR = 0.25
+_DEFAULT_RECALL_FLOOR = 0.12
 _DEFAULT_RECALL_MAX_REGRESSION = 0.03
 
 

@@ -23,11 +23,10 @@ RANDOM_STATE = 42
 def main():
     print("📦 Loading interactions...")
     interactions = pd.read_pickle(PATHS.staging_data_dir / "interactions.pkl")
-    interactions = interactions[interactions["rating"].notnull()]
 
     # Warm users only
-    rating_counts = interactions["user_id"].value_counts()
-    warm_users = rating_counts[rating_counts >= 10].index
+    interaction_counts = interactions["user_id"].value_counts()
+    warm_users = interaction_counts[interaction_counts >= 10].index
     warm_df = interactions[interactions["user_id"].isin(warm_users)]
 
     print(f"👥 Warm users: {len(warm_users)}")
