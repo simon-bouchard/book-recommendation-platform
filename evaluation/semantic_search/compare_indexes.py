@@ -71,9 +71,9 @@ def load_semantic_searcher(index_path: str, embedder):
 
             def search(self, query: str, top_k: int = 10):
                 qv = self.embedder([query]).astype("float32")
-                D, I = self.index.search(qv, top_k)
+                D, indices = self.index.search(qv, top_k)
                 results = []
-                for dist, idx in zip(D[0], I[0]):
+                for dist, idx in zip(D[0], indices[0]):
                     if idx == -1:
                         continue
                     bid = int(self.ids[idx])
@@ -113,7 +113,7 @@ def fuzzy_match(text1: str, text2: str, threshold: float = 0.8) -> bool:
 
         similarity = SequenceMatcher(None, text1, text2).ratio()
         return similarity >= threshold
-    except:
+    except Exception:
         return False
 
 

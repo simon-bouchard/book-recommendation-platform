@@ -5,46 +5,9 @@ Tests request validation, ALS availability check, service integration,
 and response formatting.
 """
 
-from unittest.mock import AsyncMock, Mock
+from unittest.mock import AsyncMock
 
 import pytest
-
-# ---------------------------------------------------------------------------
-# Helpers
-# ---------------------------------------------------------------------------
-
-
-def _patch_als_available(monkeypatch) -> None:
-    """
-    Patch get_similarity_client so has_book_als returns has_als=True.
-
-    The route calls await get_similarity_client().has_book_als(item_idx) for
-    als and hybrid modes. We replace the client returned by the registry with
-    a mock whose has_book_als is an AsyncMock, matching the real async method.
-    """
-    response = Mock()
-    response.has_als = True
-
-    client = Mock()
-    client.has_book_als = AsyncMock(return_value=response)
-
-    monkeypatch.setattr("routes.models.get_similarity_client", lambda: client)
-
-
-def _patch_als_unavailable(monkeypatch) -> None:
-    """
-    Patch get_similarity_client so has_book_als returns has_als=False.
-
-    Simulates a book that has no ALS factors, which should trigger a 422.
-    """
-    response = Mock()
-    response.has_als = False
-
-    client = Mock()
-    client.has_book_als = AsyncMock(return_value=response)
-
-    monkeypatch.setattr("routes.models.get_similarity_client", lambda: client)
-
 
 # ---------------------------------------------------------------------------
 # Tests
@@ -102,8 +65,7 @@ class TestSimilarityEndpointModes:
     def test_als_mode_checks_availability_before_calling_service(
         self, test_client, mock_similarity_service, monkeypatch
     ):
-        """ALS mode should confirm the book has ALS factors before calling the service."""
-        _patch_als_available(monkeypatch)
+        """ALS mode should call the service and return results when available."""
         monkeypatch.setattr("routes.models.SimilarityService", lambda: mock_similarity_service)
 
         response = test_client.get("/book/1234/similar?mode=als")
@@ -131,8 +93,7 @@ class TestSimilarityEndpointModes:
     def test_hybrid_mode_calls_service_with_alpha(
         self, test_client, mock_similarity_service, monkeypatch
     ):
-        """Hybrid mode should pass alpha to the service after confirming ALS availability."""
-        _patch_als_available(monkeypatch)
+        """Hybrid mode should pass alpha to the service."""
         monkeypatch.setattr("routes.models.SimilarityService", lambda: mock_similarity_service)
 
         response = test_client.get("/book/1234/similar?mode=hybrid&alpha=0.3")
@@ -312,7 +273,6 @@ class TestSimilarityEndpointIntegration:
         self, test_client, mock_similarity_service, monkeypatch
     ):
         """Alpha value should be passed through to the service for hybrid mode."""
-        _patch_als_available(monkeypatch)
         monkeypatch.setattr("routes.models.SimilarityService", lambda: mock_similarity_service)
 
         test_client.get("/book/1234/similar?mode=hybrid&alpha=0.25")
@@ -327,7 +287,6 @@ class TestSimilarityEndpointIntegration:
         Alpha is forwarded to the service for all modes.
         The service decides whether to use it; the endpoint does not filter it out.
         """
-        _patch_als_available(monkeypatch)
         monkeypatch.setattr("routes.models.SimilarityService", lambda: mock_similarity_service)
 
         for mode in ("subject", "als", "hybrid"):
@@ -342,7 +301,6 @@ class TestSimilarityEndpointIntegration:
         self, test_client, mock_similarity_service, monkeypatch
     ):
         """top_k query param should be passed as k= to get_similar for every mode."""
-        _patch_als_available(monkeypatch)
         monkeypatch.setattr("routes.models.SimilarityService", lambda: mock_similarity_service)
 
         for mode in ("subject", "als", "hybrid"):

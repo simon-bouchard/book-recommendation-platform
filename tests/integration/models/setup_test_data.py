@@ -184,7 +184,8 @@ def verify_test_data(config: dict):
     Checks user rating counts and book ALS availability.
     """
     db = SessionLocal()
-    store = ModelStore()
+    _, _, _, book_map = load_als_factors()
+    als_book_id_set = set(book_map.keys())
 
     try:
         print("\nVerifying test data...")
@@ -221,9 +222,8 @@ def verify_test_data(config: dict):
             )
             print(f"  User {user_id}: {count} ratings (cold, subjects={has_subjects})")
 
-        als_book_ids = store.get_book_als_id_set()
         for book_id in config["test_book_ids"]["has_als"][:3]:
-            has_als = book_id in als_book_ids
+            has_als = book_id in als_book_id_set
             print(f"  Book {book_id}: ALS data = {has_als}")
 
         print("\nTest data verification complete")

@@ -91,7 +91,7 @@ class EvalDashboard:
             timestamp_str = data.get("timestamp", "")
             try:
                 timestamp = datetime.fromisoformat(timestamp_str)
-            except:
+            except Exception:
                 timestamp = datetime.fromtimestamp(file_path.stat().st_mtime)
 
             # Extract overall stats - handle two formats

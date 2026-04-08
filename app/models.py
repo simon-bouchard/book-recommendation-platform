@@ -124,7 +124,7 @@ def clean_float_values(data: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
         # Last resort: convert to str (should never happen)
         try:
             return str(val)
-        except:
+        except Exception:
             return None
 
     cleaned = []

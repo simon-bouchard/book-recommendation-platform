@@ -95,7 +95,7 @@ def _extract_json(raw: str) -> str:
         try:
             json.loads(raw)
             return raw
-        except:
+        except Exception:
             pass  # Fall through to more aggressive parsing
 
     # Extract from markdown code blocks
@@ -107,7 +107,7 @@ def _extract_json(raw: str) -> str:
             try:
                 json.loads(block)
                 return block
-            except:
+            except Exception:
                 continue
 
     # Find all JSON-like objects (balanced braces)
@@ -132,7 +132,7 @@ def _extract_json(raw: str) -> str:
         try:
             json.loads(candidate)
             return candidate
-        except:
+        except Exception:
             continue
 
     raise ValueError(f"No valid JSON found in response (first 300 chars): {raw[:300]}")

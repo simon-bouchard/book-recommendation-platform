@@ -57,7 +57,7 @@ def load_npz_batches(accumulator_dir: Path) -> Tuple[np.ndarray, np.ndarray, Lis
         try:
             metadata_items = json.loads(metadata_json)
             all_metadata.extend(metadata_items)
-        except:
+        except Exception:
             # If metadata is not a list, create placeholder
             for idx in item_indices:
                 all_metadata.append({"item_idx": int(idx)})

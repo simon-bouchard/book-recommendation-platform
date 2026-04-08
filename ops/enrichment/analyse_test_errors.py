@@ -89,7 +89,7 @@ def fetch_errors(tags_version: str):
                         if isinstance(err.attempted, str)
                         else err.attempted
                     )
-                except:
+                except Exception:
                     pass
 
             errors.append(

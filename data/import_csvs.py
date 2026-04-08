@@ -65,7 +65,7 @@ def main():
                     parsed = ast.literal_eval(row["alternate_names"])
                     if isinstance(parsed, list):
                         alt_names = json.dumps(parsed)
-                except:
+                except Exception:
                     alt_names = None
                 authors.append(
                     Author(

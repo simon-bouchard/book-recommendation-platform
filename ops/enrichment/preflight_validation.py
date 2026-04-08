@@ -327,7 +327,7 @@ def check_validator() -> Tuple[bool, str]:
 def check_kafka_connectivity() -> Tuple[bool, str]:
     """Check if Kafka is accessible"""
     try:
-        from kafka import KafkaProducer
+        from kafka import KafkaProducer  # noqa: F401
         from kafka.admin import KafkaAdminClient
 
         bootstrap_servers = os.getenv("KAFKA_BOOTSTRAP_SERVERS", "localhost:9092")

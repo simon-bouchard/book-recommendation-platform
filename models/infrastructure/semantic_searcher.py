@@ -13,9 +13,9 @@ class SemanticSearcher:
 
     def search(self, query: str, top_k: int = 10) -> list[dict]:
         qv = self.embedder([query]).astype("float32")
-        D, I = self.index.search(qv, top_k)
+        D, indices = self.index.search(qv, top_k)
         results = []
-        for dist, idx in zip(D[0], I[0]):
+        for dist, idx in zip(D[0], indices[0]):
             if idx == -1:
                 continue
             results.append({"item_idx": int(self.ids[idx]), "score": float(-dist)})

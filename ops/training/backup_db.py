@@ -65,7 +65,7 @@ def main():
     for old in dumps[:-7]:
         try:
             old.unlink()
-        except:
+        except Exception:
             pass
 
 

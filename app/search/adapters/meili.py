@@ -130,7 +130,7 @@ class MeiliSearchAdapter(SearchAdapter):
             # Simple health check
             self.client.health()
             return True
-        except:
+        except Exception:
             return False
 
     @property

@@ -24,8 +24,8 @@ def verify_components():
             AccumulatorWriter,
             CoverageMonitor,
             EmbeddingClient,
-            EmbeddingWorker,
-            EnrichmentFetcher,
+            EmbeddingWorker,  # noqa: F401
+            EnrichmentFetcher,  # noqa: F401
             FingerprintTracker,
             OntologyResolver,
         )

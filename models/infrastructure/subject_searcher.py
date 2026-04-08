@@ -28,9 +28,9 @@ class SubjectSearcher:
         qv = self.embedder([phrase]).astype("float32")
         norm = np.linalg.norm(qv, axis=1, keepdims=True)
         qv = qv / np.where(norm == 0, 1.0, norm)
-        D, I = self.index.search(qv, top_k)
+        D, indices = self.index.search(qv, top_k)
         results = []
-        for score, idx in zip(D[0], I[0]):
+        for score, idx in zip(D[0], indices[0]):
             if idx == -1:
                 continue
             subject_idx = int(self.ids[idx])

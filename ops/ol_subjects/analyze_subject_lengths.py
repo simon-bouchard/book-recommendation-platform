@@ -64,7 +64,7 @@ print("LONG + RARE SUBJECTS")
 print("=" * 80)
 
 # Find long subjects that are rare
-long_rare = [(s, l, f) for s, l, f in subjects_with_len if l > 100 and f <= 5]
+long_rare = [(s, length, f) for s, length, f in subjects_with_len if length > 100 and f <= 5]
 long_rare.sort(key=lambda x: x[1], reverse=True)
 
 print(f"\nSubjects >100 chars appearing ≤5 times: {len(long_rare)}")

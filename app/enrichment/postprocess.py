@@ -99,14 +99,15 @@ def normalize_language(value: object) -> Optional[str]:
 
     # Name lookup (handles many common names)
     try:
-        matches = [l for l in pycountry.languages if getattr(l, "name", "").lower() == val]
+        matches = [lang for lang in pycountry.languages if getattr(lang, "name", "").lower() == val]
         if not matches:
             # Some entries have 'common_name' or 'inverted_name'
             matches = [
-                l
-                for l in pycountry.languages
+                lang
+                for lang in pycountry.languages
                 if any(
-                    getattr(l, attr, "").lower() == val for attr in ("common_name", "inverted_name")
+                    getattr(lang, attr, "").lower() == val
+                    for attr in ("common_name", "inverted_name")
                 )
             ]
         if matches:
