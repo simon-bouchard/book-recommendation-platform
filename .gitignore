@@ -54,6 +54,7 @@ system/
 
 # Frontend
 frontend/node_modules/
+frontend/package-lock.json
 static/dist/
 
 #Junk
