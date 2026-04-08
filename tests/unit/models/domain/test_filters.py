@@ -4,10 +4,11 @@ Unit tests for recommendation filters.
 Tests filtering logic with mocked database and metadata.
 """
 
-import pytest
 import sys
 from pathlib import Path
-from unittest.mock import AsyncMock, Mock, MagicMock, patch
+from unittest.mock import AsyncMock, Mock, patch
+
+import pytest
 
 project_root = Path(__file__).resolve().parents[4]
 if str(project_root) not in sys.path:
@@ -15,10 +16,10 @@ if str(project_root) not in sys.path:
 
 from models.domain.filters import (
     Filter,
-    ReadBooksFilter,
-    MinRatingCountFilter,
     FilterChain,
+    MinRatingCountFilter,
     NoFilter,
+    ReadBooksFilter,
 )
 from models.domain.recommendation import Candidate
 from models.domain.user import User
@@ -45,8 +46,6 @@ def sample_candidates():
         Candidate(item_idx=103, score=0.6, source="test"),
         Candidate(item_idx=104, score=0.5, source="test"),
     ]
-
-
 
 
 def _meta_dict(ratings_by_id: dict) -> dict:
@@ -76,9 +75,7 @@ class TestReadBooksFilter:
         assert callable(filter_obj.apply)
 
     @pytest.mark.asyncio
-    async def test_removes_books_user_has_read(
-        self, sample_candidates, mock_user, monkeypatch
-    ):
+    async def test_removes_books_user_has_read(self, sample_candidates, mock_user, monkeypatch):
         """Should filter out books the user has already read."""
         monkeypatch.setattr(
             "models.domain.filters.get_read_books_for_candidates_async",
@@ -96,9 +93,7 @@ class TestReadBooksFilter:
         assert 104 in remaining_ids
 
     @pytest.mark.asyncio
-    async def test_preserves_order_of_candidates(
-        self, sample_candidates, mock_user, monkeypatch
-    ):
+    async def test_preserves_order_of_candidates(self, sample_candidates, mock_user, monkeypatch):
         """Should maintain original candidate order."""
         monkeypatch.setattr(
             "models.domain.filters.get_read_books_for_candidates_async",
@@ -111,9 +106,7 @@ class TestReadBooksFilter:
         assert [c.item_idx for c in filtered] == [c.item_idx for c in sample_candidates]
 
     @pytest.mark.asyncio
-    async def test_returns_empty_if_all_read(
-        self, sample_candidates, mock_user, monkeypatch
-    ):
+    async def test_returns_empty_if_all_read(self, sample_candidates, mock_user, monkeypatch):
         """Should return empty list if user has read all candidates."""
         monkeypatch.setattr(
             "models.domain.filters.get_read_books_for_candidates_async",
@@ -169,9 +162,7 @@ class TestMinRatingCountFilter:
         assert callable(filter_obj.apply)
 
     @pytest.mark.asyncio
-    async def test_removes_books_with_low_rating_count(
-        self, sample_candidates, mock_user
-    ):
+    async def test_removes_books_with_low_rating_count(self, sample_candidates, mock_user):
         """Should filter out books below rating threshold."""
         with _patch_meta_client(_meta_dict(_DEFAULT_RATINGS)):
             filter_obj = MinRatingCountFilter(min_count=10)
@@ -194,9 +185,7 @@ class TestMinRatingCountFilter:
         assert [c.item_idx for c in filtered] == [100, 102, 104]
 
     @pytest.mark.asyncio
-    async def test_returns_empty_if_all_below_threshold(
-        self, sample_candidates, mock_user
-    ):
+    async def test_returns_empty_if_all_below_threshold(self, sample_candidates, mock_user):
         """Should return empty list if all candidates below threshold."""
         with _patch_meta_client(_meta_dict({100: 0, 101: 0, 102: 0, 103: 0, 104: 0})):
             filter_obj = MinRatingCountFilter(min_count=10)
@@ -236,7 +225,7 @@ class TestFilterChain:
         mock_filter2.apply = AsyncMock(return_value=sample_candidates[:2])
 
         chain = FilterChain([mock_filter1, mock_filter2])
-        result = await chain.apply(sample_candidates, mock_user)
+        await chain.apply(sample_candidates, mock_user)
 
         mock_filter1.apply.assert_called_once()
         mock_filter2.apply.assert_called_once()
@@ -265,9 +254,7 @@ class TestFilterChain:
         mock_filter.apply.assert_called_once()
 
     @pytest.mark.asyncio
-    async def test_chain_handles_filter_returning_empty(
-        self, sample_candidates, mock_user
-    ):
+    async def test_chain_handles_filter_returning_empty(self, sample_candidates, mock_user):
         """Should handle filter that returns empty list."""
         mock_filter1 = Mock(spec=Filter)
         mock_filter1.apply = AsyncMock(return_value=[])
@@ -283,9 +270,7 @@ class TestFilterChain:
         assert mock_filter2.apply.call_args[0][0] == []
 
     @pytest.mark.asyncio
-    async def test_chain_with_real_filters(
-        self, sample_candidates, mock_user, monkeypatch
-    ):
+    async def test_chain_with_real_filters(self, sample_candidates, mock_user, monkeypatch):
         """Test chain with actual filter implementations."""
         monkeypatch.setattr(
             "models.domain.filters.get_read_books_for_candidates_async",
@@ -334,9 +319,7 @@ class TestEdgeCases:
     """Test edge cases across all filters."""
 
     @pytest.mark.asyncio
-    async def test_filters_preserve_candidate_attributes(
-        self, sample_candidates, mock_user
-    ):
+    async def test_filters_preserve_candidate_attributes(self, sample_candidates, mock_user):
         """Filters should not modify candidate attributes."""
         original_scores = [c.score for c in sample_candidates]
         original_sources = [c.source for c in sample_candidates]
@@ -347,9 +330,7 @@ class TestEdgeCases:
         assert [c.score for c in filtered] == original_scores
         assert [c.source for c in filtered] == original_sources
 
-    def test_min_rating_filter_handles_negative_threshold(
-        self, sample_candidates, mock_user
-    ):
+    def test_min_rating_filter_handles_negative_threshold(self, sample_candidates, mock_user):
         """MinRatingCountFilter should raise ValueError for negative threshold."""
         with pytest.raises(ValueError, match="min_count must be non-negative"):
             MinRatingCountFilter(min_count=-10)

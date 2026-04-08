@@ -5,7 +5,7 @@ Defines inputs and outputs for each stage: Planner, CandidateGenerator, and Cura
 """
 
 from dataclasses import dataclass
-from typing import Optional, Dict, Any
+from typing import Any, Dict, Optional
 
 
 @dataclass

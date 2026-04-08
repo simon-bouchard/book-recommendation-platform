@@ -8,19 +8,20 @@ by RecommendationService._filter_and_enrich() after the pipeline returns all
 ranked candidates (buffer_k = k + 50).
 """
 
-import pytest
 import sys
 from pathlib import Path
 from unittest.mock import AsyncMock, Mock
+
+import pytest
 
 project_root = Path(__file__).resolve().parents[4]
 if str(project_root) not in sys.path:
     sys.path.insert(0, str(project_root))
 
 from models.domain.pipeline import RecommendationPipeline
+from models.domain.rankers import NoOpRanker
 from models.domain.recommendation import Candidate
 from models.domain.user import User
-from models.domain.rankers import NoOpRanker
 
 
 @pytest.fixture
@@ -95,9 +96,7 @@ def mock_ranker():
 class TestPipelineInitialization:
     """Test RecommendationPipeline initialization."""
 
-    def test_stores_components(
-        self, mock_generator, mock_fallback_generator, mock_ranker
-    ):
+    def test_stores_components(self, mock_generator, mock_fallback_generator, mock_ranker):
         """Should store all pipeline components."""
         pipeline = RecommendationPipeline(
             generator=mock_generator,
@@ -315,9 +314,7 @@ class TestOptionalComponents:
         assert len(result) > 0
 
     @pytest.mark.asyncio
-    async def test_minimal_pipeline_with_only_generator(
-        self, mock_generator, mock_user
-    ):
+    async def test_minimal_pipeline_with_only_generator(self, mock_generator, mock_user):
         """Should work with only generator (all other components None)."""
         mock_generator.generate.return_value = [
             Candidate(100, 0.9, "test"),

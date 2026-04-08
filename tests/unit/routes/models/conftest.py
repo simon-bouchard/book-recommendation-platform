@@ -14,16 +14,13 @@ Key design decisions
 
 from __future__ import annotations
 
+import os
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 from starlette.testclient import TestClient
 
-import os
-
 from models.domain.recommendation import RecommendedBook
-from models.core.constants import PAD_IDX
-
 
 os.environ["SECURE_MODE"] = "false"
 

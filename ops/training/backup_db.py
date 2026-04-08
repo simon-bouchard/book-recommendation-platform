@@ -1,5 +1,8 @@
 #!/usr/bin/env python3
-import os, subprocess, datetime, shlex
+import datetime
+import os
+import shlex
+import subprocess
 from pathlib import Path
 from urllib.parse import urlsplit
 

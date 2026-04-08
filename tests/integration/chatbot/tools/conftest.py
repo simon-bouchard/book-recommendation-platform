@@ -42,7 +42,7 @@ async def aiomysql_pool():
     destroyed per test so it is always bound to the test's own event loop
     (pytest-asyncio creates a new loop per test function by default).
     """
-    from app.database import init_aiomysql_pool, close_aiomysql_pool
+    from app.database import close_aiomysql_pool, init_aiomysql_pool
 
     await init_aiomysql_pool()
     yield

@@ -4,20 +4,18 @@ Shared utilities for agent evaluation scripts.
 Provides helpers for executing agents and reconstructing responses.
 """
 
-from typing import Any
-from pathlib import Path
 import sys
+from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT))
 
 from app.agents.domain.entities import (
+    AgentExecutionState,
     AgentRequest,
     AgentResponse,
-    AgentExecutionState,
     ExecutionStatus,
     ToolExecution,
-    BookRecommendation,
 )
 from app.agents.infrastructure.base_langgraph_agent import BaseLangGraphAgent
 

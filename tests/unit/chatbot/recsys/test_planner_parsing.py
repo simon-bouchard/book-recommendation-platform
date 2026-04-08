@@ -10,10 +10,10 @@ All tests are synchronous and make no LLM or I/O calls.
 """
 
 import json
+
 import pytest
 
 from app.agents.domain.recsys_schemas import PlannerStrategy
-
 
 # ==============================================================================
 # Helpers

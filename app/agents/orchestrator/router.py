@@ -1,15 +1,15 @@
 # app/agents/orchestrator/router.py
 from __future__ import annotations
 
+import asyncio
 import json
 import re
 from typing import Any, Dict, List, Optional
-import asyncio
 
-from app.agents.prompts.loader import read_prompt
-from app.agents.settings import get_llm
-from app.agents.schemas import RoutePlan, TurnInput
 from app.agents.logging import capture_agent_console_and_httpx
+from app.agents.prompts.loader import read_prompt
+from app.agents.schemas import RoutePlan, TurnInput
+from app.agents.settings import get_llm
 
 ALLOWED_TARGETS = {"recsys", "web", "docs", "respond"}
 

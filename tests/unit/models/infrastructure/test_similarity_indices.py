@@ -10,7 +10,6 @@ import sys
 from pathlib import Path
 from unittest.mock import patch
 
-import numpy as np
 import pytest
 
 project_root = Path(__file__).resolve().parents[4]
@@ -19,7 +18,7 @@ if str(project_root) not in sys.path:
 
 import models.infrastructure.similarity_indices as registry_module
 from models.infrastructure.similarity_index import SimilarityIndex
-from tests.unit.models.infrastructure.conftest import EMB_DIM, N_BOOKS, N_ALS_BOOKS
+from tests.unit.models.infrastructure.conftest import N_ALS_BOOKS, N_BOOKS
 
 _REGISTRY_PATH = "models.infrastructure.similarity_indices"
 
@@ -60,6 +59,7 @@ def mock_index_load(subject_index, als_index):
     Routes to subject_index or als_index based on whether "subject" appears
     in the path, mirroring the real path layout (similarity/subject vs similarity/als).
     """
+
     def _load(path):
         return subject_index if "subject" in str(path) else als_index
 

@@ -15,10 +15,8 @@ import json
 import sys
 from collections import defaultdict
 from dataclasses import dataclass
-from datetime import datetime
 from pathlib import Path
-from typing import Dict, List, Optional, Tuple
-
+from typing import Dict, List, Tuple
 
 # ---------------------------------------------------------------------------
 # Request-type classification
@@ -172,7 +170,7 @@ class PerformanceComparator:
         return comparisons
 
     def _build_group_comparisons(self) -> List[GroupComparison]:
-        label_map = dict(REQUEST_TYPES)
+        dict(REQUEST_TYPES)
         buckets: Dict[str, List[TestComparison]] = defaultdict(list)
         for tc in self._test_comparisons:
             buckets[tc.type_key].append(tc)
@@ -239,7 +237,7 @@ class PerformanceComparator:
             )
 
     def _print_detailed_breakdown(self, width: int) -> None:
-        label_map = dict(REQUEST_TYPES)
+        dict(REQUEST_TYPES)
         buckets: Dict[str, List[TestComparison]] = defaultdict(list)
         for tc in self._test_comparisons:
             buckets[tc.type_key].append(tc)
@@ -334,7 +332,7 @@ def main() -> None:
     if args.auto:
         try:
             before_file, after_file = find_latest_baselines(baseline_dir)
-            print(f"Auto-detected baselines:")
+            print("Auto-detected baselines:")
             print(f"  Before : {before_file.name}")
             print(f"  After  : {after_file.name}\n")
         except ValueError as e:

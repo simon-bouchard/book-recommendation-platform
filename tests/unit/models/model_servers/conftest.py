@@ -22,9 +22,8 @@ from unittest.mock import MagicMock
 
 import numpy as np
 import pytest
-from starlette.testclient import TestClient
 from fastapi import FastAPI
-
+from starlette.testclient import TestClient
 
 # ---------------------------------------------------------------------------
 # Factory fixture: singleton installation + teardown

@@ -5,7 +5,7 @@ Provides judges for genre matching, personalization prose, prose reasoning quali
 """
 
 import json
-from typing import Dict, List, Any, Optional
+from typing import Any, Dict, List, Optional
 
 from app.table_models import Book
 

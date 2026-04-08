@@ -6,6 +6,7 @@ Callback handler for logging retrieval tool executions in real-time.
 import json
 import time
 from typing import Any, Dict, List, Optional
+
 from langchain.callbacks.base import BaseCallbackHandler
 
 from app.agents.logging import append_chatbot_log, is_debug_mode

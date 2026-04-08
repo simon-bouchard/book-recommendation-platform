@@ -4,15 +4,16 @@ Unit tests for recommendation rankers.
 Tests ranking logic with various candidate orderings.
 """
 
-import pytest
 import sys
 from pathlib import Path
+
+import pytest
 
 project_root = Path(__file__).resolve().parents[4]
 if str(project_root) not in sys.path:
     sys.path.insert(0, str(project_root))
 
-from models.domain.rankers import Ranker, NoOpRanker, ScoreRanker
+from models.domain.rankers import NoOpRanker, ScoreRanker
 from models.domain.recommendation import Candidate
 from models.domain.user import User
 

@@ -5,7 +5,7 @@ Modernized documentation/help tools with native interfaces.
 
 import json
 from pathlib import Path
-from typing import Optional, Callable
+from typing import Callable, Optional
 
 from langchain_core.tools import tool
 

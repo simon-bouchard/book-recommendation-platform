@@ -19,7 +19,7 @@ from model_servers._shared.contracts import (
     SubjectRecsResponse,
     SubjectSimRequest,
 )
-from models.client._base import BaseModelServerClient, _DEFAULT_TIMEOUT
+from models.client._base import _DEFAULT_TIMEOUT, BaseModelServerClient
 
 _DEFAULT_URL = "http://similarity:8002"
 

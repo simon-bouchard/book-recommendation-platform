@@ -5,6 +5,7 @@ Validates that history persists, truncates correctly, and doesn't leak between c
 """
 
 import pytest
+
 from app.agents.schemas import AgentResult
 
 pytestmark = pytest.mark.asyncio

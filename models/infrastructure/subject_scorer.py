@@ -7,7 +7,7 @@ Performs the single-pass joint matmul that produces blended recommendation
 scores without an intermediate retrieval step.
 """
 
-from typing import Optional, Tuple, List
+from typing import List, Optional, Tuple
 
 import numpy as np
 
@@ -76,7 +76,7 @@ class SubjectScorer:
             self._book_ids = np.array(book_ids, dtype=np.int64)
             self._bayesian_norm = bayesian_scores_norm.astype(np.float32, copy=False)
         else:
-            from models.data.loaders import load_book_subject_embeddings, load_bayesian_scores
+            from models.data.loaders import load_bayesian_scores, load_book_subject_embeddings
 
             embs, ids = load_book_subject_embeddings(normalized=True, use_cache=True)
             self._embeddings = embs.astype(np.float32, copy=False)

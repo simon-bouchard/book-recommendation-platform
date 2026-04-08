@@ -13,14 +13,14 @@ from typing import List, Optional
 from opentelemetry import trace
 from opentelemetry.trace import Status, StatusCode
 
+from models.client.registry import (
+    get_als_client,
+    get_embedder_client,
+    get_metadata_client,
+    get_similarity_client,
+)
 from models.domain.recommendation import Candidate
 from models.domain.user import User
-from models.client.registry import (
-    get_embedder_client,
-    get_similarity_client,
-    get_als_client,
-    get_metadata_client,
-)
 
 tracer = trace.get_tracer(__name__)
 

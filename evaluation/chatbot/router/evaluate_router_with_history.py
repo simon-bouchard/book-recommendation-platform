@@ -5,16 +5,16 @@ Tests router's ability to handle context and intent switches.
 
 import asyncio
 import json
-from pathlib import Path
-from typing import Dict, List, Any
-from datetime import datetime
 import sys
+from datetime import datetime
+from pathlib import Path
+from typing import Any, Dict, List
 
 ROOT = Path(__file__).resolve().parents[3]
 sys.path.insert(0, str(ROOT))
 
-from app.agents.orchestrator.router import RouterLLM
 from app.agents.context_builder import make_router_input
+from app.agents.orchestrator.router import RouterLLM
 
 
 def load_conversation_tests(json_path: Path) -> Dict[str, List[Dict]]:

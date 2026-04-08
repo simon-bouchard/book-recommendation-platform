@@ -92,6 +92,7 @@ def get_aiomysql_pool() -> aiomysql.Pool:
         raise RuntimeError("aiomysql pool not initialized — call init_aiomysql_pool() at startup")
     return _aiomysql_pool
 
+
 Base = declarative_base()
 
 if DATABASE_URL:

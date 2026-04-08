@@ -7,10 +7,11 @@ All _create_*_tool() methods are mocked to return lightweight stubs so no
 database, FAISS index, or other I/O is involved.
 """
 
-import pytest
-from unittest.mock import MagicMock, patch
-from app.agents.tools.recsys.native_tools import InternalTools
+from unittest.mock import MagicMock
 
+import pytest
+
+from app.agents.tools.recsys.native_tools import InternalTools
 
 # ---------------------------------------------------------------------------
 # Helpers

@@ -11,19 +11,16 @@ one layer below the application API latency suite.
 from __future__ import annotations
 
 import pytest
-
 from pydantic import ValidationError
-from models.client.embedder import EmbedderClient
 
 from model_servers._shared.contracts import EmbedRequest
+from models.client.embedder import EmbedderClient
 
 from ._utils import (
     TEST_SUBJECT_INDICES,
     assert_l2_normalized,
-    measure_latency,
     measure_latency_with_compute,
 )
-
 
 # ---------------------------------------------------------------------------
 # Health

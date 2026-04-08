@@ -52,8 +52,8 @@ import pytest
 
 from tests.load._stats import LatencyStats
 from tests.load.models._constants import (
-    COLD_WITHOUT_SUBJECTS_USER_IDS,
     COLD_WITH_SUBJECTS_USER_IDS,
+    COLD_WITHOUT_SUBJECTS_USER_IDS,
     CONCURRENCY_LEVELS,
     REQUESTS_PER_LEVEL,
     SUSTAINED_DURATION_S,

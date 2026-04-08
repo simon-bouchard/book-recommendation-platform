@@ -18,12 +18,12 @@ Targets:
 All tests are synchronous and make no LLM, database, or filesystem calls.
 """
 
-import pytest
 from unittest.mock import MagicMock, patch
-from langchain_core.messages import HumanMessage, AIMessage, SystemMessage
+
+import pytest
+from langchain_core.messages import AIMessage, HumanMessage, SystemMessage
 
 from app.agents.domain.entities import AgentRequest
-
 
 # ==============================================================================
 # Fixtures

@@ -121,7 +121,11 @@ async def als_recs(request: AlsRecsRequest) -> ORJSONResponse:
         )
         compute_ms = (time.perf_counter() - t0) * 1000
         resp = ORJSONResponse(
-            {"results": [{"item_idx": int(iid), "score": float(s)} for iid, s in zip(item_ids, scores)]}
+            {
+                "results": [
+                    {"item_idx": int(iid), "score": float(s)} for iid, s in zip(item_ids, scores)
+                ]
+            }
         )
         resp.headers["X-Compute-Ms"] = f"{compute_ms:.3f}"
         return resp

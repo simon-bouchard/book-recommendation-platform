@@ -12,12 +12,12 @@ EVAL FOCUS (not testing):
 This is about evaluating QUALITY to improve the agent, not testing correctness.
 """
 
-import sys
-import asyncio
 import argparse
-from pathlib import Path
-from typing import Dict, List, Any, Optional
+import asyncio
+import sys
 from datetime import datetime
+from pathlib import Path
+from typing import Any, Dict, List
 
 from app.agents.settings import get_llm
 
@@ -27,31 +27,32 @@ sys.path.insert(0, str(ROOT))
 
 # Suppress noisy logs
 import logging
+
 from app.agents.logging import suppress_noisy_loggers
 
 suppress_noisy_loggers()
 logging.getLogger("openai").setLevel(logging.WARNING)
 logging.getLogger("httpx").setLevel(logging.WARNING)
 
-from app.agents.infrastructure.recsys.orchestrator import RecommendationAgent
 from app.agents.domain.entities import AgentRequest
+from app.agents.infrastructure.recsys.orchestrator import RecommendationAgent
 from app.database import SessionLocal
 
 # Import shared helpers
 eval_dir = Path(__file__).parent
 sys.path.insert(0, str(eval_dir))
 
+from llm_judges import (
+    llm_judge_personalization_prose,
+    llm_judge_prose_reasoning,
+    llm_judge_query_relevance,
+)
 from shared_helpers import (
     get_user_by_id,
-    validate_query,
     load_test_cases,
     print_results,
     save_results,
-)
-from llm_judges import (
-    llm_judge_prose_reasoning,
-    llm_judge_query_relevance,
-    llm_judge_personalization_prose,
+    validate_query,
 )
 
 # NOTE: These judges are SHARED with curation eval for consistency.
@@ -616,7 +617,7 @@ async def evaluate_integration_tests(test_cases: Dict[str, List[Dict]]) -> Dict[
                 # Show pipeline results if test succeeded
                 if result["agent_success"] and "pipeline" in result:
                     pipeline = result["pipeline"]
-                    print(f"\n  Pipeline executed successfully:")
+                    print("\n  Pipeline executed successfully:")
                     print(f"  - Books: {pipeline['book_count']}")
                     if pipeline.get("selection_count") is not None:
                         print(f"  - Selected: {pipeline['selection_count']} (after SelectionAgent)")
@@ -626,9 +627,9 @@ async def evaluate_integration_tests(test_cases: Dict[str, List[Dict]]) -> Dict[
 
                 # Show pass/fail and any failures
                 if result["overall_pass"]:
-                    print(f"\n  ✅ PASS")
+                    print("\n  ✅ PASS")
                 else:
-                    print(f"\n  ❌ FAIL")
+                    print("\n  ❌ FAIL")
                     if "evaluation" in result and "checks" in result["evaluation"]:
                         for check_name, check in result["evaluation"]["checks"].items():
                             if not check.get("passed", False):
@@ -799,7 +800,7 @@ Examples:
     if args.categories:
         test_cases = {cat: all_test_cases[cat] for cat in args.categories if cat in all_test_cases}
         if not test_cases:
-            print(f"\n❌ ERROR: None of the specified categories found")
+            print("\n❌ ERROR: None of the specified categories found")
             print(f"Available categories: {', '.join(all_test_cases.keys())}")
             sys.exit(1)
     else:

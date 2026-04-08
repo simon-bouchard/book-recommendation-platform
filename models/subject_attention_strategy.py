@@ -1,6 +1,7 @@
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
+
 from models.core.constants import PAD_IDX
 
 # ----------------------------
@@ -8,13 +9,21 @@ from models.core.constants import PAD_IDX
 # ----------------------------
 STRATEGY_REGISTRY = {}
 
+
 class SelfAttentionBlock(nn.Module):
-    def __init__(self, d_model: int, n_heads: int, attn_drop: float = 0.0, ffn_mult: int = 2, ffn_drop: float = 0.0):
+    def __init__(
+        self,
+        d_model: int,
+        n_heads: int,
+        attn_drop: float = 0.0,
+        ffn_mult: int = 2,
+        ffn_drop: float = 0.0,
+    ):
         super().__init__()
         self.norm1 = nn.LayerNorm(d_model)
-        self.attn  = nn.MultiheadAttention(d_model, n_heads, dropout=attn_drop, batch_first=True)
+        self.attn = nn.MultiheadAttention(d_model, n_heads, dropout=attn_drop, batch_first=True)
         self.norm2 = nn.LayerNorm(d_model)
-        self.ffn   = nn.Sequential(
+        self.ffn = nn.Sequential(
             nn.Linear(d_model, d_model * ffn_mult),
             nn.ReLU(inplace=True),
             nn.Dropout(ffn_drop),
@@ -23,7 +32,9 @@ class SelfAttentionBlock(nn.Module):
 
     def forward(self, x: torch.Tensor, key_padding_mask: torch.Tensor) -> torch.Tensor:
         # key_padding_mask=True means "ignore" for nn.MultiheadAttention
-        y, _ = self.attn(self.norm1(x), self.norm1(x), self.norm1(x), key_padding_mask=key_padding_mask)
+        y, _ = self.attn(
+            self.norm1(x), self.norm1(x), self.norm1(x), key_padding_mask=key_padding_mask
+        )
         x = x + y
         x = x + self.ffn(self.norm2(x))
         return x
@@ -33,7 +44,9 @@ def register_attention_strategy(name):
     def decorator(cls):
         STRATEGY_REGISTRY[name] = cls
         return cls
+
     return decorator
+
 
 class AttentionPoolingStrategy(nn.Module):
     def forward(self, indices_list: list[list[int]]) -> torch.Tensor:
@@ -54,7 +67,7 @@ class AttentionPoolingStrategy(nn.Module):
             for lst in indices_list
         ]
         idx_tensor = torch.tensor(padded, device=device)
-        mask = (idx_tensor != PAD_IDX)
+        mask = idx_tensor != PAD_IDX
 
         # Ensure at least one valid entry per row
         has_real = mask.any(dim=1)
@@ -69,7 +82,7 @@ class AttentionPoolingStrategy(nn.Module):
 class ScalarAttentionStrategy(AttentionPoolingStrategy):
     def __init__(self, path: str):
         super().__init__()
-        print('Using ScalarAttentionStrategy')
+        print("Using ScalarAttentionStrategy")
         state = torch.load(path, map_location="cpu")
 
         # Load frozen subject embedding
@@ -85,16 +98,17 @@ class ScalarAttentionStrategy(AttentionPoolingStrategy):
 
     def forward(self, indices_list: list[list[int]]) -> torch.Tensor:
         idx_tensor, mask = self.prepare_inputs(indices_list)
-        embs = self.subject_emb(idx_tensor)                             # [B, L, D]
-        
-        scores = (embs @ self.attn_weight.T) + self.attn_bias          # [B, L, 1]
+        embs = self.subject_emb(idx_tensor)  # [B, L, D]
+
+        scores = (embs @ self.attn_weight.T) + self.attn_bias  # [B, L, 1]
         scores = scores.squeeze(-1).masked_fill(~mask, float("-inf"))  # [B, L]
-        attn = F.softmax(scores, dim=-1).unsqueeze(-1)                 # [B, L, 1]
-        pooled = (attn * embs).sum(dim=1)                              # [B, D]
+        attn = F.softmax(scores, dim=-1).unsqueeze(-1)  # [B, L, 1]
+        pooled = (attn * embs).sum(dim=1)  # [B, D]
         return pooled.nan_to_num(0.0)
 
     def get_embedding_dim(self) -> int:
         return self.subject_emb.embedding_dim
+
 
 @register_attention_strategy("perdim")
 class PerDimAttentionStrategy(AttentionPoolingStrategy):
@@ -109,22 +123,23 @@ class PerDimAttentionStrategy(AttentionPoolingStrategy):
         )
 
         self.register_buffer("attn_weight", state["attn_weight"])  # shape [D]
-        self.register_buffer("attn_bias", state["attn_bias"])      # shape [D]
+        self.register_buffer("attn_bias", state["attn_bias"])  # shape [D]
 
     def forward(self, indices_list: list[list[int]]) -> torch.Tensor:
         idx_tensor, mask = self.prepare_inputs(indices_list)
         embs = self.subject_emb(idx_tensor)  # [B, L, D]
 
         scores = (embs * self.attn_weight) + self.attn_bias  # [B, L, D]
-        scores = scores.sum(dim=-1)                          # [B, L]
-        scores = scores.masked_fill(~mask, float("-inf"))    # [B, L]
-        attn = F.softmax(scores, dim=-1).unsqueeze(-1)       # [B, L, 1]
+        scores = scores.sum(dim=-1)  # [B, L]
+        scores = scores.masked_fill(~mask, float("-inf"))  # [B, L]
+        attn = F.softmax(scores, dim=-1).unsqueeze(-1)  # [B, L, 1]
 
-        pooled = (attn * embs).sum(dim=1)                    # [B, D]
+        pooled = (attn * embs).sum(dim=1)  # [B, D]
         return pooled.nan_to_num(0.0)
 
     def get_embedding_dim(self) -> int:
         return self.subject_emb.embedding_dim
+
 
 @register_attention_strategy("selfattn")
 class SelfAttentionStrategy(AttentionPoolingStrategy):
@@ -164,23 +179,26 @@ class SelfAttentionStrategy(AttentionPoolingStrategy):
         self.eval()
 
     def forward(self, indices_list: list[list[int]]) -> torch.Tensor:
-        idx_tensor, mask = self.prepare_inputs(indices_list)   # [B, L], [B, L]=True for valid
-        embs = self.subject_emb(idx_tensor)                    # [B, L, D]
+        idx_tensor, mask = self.prepare_inputs(indices_list)  # [B, L], [B, L]=True for valid
+        embs = self.subject_emb(idx_tensor)  # [B, L, D]
 
         B, L, D = embs.shape
-        cls = self.cls_token.expand(B, 1, D)                   # [B, 1, D]
-        x = torch.cat([cls, embs], dim=1)                      # [B, 1+L, D]
+        cls = self.cls_token.expand(B, 1, D)  # [B, 1, D]
+        x = torch.cat([cls, embs], dim=1)  # [B, 1+L, D]
 
         # extend mask (CLS is always valid)
-        mask_ext = torch.cat([torch.ones(B, 1, dtype=torch.bool, device=mask.device), mask], dim=1)  # [B,1+L]
-        x = self.sab(x, key_padding_mask=~mask_ext)            # MHA expects True=ignore
+        mask_ext = torch.cat(
+            [torch.ones(B, 1, dtype=torch.bool, device=mask.device), mask], dim=1
+        )  # [B,1+L]
+        x = self.sab(x, key_padding_mask=~mask_ext)  # MHA expects True=ignore
 
-        pooled = x[:, 0, :]                                    # CLS-pooled vector [B, D]
+        pooled = x[:, 0, :]  # CLS-pooled vector [B, D]
         pooled = self.drop(pooled)
         return pooled.nan_to_num(0.0)
 
     def get_embedding_dim(self) -> int:
         return self.subject_emb.embedding_dim
+
 
 @register_attention_strategy("selfattn_perdim")
 class SelfAttnPerDimStrategy(AttentionPoolingStrategy):
@@ -200,20 +218,20 @@ class SelfAttnPerDimStrategy(AttentionPoolingStrategy):
         self.mha.load_state_dict(state["mha"])
 
         self.register_buffer("attn_weight", state["attn_weight"])  # [D]
-        self.register_buffer("attn_bias", state["attn_bias"])      # [D]
+        self.register_buffer("attn_bias", state["attn_bias"])  # [D]
 
     def forward(self, indices_list: list[list[int]]) -> torch.Tensor:
-        idx_tensor, mask = self.prepare_inputs(indices_list)        # [B, L], [B, L]
-        embs = self.subject_emb(idx_tensor)                         # [B, L, D]
+        idx_tensor, mask = self.prepare_inputs(indices_list)  # [B, L], [B, L]
+        embs = self.subject_emb(idx_tensor)  # [B, L, D]
 
         attn_out, _ = self.mha(embs, embs, embs, key_padding_mask=~mask)  # [B, L, D]
 
         # Per-dim attention over contextualized output
-        scores = (attn_out * self.attn_weight) + self.attn_bias      # [B, L, D]
+        scores = (attn_out * self.attn_weight) + self.attn_bias  # [B, L, D]
         scores = scores.sum(dim=-1).masked_fill(~mask, float("-inf"))  # [B, L]
-        attn = F.softmax(scores, dim=-1).unsqueeze(-1)               # [B, L, 1]
+        attn = F.softmax(scores, dim=-1).unsqueeze(-1)  # [B, L, 1]
 
-        pooled = (attn * attn_out).sum(dim=1)                        # [B, D]
+        pooled = (attn * attn_out).sum(dim=1)  # [B, D]
         return pooled.nan_to_num(0.0)
 
     def get_embedding_dim(self) -> int:

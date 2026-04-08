@@ -5,10 +5,11 @@ These represent core business concepts and are framework-agnostic.
 """
 
 from __future__ import annotations
-from typing import Dict, List, Optional, Any
+
+import time
 from dataclasses import dataclass, field
 from enum import Enum
-import time
+from typing import Any, Dict, List, Optional
 
 
 class AgentCapability(Enum):

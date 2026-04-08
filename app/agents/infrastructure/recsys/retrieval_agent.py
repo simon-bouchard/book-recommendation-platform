@@ -5,31 +5,30 @@ Second stage of multi-agent recommendation pipeline.
 """
 
 import json
-from typing import List
 import time
+from typing import List
 
 from langchain_core.messages import HumanMessage
 
 from app.agents.domain.entities import (
-    AgentConfiguration,
     AgentCapability,
-    AgentRequest,
+    AgentConfiguration,
     AgentExecutionState,
+    AgentRequest,
     ExecutionStatus,
     ToolExecution,
 )
 from app.agents.domain.recsys_schemas import (
+    ExecutionContext,
     RetrievalInput,
     RetrievalOutput,
-    ExecutionContext,
     ToolExecutionSummary,
 )
 from app.agents.infrastructure.base_langgraph_agent import BaseLangGraphAgent
-from app.agents.tools.registry import InternalToolGates, ToolRegistry
-from app.agents.prompts.loader import read_prompt
 from app.agents.logging import append_chatbot_log
+from app.agents.prompts.loader import read_prompt
+from app.agents.tools.registry import InternalToolGates, ToolRegistry
 from app.agents.utils.retrieval_logging_callback import RetrievalLoggingCallback
-
 
 _BOOK_RETRIEVAL_TOOLS = frozenset(
     {

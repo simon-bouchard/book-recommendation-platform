@@ -1,8 +1,11 @@
 # app/agents/context_builder.py
-from typing import List, Optional, Dict, Any, Tuple
+from typing import Dict, List, Optional
+
 from sqlalchemy.orm import Session
-from app.agents.user_context import fetch_user_context, format_user_context
+
 from app.agents.schemas import TurnInput
+from app.agents.user_context import fetch_user_context, format_user_context
+
 
 def build_composed_input(
     db: Optional[Session],
@@ -34,12 +37,15 @@ def build_composed_input(
             if a:
                 ctx_lines.append(f"Assistant: {a}")
         if ctx_lines:
-            sections.append("(Conversation so far — use only for context)\n" + "\n".join(ctx_lines) + "\n")
+            sections.append(
+                "(Conversation so far — use only for context)\n" + "\n".join(ctx_lines) + "\n"
+            )
 
     # Current user message
     sections.append(f"User: {user_text.strip()}")
 
     return "\n\n".join(sections)
+
 
 def get_router_view(
     history: List[Dict],
@@ -85,6 +91,7 @@ def get_branch_view(
         return []
     return history[-hist_turns:]
 
+
 # context_builder.py
 def make_router_input(history: list[dict], user_text: str, k_user: int = 2) -> TurnInput:
     short_view = get_router_view(history, k_user=k_user).strip()
@@ -106,6 +113,7 @@ def make_router_input(history: list[dict], user_text: str, k_user: int = 2) -> T
         user_text=merged,
         full_history=[],
     )
+
 
 def make_branch_input(
     history: list[dict],

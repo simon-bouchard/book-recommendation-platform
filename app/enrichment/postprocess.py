@@ -1,7 +1,9 @@
 import re
 from typing import Optional
-import pycountry
+
 import langcodes
+import pycountry
+
 
 def norm_subject(s: str) -> str:
     s = s.strip().lower()
@@ -9,15 +11,18 @@ def norm_subject(s: str) -> str:
     s = re.sub(r"\s+", " ", s)
     return s
 
+
 def render_tone_slugs(tones_csv_rows):
     # tones_csv_rows: iterable of dicts with 'slug'
     items = sorted([(int(r["tone_id"]), r["slug"]) for r in tones_csv_rows])
     return ", ".join([f"{id}={slug}" for id, slug in items])
 
+
 def render_genre_slugs(genres_csv_rows):
     # genres_csv_rows: iterable of dicts with 'slug'
     items = sorted([(int(r["genre_idx"]), r["slug"]) for r in genres_csv_rows])
     return ", ".join([f"{id}={slug}" for id, slug in items])
+
 
 def clean_subjects(subjects):
     out = []
@@ -32,8 +37,10 @@ def clean_subjects(subjects):
         out.append(ns)
     return out
 
+
 # --- lightweight normalization helpers ---
 _MULTI_SEP = re.compile(r"[;,/|]")
+
 
 def normalize_language(value: object) -> Optional[str]:
     """
@@ -95,8 +102,13 @@ def normalize_language(value: object) -> Optional[str]:
         matches = [l for l in pycountry.languages if getattr(l, "name", "").lower() == val]
         if not matches:
             # Some entries have 'common_name' or 'inverted_name'
-            matches = [l for l in pycountry.languages
-                       if any(getattr(l, attr, "").lower() == val for attr in ("common_name", "inverted_name"))]
+            matches = [
+                l
+                for l in pycountry.languages
+                if any(
+                    getattr(l, attr, "").lower() == val for attr in ("common_name", "inverted_name")
+                )
+            ]
         if matches:
             entry = matches[0]
             if getattr(entry, "alpha_2", None):
@@ -109,7 +121,8 @@ def normalize_language(value: object) -> Optional[str]:
 
 _BARE_YEAR = re.compile(r"(?<!\d)(\d{1,4})(?!\d)")
 _BCE_FLAG = re.compile(r"\b(BCE|BC)\b", re.IGNORECASE)
-_CE_FLAG  = re.compile(r"\b(CE|AD)\b", re.IGNORECASE)
+_CE_FLAG = re.compile(r"\b(CE|AD)\b", re.IGNORECASE)
+
 
 def normalize_year(value: object) -> Optional[int]:
     """

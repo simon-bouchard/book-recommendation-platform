@@ -7,14 +7,14 @@ Simple single-call implementation - pre-fetches profile data and makes one LLM c
 """
 
 import json
-from typing import Optional, Dict, Any
+from typing import Any, Dict, Optional
 
 from langchain_core.messages import HumanMessage
 
 from app.agents.domain.recsys_schemas import PlannerInput, PlannerStrategy
+from app.agents.logging import append_chatbot_log
 from app.agents.prompts.loader import read_prompt
 from app.agents.settings import get_llm
-from app.agents.logging import append_chatbot_log
 
 
 class PlannerAgent:
@@ -149,7 +149,7 @@ class PlannerAgent:
             Dictionary with favorite_subjects (with IDs) and recent_interactions, or None
         """
         from app.agents.user_context import fetch_user_context
-        from app.table_models import UserFavSubject, Subject
+        from app.table_models import Subject, UserFavSubject
 
         user_id = getattr(self._ctx_user, "user_id", None)
         if not user_id:

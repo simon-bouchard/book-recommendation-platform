@@ -1,9 +1,11 @@
 from __future__ import annotations
+
 import os
-from pathlib import Path
 from importlib.resources import files
+from pathlib import Path
 
 PROMPTS_DIR_ENV = "PROMPTS_DIR"  # optional override for rapid iteration
+
 
 def read_prompt(name: str) -> str:
     env_dir = os.getenv(PROMPTS_DIR_ENV)

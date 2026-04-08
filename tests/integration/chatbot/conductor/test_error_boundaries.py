@@ -4,10 +4,12 @@ Tests for error handling and resilience in Conductor.
 Validates that failures are caught and handled gracefully at orchestration level.
 """
 
+from unittest.mock import AsyncMock, Mock
+
 import pytest
-from unittest.mock import Mock, AsyncMock
+
 from app.agents.orchestrator.conductor import Conductor
-from app.agents.schemas import AgentResult, RoutePlan
+from app.agents.schemas import AgentResult
 
 pytestmark = pytest.mark.asyncio
 

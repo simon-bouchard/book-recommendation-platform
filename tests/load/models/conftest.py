@@ -67,7 +67,7 @@ def performance_results() -> dict[str, LatencyStats]:
     print(f"LOAD BASELINE SAVED TO: {output_file}")
     print(f"{'=' * 80}")
     print(f"\nTo analyze: python analyze_baseline.py {output_file.name}")
-    print(f"Or latest:  python analyze_baseline.py --latest")
+    print("Or latest:  python analyze_baseline.py --latest")
 
 
 @pytest.fixture

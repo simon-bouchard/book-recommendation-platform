@@ -4,12 +4,9 @@ Unit tests for GET /profile/recommend endpoint.
 Tests request validation, user lookup, service integration, and response formatting.
 """
 
-import pytest
-from unittest.mock import AsyncMock, MagicMock
-
-from models.domain.user import User
-from models.domain.config import RecommendationConfig
 from models.core.constants import PAD_IDX
+from models.domain.config import RecommendationConfig
+from models.domain.user import User
 
 
 class TestRecommendEndpointBasics:

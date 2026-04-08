@@ -1,18 +1,17 @@
 # app/agents/logging.py
-import logging
-import os, json
-from datetime import datetime
-from typing import Any, Dict, Union
 import io
+import json
+import logging
+import os
 import sys
-from contextlib import contextmanager, redirect_stdout, redirect_stderr
-from typing import Dict, Any, Tuple, List, Optional, Union
+from contextlib import contextmanager, redirect_stderr, redirect_stdout
+from datetime import datetime
 from logging.handlers import RotatingFileHandler
+from typing import Any, Dict, List, Tuple, Union
+
 from langchain.callbacks.base import BaseCallbackHandler
 from langchain.schema import LLMResult
 from langchain_core.agents import AgentAction, AgentFinish
-from langchain_core.messages import BaseMessage
-from langchain_core.prompt_values import PromptValue
 
 # -------- Normal app logger (unchanged) --------
 _LOG_LEVEL = os.getenv("LOG_LEVEL", "INFO").upper()
@@ -415,7 +414,7 @@ def log_data_transform(
             )
     """
     # Only log in DEBUG mode
-    if not os.getenv("LOG_PROMPT", "0").lower() in ("1", "true", "yes"):
+    if os.getenv("LOG_PROMPT", "0").lower() not in ("1", "true", "yes"):
         return
 
     timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")

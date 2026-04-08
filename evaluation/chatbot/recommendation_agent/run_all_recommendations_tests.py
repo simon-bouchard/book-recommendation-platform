@@ -4,20 +4,18 @@ Unified runner for all recommendation agent evaluation stages.
 Orchestrates Planner → Retrieval → Curation → Integration tests and merges results.
 """
 
-import sys
-import asyncio
 import argparse
-from pathlib import Path
+import asyncio
+import sys
 from datetime import datetime
-from typing import Dict, List, Any
-import json
+from pathlib import Path
+from typing import Any, Dict, List
 
 # Add project root to path
 ROOT = Path(__file__).resolve().parents[3]
 sys.path.insert(0, str(ROOT))
 
 # Suppress noisy HTTP client logs (httpcore, primp, rquest, etc)
-import logging
 from app.agents.logging import suppress_noisy_loggers
 
 suppress_noisy_loggers()
@@ -27,6 +25,7 @@ eval_dir = Path(__file__).parent
 sys.path.insert(0, str(eval_dir))
 
 from shared_helpers import load_test_cases, print_results, save_results
+
 # Individual eval modules will be imported dynamically to avoid import issues
 
 
@@ -378,7 +377,7 @@ Examples:
     if args.categories:
         test_cases = {cat: all_test_cases[cat] for cat in args.categories if cat in all_test_cases}
         if not test_cases:
-            print(f"\n❌ ERROR: None of the specified categories found")
+            print("\n❌ ERROR: None of the specified categories found")
             print(f"Available categories: {', '.join(all_test_cases.keys())}")
             sys.exit(1)
     else:

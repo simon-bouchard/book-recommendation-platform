@@ -68,10 +68,7 @@ async def query_user_fetch(pool, user_id: int) -> None:
 async def query_filter(pool, user_id: int, n: int) -> None:
     candidate_ids = list(range(1, n + 1))
     placeholders = ",".join(["%s"] * n)
-    sql = (
-        f"SELECT item_idx FROM interactions "
-        f"WHERE user_id = %s AND item_idx IN ({placeholders})"
-    )
+    sql = f"SELECT item_idx FROM interactions WHERE user_id = %s AND item_idx IN ({placeholders})"
     async with pool.acquire() as conn:
         async with conn.cursor() as cur:
             await cur.execute(sql, [user_id] + candidate_ids)
@@ -79,7 +76,7 @@ async def query_filter(pool, user_id: int, n: int) -> None:
 
 
 async def main() -> None:
-    from app.database import init_aiomysql_pool, get_aiomysql_pool
+    from app.database import get_aiomysql_pool, init_aiomysql_pool
 
     print("Initialising pool...")
     await init_aiomysql_pool()

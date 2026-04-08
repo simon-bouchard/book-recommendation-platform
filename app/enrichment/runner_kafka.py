@@ -3,29 +3,30 @@
 Main enrichment runner - processes ALL books from database.
 Uses shared core logic from app.enrichment.core
 """
-import time
+
+import logging
 import os
 import sys
-import logging
+import time
 import uuid
-from pathlib import Path
-from sqlalchemy.orm import Session
-from typing import Optional, Dict, Any
 from datetime import datetime
+from pathlib import Path
+from typing import Any, Dict, Optional
+
+from sqlalchemy.orm import Session
 
 ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT))
 
 # Shared enrichment logic
-from app.enrichment.core import enrich_with_retry, load_tones, load_genres
+# Database
+from app.database import SessionLocal
+from app.enrichment.core import enrich_with_retry, load_genres, load_tones
+from app.enrichment.kafka_producer import EnrichmentProducer
 
 # Infrastructure
 from app.enrichment.llm_client import ensure_enrichment_ready
-from app.enrichment.kafka_producer import EnrichmentProducer
-
-# Database
-from app.database import SessionLocal
-from app.table_models import Book, Author, OLSubject, BookOLSubject
+from app.table_models import Author, Book, BookOLSubject, OLSubject
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -43,26 +44,33 @@ ONTOLOGY_VERSION = os.getenv("ENRICHMENT_ONTOLOGY_VERSION", "v2")
 # DATABASE QUERIES (runner-specific: query ALL books)
 # ============================================================================
 
+
 def fetch_book_with_ol_subjects(db: Session, item_idx: int) -> Optional[Dict[str, Any]]:
     """
     Fetch book metadata including OL subjects.
     """
-    result = db.query(Book, Author).outerjoin(
-        Author, Book.author_idx == Author.author_idx
-    ).filter(Book.item_idx == item_idx).first()
-    
+    result = (
+        db.query(Book, Author)
+        .outerjoin(Author, Book.author_idx == Author.author_idx)
+        .filter(Book.item_idx == item_idx)
+        .first()
+    )
+
     if not result:
         return None
-    
+
     book, author = result
-    
+
     # Fetch OL subjects
-    ol_subjects_query = db.query(OLSubject.subject).join(
-        BookOLSubject, OLSubject.ol_subject_idx == BookOLSubject.ol_subject_idx
-    ).filter(BookOLSubject.item_idx == item_idx).all()
-    
+    ol_subjects_query = (
+        db.query(OLSubject.subject)
+        .join(BookOLSubject, OLSubject.ol_subject_idx == BookOLSubject.ol_subject_idx)
+        .filter(BookOLSubject.item_idx == item_idx)
+        .all()
+    )
+
     ol_subjects = [subj for (subj,) in ol_subjects_query]
-    
+
     return {
         "item_idx": int(book.item_idx),
         "title": book.title or "",
@@ -75,15 +83,15 @@ def fetch_book_with_ol_subjects(db: Session, item_idx: int) -> Optional[Dict[str
 def iter_books_from_db(db: Session, limit: Optional[int] = None):
     """
     Query ALL books from database (main runner behavior).
-    
+
     Yields:
         Dict with book metadata
     """
     q = db.query(Book.item_idx).filter(Book.item_idx.isnot(None))
-    
+
     if limit:
         q = q.limit(limit)
-    
+
     for (item_idx,) in q:
         book_data = fetch_book_with_ol_subjects(db, item_idx)
         if book_data:
@@ -94,82 +102,110 @@ def iter_books_from_db(db: Session, limit: Optional[int] = None):
 # MAIN RUNNER
 # ============================================================================
 
+
 def main(limit: Optional[int] = None, sleep_s: float = 0.0, workers: int = 1):
     """Main enrichment runner with retry logic and optional parallelism."""
     ensure_enrichment_ready()
-    
+
     tone_rows, tone_slugs, valid_tone_ids, slug2id = load_tones(ONTOLOGY_VERSION)
     genre_rows, genre_id_slugs_line, valid_genre_ids, genre_id2slug, genre_slug2id = load_genres()
-    
+
     producer = EnrichmentProducer(enable_kafka=True)
-    
+
     tier_stats = {
         "RICH": {"ok": 0, "err": 0, "retry_success": 0},
         "SPARSE": {"ok": 0, "err": 0, "retry_success": 0},
         "MINIMAL": {"ok": 0, "err": 0, "retry_success": 0},
         "BASIC": {"ok": 0, "err": 0, "retry_success": 0},
     }
-    count_ok, count_err = 0, 0
+    _count_ok, _count_err = 0, 0
     start_time = time.time()
-    
+
     # Decide: sequential vs parallel
     use_parallel = workers > 1
-    
+
     if use_parallel:
         logger.info(f"Using parallel execution with {workers} workers")
         return _main_parallel(
-            limit, sleep_s, workers, producer,
-            slug2id, valid_tone_ids, valid_genre_ids,
-            genre_id2slug, genre_slug2id,
-            tone_slugs, genre_id_slugs_line,
-            tier_stats, start_time
+            limit,
+            sleep_s,
+            workers,
+            producer,
+            slug2id,
+            valid_tone_ids,
+            valid_genre_ids,
+            genre_id2slug,
+            genre_slug2id,
+            tone_slugs,
+            genre_id_slugs_line,
+            tier_stats,
+            start_time,
         )
     else:
         logger.info("Using sequential execution")
         return _main_sequential(
-            limit, sleep_s, producer,
-            slug2id, valid_tone_ids, valid_genre_ids,
-            genre_id2slug, genre_slug2id,
-            tone_slugs, genre_id_slugs_line,
-            tier_stats, start_time
+            limit,
+            sleep_s,
+            producer,
+            slug2id,
+            valid_tone_ids,
+            valid_genre_ids,
+            genre_id2slug,
+            genre_slug2id,
+            tone_slugs,
+            genre_id_slugs_line,
+            tier_stats,
+            start_time,
         )
 
 
 def _main_sequential(
-    limit, sleep_s, producer,
-    slug2id, valid_tone_ids, valid_genre_ids,
-    genre_id2slug, genre_slug2id,
-    tone_slugs, genre_id_slugs_line,
-    tier_stats, start_time
+    limit,
+    sleep_s,
+    producer,
+    slug2id,
+    valid_tone_ids,
+    valid_genre_ids,
+    genre_id2slug,
+    genre_slug2id,
+    tone_slugs,
+    genre_id_slugs_line,
+    tier_stats,
+    start_time,
 ):
     """Sequential processing (original behavior)"""
     count_ok, count_err = 0, 0
-    
+
     try:
         with SessionLocal() as db:
             for rec in iter_books_from_db(db, limit):
                 # Use shared retry-enabled enrichment
                 result, error = enrich_with_retry(
-                    rec, slug2id, valid_tone_ids, valid_genre_ids,
-                    genre_id2slug, genre_slug2id,
-                    tone_slugs, genre_id_slugs_line,
+                    rec,
+                    slug2id,
+                    valid_tone_ids,
+                    valid_genre_ids,
+                    genre_id2slug,
+                    genre_slug2id,
+                    tone_slugs,
+                    genre_id_slugs_line,
                     ontology_version=ONTOLOGY_VERSION,
-                    tags_version=VERSION_TAG
+                    tags_version=VERSION_TAG,
                 )
-                
+
                 if result:
                     # Add run metadata
                     if "metadata" not in result:
                         result["metadata"] = {}
                     result["metadata"]["run_id"] = RUN_ID
                     result["metadata"]["model"] = os.getenv("DEEPINFRA_MODEL", "unknown")
-                    
+
                     tier = result["enrichment_quality"]
                     retry_count = result.get("metadata", {}).get("retry_count", 0)
-                    
+
                     if retry_count > 0:
                         tier_stats[tier]["retry_success"] += 1
-                    
+
                     success = producer.send_result(
                         item_idx=result["item_idx"],
                         subjects=result["subjects"],
@@ -178,9 +214,9 @@ def _main_sequential(
                         vibe=result["vibe"],
                         tags_version=result["tags_version"],
                         scores=result["scores"],
-                        metadata=result.get("metadata", {})
+                        metadata=result.get("metadata", {}),
                     )
-                    
+
                     if success:
                         count_ok += 1
                         tier_stats[tier]["ok"] += 1
@@ -190,15 +226,15 @@ def _main_sequential(
                         count_err += 1
                         tier_stats[tier]["err"] += 1
                         logger.error(f"✗ Kafka send failed: item_idx={result['item_idx']}")
-                    
+
                     if sleep_s:
                         time.sleep(sleep_s)
-                
+
                 else:
                     # Both attempts failed
                     attempted = error.get("attempted", {})
                     tier = attempted.get("tier", "UNKNOWN")
-                    
+
                     producer.send_error(
                         item_idx=rec["item_idx"],
                         error_msg=error["error_msg"],
@@ -211,72 +247,82 @@ def _main_sequential(
                         tags_version=VERSION_TAG,
                         run_id=RUN_ID,
                     )
-                    
+
                     count_err += 1
                     if tier in tier_stats:
                         tier_stats[tier]["err"] += 1
-                    
+
                     logger.error(
                         f"✗ item_idx={rec['item_idx']} ({tier}): "
                         f"{error['error_code']} - {error['error_msg'][:80]}"
                     )
-                
+
                 # Progress indicator
                 total = count_ok + count_err
                 if total % 10 == 0:
                     elapsed = time.time() - start_time
                     rate = total / elapsed if elapsed > 0 else 0
-                    logger.info(f"Progress: {total} ({count_ok} ok, {count_err} err) | {rate:.1f}/s")
-    
+                    logger.info(
+                        f"Progress: {total} ({count_ok} ok, {count_err} err) | {rate:.1f}/s"
+                    )
+
     finally:
         producer.flush()
         producer.close()
-    
+
     elapsed = time.time() - start_time
-    
-    return {
-        "ok": count_ok,
-        "error": count_err,
-        "elapsed_s": elapsed,
-        "tier_stats": tier_stats
-    }
+
+    return {"ok": count_ok, "error": count_err, "elapsed_s": elapsed, "tier_stats": tier_stats}
 
 
 def _main_parallel(
-    limit, sleep_s, workers, producer,
-    slug2id, valid_tone_ids, valid_genre_ids,
-    genre_id2slug, genre_slug2id,
-    tone_slugs, genre_id_slugs_line,
-    tier_stats, start_time
+    limit,
+    sleep_s,
+    workers,
+    producer,
+    slug2id,
+    valid_tone_ids,
+    valid_genre_ids,
+    genre_id2slug,
+    genre_slug2id,
+    tone_slugs,
+    genre_id_slugs_line,
+    tier_stats,
+    start_time,
 ):
     """Parallel processing (like backfill)"""
     from concurrent.futures import ThreadPoolExecutor, as_completed
-    
+
     count_ok, count_err = 0, 0
-    
+
     # Fetch all books upfront (required for parallel processing)
     with SessionLocal() as db:
         books_list = list(iter_books_from_db(db, limit))
-    
+
     logger.info(f"Loaded {len(books_list)} books for parallel processing")
-    
+
     def task(rec):
         """Single enrichment task"""
         result, error = enrich_with_retry(
-            rec, slug2id, valid_tone_ids, valid_genre_ids,
-            genre_id2slug, genre_slug2id,
-            tone_slugs, genre_id_slugs_line,
+            rec,
+            slug2id,
+            valid_tone_ids,
+            valid_genre_ids,
+            genre_id2slug,
+            genre_slug2id,
+            tone_slugs,
+            genre_id_slugs_line,
             ontology_version=ONTOLOGY_VERSION,
-            tags_version=VERSION_TAG
+            tags_version=VERSION_TAG,
         )
-        
+
         if result:
             # Add run metadata
             if "metadata" not in result:
                 result["metadata"] = {}
             result["metadata"]["run_id"] = RUN_ID
             result["metadata"]["model"] = os.getenv("DEEPINFRA_MODEL", "unknown")
-            
+
             success = producer.send_result(
                 item_idx=result["item_idx"],
                 subjects=result["subjects"],
@@ -285,19 +331,19 @@ def _main_parallel(
                 vibe=result["vibe"],
                 tags_version=result["tags_version"],
                 scores=result["scores"],
-                metadata=result.get("metadata", {})
+                metadata=result.get("metadata", {}),
             )
-            
+
             if success:
                 if sleep_s:
                     time.sleep(sleep_s)
                 return ("ok", result)
             return ("err", result)
-        
+
         elif error:
             # CRITICAL FIX: Add item_idx to error dict
             error["item_idx"] = rec["item_idx"]
-            
+
             # Send to DLQ
             producer.send_error(
                 item_idx=rec["item_idx"],
@@ -315,70 +361,78 @@ def _main_parallel(
         else:
             # Both result and error are None - shouldn't happen but handle it
             logger.error(f"enrich_with_retry returned (None, None) for item_idx={rec['item_idx']}")
-            return ("err", {
-                "item_idx": rec["item_idx"],
-                "error_code": "NULL_RESPONSE",
-                "error_msg": "Enrichment returned no result and no error",
-                "stage": "unknown",
-                "attempted": {}
-            })
-    
+            return (
+                "err",
+                {
+                    "item_idx": rec["item_idx"],
+                    "error_code": "NULL_RESPONSE",
+                    "error_msg": "Enrichment returned no result and no error",
+                    "stage": "unknown",
+                    "attempted": {},
+                },
+            )
+
     try:
         with ThreadPoolExecutor(max_workers=workers) as ex:
             futures = [ex.submit(task, rec) for rec in books_list]
-            
+
             for fut in as_completed(futures):
                 try:
                     result_tuple = fut.result()
-                    
+
                     if not isinstance(result_tuple, tuple) or len(result_tuple) != 2:
                         count_err += 1
                         logger.error(f"✗ Task returned invalid result: {result_tuple}")
                         continue
-                    
+
                     status, data = result_tuple
-                    
+
                     if data is None:
                         count_err += 1
-                        logger.error(f"✗ Task returned None data")
+                        logger.error("✗ Task returned None data")
                         continue
-                    
+
                     if status == "ok":
                         count_ok += 1
                         tier = data.get("enrichment_quality", "UNKNOWN")
                         retry_count = data.get("metadata", {}).get("retry_count", 0)
                         item_idx = data.get("item_idx", "?")
-                        
+
                         if tier in tier_stats:
                             tier_stats[tier]["ok"] += 1
                             if retry_count > 0:
                                 tier_stats[tier]["retry_success"] += 1
-                        
+
                         retry_msg = " (retry)" if retry_count > 0 else ""
                         logger.info(f"✓ item_idx={item_idx} ({tier}){retry_msg}")
-                    
+
                     else:  # status == "err"
                         count_err += 1
-                        
+
                         # Extract error info safely
                         item_idx = data.get("item_idx", "?")
                         attempted = data.get("attempted", {}) if isinstance(data, dict) else {}
-                        tier = attempted.get("tier", "UNKNOWN") if isinstance(attempted, dict) else "UNKNOWN"
+                        tier = (
+                            attempted.get("tier", "UNKNOWN")
+                            if isinstance(attempted, dict)
+                            else "UNKNOWN"
+                        )
                         error_code = data.get("error_code", "UNKNOWN")
                         error_msg = data.get("error_msg", "")[:80]
-                        
+
                         if tier in tier_stats:
                             tier_stats[tier]["err"] += 1
-                        
+
                         logger.error(f"✗ item_idx={item_idx} ({tier}): {error_code} - {error_msg}")
-                
+
                 except Exception as e:
                     count_err += 1
                     logger.error(f"✗ Task failed with exception: {e}")
                     import traceback
+
                     traceback.print_exc()
                     continue
-                
+
                 # Progress with ETA
                 total = count_ok + count_err
                 if total % 50 == 0:
@@ -387,105 +441,91 @@ def _main_parallel(
                     remaining = len(books_list) - total
                     eta_seconds = remaining / rate if rate > 0 else 0
                     eta_str = f"{int(eta_seconds // 60)}m {int(eta_seconds % 60)}s"
-                    
+
                     logger.info(
                         f"Progress: {total}/{len(books_list)} ({count_ok} ✓, {count_err} ✗) | "
                         f"{rate:.1f}/s | ETA: {eta_str}"
                     )
-    
+
     finally:
         producer.flush()
         producer.close()
-    
+
     elapsed = time.time() - start_time
-    
-    return {
-        "ok": count_ok,
-        "error": count_err,
-        "elapsed_s": elapsed,
-        "tier_stats": tier_stats
-    }
+
+    return {"ok": count_ok, "error": count_err, "elapsed_s": elapsed, "tier_stats": tier_stats}
+
 
 if __name__ == "__main__":
     import argparse
-    
+
     parser = argparse.ArgumentParser(description="Enrichment runner with quality tiering")
     parser.add_argument(
-        "--limit",
-        type=int,
-        default=None,
-        help="Maximum number of books to enrich (default: all)"
+        "--limit", type=int, default=None, help="Maximum number of books to enrich (default: all)"
     )
     parser.add_argument(
-        "--sleep",
-        type=float,
-        default=0.0,
-        help="Sleep duration between enrichments in seconds"
+        "--sleep", type=float, default=0.0, help="Sleep duration between enrichments in seconds"
     )
     parser.add_argument(
         "--workers",
         type=int,
         default=2,
-        help="Number of parallel worker threads (not yet implemented)"
+        help="Number of parallel worker threads (not yet implemented)",
     )
     parser.add_argument(
         "--version",
         default=None,
-        help="Tags version (overrides ENRICHMENT_JOB_TAG_VERSION env var)"
+        help="Tags version (overrides ENRICHMENT_JOB_TAG_VERSION env var)",
     )
-    parser.add_argument(
-        "--ontology",
-        default="v2",
-        help="Ontology version (v1 or v2, default: v2)"
-    )
-    
+    parser.add_argument("--ontology", default="v2", help="Ontology version (v1 or v2, default: v2)")
+
     args = parser.parse_args()
-    
+
     # Override versions if specified
     if args.version:
         os.environ["ENRICHMENT_JOB_TAG_VERSION"] = args.version
         VERSION_TAG = args.version
-    
+
     if args.ontology:
         os.environ["ENRICHMENT_ONTOLOGY_VERSION"] = args.ontology
         ONTOLOGY_VERSION = args.ontology
-    
-    logger.info("="*70)
+
+    logger.info("=" * 70)
     logger.info("ENRICHMENT RUNNER (QUALITY TIERING)")
-    logger.info("="*70)
+    logger.info("=" * 70)
     logger.info(f"Run ID: {RUN_ID}")
     logger.info(f"Tags Version: {VERSION_TAG}")
     logger.info(f"Ontology Version: {ONTOLOGY_VERSION}")
     logger.info(f"Limit: {args.limit or 'unlimited'}")
     logger.info(f"Sleep: {args.sleep}s")
-    logger.info("="*70)
-    
+    logger.info("=" * 70)
+
     res = main(limit=args.limit, sleep_s=args.sleep, workers=args.workers)
-    
-    logger.info("="*70)
+
+    logger.info("=" * 70)
     logger.info("ENRICHMENT COMPLETE")
-    logger.info("="*70)
+    logger.info("=" * 70)
     logger.info(f"Success: {res['ok']}")
     logger.info(f"Errors: {res['error']}")
     logger.info(f"Elapsed: {res.get('elapsed_s', 0):.1f}s")
-    
+
     # Show tier breakdown
     logger.info("\nTier Breakdown:")
-    for tier, stats in res.get('tier_stats', {}).items():
-        total = stats['ok'] + stats['err']
+    for tier, stats in res.get("tier_stats", {}).items():
+        total = stats["ok"] + stats["err"]
         if total > 0:
-            success_rate = stats['ok'] / total * 100
-            retry_success = stats.get('retry_success', 0)
+            success_rate = stats["ok"] / total * 100
+            retry_success = stats.get("retry_success", 0)
             logger.info(
                 f"  {tier:12} {stats['ok']:>6} ok, {stats['err']:>6} err "
                 f"({success_rate:.1f}% success, {retry_success} retries)"
             )
-    
-    logger.info("="*70)
-    
+
+    logger.info("=" * 70)
+
     # Exit code
     code = 0
     if res.get("ok", 0) == 0 and res.get("error", 0) > 0:
         code = 2
-    
+
     sys.exit(code)

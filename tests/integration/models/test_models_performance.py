@@ -5,7 +5,6 @@ Measures latency at the API level to establish baseline metrics before refactori
 Results are automatically saved to performance_baselines/ directory.
 """
 
-import asyncio
 import json
 import statistics
 import time
@@ -142,7 +141,7 @@ def performance_results():
     print(f"BASELINE RESULTS SAVED TO: {output_file}")
     print(f"{'=' * 80}")
     print(f"\nTo analyze: python analyze_baseline.py {output_file.name}")
-    print(f"Or latest:  python analyze_baseline.py --latest")
+    print("Or latest:  python analyze_baseline.py --latest")
 
 
 @pytest.fixture

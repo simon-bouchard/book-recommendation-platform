@@ -3,25 +3,26 @@
 Contrastive subject embedding training optimized for CPU parallelism.
 """
 
+import argparse
+import math
 import os
 import sys
-import argparse
+import time
 from pathlib import Path
-import math
+
 import torch
 import torch.nn.functional as F
 from torch.utils.data import DataLoader, RandomSampler
-import time
 
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "../..")))
 
+from models.core.paths import PATHS
 from models.training.data_loader import load_rows_and_dataset
+from models.training.metrics import record_training_metrics
 from models.training.train_subject_attention import (
     build_pooler_from_env,
     save_components,
 )
-from models.training.metrics import record_training_metrics
-from models.core.paths import PATHS
 
 REPO_ROOT = Path(__file__).parent.parent.parent
 OUT_DIR = PATHS.staging_dir / "attention"
@@ -153,7 +154,7 @@ def configure_cpu_parallelism():
     # Set inter-op threads (between operations) to 1 or 2 to avoid oversubscription
     torch.set_num_interop_threads(min(2, num_cores // 2))
 
-    print(f"CPU Configuration:")
+    print("CPU Configuration:")
     print(f"  - Available cores: {num_cores}")
     print(f"  - Intra-op threads (computation): {torch.get_num_threads()}")
     print(f"  - Inter-op threads (parallelism): {torch.get_num_interop_threads()}")
@@ -197,7 +198,7 @@ def main():
         # Use most cores for data loading (leave 2 for computation)
         num_workers = max(4, num_cores - 2)
 
-    print(f"DataLoader Configuration:")
+    print("DataLoader Configuration:")
     print(f"  - Batch size: {bs}")
     print(f"  - Num workers: {num_workers}")
 

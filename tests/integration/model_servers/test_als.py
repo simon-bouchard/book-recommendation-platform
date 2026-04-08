@@ -16,7 +16,6 @@ from __future__ import annotations
 import pytest
 
 from model_servers._shared.contracts import AlsRecsRequest
-
 from models.client.als import AlsClient
 
 from ._utils import (

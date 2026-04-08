@@ -13,7 +13,6 @@ import logging
 import time
 
 import numpy as np
-
 from fastapi import FastAPI, HTTPException
 from fastapi.responses import ORJSONResponse
 
@@ -108,10 +107,12 @@ async def has_book_als(request: HasBookAlsRequest) -> ORJSONResponse:
     candidate pool. A book absent here will contribute zero ALS signal to
     hybrid_sim and will return empty results from als_sim.
     """
-    return ORJSONResponse({
-        "item_idx": request.item_idx,
-        "has_als": get_als_similarity_index().has_item(request.item_idx),
-    })
+    return ORJSONResponse(
+        {
+            "item_idx": request.item_idx,
+            "has_als": get_als_similarity_index().has_item(request.item_idx),
+        }
+    )
 
 
 # ===========================================================================
@@ -134,7 +135,11 @@ async def subject_sim(request: SubjectSimRequest) -> ORJSONResponse:
         )
         compute_ms = (time.perf_counter() - t0) * 1000
         resp = ORJSONResponse(
-            {"results": [{"item_idx": int(iid), "score": float(s)} for iid, s in zip(item_ids, scores)]}
+            {
+                "results": [
+                    {"item_idx": int(iid), "score": float(s)} for iid, s in zip(item_ids, scores)
+                ]
+            }
         )
         resp.headers["X-Compute-Ms"] = f"{compute_ms:.3f}"
         return resp
@@ -163,7 +168,11 @@ async def als_sim(request: AlsSimRequest) -> ORJSONResponse:
         )
         compute_ms = (time.perf_counter() - t0) * 1000
         resp = ORJSONResponse(
-            {"results": [{"item_idx": int(iid), "score": float(s)} for iid, s in zip(item_ids, scores)]}
+            {
+                "results": [
+                    {"item_idx": int(iid), "score": float(s)} for iid, s in zip(item_ids, scores)
+                ]
+            }
         )
         resp.headers["X-Compute-Ms"] = f"{compute_ms:.3f}"
         return resp
@@ -201,7 +210,11 @@ async def hybrid_sim(request: HybridSimRequest) -> ORJSONResponse:
         )
         compute_ms = (time.perf_counter() - t0) * 1000
         resp = ORJSONResponse(
-            {"results": [{"item_idx": int(iid), "score": float(s)} for iid, s in zip(item_ids, scores)]}
+            {
+                "results": [
+                    {"item_idx": int(iid), "score": float(s)} for iid, s in zip(item_ids, scores)
+                ]
+            }
         )
         resp.headers["X-Compute-Ms"] = f"{compute_ms:.3f}"
         return resp
@@ -237,7 +250,11 @@ async def subject_recs(request: SubjectRecsRequest) -> ORJSONResponse:
         )
         compute_ms = (time.perf_counter() - t0) * 1000
         resp = ORJSONResponse(
-            {"results": [{"item_idx": int(iid), "score": float(s)} for iid, s in zip(item_ids, scores)]}
+            {
+                "results": [
+                    {"item_idx": int(iid), "score": float(s)} for iid, s in zip(item_ids, scores)
+                ]
+            }
         )
         resp.headers["X-Compute-Ms"] = f"{compute_ms:.3f}"
         return resp

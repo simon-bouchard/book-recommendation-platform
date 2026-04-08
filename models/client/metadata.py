@@ -12,14 +12,14 @@ import time
 import httpx
 from opentelemetry import trace
 
+from app.cache import get_redis_client
 from model_servers._shared.contracts import (
+    EnrichRequest,
     PopularRequest,
     PopularResponse,
-    EnrichRequest,
 )
-from models.client._base import BaseModelServerClient, _DEFAULT_TIMEOUT
 from models.cache.keys import popularity_key
-from app.cache import get_redis_client
+from models.client._base import _DEFAULT_TIMEOUT, BaseModelServerClient
 
 _DEFAULT_URL = "http://metadata:8004"
 

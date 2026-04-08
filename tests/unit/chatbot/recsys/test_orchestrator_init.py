@@ -9,13 +9,11 @@ Targets:
     _no_candidates_complete_chunk()      → StreamChunk (terminal error)
 """
 
-import pytest
 from unittest.mock import MagicMock, patch
 
 from app.agents.domain.entities import BookRecommendation
 from app.agents.domain.recsys_schemas import PlannerStrategy
 from app.agents.schemas import StreamChunk
-
 
 # ==============================================================================
 # Helpers

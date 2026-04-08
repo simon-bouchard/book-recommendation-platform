@@ -5,13 +5,12 @@ No LangChain dependencies, just pure Python.
 """
 
 import re
-import requests
-from typing import Optional, Callable
 from dataclasses import dataclass, field
+from typing import Callable, Optional
 
+import requests
 from langchain_community.tools import DuckDuckGoSearchResults
 from langchain_community.utilities import WikipediaAPIWrapper
-
 from langchain_core.tools import tool
 
 

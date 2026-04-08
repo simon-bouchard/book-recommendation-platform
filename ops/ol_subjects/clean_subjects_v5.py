@@ -16,8 +16,8 @@ Make sure your environment has DATABASE_URL set (or otherwise your app DB config
 """
 
 import json
-from pathlib import Path
 import sys
+from pathlib import Path
 
 # --- Paths (adjust if your repo layout differs) ---
 ROOT = Path(__file__).resolve().parents[2]
@@ -49,25 +49,29 @@ except Exception:
             f"Original error: {e}"
         )
 
+
 def load_existing_work_ids():
     """Return a set of work_id strings that exist in the books table."""
     session = SessionLocal()
     try:
         # Query only non-null work_ids
-        rows = session.query(Book.work_id).filter(Book.work_id != None).all()
+        rows = session.query(Book.work_id).filter(Book.work_id is not None).all()
         # rows is list of single-element tuples; convert & normalize to str
         work_ids = {str(r[0]).strip() for r in rows if r[0] is not None}
         return work_ids
     finally:
         session.close()
 
+
 def filter_v4_to_v5(input_path: Path, output_path: Path, existing_work_ids: set):
     total_in = 0
     total_out = 0
     removed_count = 0
 
-    with input_path.open("r", encoding="utf-8") as infile, \
-         output_path.open("w", encoding="utf-8") as outfile:
+    with (
+        input_path.open("r", encoding="utf-8") as infile,
+        output_path.open("w", encoding="utf-8") as outfile,
+    ):
         for line in infile:
             total_in += 1
             try:
@@ -96,7 +100,7 @@ def filter_v4_to_v5(input_path: Path, output_path: Path, existing_work_ids: set)
         "total_in": total_in,
         "total_out": total_out,
         "removed": removed_count,
-        "output_path": str(output_path)
+        "output_path": str(output_path),
     }
 
 

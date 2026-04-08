@@ -21,8 +21,8 @@ project_root = Path(__file__).resolve().parents[4]
 if str(project_root) not in sys.path:
     sys.path.insert(0, str(project_root))
 
+from model_servers._shared.contracts import ScoredItem, SimResponse
 from models.services.similarity_service import SimilarityService
-from model_servers._shared.contracts import SimResponse, ScoredItem
 
 _SVC = "models.services.similarity_service"
 

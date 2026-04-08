@@ -5,7 +5,8 @@ Validates that history truncation and context preparation work correctly.
 """
 
 import pytest
-from app.agents.schemas import AgentResult, RoutePlan
+
+from app.agents.schemas import AgentResult
 
 pytestmark = pytest.mark.asyncio
 

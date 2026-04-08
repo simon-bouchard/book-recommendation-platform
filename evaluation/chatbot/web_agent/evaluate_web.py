@@ -4,18 +4,18 @@ Web Agent evaluation with explicit tool requirement control.
 Determines agent success based on actual output quality rather than internal success flag.
 """
 
-import json
-from pathlib import Path
-from typing import Dict, List, Any
-from datetime import datetime
-import sys
 import asyncio
+import json
+import sys
+from datetime import datetime
+from pathlib import Path
+from typing import Any, Dict, List
 
 ROOT = Path(__file__).resolve().parents[3]
 sys.path.insert(0, str(ROOT))
 
+from app.agents.domain.entities import AgentRequest, ExecutionContext
 from app.agents.infrastructure.web_agent import WebAgent
-from app.agents.domain.entities import AgentRequest, ExecutionContext, AgentResponse
 from app.agents.logging import capture_agent_console_and_httpx
 
 # Import shared streaming helper
@@ -318,7 +318,7 @@ def print_results(eval_results: Dict[str, Any]):
     print(f"Layer 2 (Quality): {eval_results['quality_pass_rate']:.1%}")
 
     breakdown = eval_results["breakdown"]
-    print(f"\nBreakdown by Tool Requirement:")
+    print("\nBreakdown by Tool Requirement:")
     print(
         f"	Tool-Required: {eval_results['tool_required_pass_rate']:.1%} ({breakdown['tool_required_passed']}/{breakdown['tool_required_tests']})"
     )

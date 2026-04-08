@@ -8,9 +8,9 @@ Supports querying any item while only returning high-quality candidates.
 from pathlib import Path
 from typing import Optional, Tuple
 
+import faiss
 import numpy as np
 import pandas as pd
-import faiss
 
 
 class SimilarityIndex:

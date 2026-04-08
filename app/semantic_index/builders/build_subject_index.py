@@ -14,13 +14,13 @@ Usage:
   python -m app.semantic_index.builders.build_subject_index --model sentence-transformers/all-MiniLM-L6-v2
 """
 
-from pathlib import Path
-import sys
-import json
 import argparse
+import json
+import sys
+from pathlib import Path
 
-import numpy as np
 import faiss
+import numpy as np
 
 ROOT = Path(__file__).resolve().parents[3]
 sys.path.insert(0, str(ROOT))
@@ -28,7 +28,7 @@ sys.path.insert(0, str(ROOT))
 from sqlalchemy import func
 
 from app.database import SessionLocal
-from app.table_models import Subject, BookSubject
+from app.table_models import BookSubject, Subject
 
 _DEFAULT_OUTPUT = "models/artifacts/semantic_indexes/subjects_v1"
 _DEFAULT_MODEL = "sentence-transformers/all-MiniLM-L6-v2"
@@ -86,7 +86,10 @@ def build_subject_index(
     np.save(out / "subject_ids.npy", np.array(ids, dtype=np.int64))
     with open(out / "subject_names.json", "w", encoding="utf-8") as f:
         json.dump(
-            {str(sid): {"name": name, "count": count} for sid, name, count in zip(ids, names, counts)},
+            {
+                str(sid): {"name": name, "count": count}
+                for sid, name, count in zip(ids, names, counts)
+            },
             f,
             ensure_ascii=False,
         )

@@ -5,15 +5,16 @@ Runtime utilities for chat agents: rate limiting, conversation history, and book
 
 from __future__ import annotations
 
-import json, time, uuid
-from typing import Optional, Any, Callable, Dict, List, Tuple
-from datetime import datetime, timedelta
-from zoneinfo import ZoneInfo
 import hashlib
-import re
+import json
+import time
+import uuid
+from datetime import datetime, timedelta
+from typing import List, Optional
+from zoneinfo import ZoneInfo
 
 import redis
-from fastapi import Request, Response, HTTPException
+from fastapi import HTTPException, Request, Response
 
 from app.agents.settings import settings
 
@@ -23,13 +24,16 @@ try:
 except Exception:
     r = None  # degrade to stateless if Redis is down
 
+
 # ---- tiny helpers ----
 def _epoch_minute(ts: Optional[float] = None) -> int:
     ts = ts or time.time()
     return int(ts // 60)
 
+
 def _today_local_str(tz: ZoneInfo) -> str:
     return datetime.now(tz).strftime("%Y-%m-%d")
+
 
 def _incr_with_ttl(client, key: str, ttl: int) -> int:
     pipe = client.pipeline()
@@ -40,6 +44,7 @@ def _incr_with_ttl(client, key: str, ttl: int) -> int:
         return int(val)
     except Exception:
         return 0
+
 
 def _ua_hash(user_agent: str | None) -> str:
     """
@@ -52,28 +57,33 @@ def _ua_hash(user_agent: str | None) -> str:
         ua = "na"
     return hashlib.sha1(ua.encode("utf-8")).hexdigest()[:8]
 
+
 def _seconds_until_next_minute(now: datetime) -> int:
-    nxt = (now.replace(second=0, microsecond=0) + timedelta(minutes=1))
+    nxt = now.replace(second=0, microsecond=0) + timedelta(minutes=1)
     return max(1, int((nxt - now).total_seconds()))
 
+
 def _seconds_until_tomorrow(now: datetime) -> int:
-    tomorrow = (now.date() + timedelta(days=1))
+    tomorrow = now.date() + timedelta(days=1)
     nxt = datetime.combine(tomorrow, datetime.min.time(), tzinfo=now.tzinfo)
     return max(1, int((nxt - now).total_seconds()))
 
+
 # ---- Internal tool -----
 _FA = "final answer:"
+
 
 def normalize_visible_reply(raw_text: str) -> str:
     s = (raw_text or "").strip()
     lo = s.lower()
     if lo.startswith(_FA):
-        return s[len(_FA):].lstrip()
+        return s[len(_FA) :].lstrip()
     return s
 
 
 def _safe_str(val) -> Optional[str]:
     import math
+
     if val is None:
         return None
     if isinstance(val, float) and math.isnan(val):
@@ -94,24 +104,24 @@ def rate_limit_check(request: Request, user_id: Optional[int]) -> None:
     conv_id = request.cookies.get("conv_id") or "anon"
 
     if user_id is not None:
-        id_key  = f"user:{user_id}"
+        id_key = f"user:{user_id}"
         day_lim = settings.chat_limits_per_day_user
         min_lim = settings.chat_limits_per_min_user
     else:
         # (optionally include UA hash here if you applied step #2 earlier)
-        id_key  = f"conv:{conv_id}:ip:{ip}"
+        id_key = f"conv:{conv_id}:ip:{ip}"
         day_lim = settings.chat_limits_per_day_fallback
         min_lim = settings.chat_limits_per_min_fallback
 
-    today  = _today_local_str(tz)
+    today = _today_local_str(tz)
     minute = _epoch_minute()
 
-    k_day     = f"rl:{id_key}:d:{today}"
-    k_min     = f"rl:{id_key}:m:{minute}"
+    k_day = f"rl:{id_key}:d:{today}"
+    k_min = f"rl:{id_key}:m:{minute}"
     k_sys_day = f"rl:system:d:{today}"
 
     # System-wide daily
-    sys_day_count = _incr_with_ttl(r, k_sys_day, 24*60*60 + 300)
+    sys_day_count = _incr_with_ttl(r, k_sys_day, 24 * 60 * 60 + 300)
     if sys_day_count > settings.chat_limits_per_day_system:
         headers = {
             "Retry-After": str(_seconds_until_tomorrow(now)),
@@ -120,11 +130,11 @@ def rate_limit_check(request: Request, user_id: Optional[int]) -> None:
         raise HTTPException(
             status_code=429,
             detail="The demo's daily quota has been reached. Please try again tomorrow.",
-            headers=headers
+            headers=headers,
         )
 
     # Per-identity daily
-    day_count = _incr_with_ttl(r, k_day, 24*60*60 + 300)
+    day_count = _incr_with_ttl(r, k_day, 24 * 60 * 60 + 300)
     if day_count > day_lim:
         headers = {
             "Retry-After": str(_seconds_until_tomorrow(now)),
@@ -135,7 +145,7 @@ def rate_limit_check(request: Request, user_id: Optional[int]) -> None:
         raise HTTPException(
             status_code=429,
             detail=f"Daily chat limit reached ({day_lim} messages). Please try again tomorrow.",
-            headers=headers
+            headers=headers,
         )
 
     # Per-identity per-minute
@@ -150,7 +160,7 @@ def rate_limit_check(request: Request, user_id: Optional[int]) -> None:
         raise HTTPException(
             status_code=429,
             detail="Too many requests. Please wait ~60 seconds and try again.",
-            headers=headers
+            headers=headers,
         )
 
     # Success headers for UX/debug (what you already had)
@@ -163,7 +173,8 @@ def rate_limit_check(request: Request, user_id: Optional[int]) -> None:
         "X-RateLimit-System-Day-Count": str(sys_day_count),
         "X-RateLimit-System-Day-Limit": str(settings.chat_limits_per_day_system),
     }
-    
+
+
 def ensure_conv_cookie(request: Request, response: Response) -> str:
     """Return existing conv_id or set a new one (SameSite=Lax, 7d)."""
     conv_id = request.cookies.get("conv_id")
@@ -177,34 +188,31 @@ def load_history(conv_id: str, user_id: Optional[int] = None) -> List[dict]:
     """Return rolling history list from Redis (or [])."""
     if r is None:
         return []
-    
+
     # Use user_id for logged-in users, conv_id for anonymous
     if user_id is not None:
         key = f"chat:user:{user_id}"
     else:
         key = f"chat:conv:{conv_id}"
-    
+
     try:
         return json.loads(r.get(key) or "[]")
     except Exception:
         return []
 
-def save_history(
-    conv_id: str, 
-    hist: List[dict], 
-    user_id: Optional[int] = None
-) -> None:
+
+def save_history(conv_id: str, hist: List[dict], user_id: Optional[int] = None) -> None:
     """Persist last N exchanges with TTL."""
     if r is None:
         return
-    
+
     # Use user_id for logged-in users, conv_id for anonymous
     if user_id is not None:
         key = f"chat:user:{user_id}"
     else:
         key = f"chat:conv:{conv_id}"
-    
+
     try:
-        r.setex(key, settings.chat_ttl_sec, json.dumps(hist[-settings.chat_hist_turns:]))
+        r.setex(key, settings.chat_ttl_sec, json.dumps(hist[-settings.chat_hist_turns :]))
     except Exception:
         pass

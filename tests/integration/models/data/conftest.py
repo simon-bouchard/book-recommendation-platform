@@ -8,6 +8,7 @@ All tests in this directory are skipped automatically when artifacts are absent.
 """
 
 import pytest
+
 from models.core.paths import PATHS
 
 

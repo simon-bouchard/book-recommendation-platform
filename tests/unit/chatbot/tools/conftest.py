@@ -4,9 +4,10 @@ Shared fixtures for all chatbot tool tests.
 Provides mocked dependencies used across recsys, web, and docs tools.
 """
 
-import pytest
+from unittest.mock import MagicMock, Mock
+
 import pandas as pd
-from unittest.mock import Mock, MagicMock
+import pytest
 from sqlalchemy.orm import Session
 
 

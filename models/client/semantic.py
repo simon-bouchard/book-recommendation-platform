@@ -15,7 +15,7 @@ from model_servers._shared.contracts import (
     SubjectSearchRequest,
     SubjectSearchResponse,
 )
-from models.client._base import BaseModelServerClient, _DEFAULT_TIMEOUT
+from models.client._base import _DEFAULT_TIMEOUT, BaseModelServerClient
 
 _DEFAULT_URL = "http://localhost:8005"
 

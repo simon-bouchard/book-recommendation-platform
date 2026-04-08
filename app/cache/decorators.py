@@ -74,6 +74,7 @@ def cached(
             if client.available:
                 serialized = serialize(result)
                 if serialized is not None:
+
                     async def _write_cache():
                         success = await client.set(cache_key, serialized, ttl)
                         if success and log_hits:

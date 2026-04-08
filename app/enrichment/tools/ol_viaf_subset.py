@@ -1,20 +1,27 @@
 #!/usr/bin/env python3
 # app/enrichment/ol_viaf_subset.py
 
-import argparse, json, re, gzip, bz2, csv, sys
-from typing import Dict, Set, Optional
-import sys, os
+import bz2
+import csv
+import gzip
+import json
+import os
+import re
+import sys
+from typing import Dict, Optional, Set
+
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "../..")))
 
 from app.database import SessionLocal, engine
 from app.table_models import Author
 
-DUMP_PATH = "data/ol_dump_authors.txt.gz"   
+DUMP_PATH = "data/ol_dump_authors.txt.gz"
 OUT_JSON = "data/ol2viaf_subset.json"
-OUT_CSV  = "data/ol2viaf_subset.csv"
+OUT_CSV = "data/ol2viaf_subset.csv"
 
 OL_KEY_RE = re.compile(r"^OL\d+A$")
 VIAF_URL_RE = re.compile(r"/viaf/(\d+)", re.IGNORECASE)
+
 
 def open_text(path: str):
     if path.endswith(".gz"):
@@ -22,6 +29,7 @@ def open_text(path: str):
     if path.endswith(".bz2"):
         return bz2.open(path, "rt", encoding="utf-8", errors="replace")
     return open(path, "rt", encoding="utf-8", errors="replace")
+
 
 def norm_ol_author_key(val: Optional[str]) -> Optional[str]:
     """
@@ -41,6 +49,7 @@ def norm_ol_author_key(val: Optional[str]) -> Optional[str]:
     s = s.split("/")[0].strip()
     return s if OL_KEY_RE.fullmatch(s) else None
 
+
 def load_db_ol_keys() -> Set[str]:
     """Load OL author keys from your DB (authors.external_id)."""
     keys: Set[str] = set()
@@ -53,6 +62,7 @@ def load_db_ol_keys() -> Set[str]:
     finally:
         db.close()
     return keys
+
 
 def collect_viaf_ids(data_raw: str, data: dict):
     viafs = []
@@ -80,11 +90,12 @@ def collect_viaf_ids(data_raw: str, data: dict):
                     viafs.append(m.group(1))
 
     # 2. Fallback: regex over raw JSON line
-    m = re.findall(r'viaf[^\d]*(\d+)', data_raw, flags=re.IGNORECASE)
+    m = re.findall(r"viaf[^\d]*(\d+)", data_raw, flags=re.IGNORECASE)
     viafs.extend(m)
 
     # Deduplicate & return
     return list(dict.fromkeys(viafs))
+
 
 def parse_dump_for_subset(dump_path: str, target_keys: Set[str]) -> Dict[str, str]:
     """
@@ -122,8 +133,11 @@ def parse_dump_for_subset(dump_path: str, target_keys: Set[str]) -> Dict[str, st
             viaf_ids = collect_viaf_ids(data_raw, data)
             if viaf_ids:
                 # choose a stable representative (smallest numeric)
-                viaf_ids = [re.search(r'\d+', str(v)).group(0)
-                for v in viaf_ids if re.search(r'\d+', str(v))]
+                viaf_ids = [
+                    re.search(r"\d+", str(v)).group(0)
+                    for v in viaf_ids
+                    if re.search(r"\d+", str(v))
+                ]
                 if not viaf_ids:
                     continue
                 viaf_id = min(set(viaf_ids), key=int)  # stable rep: smallest numeric
@@ -132,9 +146,11 @@ def parse_dump_for_subset(dump_path: str, target_keys: Set[str]) -> Dict[str, st
                     break
     return found
 
+
 def write_json(mapping: Dict[str, str], out_path: str):
     with open(out_path, "w", encoding="utf-8") as f:
         json.dump(mapping, f, ensure_ascii=False, indent=2)
+
 
 def write_csv(mapping: Dict[str, str], out_path: str):
     with open(out_path, "w", encoding="utf-8", newline="") as f:
@@ -142,6 +158,7 @@ def write_csv(mapping: Dict[str, str], out_path: str):
         w.writerow(["ol_author_key", "viaf_id"])
         for k, v in sorted(mapping.items()):
             w.writerow([k, v])
+
 
 def main():
     if engine is None:
@@ -164,6 +181,7 @@ def main():
     print(f"Coverage: {coverage:.1f}%")
     print(f"Wrote JSON to: {OUT_JSON}")
     print(f"Wrote CSV  to: {OUT_CSV}")
+
 
 if __name__ == "__main__":
     main()

@@ -19,7 +19,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Dict, List, Optional
 
-from models.core.paths import PATHS, _VERSIONED_SUBDIRS
+from models.core.paths import _VERSIONED_SUBDIRS, PATHS
 
 _MANIFEST_FILENAME = "manifest.json"
 _METRICS_FILENAME = "training_metrics.json"

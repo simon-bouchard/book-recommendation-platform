@@ -147,8 +147,9 @@ class TestAlsRecs:
     async def test_request_body_contains_k(
         self, client: AlsClient, respx_mock: respx.MockRouter
     ) -> None:
-        import httpx as _httpx
         import json
+
+        import httpx as _httpx
 
         route = respx_mock.post(f"{TEST_BASE_URL}/als_recs").mock(
             return_value=_httpx.Response(200, json=scored_items_json([]))
@@ -161,8 +162,9 @@ class TestAlsRecs:
         assert sent["k"] == 50
 
     async def test_default_k_is_200(self, client: AlsClient, respx_mock: respx.MockRouter) -> None:
-        import httpx as _httpx
         import json
+
+        import httpx as _httpx
 
         route = respx_mock.post(f"{TEST_BASE_URL}/als_recs").mock(
             return_value=_httpx.Response(200, json=scored_items_json([]))

@@ -4,11 +4,11 @@ Test data factory for isolated recommendation agent testing.
 Provides mock strategies, real candidate books, and execution contexts.
 """
 
-from typing import Dict, Any, Optional, List
 import random
+from typing import Any, Dict
 
-from app.agents.domain.recsys_schemas import PlannerStrategy, ExecutionContext
-from app.agents.tools.registry import ToolRegistry, InternalToolGates
+from app.agents.domain.recsys_schemas import ExecutionContext, PlannerStrategy
+from app.agents.tools.registry import InternalToolGates, ToolRegistry
 
 
 def get_mock_strategy(scenario: str, **kwargs) -> PlannerStrategy:

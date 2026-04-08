@@ -10,9 +10,7 @@ Targets three methods that contain real logic and have no dependencies:
 All tests are synchronous and make no LLM or I/O calls.
 """
 
-import pytest
 from app.agents.domain.entities import BookRecommendation
-
 
 # ==============================================================================
 # _extract_book_ids_from_citations

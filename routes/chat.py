@@ -1,25 +1,28 @@
-from fastapi import APIRouter, Request, Response, Depends, HTTPException, status
-from fastapi.templating import Jinja2Templates
-from fastapi.responses import RedirectResponse, StreamingResponse
+import json
+import time
 from datetime import datetime
 from zoneinfo import ZoneInfo
-import json, time
-from routes.auth import get_current_user
+
+from fastapi import APIRouter, Depends, HTTPException, Request, Response, status
+from fastapi.responses import RedirectResponse, StreamingResponse
+from fastapi.templating import Jinja2Templates
 from sqlalchemy.orm import Session
+
+from app.agents.logging import chatbot_logger, get_logger
 from app.agents.orchestrator.conductor import Conductor
-from app.database import get_db
-from app.agents.schemas import ChatIn, ChatOut
 from app.agents.runtime import (
-    rate_limit_check,
     ensure_conv_cookie,
     load_history,
-    save_history,
     normalize_visible_reply,
+    rate_limit_check,
+    save_history,
 )
-from app.agents.logging import get_logger, chatbot_logger
-from models.data.queries import get_user_num_ratings
+from app.agents.schemas import ChatIn
 from app.agents.settings import settings
-from metrics import CHAT_REQUESTS, CHAT_LATENCY
+from app.database import get_db
+from metrics import CHAT_LATENCY, CHAT_REQUESTS
+from models.data.queries import get_user_num_ratings
+from routes.auth import get_current_user
 
 logger = get_logger(__name__)
 router = APIRouter()
@@ -47,7 +50,6 @@ def chat_page(request: Request, current_user=Depends(get_current_user)):
     return templates.TemplateResponse(
         "chat_shell.html", {"request": request, "logged_in": bool(current_user)}
     )
-
 
 
 @router.post("/chat/stream")

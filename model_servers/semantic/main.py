@@ -18,12 +18,12 @@ from sentence_transformers import SentenceTransformer
 
 from model_servers._shared.contracts import (
     HealthResponse,
+    ScoredItem,
     SemanticSearchRequest,
     SemanticSearchResponse,
-    ScoredItem,
+    SubjectMatch,
     SubjectSearchRequest,
     SubjectSearchResponse,
-    SubjectMatch,
 )
 from model_servers._shared.server_utils import get_artifact_version, make_lifespan
 from models.infrastructure.semantic_searcher import SemanticSearcher

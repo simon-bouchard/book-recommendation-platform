@@ -1,7 +1,7 @@
 # ops/ol_subjects/analyze_subject_lengths.py
 import json
-from pathlib import Path
 from collections import Counter
+from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
 INPUT = ROOT / "data" / "ol_subjects" / "ol_subjects_cleaned_v5_combined.jsonl"
@@ -20,16 +20,16 @@ counter = Counter(all_subjects)
 subjects_with_len = [(s, len(s), counter[s]) for s in counter.keys()]
 subjects_with_len.sort(key=lambda x: x[1], reverse=True)
 
-print("="*80)
+print("=" * 80)
 print("LONGEST SUBJECTS")
-print("="*80)
+print("=" * 80)
 print("\nTop 50 longest subjects (char count | frequency | subject):")
 for subj, length, freq in subjects_with_len[:50]:
     print(f"{length:>4} chars | {freq:>6}x | {subj[:100]}")
 
-print("\n" + "="*80)
+print("\n" + "=" * 80)
 print("LENGTH DISTRIBUTION")
-print("="*80)
+print("=" * 80)
 
 # Buckets
 buckets = {
@@ -59,9 +59,9 @@ print("\nSubject instances by length:")
 for bucket, count in buckets.items():
     print(f"  {bucket:>10} chars: {count:>8,} instances")
 
-print("\n" + "="*80)
+print("\n" + "=" * 80)
 print("LONG + RARE SUBJECTS")
-print("="*80)
+print("=" * 80)
 
 # Find long subjects that are rare
 long_rare = [(s, l, f) for s, l, f in subjects_with_len if l > 100 and f <= 5]
@@ -78,9 +78,9 @@ very_long = [x for x in subjects_with_len if x[1] > 100]
 total_instances = sum(x[2] for x in very_long)
 unique_count = len(very_long)
 
-print(f"\nSubjects >100 chars:")
+print("\nSubjects >100 chars:")
 print(f"  Unique: {unique_count}")
 print(f"  Total instances: {total_instances:,}")
-print(f"  Avg frequency: {total_instances/unique_count:.1f}")
+print(f"  Avg frequency: {total_instances / unique_count:.1f}")
 
-print("\n" + "="*80)
+print("\n" + "=" * 80)

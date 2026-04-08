@@ -13,9 +13,9 @@ import json
 from datetime import datetime
 from pathlib import Path
 from typing import Dict
-from dotenv import load_dotenv
 
 import pytest
+from dotenv import load_dotenv
 
 from models.client.als import AlsClient
 from models.client.embedder import EmbedderClient
@@ -24,7 +24,6 @@ from models.client.semantic import SemanticClient
 from models.client.similarity import SimilarityClient
 
 from ._utils import MEASUREMENT_RUNS, WARMUP_RUNS, LatencyStats
-
 
 load_dotenv()
 

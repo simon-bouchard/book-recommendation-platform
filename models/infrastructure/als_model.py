@@ -3,7 +3,7 @@
 ALS collaborative filtering model wrapper with clean interface.
 """
 
-from typing import Optional, List, Tuple
+from typing import List, Optional, Tuple
 
 import faiss
 import numpy as np
@@ -189,9 +189,7 @@ class ALSModel:
         actual_k = min(k, self._book_index.ntotal)
         scores, row_indices = self._book_index.search(user_vec, actual_k)
 
-        item_ids = np.array(
-            [self.book_row_to_id[int(i)] for i in row_indices[0]], dtype=np.int64
-        )
+        item_ids = np.array([self.book_row_to_id[int(i)] for i in row_indices[0]], dtype=np.int64)
         return item_ids, scores[0]
 
     def get_user_factors(self, user_id: int) -> Optional[np.ndarray]:

@@ -10,21 +10,20 @@ Chunk collection pattern used throughout:
     chunks, complete, tokens, statuses = await _run(agent, request)
 """
 
-import pytest
-from unittest.mock import AsyncMock, patch, MagicMock
 from typing import List, Tuple
+from unittest.mock import AsyncMock, MagicMock, patch
 
-from app.agents.infrastructure.recsys.orchestrator import RecommendationAgent
+import pytest
+
 from app.agents.domain.entities import AgentRequest, BookRecommendation
 from app.agents.domain.recsys_schemas import (
+    ExecutionContext,
     PlannerInput,
     RetrievalInput,
     RetrievalOutput,
-    ExecutionContext,
-    PlannerStrategy,
 )
+from app.agents.infrastructure.recsys.orchestrator import RecommendationAgent
 from app.agents.schemas import StreamChunk
-
 
 # ==============================================================================
 # Test Helpers
@@ -328,7 +327,7 @@ class TestStageTransitions:
         mock_retrieval = mock_retrieval_builder.returns_candidates(raw_candidates).build()
         # Pass through unchanged (return the single book as selected)
         mock_selection = mock_selection_builder.returns_batch(1, start_idx=12345).build()
-        mock_curation = mock_curation_builder.returns_success_with_books(1).build()
+        mock_curation_builder.returns_success_with_books(1).build()
 
         received: List[List[BookRecommendation]] = []
 

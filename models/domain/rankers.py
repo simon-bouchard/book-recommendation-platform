@@ -3,7 +3,7 @@
 Rankers with module-level singleton instances.
 """
 
-from typing import Protocol, List
+from typing import List, Protocol
 
 from models.domain.recommendation import Candidate
 from models.domain.user import User

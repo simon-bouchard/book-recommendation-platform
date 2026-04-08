@@ -9,26 +9,18 @@ distinct protocol in Python; instead, a MagicMock with side_effect
 that returns a fresh async generator on each call is used.
 """
 
-import pytest
+from typing import Any, Dict, List, Optional
 from unittest.mock import AsyncMock, MagicMock
-from typing import List, Optional, Dict, Any
+
+import pytest
 
 from app.agents.domain.entities import BookRecommendation
 from app.agents.domain.recsys_schemas import (
-    PlannerStrategy,
     ExecutionContext,
+    PlannerStrategy,
     RetrievalOutput,
 )
 from app.agents.schemas import StreamChunk
-
-from tests.integration.chatbot.recsys_fixtures import (
-    test_user_warm,
-    test_user_cold,
-    test_user_new,
-    test_user_with_profile,
-    get_user_rating_count,
-)
-
 
 # ==============================================================================
 # Test Data Factories

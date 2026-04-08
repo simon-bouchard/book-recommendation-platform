@@ -8,10 +8,11 @@ artifact directories are touched during the test run.
 """
 
 import json
-import pytest
 from pathlib import Path
 from typing import Optional
 from unittest.mock import patch
+
+import pytest
 
 import models.core.artifact_registry as registry_module
 from models.core.artifact_registry import (
@@ -25,9 +26,7 @@ from models.core.artifact_registry import (
     rollback,
     verify_checksums,
 )
-from models.core.paths import PATHS
-from models.core.paths import _VERSIONED_SUBDIRS
-
+from models.core.paths import _VERSIONED_SUBDIRS, PATHS
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -364,7 +363,7 @@ class TestListVersions:
         for vid, ts in zip(["v1", "v2", "v3"], timestamps):
             source = isolated_registry / f"src_{vid}"
             _make_staging(source)
-            manifest = register_existing_version(source, vid)
+            register_existing_version(source, vid)
             # Overwrite the manifest with a controlled timestamp
             manifest_path = PATHS.versions_dir / vid / "manifest.json"
             data = json.loads(manifest_path.read_text())

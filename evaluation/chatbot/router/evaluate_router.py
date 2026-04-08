@@ -3,14 +3,14 @@ Router evaluation script.
 Tests RouterLLM classification accuracy with real LLM.
 """
 
-import json
 import asyncio
-from pathlib import Path
-from typing import List, Dict, Any
-from datetime import datetime
+import json
 
 # Add project root to path
 import sys
+from datetime import datetime
+from pathlib import Path
+from typing import Any, Dict, List
 
 sys.path.insert(0, str(Path(__file__).parent.parent.parent.parent))
 

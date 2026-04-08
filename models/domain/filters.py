@@ -14,12 +14,11 @@ making the query cost bounded by the candidate count rather than the user's
 full interaction history.
 """
 
-from typing import List, Optional, Protocol, Set
+from typing import List, Protocol, Set
 
+from models.data.queries import get_read_books_for_candidates_async
 from models.domain.recommendation import Candidate
 from models.domain.user import User
-from models.data.queries import get_read_books_for_candidates_async
-
 
 # ---------------------------------------------------------------------------
 # Protocol
@@ -87,7 +86,8 @@ class MinRatingCountFilter:
         meta = await get_metadata_client().enrich(candidate_ids)
 
         return [
-            c for c in candidates
+            c
+            for c in candidates
             if meta.get(c.item_idx, {}).get("num_ratings", 0) >= self.min_count
         ]
 

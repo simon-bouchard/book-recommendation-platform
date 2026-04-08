@@ -7,7 +7,6 @@ num_ratings and cover_id are read directly from the input dict — no external
 dependency on load_book_meta.
 """
 
-import pytest
 from app.agents.tools.recsys.native_tools import InternalTools
 
 # ---------------------------------------------------------------------------
@@ -60,8 +59,20 @@ class TestStandardizeToolOutput:
     def test_num_ratings_read_from_input(self):
         """num_ratings should be taken from the input dict."""
         raw = [
-            {"item_idx": 1, "title": "Book A", "author": "Author A", "score": 0.9, "num_ratings": 100},
-            {"item_idx": 2, "title": "Book B", "author": "Author B", "score": 0.8, "num_ratings": 200},
+            {
+                "item_idx": 1,
+                "title": "Book A",
+                "author": "Author A",
+                "score": 0.9,
+                "num_ratings": 100,
+            },
+            {
+                "item_idx": 2,
+                "title": "Book B",
+                "author": "Author B",
+                "score": 0.8,
+                "num_ratings": 200,
+            },
         ]
         result = _tools()._standardize_tool_output(raw)
 
@@ -79,7 +90,13 @@ class TestStandardizeToolOutput:
     def test_cover_id_read_from_input(self):
         """cover_id should be read from the input dict when present and truthy."""
         raw = [
-            {"item_idx": 1, "title": "Book A", "author": "Author A", "score": 0.9, "cover_id": "cov_1"}
+            {
+                "item_idx": 1,
+                "title": "Book A",
+                "author": "Author A",
+                "score": 0.9,
+                "cover_id": "cov_1",
+            }
         ]
         result = _tools()._standardize_tool_output(raw)
 
@@ -88,7 +105,13 @@ class TestStandardizeToolOutput:
     def test_cover_id_is_none_when_falsy_in_input(self):
         """cover_id should be None when input has None or empty value."""
         raw = [
-            {"item_idx": 1, "title": "Book A", "author": "Author A", "score": 0.9, "cover_id": None},
+            {
+                "item_idx": 1,
+                "title": "Book A",
+                "author": "Author A",
+                "score": 0.9,
+                "cover_id": None,
+            },
             {"item_idx": 2, "title": "Book B", "author": "Author B", "score": 0.8, "cover_id": ""},
         ]
         result = _tools()._standardize_tool_output(raw)
@@ -122,9 +145,7 @@ class TestStandardizeToolOutput:
 
     def test_score_preserved_from_input(self):
         """score field should be carried through unchanged."""
-        raw = [
-            {"item_idx": 1, "title": "Book", "author": "Author", "score": 0.87654}
-        ]
+        raw = [{"item_idx": 1, "title": "Book", "author": "Author", "score": 0.87654}]
         result = _tools()._standardize_tool_output(raw)
 
         assert result[0]["score"] == 0.87654
@@ -134,7 +155,13 @@ class TestStandardizeToolOutput:
         raw = [
             {"error": "fetch failed"},
             {"title": "No ID", "score": 0.3},
-            {"item_idx": 2, "title": "1984", "author": "George Orwell", "score": 0.92, "num_ratings": 200},
+            {
+                "item_idx": 2,
+                "title": "1984",
+                "author": "George Orwell",
+                "score": 0.92,
+                "num_ratings": 200,
+            },
         ]
         result = _tools()._standardize_tool_output(raw)
 

@@ -3,9 +3,9 @@
 Domain models layer - pure business objects representing core entities.
 """
 
-from models.domain.user import User
+from models.domain.config import HybridConfig, RecommendationConfig
 from models.domain.recommendation import Candidate, RecommendedBook
-from models.domain.config import RecommendationConfig, HybridConfig
+from models.domain.user import User
 
 __all__ = [
     "User",

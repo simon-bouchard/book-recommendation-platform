@@ -11,6 +11,7 @@ db=db_session only where test setup requires direct ORM queries (e.g. user looku
 
 import pytest
 from sqlalchemy.orm import Session
+
 from app.agents.tools.recsys.native_tools import InternalTools
 from app.table_models import User
 
@@ -168,9 +169,7 @@ class TestSubjectIdSearch:
         tools = InternalTools(current_user=None, db=None)
         subject_id_search = tools._create_subject_id_search_tool()
 
-        result = await subject_id_search.ainvoke(
-            {"phrases": ["mystery", "romance"], "top_k": 3}
-        )
+        result = await subject_id_search.ainvoke({"phrases": ["mystery", "romance"], "top_k": 3})
 
         assert len(result) == 2
         phrases = [r["phrase"] for r in result]

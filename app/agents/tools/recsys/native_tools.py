@@ -5,15 +5,14 @@ All retrieval tools return consistent schema with enrichment data where availabl
 """
 
 from typing import Callable, Dict, Optional
-from sqlalchemy.orm import Session
-import asyncio
-
-from models.services.recommendation_service import RecommendationService
-from models.domain.user import User
-from models.domain.config import RecommendationConfig, HybridConfig
-from app.semantic_index.service import SemanticSearchService
 
 from langchain_core.tools import tool
+from sqlalchemy.orm import Session
+
+from app.semantic_index.service import SemanticSearchService
+from models.domain.config import HybridConfig, RecommendationConfig
+from models.domain.user import User
+from models.services.recommendation_service import RecommendationService
 
 
 class InternalTools:
@@ -181,9 +180,7 @@ class InternalTools:
         """Semantic search with metadata enrichment via the semantic search service."""
 
         @tool
-        async def book_semantic_search(
-            query: str, top_k: int = 100
-        ) -> list[dict]:
+        async def book_semantic_search(query: str, top_k: int = 100) -> list[dict]:
             """
             Search books using semantic embeddings.
 
@@ -240,8 +237,8 @@ class InternalTools:
                 # entirely. Accessing lazy relationships in an async SQLAlchemy
                 # context raises MissingGreenlet before the first await, which
                 # the except clause would silently swallow.
-                from models.domain.user import User as DomainUser
                 from models.core.constants import PAD_IDX
+                from models.domain.user import User as DomainUser
 
                 domain_user = DomainUser(
                     user_id=self.current_user.user_id,
@@ -401,8 +398,8 @@ class InternalTools:
             Returns:
                     Standardized list of popular books with basic metadata
             """
-            from models.data.queries import get_read_books
             from models.client.registry import get_metadata_client
+            from models.data.queries import get_read_books
 
             top_k = max(1, min(500, top_k))
 

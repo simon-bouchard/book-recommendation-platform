@@ -48,9 +48,7 @@ class SemanticSearchService:
             span.set_attribute("top_k", top_k)
 
             try:
-                response = await get_semantic_client().semantic_search(
-                    query=query, top_k=top_k
-                )
+                response = await get_semantic_client().semantic_search(query=query, top_k=top_k)
 
                 if not response.results:
                     span.set_attribute("result_count", 0)

@@ -1,12 +1,15 @@
 # app/semantic_index/build_index.py
-from pathlib import Path
 import json
-import numpy as np
+from pathlib import Path
+
 import faiss
-from sqlalchemy.orm import Session
+import numpy as np
+
 from app.database import SessionLocal
-from app.table_models import Book, Author
+from app.table_models import Author, Book
+
 from .index_store import IndexStore
+
 
 def yield_texts(enrichment_jsonl: Path):
     """
@@ -69,6 +72,7 @@ def yield_texts(enrichment_jsonl: Path):
         }
         yield bid, text, meta
 
+
 def embed_texts(texts, embedder):
     """
     Embed all book texts into dense vectors.
@@ -88,6 +92,7 @@ def embed_texts(texts, embedder):
         vecs.append(embedder(batch))
     return np.concatenate(vecs, axis=0), np.array(ids, dtype=np.int64), metas
 
+
 def build_faiss(embeds: np.ndarray):
     """
     Build a FAISS HNSW index over the embedding vectors.
@@ -100,6 +105,7 @@ def build_faiss(embeds: np.ndarray):
     index.hnsw.efConstruction = 80
     index.add(embeds.astype("float32"))
     return index
+
 
 def main(enrichment_path: str, out_dir: str, embedder):
     """

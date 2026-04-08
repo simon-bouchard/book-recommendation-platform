@@ -8,7 +8,6 @@ import os
 import shutil
 import subprocess
 import sys
-import time
 from pathlib import Path
 from urllib.parse import urlsplit
 
@@ -26,7 +25,8 @@ from models.core.artifact_registry import (
 )
 from models.core.paths import PATHS
 from ops.training.evaluate_gate import evaluate
-from ops.training.notify import notify, read_tail as _notify_read_tail
+from ops.training.notify import notify
+from ops.training.notify import read_tail as _notify_read_tail
 from ops.training.reload_signal import signal_workers_reload
 
 # ---------------------------------------------------------------------------
@@ -132,9 +132,7 @@ def _run_local_script(script: str, local_log_dir: Path) -> None:
     ]
 
     print(f"Running: {' '.join(cmd)}")
-    with subprocess.Popen(
-        cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True
-    ) as proc:
+    with subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True) as proc:
         lines = []
         for line in proc.stdout:
             print(line, end="")
@@ -183,7 +181,7 @@ def main() -> None:
         # --- Data export ----------------------------------------------------
 
         print("Exporting training data to local staging/data/...")
-        run(f"python -m models.training.export_training_data")
+        run("python -m models.training.export_training_data")
 
         # --- Database backup ------------------------------------------------
 

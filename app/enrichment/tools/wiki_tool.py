@@ -1,12 +1,17 @@
 # app/enrichment/wiki_tool.py
 from __future__ import annotations
-import requests, re, html
-from typing import Dict, List, Optional, Tuple
+
+import html
+import re
+from typing import Dict, List, Optional
+
+import requests
 
 WIKI_API = "https://en.wikipedia.org/w/api.php"
 WD_ENTITY_API = "https://www.wikidata.org/wiki/Special:EntityData/{qid}.json"
 
 # ---- Public entrypoint ------------------------------------------------------
+
 
 def fetch_wiki_context_block(
     title: str,
@@ -39,19 +44,25 @@ def fetch_wiki_context_block(
     cleaned = _clean_wiki_text(text)
 
     # Build header from Wikidata if available
-    header = _build_header_from_wikidata(page.get("qid"), fallback_title=page["title"], timeout_s=timeout_s)
+    header = _build_header_from_wikidata(
+        page.get("qid"), fallback_title=page["title"], timeout_s=timeout_s
+    )
 
     # Build word-window snippet from the very start of the cleaned text
-    snippet = _word_window_snippet(cleaned, target_words=target_words, min_words=min_words, max_words=max_words)
+    snippet = _word_window_snippet(
+        cleaned, target_words=target_words, min_words=min_words, max_words=max_words
+    )
 
     lines = ["[WIKI CONTEXT]"]
     lines.extend(_format_header(header))
     lines.append("")  # blank line before snippet
     lines.append("Snippet:")
-    lines.append(f"\"{snippet}\"")
+    lines.append(f'"{snippet}"')
     return "\n".join(lines)
 
+
 # ---- Wikipedia & Wikidata helpers ------------------------------------------
+
 
 def _search_and_get_page(title: str, author: Optional[str], timeout_s: float) -> Optional[Dict]:
     """Search enwiki for '<title> <author> (book)' and return a resolved page dict."""
@@ -116,7 +127,13 @@ def _search_and_get_page(title: str, author: Optional[str], timeout_s: float) ->
         disambig = True
 
     qid = (pp.get("wikibase_item") or "").strip() or None
-    return {"pageid": page.get("pageid"), "title": page.get("title", ""), "qid": qid, "disambiguation": disambig}
+    return {
+        "pageid": page.get("pageid"),
+        "title": page.get("title", ""),
+        "qid": qid,
+        "disambiguation": disambig,
+    }
+
 
 def _get_plain_text(pageid: int, timeout_s: float) -> Optional[str]:
     """Fetch full plain text (no HTML) using extracts API."""
@@ -137,7 +154,10 @@ def _get_plain_text(pageid: int, timeout_s: float) -> Optional[str]:
     except Exception:
         return None
 
-def _build_header_from_wikidata(qid: Optional[str], fallback_title: str, timeout_s: float) -> Dict[str, str]:
+
+def _build_header_from_wikidata(
+    qid: Optional[str], fallback_title: str, timeout_s: float
+) -> Dict[str, str]:
     """Get Title/Author/Original publication/Language/Genre from Wikidata when possible."""
     header = {"Title": fallback_title}
     if not qid:
@@ -203,6 +223,7 @@ def _build_header_from_wikidata(qid: Optional[str], fallback_title: str, timeout
 
     return header
 
+
 def _entity_label_en(qid: str, timeout_s: float) -> str:
     """Fetch an entity's English label (fall back to ID)."""
     url = WD_ENTITY_API.format(qid=qid)
@@ -210,6 +231,7 @@ def _entity_label_en(qid: str, timeout_s: float) -> str:
     r.raise_for_status()
     data = r.json()["entities"][qid]
     return (data.get("labels") or {}).get("en", {}).get("value") or qid
+
 
 # ---- Cleaning & snippet selection ------------------------------------------
 
@@ -220,6 +242,7 @@ _WS_RE = re.compile(r"\s+")
 _PUNCT_TRIM_RE = re.compile(r"\s*([,;:])")
 _SENT_SPLIT_RE = re.compile(r"(?<=[.!?])\s+")
 
+
 def _clean_wiki_text(text: str) -> str:
     s = html.unescape(text or "")
     # remove common citation markers / IPA / extra punctuation spacing
@@ -229,6 +252,7 @@ def _clean_wiki_text(text: str) -> str:
     s = _PUNCT_TRIM_RE.sub(r"\1 ", s)
     s = _WS_RE.sub(" ", s)
     return s.strip()
+
 
 def _word_window_snippet(text: str, target_words: int, min_words: int, max_words: int) -> str:
     """
@@ -263,7 +287,7 @@ def _word_window_snippet(text: str, target_words: int, min_words: int, max_words
     snippet = " ".join(out).strip()
     # Ensure minimum length; if too short, append the next sentence(s) up to max_words
     if len(snippet.split()) < min_words:
-        for sent in sentences[len(out):]:
+        for sent in sentences[len(out) :]:
             wcount = len(sent.split())
             if len(snippet.split()) + wcount > max_words:
                 break
@@ -272,7 +296,9 @@ def _word_window_snippet(text: str, target_words: int, min_words: int, max_words
                 break
     return snippet
 
+
 # ---- Formatting helpers -----------------------------------------------------
+
 
 def _format_header(h: Dict[str, str]) -> List[str]:
     order = ["Title", "Author", "Original publication", "Language", "Genre"]
@@ -283,10 +309,12 @@ def _format_header(h: Dict[str, str]) -> List[str]:
             lines.append(f"{k}: {v}")
     return lines
 
+
 def _norm(s: str) -> str:
     s = s.lower().strip()
     s = re.sub(r"\s+", " ", s)
     return s
+
 
 def _extract_year(raw_time: str) -> Optional[str]:
     # raw format: '+1997-00-00T00:00:00Z' or '+0850-00-00T...'
@@ -297,6 +325,7 @@ def _extract_year(raw_time: str) -> Optional[str]:
     if year.startswith("0") and len(year) > 1:
         year = year.lstrip("0")
     return year or None
+
 
 def _short(s: str, limit: int = 60) -> str:
     s = s.strip()

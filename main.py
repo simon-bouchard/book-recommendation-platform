@@ -31,7 +31,8 @@ from models.client.registry import (
     get_similarity_client,
 )
 from routes.api import router
-from routes.auth import router as auth_router, get_current_user
+from routes.auth import get_current_user
+from routes.auth import router as auth_router
 from routes.chat import router as chat_router
 from routes.models import router as models_router
 
@@ -53,7 +54,8 @@ async def lifespan(app: FastAPI):
     """
     setup_tracing(app)
 
-    from app.database import init_aiomysql_pool, close_aiomysql_pool
+    from app.database import close_aiomysql_pool, init_aiomysql_pool
+
     await init_aiomysql_pool()
     logger.info("aiomysql pool initialized")
 

@@ -95,9 +95,7 @@ async def embed(request: EmbedRequest) -> ORJSONResponse:
     try:
         loop = asyncio.get_running_loop()
         t0 = time.perf_counter()
-        vector = await loop.run_in_executor(
-            None, lambda: embedder.embed(request.subject_indices)
-        )
+        vector = await loop.run_in_executor(None, lambda: embedder.embed(request.subject_indices))
         compute_ms = (time.perf_counter() - t0) * 1000
         resp = ORJSONResponse({"vector": vector.tolist()})
         resp.headers["X-Compute-Ms"] = f"{compute_ms:.3f}"

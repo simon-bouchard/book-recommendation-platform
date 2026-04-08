@@ -7,11 +7,11 @@
 
 import json
 from pathlib import Path
-from collections import OrderedDict
 
 ROOT = Path(__file__).resolve().parents[2]
 IN_PATH = ROOT / "data" / "ol_subjects" / "ol_subjects_cleaned_v5.jsonl"
 OUT_PATH = ROOT / "data" / "ol_subjects" / "ol_subjects_cleaned_v5_combined.jsonl"
+
 
 def combine_subjects_v5(in_path: Path, out_path: Path):
     if not in_path.exists():
@@ -52,10 +52,7 @@ def combine_subjects_v5(in_path: Path, out_path: Path):
 
             if work_id_s not in combined:
                 # store an ordered list and a set for de-duping
-                combined[work_id_s] = {
-                    "subjects_list": [],
-                    "subjects_set": set()
-                }
+                combined[work_id_s] = {"subjects_list": [], "subjects_set": set()}
 
             slot = combined[work_id_s]
             for subj in subjects:
@@ -73,10 +70,7 @@ def combine_subjects_v5(in_path: Path, out_path: Path):
     kept = 0
     with out_path.open("w", encoding="utf-8") as out:
         for work_id_s, data in combined.items():
-            rec_out = {
-                "work_id": work_id_s,
-                "subjects": data["subjects_list"]
-            }
+            rec_out = {"work_id": work_id_s, "subjects": data["subjects_list"]}
             out.write(json.dumps(rec_out, ensure_ascii=False) + "\n")
             kept += 1
 
@@ -90,8 +84,9 @@ def combine_subjects_v5(in_path: Path, out_path: Path):
         "input_rows": total_rows,
         "malformed": malformed,
         "unique_after": kept,
-        "output_path": str(out_path)
+        "output_path": str(out_path),
     }
+
 
 if __name__ == "__main__":
     combine_subjects_v5(IN_PATH, OUT_PATH)

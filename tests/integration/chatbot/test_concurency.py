@@ -43,21 +43,20 @@ until classify() is wrapped in asyncio.to_thread() inside run_stream().
 
 import asyncio
 import time
-from typing import List, AsyncGenerator
-from unittest.mock import MagicMock, AsyncMock, patch
+from typing import AsyncGenerator, List
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
 from app.agents.domain.entities import AgentRequest, BookRecommendation
 from app.agents.domain.recsys_schemas import (
+    ExecutionContext,
     PlannerStrategy,
     RetrievalOutput,
-    ExecutionContext,
 )
 from app.agents.infrastructure.recsys.orchestrator import RecommendationAgent
 from app.agents.orchestrator.conductor import Conductor
-from app.agents.schemas import StreamChunk, RoutePlan, TurnInput
-
+from app.agents.schemas import RoutePlan, StreamChunk, TurnInput
 
 # ==============================================================================
 # Timing constants

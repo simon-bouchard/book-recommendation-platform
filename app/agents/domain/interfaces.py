@@ -4,16 +4,16 @@ Abstract interfaces that define what agents should do (not how).
 These are technology-agnostic contracts.
 """
 
-from abc import ABC, abstractmethod
-from typing import Protocol, runtime_checkable, List, Dict, Any
+from abc import ABC
+from typing import Any, Dict, List, Protocol, runtime_checkable
 
 from .entities import (
+    AgentConfiguration,
+    AgentExecutionState,
     AgentRequest,
     AgentResponse,
-    AgentConfiguration,
-    ExecutionContext,
-    AgentExecutionState,
     BookRecommendation,
+    ExecutionContext,
 )
 
 
@@ -79,4 +79,3 @@ class ResultProcessor(Protocol):
     def extract_citations(self, state: AgentExecutionState) -> List[Dict[str, Any]]:
         """Extract citations from execution state."""
         ...
-

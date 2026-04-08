@@ -7,13 +7,13 @@ pre-selected candidate pool (8-12 books), simulating the output of SelectionAgen
 Genre filtering and negative constraint filtering are tested in evaluate_selection.py.
 """
 
+import argparse
+import asyncio
 import re
 import sys
-import asyncio
-import argparse
-from pathlib import Path
 from datetime import datetime
-from typing import Dict, List, Any
+from pathlib import Path
+from typing import Any, Dict, List
 
 ROOT = Path(__file__).resolve().parents[3]
 sys.path.insert(0, str(ROOT))
@@ -22,26 +22,27 @@ from app.agents.logging import suppress_noisy_loggers
 
 suppress_noisy_loggers()
 
-from app.agents.infrastructure.recsys.curation_agent import CurationAgent
 from app.agents.domain.entities import AgentRequest, BookRecommendation
+from app.agents.infrastructure.recsys.curation_agent import CurationAgent
 from app.database import SessionLocal
 
 eval_dir = Path(__file__).parent
 sys.path.insert(0, str(eval_dir))
 
-from shared_helpers import (
-    get_user_by_id,
-    validate_query,
-    load_test_cases,
-    print_results,
-    save_results,
-)
 from llm_judges import (
     llm_judge_personalization_prose,
     llm_judge_prose_reasoning,
     llm_judge_query_relevance,
 )
+from shared_helpers import (
+    get_user_by_id,
+    load_test_cases,
+    print_results,
+    save_results,
+    validate_query,
+)
 from test_data_factory import get_candidates, get_execution_context
+
 from evaluation.chatbot.eval_utils import execute_with_streaming
 
 # Regex matching the agent's citation format: [Book Title](item_idx)
@@ -476,7 +477,7 @@ Examples:
             cat: curation_categories[cat] for cat in args.categories if cat in curation_categories
         }
         if not test_cases:
-            print(f"\nERROR: None of the specified categories found")
+            print("\nERROR: None of the specified categories found")
             print(f"Available curation categories: {', '.join(curation_categories.keys())}")
             sys.exit(1)
     else:

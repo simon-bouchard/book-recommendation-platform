@@ -5,10 +5,10 @@ Provides test users with different rating states (warm/cold/new) and profile con
 """
 
 import pytest
+from sqlalchemy import exists, func, select
 from sqlalchemy.orm import Session
-from sqlalchemy import func, exists, select
 
-from app.table_models import User, Interaction, UserFavSubject
+from app.table_models import Interaction, User, UserFavSubject
 
 
 @pytest.fixture

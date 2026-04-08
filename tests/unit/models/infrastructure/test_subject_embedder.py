@@ -4,12 +4,13 @@ Unit tests for SubjectEmbedder infrastructure component.
 Tests singleton pattern, injection, embedding computation, and batch processing.
 """
 
-import pytest
-import numpy as np
-import torch
 import sys
 from pathlib import Path
 from unittest.mock import Mock
+
+import numpy as np
+import pytest
+import torch
 
 project_root = Path(__file__).resolve().parents[4]
 if str(project_root) not in sys.path:

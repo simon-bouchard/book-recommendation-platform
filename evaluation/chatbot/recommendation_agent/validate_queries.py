@@ -10,8 +10,8 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[3]
 sys.path.insert(0, str(ROOT))
 
+from app.agents.tools.registry import InternalToolGates, ToolRegistry
 from app.database import SessionLocal
-from app.agents.tools.registry import ToolRegistry, InternalToolGates
 
 
 def create_test_registry(db):

@@ -5,7 +5,7 @@ Popularity scorer for fallback and cold-start candidate generation.
 Owns the raw Bayesian scores array and exposes a simple top-k retrieval.
 """
 
-from typing import Optional, List, Tuple
+from typing import List, Optional, Tuple
 
 import numpy as np
 

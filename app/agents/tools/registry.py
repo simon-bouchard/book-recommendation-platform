@@ -5,12 +5,12 @@ No LangChain dependencies - clean separation of concerns.
 """
 
 from dataclasses import dataclass
-from typing import Optional, Any, Callable
+from typing import Any, Callable, Optional
 
 from sqlalchemy.orm import Session
 
-from .external.web_tools import WebTools, WebToolState
 from .docs_tools import DocsTools
+from .external.web_tools import WebTools
 from .recsys.native_tools import InternalTools
 
 

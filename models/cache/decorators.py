@@ -82,9 +82,7 @@ def cached_recommendations(func: Callable) -> Callable:
     """
 
     @wraps(func)
-    async def wrapper(
-        user: str, _id: bool, top_n: int, mode: str, w: float, **kwargs
-    ):
+    async def wrapper(user: str, _id: bool, top_n: int, mode: str, w: float, **kwargs):
         client = await get_redis_client()
 
         if not client.available:
@@ -125,6 +123,7 @@ def cached_recommendations(func: Callable) -> Callable:
 
         serialized = serialize(result)
         if serialized is not None:
+
             async def _write_cache():
                 success = await client.set(cache_key, serialized, RECOMMENDATION_TTL)
                 if success:

@@ -8,11 +8,10 @@ etc.) live in tests/integration/models/data/test_loaders.py since they require
 real artifact files on disk.
 """
 
-import pytest
 import numpy as np
+import pytest
 
-from models.data.loaders import normalize_embeddings, get_item_idx_to_row
-from models.data.loaders import load_attention_strategy
+from models.data.loaders import get_item_idx_to_row, load_attention_strategy, normalize_embeddings
 
 
 class TestHelperFunctions:

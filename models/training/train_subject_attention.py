@@ -1,7 +1,8 @@
 import os
+from typing import Literal, Tuple
+
 import torch
 import torch.nn as nn
-from typing import Tuple, Literal
 
 # Import the shared PAD index used across the repo
 from models.core.constants import PAD_IDX

@@ -9,13 +9,14 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent.parent.parent.parent))
 
-from sqlalchemy import func, desc
-from sqlalchemy.orm import Session
-from app.database import SessionLocal
-from app.table_models import User, Book, Interaction, UserFavSubject
-from models.infrastructure.als_model import ALSModel
-from models.data.loaders import load_als_factors
 import json
+
+from sqlalchemy import desc, func
+from sqlalchemy.orm import Session
+
+from app.database import SessionLocal
+from app.table_models import Book, Interaction, UserFavSubject
+from models.data.loaders import load_als_factors
 
 
 def find_warm_users(db: Session, limit: int = 10) -> list[int]:

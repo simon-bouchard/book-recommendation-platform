@@ -6,11 +6,11 @@ Scans result directories and provides a comprehensive summary with pass rates an
 
 import argparse
 import json
-from pathlib import Path
-from datetime import datetime
-from typing import Dict, List, Optional, Tuple
-from dataclasses import dataclass
 from collections import defaultdict
+from dataclasses import dataclass
+from datetime import datetime
+from pathlib import Path
+from typing import Dict, List, Optional, Tuple
 
 
 @dataclass
@@ -205,7 +205,7 @@ class EvalDashboard:
 
         # Category breakdown
         if result.category_stats:
-            print(f"\n📁 Category Breakdown:")
+            print("\n📁 Category Breakdown:")
             for category, stats in sorted(result.category_stats.items()):
                 if isinstance(stats, dict):
                     # Handle different stat formats
@@ -236,8 +236,8 @@ class EvalDashboard:
 
         # Check-level statistics (recommendation agent)
         if result.check_stats:
-            print(f"\n🔍 Check-Level Statistics (Quality Dimensions):")
-            print(f"   Shows which specific quality checks are systematically failing\n")
+            print("\n🔍 Check-Level Statistics (Quality Dimensions):")
+            print("   Shows which specific quality checks are systematically failing\n")
 
             # Sort by pass rate (worst first) to highlight problems
             sorted_checks = sorted(result.check_stats.items(), key=lambda x: x[1]["pass_rate"])
@@ -268,7 +268,7 @@ class EvalDashboard:
 
         # Query-level statistics (recommendation agent)
         if result.query_stats:
-            print(f"\n📊 Query-Level Statistics (Pipeline Health):")
+            print("\n📊 Query-Level Statistics (Pipeline Health):")
             qstats = result.query_stats
             perfect_rate = qstats["perfect_rate"]
 
@@ -286,7 +286,7 @@ class EvalDashboard:
 
         # Additional metrics (for specific agents)
         if "retrieval_pass_rate" in result.overall_stats:
-            print(f"\n📚 Retrieval Metrics:")
+            print("\n📚 Retrieval Metrics:")
             print(
                 f"   Retrieval Pass Rate: {self.format_percentage(result.overall_stats['retrieval_pass_rate'])}"
             )
@@ -298,7 +298,7 @@ class EvalDashboard:
             )
 
         if "tool_pass_rate" in result.overall_stats:
-            print(f"\n🔧 Tool Usage Metrics:")
+            print("\n🔧 Tool Usage Metrics:")
             print(
                 f"   Tool Pass Rate:    {self.format_percentage(result.overall_stats['tool_pass_rate'])}"
             )
@@ -412,7 +412,7 @@ class EvalDashboard:
             if len(result.failed_tests) > 10:
                 print(f"\n      ... and {len(result.failed_tests) - 10} more failed tests")
         else:
-            print(f"\n✅ All tests passed!")
+            print("\n✅ All tests passed!")
 
     def print_summary_table(
         self, results: Dict[str, Tuple[Optional[AgentResult], Optional[AgentResult]]]
@@ -463,7 +463,7 @@ class EvalDashboard:
         if needs_work:
             print(f"   🟡 Needs Improvement: {', '.join(needs_work)}")
         if not critical and not needs_work:
-            print(f"   🟢 All agents performing well!")
+            print("   🟢 All agents performing well!")
 
         print()
 

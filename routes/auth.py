@@ -1,14 +1,16 @@
-import jwt
 import os
 from datetime import datetime, timedelta
-from fastapi import APIRouter, Depends, Cookie, status
+
+import jwt
+from dotenv import load_dotenv
+from fastapi import APIRouter, Cookie, Depends, status
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel
-from dotenv import load_dotenv
 from sqlalchemy.orm import Session
+
 from app.database import get_db
 from app.models import hash_password, verify_password
-from app.table_models import User, Subject, UserFavSubject
+from app.table_models import Subject, User, UserFavSubject
 
 load_dotenv()
 
@@ -42,7 +44,6 @@ async def get_current_user(access_token: str = Cookie(None), db: Session = Depen
         return None
 
     return None
-
 
 
 class LoginBody(BaseModel):

@@ -104,6 +104,7 @@ def _print_stats_table(results: dict, title: str, key: str | None = None) -> Non
 
     # Group names by category, preserving insertion order within each category.
     from collections import defaultdict
+
     buckets: dict[str, list[str]] = defaultdict(list)
     for name in sorted(results):
         buckets[_classify(name)].append(name)
@@ -179,6 +180,7 @@ def _print_comparison_section(
     print(separator)
 
     from collections import defaultdict
+
     all_keys = sorted(results_a.keys() | results_b.keys())
     buckets: dict[str, list[str]] = defaultdict(list)
     for name in all_keys:
@@ -231,7 +233,7 @@ def print_comparison(data_a: dict, path_a: Path, data_b: dict, path_b: Path) -> 
     results_a = data_a.get("results", {})
     results_b = data_b.get("results", {})
 
-    print(f"\nComparing:")
+    print("\nComparing:")
     print(f"  A: {path_a.name}  ({data_a.get('timestamp', '?')})")
     print(f"  B: {path_b.name}  ({data_b.get('timestamp', '?')})")
 

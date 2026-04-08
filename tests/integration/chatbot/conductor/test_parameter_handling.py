@@ -5,6 +5,7 @@ Validates that user_num_ratings, use_profile, and optional parameters work corre
 """
 
 import pytest
+
 from app.agents.schemas import AgentResult
 
 pytestmark = pytest.mark.asyncio

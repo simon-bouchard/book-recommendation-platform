@@ -4,20 +4,20 @@ Response Agent evaluation - Simple test to verify it works.
 Tests basic conversational queries with LLM-as-judge.
 """
 
-import json
 import asyncio
-from pathlib import Path
-from typing import Dict, List, Any
-from datetime import datetime
+import json
 import sys
+from datetime import datetime
+from pathlib import Path
+from typing import Any, Dict, List
 
 ROOT = Path(__file__).resolve().parents[3]
 sys.path.insert(0, str(ROOT))
 
-from app.agents.infrastructure.response_agent import ResponseAgent
 from app.agents.domain.entities import AgentRequest, ExecutionContext
-from app.agents.settings import get_llm
+from app.agents.infrastructure.response_agent import ResponseAgent
 from app.agents.logging import capture_agent_console_and_httpx
+from app.agents.settings import get_llm
 
 # Import shared streaming helper
 from evaluation.chatbot.eval_utils import execute_with_streaming
@@ -215,10 +215,10 @@ async def async_main():
         # Quick health check
         print("Testing LLM connection...")
         with capture_agent_console_and_httpx():
-            test_response = judge_llm.invoke([{"role": "user", "content": "Say 'OK'"}])
+            judge_llm.invoke([{"role": "user", "content": "Say 'OK'"}])
         print("✓ LLM connection successful\n")
     except Exception as e:
-        print(f"\n❌ ERROR: Failed to initialize LLM")
+        print("\n❌ ERROR: Failed to initialize LLM")
         print(f"   {str(e)}")
         print("\nPossible issues:")
         print("- Missing or invalid API key")

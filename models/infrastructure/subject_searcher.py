@@ -8,11 +8,11 @@ at index build time; query vectors are normalized before search so that
 inner product equals cosine similarity.
 """
 
-from pathlib import Path
 import json
+from pathlib import Path
 
-import numpy as np
 import faiss
+import numpy as np
 
 
 class SubjectSearcher:
@@ -35,10 +35,12 @@ class SubjectSearcher:
                 continue
             subject_idx = int(self.ids[idx])
             entry = self._names.get(str(subject_idx), {})
-            results.append({
-                "subject_idx": subject_idx,
-                "subject_name": entry.get("name", ""),
-                "count": entry.get("count", 0),
-                "score": float(score),
-            })
+            results.append(
+                {
+                    "subject_idx": subject_idx,
+                    "subject_name": entry.get("name", ""),
+                    "count": entry.get("count", 0),
+                    "score": float(score),
+                }
+            )
         return results

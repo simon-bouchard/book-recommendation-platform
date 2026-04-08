@@ -9,7 +9,6 @@ from typing import Optional
 from models.core.paths import PATHS
 from models.infrastructure.similarity_index import SimilarityIndex
 
-
 _subject_index: Optional[SimilarityIndex] = None
 _als_index: Optional[SimilarityIndex] = None
 

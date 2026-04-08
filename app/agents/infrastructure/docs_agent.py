@@ -4,11 +4,11 @@ Documentation search agent using BaseLangGraphAgent.
 Searches internal help documentation and returns formatted answers.
 """
 
+from app.agents.domain.entities import AgentCapability, AgentConfiguration
 from app.agents.infrastructure.base_langgraph_agent import BaseLangGraphAgent
-from app.agents.domain.entities import AgentConfiguration, AgentCapability
 from app.agents.prompts.loader import read_prompt
-from app.agents.tools.registry import ToolRegistry, InternalToolGates
 from app.agents.tools.docs_tools import DocsTools
+from app.agents.tools.registry import InternalToolGates, ToolRegistry
 
 
 class DocsAgent(BaseLangGraphAgent):

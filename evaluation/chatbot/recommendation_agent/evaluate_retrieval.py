@@ -28,21 +28,20 @@ planner's responsibility. We only validate that the retrieval agent properly
 executes whatever strategy it receives.
 """
 
-import sys
 import asyncio
-from pathlib import Path
-from typing import Dict, List, Any
+import sys
 from datetime import datetime
-import json
+from pathlib import Path
+from typing import Any, Dict, List
 
 # Add project root to path
 ROOT = Path(__file__).resolve().parents[3]
 sys.path.insert(0, str(ROOT))
 
-from app.database import SessionLocal
+from app.agents.domain.recsys_schemas import PlannerStrategy, RetrievalInput
 from app.agents.infrastructure.recsys.retrieval_agent import RetrievalAgent
-from app.agents.domain.recsys_schemas import RetrievalInput, PlannerStrategy
 from app.agents.logging import suppress_noisy_loggers
+from app.database import SessionLocal
 
 suppress_noisy_loggers()
 
@@ -51,13 +50,12 @@ eval_dir = Path(__file__).parent
 sys.path.insert(0, str(eval_dir))
 
 from shared_helpers import (
-    load_test_cases,
     get_user_by_id,
-    validate_query,
+    load_test_cases,
     print_results,
     save_results,
+    validate_query,
 )
-
 
 # ============================================================================
 # VALIDATION HELPERS
@@ -172,7 +170,7 @@ async def evaluate_retrieval_case(test: Dict[str, Any], db) -> Dict[str, Any]:
     user_state = test.get("user_state", {})
     expected_tools = test.get("expected_tools", {})
     expected_output = test.get("expected_output", {})
-    strategy_scenario = test.get("strategy_scenario", "basic")
+    test.get("strategy_scenario", "basic")
 
     # Build result structure
     result = {
@@ -265,7 +263,7 @@ async def evaluate_retrieval_case(test: Dict[str, Any], db) -> Dict[str, Any]:
             }
             print(f"DEBUG: Check created - passed={used_recommended}")
         else:
-            print(f"DEBUG: Check NOT created - recommended_tools is empty")
+            print("DEBUG: Check NOT created - recommended_tools is empty")
 
         # Check 1: Minimum candidate count
         if "min_candidates" in expected_output:
@@ -487,7 +485,7 @@ async def evaluate_retrieval_tests(test_cases: Dict[str, List[Dict]]) -> Dict[st
                                 sem_check = result["evaluation"]["checks"]["semantic_query_format"]
                                 if sem_check.get("is_raw_user_query"):
                                     print(
-                                        f"      → Used raw user query instead of structured format"
+                                        "      → Used raw user query instead of structured format"
                                     )
                                 else:
                                     print(

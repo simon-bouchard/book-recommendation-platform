@@ -5,32 +5,32 @@ Streaming-first execution with independent per-stage fallback recovery.
 """
 
 import asyncio
-from typing import Optional, Any, AsyncGenerator, List
 import time
+from typing import Any, AsyncGenerator, List, Optional
 
 from app.agents.domain.entities import (
-    AgentRequest,
-    AgentConfiguration,
     AgentCapability,
+    AgentConfiguration,
+    AgentRequest,
     BookRecommendation,
 )
+from app.agents.domain.interfaces import BaseAgent
 from app.agents.domain.recsys_schemas import (
+    ExecutionContext,
     PlannerInput,
     PlannerStrategy,
     RetrievalInput,
     RetrievalOutput,
-    ExecutionContext,
 )
-from app.agents.domain.interfaces import BaseAgent
 from app.agents.domain.services import StandardResultProcessor
-from app.agents.schemas import StreamChunk
-from app.agents.tools.registry import ToolRegistry, InternalToolGates
 from app.agents.logging import append_chatbot_log
+from app.agents.schemas import StreamChunk
+from app.agents.tools.registry import InternalToolGates, ToolRegistry
 
+from .curation_agent import CurationAgent
 from .planner_agent import PlannerAgent
 from .retrieval_agent import RetrievalAgent
 from .selection_agent import SelectionAgent
-from .curation_agent import CurationAgent
 
 
 class RecommendationAgent(BaseAgent):

@@ -1,32 +1,31 @@
-from fastapi import (
-    APIRouter,
-    HTTPException,
-    Request,
-    Depends,
-    status,
-    Body,
-    Query,
-)
-from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
-from fastapi.templating import Jinja2Templates
-from dotenv import load_dotenv
-
 from datetime import datetime
-from sqlalchemy import func, desc, case
-from sqlalchemy.orm import Session
 from typing import List, Optional, Union
 
-from metrics import RATING_ACTIONS
-from routes.auth import get_current_user
-from app.database import get_db
-from app.table_models import Book, User, Interaction, Subject, UserFavSubject
-from app.models import get_all_subject_counts, clean_float_values
-from app.search.search_utils import update_book_ratings_in_meili
-from app.search.models import SearchRequest, SearchMode
-from app.search.engine import SearchEngine
-from app.search.search_utils import _build_search_request
-from models.client.registry import get_als_client, get_similarity_client
+from dotenv import load_dotenv
+from fastapi import (
+    APIRouter,
+    Body,
+    Depends,
+    HTTPException,
+    Query,
+    Request,
+    status,
+)
+from fastapi.responses import HTMLResponse, RedirectResponse
+from fastapi.templating import Jinja2Templates
+from sqlalchemy import case, desc, func
+from sqlalchemy.orm import Session
+
 from app.agents.logging import get_logger
+from app.database import get_db
+from app.models import clean_float_values, get_all_subject_counts
+from app.search.engine import SearchEngine
+from app.search.models import SearchMode, SearchRequest
+from app.search.search_utils import _build_search_request, update_book_ratings_in_meili
+from app.table_models import Book, Interaction, Subject, User, UserFavSubject
+from metrics import RATING_ACTIONS
+from models.client.registry import get_als_client, get_similarity_client
+from routes.auth import get_current_user
 
 logger = get_logger(__name__)
 
@@ -75,7 +74,7 @@ def profile_page(
     num_books_read = counts.total
     num_ratings = counts.rated
 
-    user_data = {
+    {
         "id": current_user.user_id,
         "username": current_user.username,
         "email": current_user.email,
@@ -88,9 +87,7 @@ def profile_page(
         ],
     }
 
-    return templates.TemplateResponse(
-        "profile_shell.html", {"request": request}
-    )
+    return templates.TemplateResponse("profile_shell.html", {"request": request})
 
 
 @router.get("/profile/json")
@@ -379,9 +376,9 @@ def book_recommendation(
     subject_names = db.query(Subject.subject).filter(Subject.subject_idx.in_(subject_ids)).all()
     subjects = [s.subject for s in subject_names]
 
-    has_real_subjects = any(s != "[NO_SUBJECT]" for s in subjects)
+    any(s != "[NO_SUBJECT]" for s in subjects)
 
-    book_info = {
+    {
         "isbn": book.isbn,
         "item_idx": book.item_idx,
         "title": book.title,
@@ -396,7 +393,6 @@ def book_recommendation(
         "page": "book",
     }
 
-    user_rating = None
     if current_user:
         interaction = (
             db.query(Interaction)
@@ -406,7 +402,7 @@ def book_recommendation(
             .first()
         )
         if interaction and (interaction.rating is not None or interaction.comment):
-            user_rating = {"rating": interaction.rating, "comment": interaction.comment}
+            pass
 
     return templates.TemplateResponse(
         "book_shell.html",
@@ -446,7 +442,9 @@ def book_json(
     if current_user:
         interaction = (
             db.query(Interaction)
-            .filter(Interaction.user_id == current_user.user_id, Interaction.item_idx == book.item_idx)
+            .filter(
+                Interaction.user_id == current_user.user_id, Interaction.item_idx == book.item_idx
+            )
             .first()
         )
         if interaction and (interaction.rating is not None or interaction.comment):
@@ -534,10 +532,9 @@ def get_book_comments_paginated(
         )
 
     has_more = len(rows) > limit
-    next_cursor = None
     if has_more:
         last_inter, _ = rows[limit - 1]
-        next_cursor = int(last_inter.id)
+        int(last_inter.id)
 
     return {
         "items": items,
@@ -548,9 +545,7 @@ def get_book_comments_paginated(
 
 @router.get("/search", response_class=HTMLResponse)
 def search_books(request: Request):
-    return templates.TemplateResponse(
-        "search_shell.html", {"request": request, "page": "search"}
-    )
+    return templates.TemplateResponse("search_shell.html", {"request": request, "page": "search"})
 
 
 @router.get("/search/json")

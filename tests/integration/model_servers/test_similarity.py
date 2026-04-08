@@ -25,7 +25,6 @@ from ._utils import (
     TEST_BOOK_IDS,
     TEST_SUBJECT_INDICES,
     assert_scores_descending,
-    measure_latency,
     measure_latency_with_compute,
 )
 

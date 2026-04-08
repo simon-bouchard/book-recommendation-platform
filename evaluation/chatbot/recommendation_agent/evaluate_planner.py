@@ -4,11 +4,11 @@ Evaluation suite for PlannerAgent.
 Tests strategy selection, tool recommendations, and profile data handling.
 """
 
-import sys
-import asyncio
 import argparse
+import asyncio
+import sys
 from pathlib import Path
-from typing import Dict, List, Any
+from typing import Any, Dict, List
 
 # Add project root to path
 ROOT = Path(__file__).resolve().parents[3]
@@ -17,6 +17,7 @@ sys.path.insert(0, str(ROOT))
 # Suppress noisy HTTP client logs (httpcore, primp, rquest, etc)
 # Also suppress OpenAI client DEBUG logs (raw JSON payloads)
 import logging
+
 from app.agents.logging import suppress_noisy_loggers
 
 suppress_noisy_loggers()
@@ -25,8 +26,8 @@ suppress_noisy_loggers()
 logging.getLogger("openai").setLevel(logging.WARNING)
 logging.getLogger("httpx").setLevel(logging.WARNING)
 
-from app.agents.infrastructure.recsys.planner_agent import PlannerAgent
 from app.agents.domain.recsys_schemas import PlannerInput
+from app.agents.infrastructure.recsys.planner_agent import PlannerAgent
 from app.database import SessionLocal
 
 # Import shared helpers
@@ -34,12 +35,11 @@ eval_dir = Path(__file__).parent
 sys.path.insert(0, str(eval_dir))
 from shared_helpers import (
     get_user_by_id,
-    validate_query,
     load_test_cases,
     print_results,
     save_results,
+    validate_query,
 )
-
 
 # ============================================================================
 # PLANNER EVALUATION LOGIC
@@ -367,13 +367,13 @@ async def evaluate_planner_tests(test_cases: Dict[str, List[Dict]]) -> Dict[str,
                     print(f"  Fallback: {strategy['fallback_tools']}")
                     print(f"  Reasoning: {strategy['reasoning']}")
                     if strategy.get("has_profile_data"):
-                        print(f"  Profile: Available")
+                        print("  Profile: Available")
 
                 # Show pass/fail and any failures
                 if result["overall_pass"]:
-                    print(f"\n  ✅ PASS")
+                    print("\n  ✅ PASS")
                 else:
-                    print(f"\n  ❌ FAIL")
+                    print("\n  ❌ FAIL")
                     if "evaluation" in result and "checks" in result["evaluation"]:
                         for check_name, check in result["evaluation"]["checks"].items():
                             if not check.get("passed", False):

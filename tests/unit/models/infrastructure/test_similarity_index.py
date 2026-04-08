@@ -4,11 +4,12 @@ Unit tests for SimilarityIndex infrastructure component.
 Tests two-pool filtering system, FAISS search, and candidate filtering.
 """
 
-import pytest
-import numpy as np
-import pandas as pd
 import sys
 from pathlib import Path
+
+import numpy as np
+import pandas as pd
+import pytest
 
 project_root = Path(__file__).resolve().parents[4]
 if str(project_root) not in sys.path:

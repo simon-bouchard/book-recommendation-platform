@@ -4,10 +4,10 @@ Simple response agent using BaseLangGraphAgent.
 Handles conversational responses without any tool usage.
 """
 
+from app.agents.domain.entities import AgentCapability, AgentConfiguration
 from app.agents.infrastructure.base_langgraph_agent import BaseLangGraphAgent
-from app.agents.domain.entities import AgentConfiguration, AgentCapability
 from app.agents.prompts.loader import read_prompt
-from app.agents.tools.registry import ToolRegistry, InternalToolGates
+from app.agents.tools.registry import InternalToolGates, ToolRegistry
 
 
 class ResponseAgent(BaseLangGraphAgent):

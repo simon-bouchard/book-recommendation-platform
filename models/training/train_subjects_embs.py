@@ -3,33 +3,33 @@
 Supervised subject embedding training with configurable PAD_IDX.
 """
 
+import argparse
 import os
 import sys
-import argparse
 from pathlib import Path
 
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "../..")))
 
 import torch
-from torch.utils.data import random_split
-from fastai.learner import Learner
-from fastai.metrics import rmse, mae
 from fastai.data.core import DataLoaders
+from fastai.learner import Learner
 from fastai.losses import MSELossFlat
+from fastai.metrics import mae, rmse
 from fastai.optimizer import Adam
 from fastprogress.fastprogress import progress_bar
+from torch.utils.data import random_split
 
 progress_bar.NO_BAR = True
 
 device = "cuda" if torch.cuda.is_available() else "cpu"
 
+from models.core.paths import PATHS
 from models.training.data_loader import load_rows_and_dataset
+from models.training.metrics import record_training_metrics
 from models.training.train_subject_attention import (
     build_pooler_from_env,
     save_components,
 )
-from models.training.metrics import record_training_metrics
-from models.core.paths import PATHS
 
 REPO_ROOT = Path(__file__).parent.parent.parent
 OUT_DIR = PATHS.staging_dir / "attention"

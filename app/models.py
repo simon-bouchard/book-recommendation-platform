@@ -1,13 +1,15 @@
-import bcrypt
-from sqlalchemy.orm import Session
-from sqlalchemy import func
-from app.table_models import BookSubject, Subject
+import math
+import os
 from time import time
 from typing import Any, Dict, List
-import math
+
+import bcrypt
 from dotenv import load_dotenv
 from meilisearch import Client
-import os
+from sqlalchemy import func
+from sqlalchemy.orm import Session
+
+from app.table_models import BookSubject, Subject
 
 _subject_cache = []
 _last_subject_fetch = 0

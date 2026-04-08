@@ -5,8 +5,8 @@ Used for backend validation only - does not add fields to frontend responses.
 """
 
 import re
-from typing import List, Tuple
 from dataclasses import dataclass
+from typing import List, Tuple
 
 from .entities import BookRecommendation
 
@@ -117,13 +117,10 @@ class InlineReferenceParser:
         for book_id in referenced_ids:
             id_counts[book_id] = id_counts.get(book_id, 0) + 1
 
-        duplicates = {
-            book_id: count for book_id, count in id_counts.items() if count > 1
-        }
+        duplicates = {book_id: count for book_id, count in id_counts.items() if count > 1}
         if duplicates:
             warnings.append(
-                f"Duplicate book tags found: {duplicates} "
-                "(each book should be tagged at most once)"
+                f"Duplicate book tags found: {duplicates} (each book should be tagged at most once)"
             )
 
         # Check if too many books were tagged inline (guideline is 8-12)

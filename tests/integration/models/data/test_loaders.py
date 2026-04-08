@@ -13,6 +13,7 @@ import numpy as np
 import pandas as pd
 import pytest
 
+from models.core.paths import PATHS
 from models.data.loaders import (
     load_als_factors,
     load_attention_strategy,
@@ -21,7 +22,6 @@ from models.data.loaders import (
     load_book_subject_embeddings,
     load_user_meta,
 )
-from models.core.paths import PATHS
 
 
 class TestBookSubjectEmbeddings:

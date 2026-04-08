@@ -4,10 +4,11 @@ Unit tests for ALSModel infrastructure component.
 Tests singleton pattern, injection, recommendations, and factor retrieval.
 """
 
-import pytest
-import numpy as np
 import sys
 from pathlib import Path
+
+import numpy as np
+import pytest
 
 project_root = Path(__file__).resolve().parents[4]
 if str(project_root) not in sys.path:

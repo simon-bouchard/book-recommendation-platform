@@ -5,27 +5,13 @@ Provides mocked agents and a pre-wired Conductor for testing orchestration
 logic without any LLM calls.
 """
 
+from unittest.mock import AsyncMock, Mock
+
 import pytest
-from unittest.mock import Mock, AsyncMock
-from typing import List
 
-from app.agents.schemas import AgentResult, StreamChunk, ToolCall
-
-from app.agents.domain.entities import (
-    AgentExecutionState,
-    ExecutionStatus,
-    ToolExecution,
-    BookRecommendation,
-)
+from app.agents.schemas import AgentResult, StreamChunk
 
 # Import shared recsys user fixtures
-from tests.integration.chatbot.recsys_fixtures import (
-    test_user_warm,
-    test_user_cold,
-    test_user_new,
-    test_user_with_profile,
-    get_user_rating_count,
-)
 
 # ---------------------------------------------------------------------------
 # Async generator mock

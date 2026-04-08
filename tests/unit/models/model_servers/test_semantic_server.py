@@ -33,7 +33,6 @@ from tests.unit.models.model_servers.conftest import (
     make_test_client,
 )
 
-
 # ---------------------------------------------------------------------------
 # Fixtures
 # ---------------------------------------------------------------------------
@@ -111,18 +110,14 @@ class TestHealth:
 
 
 class TestSemanticSearch:
-    def test_returns_ordered_results(
-        self, client: TestClient, mock_searcher: MagicMock
-    ) -> None:
+    def test_returns_ordered_results(self, client: TestClient, mock_searcher: MagicMock) -> None:
         mock_searcher.search.return_value = [
             {"item_idx": 10, "score": 0.9},
             {"item_idx": 20, "score": 0.7},
             {"item_idx": 30, "score": 0.5},
         ]
 
-        response = client.post(
-            "/semantic_search", json={"query": "cozy mysteries", "top_k": 3}
-        )
+        response = client.post("/semantic_search", json={"query": "cozy mysteries", "top_k": 3})
 
         assert response.status_code == 200
         assert_scored_items(response.json()["results"], [(10, 0.9), (20, 0.7), (30, 0.5)])
@@ -136,9 +131,7 @@ class TestSemanticSearch:
 
         mock_searcher.search.assert_called_once_with(query="fantasy epics", top_k=25)
 
-    def test_default_top_k_is_10(
-        self, client: TestClient, mock_searcher: MagicMock
-    ) -> None:
+    def test_default_top_k_is_10(self, client: TestClient, mock_searcher: MagicMock) -> None:
         mock_searcher.search.return_value = []
 
         client.post("/semantic_search", json={"query": "romance"})
@@ -150,9 +143,7 @@ class TestSemanticSearch:
     ) -> None:
         mock_searcher.search.return_value = []
 
-        response = client.post(
-            "/semantic_search", json={"query": "very obscure topic", "top_k": 5}
-        )
+        response = client.post("/semantic_search", json={"query": "very obscure topic", "top_k": 5})
 
         assert response.status_code == 200
         assert response.json()["results"] == []
@@ -162,57 +153,41 @@ class TestSemanticSearch:
     ) -> None:
         mock_searcher.search.side_effect = RuntimeError("FAISS error")
 
-        response = client.post(
-            "/semantic_search", json={"query": "science fiction", "top_k": 10}
-        )
+        response = client.post("/semantic_search", json={"query": "science fiction", "top_k": 10})
 
         assert response.status_code == 500
 
     def test_503_when_searcher_is_none(self, client: TestClient) -> None:
-        response = client.post(
-            "/semantic_search", json={"query": "science fiction", "top_k": 10}
-        )
+        response = client.post("/semantic_search", json={"query": "science fiction", "top_k": 10})
 
         assert response.status_code == 503
 
-    def test_missing_query_returns_422(
-        self, client: TestClient, mock_searcher: MagicMock
-    ) -> None:
+    def test_missing_query_returns_422(self, client: TestClient, mock_searcher: MagicMock) -> None:
         response = client.post("/semantic_search", json={"top_k": 10})
 
         assert response.status_code == 422
 
-    def test_empty_query_returns_422(
-        self, client: TestClient, mock_searcher: MagicMock
-    ) -> None:
+    def test_empty_query_returns_422(self, client: TestClient, mock_searcher: MagicMock) -> None:
         response = client.post("/semantic_search", json={"query": "", "top_k": 10})
 
         assert response.status_code == 422
 
-    def test_query_too_long_returns_422(
-        self, client: TestClient, mock_searcher: MagicMock
-    ) -> None:
-        response = client.post(
-            "/semantic_search", json={"query": "x" * 501, "top_k": 10}
-        )
+    def test_query_too_long_returns_422(self, client: TestClient, mock_searcher: MagicMock) -> None:
+        response = client.post("/semantic_search", json={"query": "x" * 501, "top_k": 10})
 
         assert response.status_code == 422
 
     def test_top_k_below_minimum_returns_422(
         self, client: TestClient, mock_searcher: MagicMock
     ) -> None:
-        response = client.post(
-            "/semantic_search", json={"query": "mystery", "top_k": 0}
-        )
+        response = client.post("/semantic_search", json={"query": "mystery", "top_k": 0})
 
         assert response.status_code == 422
 
     def test_top_k_above_maximum_returns_422(
         self, client: TestClient, mock_searcher: MagicMock
     ) -> None:
-        response = client.post(
-            "/semantic_search", json={"query": "mystery", "top_k": 501}
-        )
+        response = client.post("/semantic_search", json={"query": "mystery", "top_k": 501})
 
         assert response.status_code == 422
 
@@ -221,9 +196,7 @@ class TestSemanticSearch:
     ) -> None:
         mock_searcher.search.return_value = []
 
-        response = client.post(
-            "/semantic_search", json={"query": "mystery", "top_k": 500}
-        )
+        response = client.post("/semantic_search", json={"query": "mystery", "top_k": 500})
 
         assert response.status_code == 200
 
@@ -232,8 +205,6 @@ class TestSemanticSearch:
     ) -> None:
         mock_searcher.search.return_value = []
 
-        response = client.post(
-            "/semantic_search", json={"query": "mystery", "top_k": 1}
-        )
+        response = client.post("/semantic_search", json={"query": "mystery", "top_k": 1})
 
         assert response.status_code == 200

@@ -38,11 +38,11 @@ Find worker PIDs with: ps aux | grep gunicorn
 
 import random
 
-from locust import HttpUser, between, constant, task
+from locust import HttpUser, constant, task
 
 from tests.load.models._constants import (
-    COLD_WITHOUT_SUBJECTS_USER_IDS,
     COLD_WITH_SUBJECTS_USER_IDS,
+    COLD_WITHOUT_SUBJECTS_USER_IDS,
     TEST_BOOK_IDS,
     WARM_USER_IDS,
 )

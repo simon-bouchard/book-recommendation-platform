@@ -6,8 +6,8 @@ User domain model representing a user with their preferences and status.
 from dataclasses import dataclass
 from typing import Optional
 
-from models.core.constants import PAD_IDX
 from models.client.registry import get_als_client
+from models.core.constants import PAD_IDX
 
 
 @dataclass

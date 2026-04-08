@@ -9,14 +9,13 @@ This script:
 4. Creates detailed migration report
 """
 
-import sys
-import os
 import hashlib
-import shutil
 import json
-from pathlib import Path
+import shutil
+import sys
 from datetime import datetime
-from typing import Dict, List, Tuple, Optional
+from pathlib import Path
+from typing import Dict, List, Tuple
 
 # Add project root to path
 PROJECT_ROOT = Path(__file__).resolve().parent.parent.parent

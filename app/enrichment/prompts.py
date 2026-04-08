@@ -2,6 +2,7 @@
 """
 Prompt templates for enrichment.
 """
+
 import json
 
 SYSTEM = """You are a book metadata enrichment assistant. Your task is to analyze book information and provide structured tags following exact specifications.
@@ -41,7 +42,6 @@ Generate comprehensive enrichment with high specificity:
 - vibe: EXACTLY 8-12 words - a distinctive descriptive phrase
 
 Focus on specificity and uniqueness. Make the vibe memorable and distinctive.""",
-    
     "SPARSE": """**SPARSE TIER** (Limited but usable metadata)
 Generate focused enrichment - balance specificity with confidence:
 - subjects: 3-8 subjects (prefer specific over generic, but don't speculate)
@@ -50,7 +50,6 @@ Generate focused enrichment - balance specificity with confidence:
 - vibe: EXACTLY 4-8 words if confident, empty string "" if uncertain
 
 Only use catalog subjects if they clearly fit.""",
-    
     "MINIMAL": """**MINIMAL TIER** (Limited metadata available)
 Generate basic enrichment - extreme conservatism required:
 - subjects: 1-3 obvious subjects only (explicitly mentioned or clear from title)
@@ -59,7 +58,6 @@ Generate basic enrichment - extreme conservatism required:
 - vibe: MUST be empty string "" (NO vibe for this tier)
 
 Do NOT infer or speculate. Only extract what's directly stated.""",
-    
     "BASIC": """**BASIC TIER** (Very sparse metadata)
 Genre classification only:
 - subjects: 0-1 subject (only if obvious from title, otherwise empty array [])
@@ -67,13 +65,14 @@ Genre classification only:
 - genre_id: exactly 1 genre ID
 - vibe: MUST be empty string "" (NO vibe for this tier)
 
-Primary goal: assign correct genre. Don't attempt to infer beyond what's explicit."""
+Primary goal: assign correct genre. Don't attempt to infer beyond what's explicit.""",
 }
 
 
 # ============================================================================
 # ONTOLOGY INSTRUCTIONS (updated for V2 and genre IDs)
 # ============================================================================
+
 
 def render_tone_instructions(tone_slugs: str, ontology_version: str = "v2") -> str:
     """Render tone selection instructions with ID mappings."""
@@ -112,7 +111,7 @@ Key mappings for common topics:
 • fashion/beauty/crafts/weddings → lifestyle
 • humor/joke collections → lifestyle
 
-**Critical:** Distinguish fiction from nonfiction carefully. 
+**Critical:** Distinguish fiction from nonfiction carefully.
 Introductions, translations, commentaries, study guides, primers → use nonfiction genre IDs (history, biography, etc.), NOT fiction genre IDs.
 
 Example: For a space opera → genre_id: 2
@@ -124,6 +123,7 @@ Example: For a biography → genre_id: 13"""
 # USER TEMPLATE (tier-aware with emphasis on vibe length)
 # ============================================================================
 
+
 def build_user_prompt(
     title: str,
     author: str,
@@ -132,34 +132,34 @@ def build_user_prompt(
     tier: str,
     tone_slugs: str,
     genre_id_slugs: str,
-    ontology_version: str = "v2"
+    ontology_version: str = "v2",
 ) -> str:
     """Build tier-specific user prompt with explicit ID requirements."""
-    
+
     # Format catalog subjects (limit to 15 for token efficiency)
     if ol_subjects:
         ol_str = ", ".join(ol_subjects[:15])
         if len(ol_subjects) > 15:
-            ol_str += f" (+{len(ol_subjects)-15} more)"
+            ol_str += f" (+{len(ol_subjects) - 15} more)"
         catalog_block = f"CATALOG SUBJECTS: {ol_str}"
     else:
         catalog_block = "CATALOG SUBJECTS: (none)"
-    
+
     # Get tier instruction
     tier_instr = TIER_INSTRUCTIONS.get(tier, TIER_INSTRUCTIONS["BASIC"])
-    
+
     # Build ontology sections
     tone_instr = render_tone_instructions(tone_slugs, ontology_version)
     genre_instr = render_genre_instructions(genre_id_slugs)
-    
+
     # Get vibe requirement text based on tier
     vibe_requirement = {
         "RICH": "vibe: EXACTLY 8-12 words (CRITICAL: count your words, vibes with <8 or >12 words will be rejected)",
-        "SPARSE": "vibe: EXACTLY 4-8 words if confident, empty string \"\" if uncertain (count your words)",
-        "MINIMAL": "vibe: MUST be empty string \"\" (no vibe for MINIMAL tier)",
-        "BASIC": "vibe: MUST be empty string \"\" (no vibe for BASIC tier)"
-    }.get(tier, "vibe: \"\"")
-    
+        "SPARSE": 'vibe: EXACTLY 4-8 words if confident, empty string "" if uncertain (count your words)',
+        "MINIMAL": 'vibe: MUST be empty string "" (no vibe for MINIMAL tier)',
+        "BASIC": 'vibe: MUST be empty string "" (no vibe for BASIC tier)',
+    }.get(tier, 'vibe: ""')
+
     prompt = f"""Book:
 TITLE: {title}
 AUTHOR: {author}
@@ -202,13 +202,14 @@ CRITICAL: Return ONLY the JSON object below. No explanations. No markdown. No ex
 
 Return JSON:
 {{"subjects": [...], "tone_ids": [11, 3, 14], "genre_id": 5, "vibe": "text or empty"}}"""
-    
+
     return prompt
 
 
 # ============================================================================
 # RETRY PROMPT (with feedback from validation failure)
 # ============================================================================
+
 
 def build_retry_prompt(
     title: str,
@@ -219,11 +220,11 @@ def build_retry_prompt(
     tone_slugs: str,
     genre_id_slugs: str,
     ontology_version: str,
-    feedback: dict
+    feedback: dict,
 ) -> str:
     """
     Build retry prompt with specific feedback about what went wrong.
-    
+
     Args:
         ... (same as build_user_prompt)
         feedback: Dict with:
@@ -232,30 +233,30 @@ def build_retry_prompt(
             - original_response: The JSON you returned last time
             - required_changes: Specific guidance on what to fix
     """
-    
+
     # Format catalog subjects
     if ol_subjects:
         ol_str = ", ".join(ol_subjects[:15])
         if len(ol_subjects) > 15:
-            ol_str += f" (+{len(ol_subjects)-15} more)"
+            ol_str += f" (+{len(ol_subjects) - 15} more)"
         catalog_block = f"CATALOG SUBJECTS: {ol_str}"
     else:
         catalog_block = "CATALOG SUBJECTS: (none)"
-    
+
     # Get tier instruction (simplified for retry)
     tier_instr = TIER_INSTRUCTIONS.get(tier, TIER_INSTRUCTIONS["BASIC"])
-    
+
     # Get vibe requirement
     vibe_requirement = {
         "RICH": "vibe: EXACTLY 8-12 words",
         "SPARSE": "vibe: EXACTLY 4-8 words OR empty string",
         "MINIMAL": "vibe: MUST be empty string",
-        "BASIC": "vibe: MUST be empty string"
-    }.get(tier, "vibe: \"\"")
-    
+        "BASIC": "vibe: MUST be empty string",
+    }.get(tier, 'vibe: ""')
+
     # Format original response
     original_json = json.dumps(feedback["original_response"], indent=2, ensure_ascii=False)
-    
+
     # Build error-specific feedback
     error_section = f"""
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -263,17 +264,17 @@ def build_retry_prompt(
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 Your previous response was rejected for this reason:
-{feedback['error_msg']}
+{feedback["error_msg"]}
 
 What you need to fix:
-{feedback['required_changes']}
+{feedback["required_changes"]}
 
 Your original response (that was rejected):
 {original_json}
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 """
-    
+
     prompt = f"""Book (RETRY ATTEMPT):
 TITLE: {title}
 AUTHOR: {author}
@@ -303,5 +304,5 @@ CRITICAL: Return ONLY the JSON object below. No explanations. No markdown. No ex
 
 Return corrected JSON:
 {{"subjects": [...], "tone_ids": [11, 3, 14], "genre_id": 5, "vibe": "corrected text or empty"}}"""
-    
+
     return prompt

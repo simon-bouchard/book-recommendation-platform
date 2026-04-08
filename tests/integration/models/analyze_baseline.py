@@ -118,7 +118,7 @@ class BaselineAnalyzer:
     def print_summary(self):
         """Prints formatted summary of baseline performance."""
         print("=" * 80)
-        print(f"PERFORMANCE BASELINE ANALYSIS")
+        print("PERFORMANCE BASELINE ANALYSIS")
         print("=" * 80)
         print(f"\nBaseline: {self.baseline_file.name}")
         print(f"Timestamp: {self.data.get('timestamp', 'unknown')}")
@@ -175,14 +175,14 @@ class BaselineAnalyzer:
             warm = stats_by_type["warm_cache"]
             overhead = cold.mean_ms - warm.mean_ms
             overhead_pct = (overhead / warm.mean_ms) * 100
-            print(f"\nCold Start Analysis:")
+            print("\nCold Start Analysis:")
             print(f"  First request: {cold.mean_ms:.2f}ms")
             print(f"  Cached request: {warm.mean_ms:.2f}ms")
             print(f"  Overhead: {overhead:.2f}ms ({overhead_pct:.1f}%)")
 
         if "concurrent_load" in stats_by_type:
             conc = stats_by_type["concurrent_load"]
-            print(f"\nConcurrency:")
+            print("\nConcurrency:")
             print(f"  Average latency under load: {conc.mean_ms:.2f}ms")
 
     def export_csv(self, output_file: Path):

@@ -8,10 +8,8 @@ between tests.
 """
 
 import pytest
-from pathlib import Path
 
-from models.core.paths import ModelPaths, _VERSIONED_SUBDIRS
-
+from models.core.paths import _VERSIONED_SUBDIRS, ModelPaths
 
 # ---------------------------------------------------------------------------
 # Fixtures

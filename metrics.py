@@ -13,7 +13,6 @@ from prometheus_client import (
 )
 from prometheus_fastapi_instrumentator import Instrumentator
 
-
 # ---------------------------------------------------------------------------
 # Custom metrics
 # Registered against the default REGISTRY. prometheus_client automatically

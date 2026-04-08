@@ -1,7 +1,9 @@
 # app/agents/schemas.py
 from __future__ import annotations
+
 from typing import Any, Dict, List, Literal, Optional
-from pydantic import BaseModel, Field, AliasChoices
+
+from pydantic import AliasChoices, BaseModel, Field
 
 SchemaVersion = Literal["v1"]
 Target = Literal["web", "docs", "recsys", "respond"]

@@ -8,20 +8,18 @@ read or written during the test run.
 """
 
 import json
-import pytest
 from pathlib import Path
 from typing import Optional
 
+import pytest
+
+from models.core.paths import PATHS
 from ops.training.evaluate_gate import (
-    PromotionDecision,
     _DEFAULT_RECALL_FLOOR,
     _DEFAULT_RECALL_MAX_REGRESSION,
     _extract_recall,
     evaluate,
 )
-from models.core import paths as paths_module
-from models.core.paths import PATHS
-
 
 # ---------------------------------------------------------------------------
 # Helpers

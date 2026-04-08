@@ -14,8 +14,6 @@ pandas row-access scaling is visible, not just fixed HTTP/serialization overhead
 
 from __future__ import annotations
 
-import pytest
-
 from models.client.metadata import MetadataClient
 
 from ._utils import TEST_BOOK_IDS, measure_latency

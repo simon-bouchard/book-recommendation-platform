@@ -47,9 +47,7 @@ class RecommendationService:
     def __init__(self):
         """Initialize recommendation service."""
 
-    async def recommend(
-        self, user: User, config: RecommendationConfig
-    ) -> List[RecommendedBook]:
+    async def recommend(self, user: User, config: RecommendationConfig) -> List[RecommendedBook]:
         """Generate personalized recommendations for a user."""
         with tracer.start_as_current_span("recommendation.service") as span:
             span.set_attribute("user.id", user.user_id)
@@ -76,9 +74,7 @@ class RecommendationService:
                     span.set_attribute("recommendation.result_count", 0)
                     return []
 
-                recommendations = await self._filter_and_enrich(
-                    candidates, user, config.k
-                )
+                recommendations = await self._filter_and_enrich(candidates, user, config.k)
 
                 span.set_attribute("recommendation.result_count", len(recommendations))
 
@@ -143,11 +139,13 @@ class RecommendationService:
                         avg_rating=book["avg_rating"],
                     )
                     for c in candidates
-                    if c.item_idx not in read_set
-                    and (book := meta.get(c.item_idx)) is not None
+                    if c.item_idx not in read_set and (book := meta.get(c.item_idx)) is not None
                 ][:k]
 
-                span.set_attribute("candidates.filtered_count", len(candidates) - len(read_set.intersection(set(item_ids))))
+                span.set_attribute(
+                    "candidates.filtered_count",
+                    len(candidates) - len(read_set.intersection(set(item_ids))),
+                )
                 span.set_attribute("recommendation.result_count", len(result))
                 return result
 

@@ -50,8 +50,8 @@ import httpx
 import pytest
 
 from tests.load.models._constants import (
-    COLD_WITHOUT_SUBJECTS_USER_IDS,
     COLD_WITH_SUBJECTS_USER_IDS,
+    COLD_WITHOUT_SUBJECTS_USER_IDS,
     SUSTAINED_DURATION_S,
     SUSTAINED_WORKERS,
     TEST_BOOK_IDS,

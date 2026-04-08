@@ -18,7 +18,7 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
-from ops.training.notify import notify, _EMAIL_TO, _SMTP_HOST, _SMTP_USER
+from ops.training.notify import _EMAIL_TO, _SMTP_HOST, _SMTP_USER, notify
 
 
 def main() -> None:

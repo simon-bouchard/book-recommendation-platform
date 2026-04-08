@@ -24,8 +24,7 @@ PROJECT_ROOT = Path(__file__).resolve().parent.parent.parent
 sys.path.insert(0, str(PROJECT_ROOT))
 
 from models.core.artifact_registry import VersionManifest, register_existing_version
-from models.core.paths import PATHS, _VERSIONED_SUBDIRS
-
+from models.core.paths import _VERSIONED_SUBDIRS, PATHS
 
 # ---------------------------------------------------------------------------
 # Data model
@@ -170,7 +169,7 @@ def _print_plan(plan: MigrationPlan) -> None:
         return
 
     print(f"  Version ID      : {plan.version_id}")
-    print(f"  Subdirs to copy :")
+    print("  Subdirs to copy :")
     for subdir, count in plan.flat_file_counts.items():
         print(f"    {subdir}/  ({count} file(s))")
     print(f"  Destination     : {PATHS.versions_dir / plan.version_id}/")
@@ -328,7 +327,7 @@ def execute_migration(plan: MigrationPlan, cleanup: bool) -> Optional[VersionMan
             print(f"Cleaned up temporary directory '{tmp_dir}'.")
 
     print()
-    print(f"Migration complete.")
+    print("Migration complete.")
     print(f"  Version ID   : {manifest.version_id}")
     print(f"  Created at   : {manifest.created_at}")
     print(f"  Artifacts    : {PATHS.versions_dir / manifest.version_id}")

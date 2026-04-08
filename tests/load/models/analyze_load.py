@@ -28,7 +28,6 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
-
 # ---------------------------------------------------------------------------
 # Key classification
 # Result keys: {scenario}_ramp_w{N}  |  {scenario}_sustained_w{N}

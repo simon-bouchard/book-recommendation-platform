@@ -8,13 +8,13 @@ Stage 3a of the recommendation pipeline: Planner -> Retrieval -> Selection -> Cu
 SelectionAgent receives 60-120 candidates and returns 6-30 validated, ranked IDs.
 """
 
-import sys
-import asyncio
 import argparse
-from pathlib import Path
-from datetime import datetime
+import asyncio
+import sys
 from collections import Counter
-from typing import Dict, List, Any
+from datetime import datetime
+from pathlib import Path
+from typing import Any, Dict, List
 
 ROOT = Path(__file__).resolve().parents[3]
 sys.path.insert(0, str(ROOT))
@@ -23,26 +23,25 @@ from app.agents.logging import suppress_noisy_loggers
 
 suppress_noisy_loggers()
 
-from app.agents.infrastructure.recsys.selection_agent import SelectionAgent
 from app.agents.domain.entities import AgentRequest, BookRecommendation
+from app.agents.infrastructure.recsys.selection_agent import SelectionAgent
 from app.database import SessionLocal
 
 eval_dir = Path(__file__).parent
 sys.path.insert(0, str(eval_dir))
 
-from shared_helpers import (
-    get_user_by_id,
-    validate_query,
-    load_test_cases,
-    print_results,
-    save_results,
-)
 from llm_judges import (
     llm_judge_genre_match,
     llm_judge_negative_constraint_filtering,
 )
+from shared_helpers import (
+    get_user_by_id,
+    load_test_cases,
+    print_results,
+    save_results,
+    validate_query,
+)
 from test_data_factory import get_candidates, get_execution_context
-
 
 # ============================================================================
 # STRUCTURAL CHECKS (deterministic, always run)
@@ -676,7 +675,7 @@ Examples:
             cat: selection_cases[cat] for cat in args.categories if cat in selection_cases
         }
         if not test_cases:
-            print(f"\nERROR: None of the specified categories found.")
+            print("\nERROR: None of the specified categories found.")
             print(f"Available selection categories: {', '.join(selection_cases.keys())}")
             sys.exit(1)
     else:

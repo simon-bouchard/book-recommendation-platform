@@ -1,16 +1,20 @@
 # app/search/adapters/meili.py
-from meilisearch import Client
 import os
+from typing import Any, Dict, List, Tuple
+
 from dotenv import load_dotenv
-from typing import List, Optional, Dict, Any, Tuple
-from ..models import SearchRequest, SearchResult, SearchMode
+from meilisearch import Client
+
+from ..models import SearchMode, SearchRequest, SearchResult
 from .base import SearchAdapter
+
 
 class MeiliSearchAdapter(SearchAdapter):
     """
     Optimized MeiliSearch adapter that pushes everything to Meili.
     No application-layer filtering/sorting/pagination.
     """
+
     def __init__(self):
         load_dotenv()
         self.client = Client("http://localhost:7700", os.getenv("MEILI_MASTER_KEY"))
@@ -21,7 +25,7 @@ class MeiliSearchAdapter(SearchAdapter):
             item_idx=hit.get("item_idx"),
             title=hit.get("title"),
             author=hit.get("author"),
-			isbn=hit.get('isbn'),
+            isbn=hit.get("isbn"),
             year=hit.get("year"),
             cover_id=hit.get("cover_id"),
             _score=hit.get("_rankingScore"),
@@ -80,35 +84,35 @@ class MeiliSearchAdapter(SearchAdapter):
         for hit in hits:
             formatted = hit.get("_formatted", hit)
             r = SearchResult(
-				item_idx=hit["item_idx"],
-				title=formatted.get("title", hit["title"]),
-				author=formatted.get("author", hit["author"]),
-				cover_id=hit.get("cover_id"),
-				year=hit.get("year"),
-				isbn=hit.get("isbn"),
-				_score=hit.get("_rankingScore"),
-				description_snippet=formatted.get("description") if use_formatted else None,
+                item_idx=hit["item_idx"],
+                title=formatted.get("title", hit["title"]),
+                author=formatted.get("author", hit["author"]),
+                cover_id=hit.get("cover_id"),
+                year=hit.get("year"),
+                isbn=hit.get("isbn"),
+                _score=hit.get("_rankingScore"),
+                description_snippet=formatted.get("description") if use_formatted else None,
             )
             results.append(r)
 
         return results, result.get("estimatedTotalHits", 0), result
-          
+
     def _build_meili_params(self, request: SearchRequest) -> dict:
         """Push ALL filtering/sorting/pagination to Meili"""
         params = {
             "limit": request.page_size,
             "offset": request.page * request.page_size,
         }
-        
+
         if request.sort:
             params["sort"] = [request.sort]  # Meili handles sorting
-            
+
         if request.filters:
             # Convert our simple filters to Meili filter syntax
             params["filter"] = self._build_meili_filter(request.filters)
-            
+
         return params
-    
+
     def _build_meili_filter(self, filters: Dict[str, Any]) -> List[str]:
         """Convert simple dict filters to Meili filter syntax"""
         filter_strings = []
@@ -122,12 +126,12 @@ class MeiliSearchAdapter(SearchAdapter):
         return filter_strings
 
     def is_available(self) -> bool:
-            try:
-                # Simple health check
-                self.client.health()
-                return True
-            except:
-                return False
+        try:
+            # Simple health check
+            self.client.health()
+            return True
+        except:
+            return False
 
     @property
     def mode(self) -> SearchMode:

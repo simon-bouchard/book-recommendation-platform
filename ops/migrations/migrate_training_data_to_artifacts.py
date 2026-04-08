@@ -17,7 +17,7 @@ import shutil
 import sys
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Dict, List, Optional
+from typing import List
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent.parent
 sys.path.insert(0, str(PROJECT_ROOT))
@@ -285,7 +285,7 @@ def _print_plan(plan: MigrationPlan) -> None:
             for v in plan.versions_to_migrate:
                 print(f"    {v}  ->  {_version_data_dir(v)}/")
         if plan.versions_already_done:
-            print(f"  Versions already done (will be skipped):")
+            print("  Versions already done (will be skipped):")
             for v in plan.versions_already_done:
                 print(f"    {v}")
 
@@ -296,7 +296,7 @@ def _print_plan(plan: MigrationPlan) -> None:
             f"  Sentinel          : {PATHS.staging_data_dir / _EXPORT_SENTINEL}  (will be written)"
         )
     else:
-        print(f"  Staging           : already populated, will be skipped")
+        print("  Staging           : already populated, will be skipped")
 
     if plan.warnings:
         print()

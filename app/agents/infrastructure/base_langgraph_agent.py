@@ -5,33 +5,31 @@ Replaces custom ReAct implementation with ~150 lines of clean, maintainable code
 """
 
 import threading
-from typing import List, Optional, AsyncGenerator, Dict, Any
 from abc import abstractmethod
-import asyncio
+from typing import Any, AsyncGenerator, Dict, List, Optional
 
 from langchain_core.messages import (
-    BaseMessage,
-    SystemMessage,
-    HumanMessage,
     AIMessage,
     AIMessageChunk,
+    BaseMessage,
+    HumanMessage,
+    SystemMessage,
 )
 from langgraph.prebuilt import create_react_agent
 
 from app.agents.domain.entities import (
     AgentConfiguration,
-    AgentRequest,
-    AgentResponse,
     AgentExecutionState,
+    AgentRequest,
     ExecutionStatus,
     ToolExecution,
 )
 from app.agents.domain.interfaces import BaseAgent
 from app.agents.domain.services import StandardResultProcessor
+from app.agents.logging import append_chatbot_log
+from app.agents.schemas import StreamChunk
 from app.agents.settings import get_llm
 from app.agents.tools.registry import ToolRegistry
-from app.agents.schemas import StreamChunk
-from app.agents.logging import append_chatbot_log
 
 
 class TimeoutException(Exception):

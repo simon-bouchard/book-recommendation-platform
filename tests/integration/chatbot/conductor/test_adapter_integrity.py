@@ -5,6 +5,7 @@ Validates that data survives TurnInput→AgentRequest and AgentResponse→AgentR
 """
 
 import pytest
+
 from app.agents.schemas import AgentResult
 
 pytestmark = pytest.mark.asyncio

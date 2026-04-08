@@ -5,16 +5,16 @@ Routes requests to appropriate agents and returns standardized results.
 """
 
 from __future__ import annotations
-from typing import Any, Optional, List, AsyncGenerator
-import time
-import asyncio
 
-from app.agents.schemas import AgentResult, TurnInput, Target, StreamChunk
-from app.agents.orchestrator.router import RouterLLM
-from app.agents.context_builder import make_router_input, make_branch_input
-from app.agents.infrastructure.agent_factory import AgentFactory
+import time
+from typing import Any, AsyncGenerator, List, Optional
+
+from app.agents.context_builder import make_branch_input, make_router_input
 from app.agents.infrastructure.agent_adapter import AgentAdapter
+from app.agents.infrastructure.agent_factory import AgentFactory
 from app.agents.logging import append_chatbot_log
+from app.agents.orchestrator.router import RouterLLM
+from app.agents.schemas import StreamChunk, Target, TurnInput
 
 
 class Conductor:
@@ -77,7 +77,7 @@ class Conductor:
 
         # Start logging
         append_chatbot_log(f"\n{'=' * 60}")
-        append_chatbot_log(f"CONDUCTOR STREAM START")
+        append_chatbot_log("CONDUCTOR STREAM START")
         append_chatbot_log(f"Query: {user_text}")
         append_chatbot_log(f"Profile: {use_profile}, Ratings: {user_num_ratings or 0}")
         append_chatbot_log(f"{'=' * 60}")
@@ -92,7 +92,7 @@ class Conductor:
                 reason = "forced"
                 append_chatbot_log(f"Routing: FORCED to {target}")
             else:
-                append_chatbot_log(f"Routing: Classifying...")
+                append_chatbot_log("Routing: Classifying...")
                 router_input: TurnInput = make_router_input(
                     history, user_text, k_user=router_k_user
                 )
@@ -131,11 +131,11 @@ class Conductor:
             request = self.adapter.turn_input_to_request(branch_input)
 
             # 5) Check if agent supports streaming
-            append_chatbot_log(f"Checking agent streaming support...")
+            append_chatbot_log("Checking agent streaming support...")
 
             if hasattr(agent, "execute_stream"):
                 # Agent supports streaming - pass through chunks
-                append_chatbot_log(f"Agent supports streaming, delegating...")
+                append_chatbot_log("Agent supports streaming, delegating...")
                 async for chunk in agent.execute_stream(request):
                     yield chunk
 

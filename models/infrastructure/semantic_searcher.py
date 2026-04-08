@@ -1,6 +1,7 @@
 from pathlib import Path
-import numpy as np
+
 import faiss
+import numpy as np
 
 
 class SemanticSearcher:

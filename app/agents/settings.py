@@ -1,10 +1,11 @@
 # app/agents/settings.py
-import os
-from pydantic_settings import BaseSettings, SettingsConfigDict
-from typing import Any, Dict, Optional
-from langchain_openai import ChatOpenAI
-import httpx
 import logging
+import os
+from typing import Any, Dict, Optional
+
+import httpx
+from langchain_openai import ChatOpenAI
+from pydantic_settings import BaseSettings, SettingsConfigDict
 
 logger = logging.getLogger(__name__)
 
@@ -49,6 +50,7 @@ settings = ChatSettings()
 
 
 # ---- LLM provider + factory ----
+
 
 def get_provider() -> Dict[str, Any]:
     """

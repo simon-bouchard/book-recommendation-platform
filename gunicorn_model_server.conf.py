@@ -115,4 +115,3 @@ def when_ready(server) -> None:  # noqa: ANN001
 def worker_exit(server, worker) -> None:  # noqa: ANN001
     """Log worker exits so abnormal terminations are visible in the log stream."""
     logger.info("Worker %s exited (pid %s)", worker.age, worker.pid)
-

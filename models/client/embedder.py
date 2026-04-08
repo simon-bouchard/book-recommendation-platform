@@ -7,9 +7,10 @@ from __future__ import annotations
 
 import os
 
-from model_servers._shared.contracts import EmbedRequest, EmbedResponse
-from models.client._base import BaseModelServerClient, _DEFAULT_TIMEOUT
 import httpx
+
+from model_servers._shared.contracts import EmbedRequest, EmbedResponse
+from models.client._base import _DEFAULT_TIMEOUT, BaseModelServerClient
 
 _DEFAULT_URL = "http://embedder:8001"
 

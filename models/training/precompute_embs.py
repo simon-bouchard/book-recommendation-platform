@@ -3,15 +3,16 @@
 Precompute book embeddings with configurable PAD_IDX.
 """
 
-import os
 import argparse
-import pandas as pd
 import json
-import torch
-import numpy as np
+import os
+import sys
 from collections import defaultdict
 from pathlib import Path
-import sys
+
+import numpy as np
+import pandas as pd
+import torch
 
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "../..")))
 

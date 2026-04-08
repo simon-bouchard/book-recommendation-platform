@@ -26,16 +26,17 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parents[3]))
 
-import httpx
 import json
+
+import httpx
 import orjson
 from fastapi.encoders import jsonable_encoder
 
 from model_servers._shared.contracts import (
     AlsRecsResponse,
     EmbedResponse,
-    SimResponse,
     ScoredItem,
+    SimResponse,
     SubjectRecsResponse,
 )
 
@@ -94,9 +95,13 @@ def bench_scored_item_response(n: int, k: int, model_cls) -> tuple[float, float]
 
     # Server: actual FastAPI path — jsonable_encoder() + json.dumps()
     server_pydantic = _mean_ms(
-        lambda: json.dumps(jsonable_encoder(
-            model_cls(results=[ScoredItem(item_idx=iid, score=s) for iid, s in zip(item_ids, scores)])
-        )),
+        lambda: json.dumps(
+            jsonable_encoder(
+                model_cls(
+                    results=[ScoredItem(item_idx=iid, score=s) for iid, s in zip(item_ids, scores)]
+                )
+            )
+        ),
         n,
     )
     # Server: raw orjson (ORJSONResponse path, bypasses jsonable_encoder entirely)
@@ -111,10 +116,10 @@ def bench_scored_item_response(n: int, k: int, model_cls) -> tuple[float, float]
 
 
 _SERVERS = {
-    "embedder":   8001,
+    "embedder": 8001,
     "similarity": 8002,
-    "als":        8003,
-    "metadata":   8004,
+    "als": 8003,
+    "metadata": 8004,
 }
 
 
@@ -148,7 +153,7 @@ async def bench_threadpool_dispatch(n: int) -> None:
             p50 = times[n // 2]
             p95 = times[int(n * 0.95)]
             p99 = times[int(n * 0.99)]
-            mn  = times[0]
+            mn = times[0]
             print(f"  {name:<16} {p50:>7.1f}ms {p95:>7.1f}ms {p99:>7.1f}ms {mn:>7.1f}ms")
         except Exception as e:
             print(f"  {name:<16} unreachable ({e})")
@@ -181,7 +186,9 @@ def main() -> None:
     parser = argparse.ArgumentParser(description="Benchmark Pydantic vs orjson serialization.")
     parser.add_argument("--n", type=int, default=_DEFAULT_N, help="Iterations per case")
     parser.add_argument("--embed-dim", type=int, default=128, help="Embedding vector dimension")
-    parser.add_argument("--http", action="store_true", help="Also benchmark threadpool dispatch via /health")
+    parser.add_argument(
+        "--http", action="store_true", help="Also benchmark threadpool dispatch via /health"
+    )
     args = parser.parse_args()
 
     n = args.n

@@ -5,18 +5,18 @@ Layer 1 (Deterministic): Document retrieval validation
 Layer 2 (LLM-as-judge): Answer quality with ground truth
 """
 
-import json
 import asyncio
-from pathlib import Path
-from typing import Dict, List, Any
-from datetime import datetime
+import json
 import sys
+from datetime import datetime
+from pathlib import Path
+from typing import Any, Dict, List
 
 ROOT = Path(__file__).resolve().parents[3]
 sys.path.insert(0, str(ROOT))
 
-from app.agents.infrastructure.docs_agent import DocsAgent
 from app.agents.domain.entities import AgentRequest, ExecutionContext
+from app.agents.infrastructure.docs_agent import DocsAgent
 from app.agents.logging import capture_agent_console_and_httpx
 
 # Import shared streaming helper
@@ -260,7 +260,7 @@ def print_results(eval_results: Dict[str, Any]):
     print(
         f"Layer 2 (Quality): {eval_results['quality_pass_rate']:.1%} (avg score: {eval_results['avg_quality_score']:.1f}/2.0)"
     )
-    print(f"\nNote: Quality pass threshold is ≥1/2 (either correct OR complete)")
+    print("\nNote: Quality pass threshold is ≥1/2 (either correct OR complete)")
 
     # Show each test
     print("\nTest Results:")
@@ -318,7 +318,7 @@ async def async_main():
         agent = DocsAgent()
         print("✓ Agent initialized successfully\n")
     except Exception as e:
-        print(f"\n❌ ERROR: Failed to initialize Docs Agent")
+        print("\n❌ ERROR: Failed to initialize Docs Agent")
         print(f"   {str(e)}")
         return
 

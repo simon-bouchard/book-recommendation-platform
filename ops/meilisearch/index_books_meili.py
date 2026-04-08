@@ -6,14 +6,14 @@ Uses new artifact loading infrastructure. Preserves original subject_ids
 while adding v2 enrichments (genres, tones, vibes, LLM subjects).
 """
 
-import sys
 import os
+import sys
 from pathlib import Path
+
 import pandas as pd
-import numpy as np
+from dotenv import load_dotenv
 from meilisearch import Client
 from sqlalchemy import text
-from dotenv import load_dotenv
 from tqdm import tqdm
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -21,10 +21,10 @@ sys.path.insert(0, str(ROOT))
 
 from app.database import SessionLocal
 from models.data.loaders import (
-    load_book_meta,
-    load_bayesian_scores,
-    load_book_subject_embeddings,
     get_item_idx_to_row,
+    load_bayesian_scores,
+    load_book_meta,
+    load_book_subject_embeddings,
 )
 
 load_dotenv()
@@ -37,31 +37,34 @@ BATCH_SIZE = 5000
 
 def configure_index():
     """Configure Meilisearch index settings."""
-    index.update_settings({
-        "searchableAttributes": [
-            "title", "author", "description",
-            "genre_slugs", "tone_slugs", "vibe_texts", "llm_subject_slugs"
-        ],
-        "filterableAttributes": [
-            "subject_ids",
-            "genre_slugs",
-            "tone_slugs",
-            "vibe_texts",
-            "llm_subject_slugs",
-            "year",
-            "tags_version"
-        ],
-        "sortableAttributes": [
-            "bayes_pop", "num_ratings", "avg_rating", "year"
-        ],
-        "rankingRules": ["words", "typo", "proximity", "attribute", "sort", "exactness"],
-        "faceting": {
-            "maxValuesPerFacet": 200000,
-            "sortFacetValuesBy": {
-                "subject_ids": "count"
-            }
+    index.update_settings(
+        {
+            "searchableAttributes": [
+                "title",
+                "author",
+                "description",
+                "genre_slugs",
+                "tone_slugs",
+                "vibe_texts",
+                "llm_subject_slugs",
+            ],
+            "filterableAttributes": [
+                "subject_ids",
+                "genre_slugs",
+                "tone_slugs",
+                "vibe_texts",
+                "llm_subject_slugs",
+                "year",
+                "tags_version",
+            ],
+            "sortableAttributes": ["bayes_pop", "num_ratings", "avg_rating", "year"],
+            "rankingRules": ["words", "typo", "proximity", "attribute", "sort", "exactness"],
+            "faceting": {
+                "maxValuesPerFacet": 200000,
+                "sortFacetValuesBy": {"subject_ids": "count"},
+            },
         }
-    })
+    )
     print("Meilisearch settings applied (subject_ids preserved)")
 
 
@@ -69,48 +72,70 @@ def fetch_all_data(db):
     """Fetch all book data and enrichments from database."""
     print("Bulk-fetching all data...")
 
-    books_df = pd.read_sql(text("""
-        SELECT 
+    books_df = pd.read_sql(
+        text("""
+        SELECT
             b.item_idx, b.title, b.description, b.year, b.cover_id, b.isbn,
             a.name AS author
         FROM books b
         LEFT JOIN authors a ON b.author_idx = a.author_idx
-    """), db.bind)
+    """),
+        db.bind,
+    )
 
     # Original subjects - never touch
-    subject_df = pd.read_sql(text("""
-        SELECT item_idx, subject_idx 
+    subject_df = pd.read_sql(
+        text("""
+        SELECT item_idx, subject_idx
         FROM book_subjects
-    """), db.bind)
+    """),
+        db.bind,
+    )
 
     # v2 enrichments only
-    genre_df = pd.read_sql(text("""
+    genre_df = pd.read_sql(
+        text("""
         SELECT bg.item_idx, g.slug AS genre_slug
         FROM book_genres bg
         JOIN genres g ON bg.genre_slug = g.slug AND bg.genre_ontology_version = g.ontology_version
         WHERE bg.tags_version = :version
-    """), db.bind, params={"version": TAGS_VERSION})
+    """),
+        db.bind,
+        params={"version": TAGS_VERSION},
+    )
 
-    tone_df = pd.read_sql(text("""
+    tone_df = pd.read_sql(
+        text("""
         SELECT bt.item_idx, t.slug AS tone_slug
         FROM book_tones bt
         JOIN tones t ON bt.tone_id = t.tone_id
         WHERE bt.tags_version = :version
-    """), db.bind, params={"version": TAGS_VERSION})
+    """),
+        db.bind,
+        params={"version": TAGS_VERSION},
+    )
 
-    vibe_df = pd.read_sql(text("""
+    vibe_df = pd.read_sql(
+        text("""
         SELECT bv.item_idx, v.text AS vibe_text
         FROM book_vibes bv
         JOIN vibes v ON bv.vibe_id = v.vibe_id
         WHERE bv.tags_version = :version
-    """), db.bind, params={"version": TAGS_VERSION})
+    """),
+        db.bind,
+        params={"version": TAGS_VERSION},
+    )
 
-    llm_subject_df = pd.read_sql(text("""
+    llm_subject_df = pd.read_sql(
+        text("""
         SELECT bl.item_idx, ls.subject AS llm_subject_slug
         FROM book_llm_subjects bl
         JOIN llm_subjects ls ON bl.llm_subject_idx = ls.llm_subject_idx
         WHERE bl.tags_version = :version
-    """), db.bind, params={"version": TAGS_VERSION})
+    """),
+        db.bind,
+        params={"version": TAGS_VERSION},
+    )
 
     return books_df, subject_df, genre_df, tone_df, vibe_df, llm_subject_df
 
@@ -136,9 +161,7 @@ def build_documents(books_df, subject_df, genre_df, tone_df, vibe_df, llm_subjec
 
     # Helper: map grouped series -> empty list if missing
     def safe_map(series):
-        return df.index.to_series().map(series).apply(
-            lambda x: x if isinstance(x, list) else []
-        )
+        return df.index.to_series().map(series).apply(lambda x: x if isinstance(x, list) else [])
 
     # Original subject_ids - untouched, exactly as before
     df["subject_ids"] = safe_map(subject_groups)
@@ -183,7 +206,7 @@ def main():
 
         print(f"Pushing {len(docs):,} documents to Meilisearch...")
         for i in tqdm(range(0, len(docs), BATCH_SIZE), desc="Indexing"):
-            index.add_documents(docs[i:i + BATCH_SIZE])
+            index.add_documents(docs[i : i + BATCH_SIZE])
 
         print("Done! v2 enrichments added - original subject_ids fully preserved")
     finally:

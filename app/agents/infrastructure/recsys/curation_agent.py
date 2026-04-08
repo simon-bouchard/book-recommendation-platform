@@ -6,25 +6,23 @@ Stage 3 of three-stage recommendation pipeline (Planner -> Retrieval -> Curation
 
 import json
 import re
-from typing import List, Dict, AsyncGenerator
-import os
+from typing import AsyncGenerator, Dict, List
 
 from langchain_core.messages import HumanMessage
 
 from app.agents.domain.entities import (
     AgentConfiguration,
-    AgentCapability,
     AgentRequest,
     AgentResponse,
     BookRecommendation,
 )
 from app.agents.domain.recsys_schemas import ExecutionContext
 from app.agents.infrastructure.base_langgraph_agent import BaseLangGraphAgent
-from app.agents.schemas import StreamChunk
-from app.agents.tools.registry import ToolRegistry, InternalToolGates
+from app.agents.logging import append_chatbot_log, is_debug_mode, log_data_transform
+from app.agents.logging_modes import should_log_component
 from app.agents.prompts.loader import read_prompt
-from app.agents.logging import append_chatbot_log, log_data_transform, is_debug_mode
-from app.agents.logging_modes import should_log_component, LoggingConfig
+from app.agents.schemas import StreamChunk
+from app.agents.tools.registry import InternalToolGates, ToolRegistry
 
 
 class CurationAgent(BaseLangGraphAgent):
@@ -153,7 +151,7 @@ class CurationAgent(BaseLangGraphAgent):
                 AgentResponse with prose containing [Title](item_idx) citations
         """
         append_chatbot_log(f"\n{'=' * 60}")
-        append_chatbot_log(f"=== CURATION START ===")
+        append_chatbot_log("=== CURATION START ===")
         append_chatbot_log(
             f"Input: {len(candidates)} candidates, Query: {request.user_text[:80]}..."
         )
@@ -221,7 +219,7 @@ class CurationAgent(BaseLangGraphAgent):
                 - type="complete": Final result with book IDs from citations
         """
         append_chatbot_log(f"\n{'=' * 60}")
-        append_chatbot_log(f"=== CURATION STREAMING ===")
+        append_chatbot_log("=== CURATION STREAMING ===")
         append_chatbot_log(f"Candidates: {len(candidates)}")
 
         # Track accumulated text for citation parsing

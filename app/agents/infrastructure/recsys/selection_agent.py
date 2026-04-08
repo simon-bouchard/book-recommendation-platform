@@ -10,8 +10,8 @@ before any prose is written, eliminating ID hallucination in curation.
 import json
 from typing import List, Optional
 
-from pydantic import BaseModel
 from langchain_core.messages import HumanMessage
+from pydantic import BaseModel
 
 from app.agents.domain.entities import (
     AgentConfiguration,
@@ -20,9 +20,9 @@ from app.agents.domain.entities import (
 )
 from app.agents.domain.recsys_schemas import ExecutionContext
 from app.agents.infrastructure.base_langgraph_agent import BaseLangGraphAgent
-from app.agents.tools.registry import ToolRegistry, InternalToolGates
-from app.agents.prompts.loader import read_prompt
 from app.agents.logging import append_chatbot_log
+from app.agents.prompts.loader import read_prompt
+from app.agents.tools.registry import InternalToolGates, ToolRegistry
 
 
 class SelectionResult(BaseModel):

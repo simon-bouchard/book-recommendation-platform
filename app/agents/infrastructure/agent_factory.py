@@ -4,15 +4,16 @@ Factory for creating appropriate agents based on routing target.
 Supports dependency injection for testing.
 """
 
-from typing import Optional, Any, Callable
+from typing import Any, Callable, Optional
 
-from app.agents.schemas import Target
 from app.agents.domain.interfaces import Agent
 from app.agents.logging import append_chatbot_log
-from .recsys.orchestrator import RecommendationAgent
-from .web_agent import WebAgent
+from app.agents.schemas import Target
+
 from .docs_agent import DocsAgent
+from .recsys.orchestrator import RecommendationAgent
 from .response_agent import ResponseAgent
+from .web_agent import WebAgent
 
 
 class AgentFactory:
@@ -105,13 +106,13 @@ class AgentFactory:
             )
 
         elif target == "web":
-            append_chatbot_log(f"  - WebAgent: search enabled")
+            append_chatbot_log("  - WebAgent: search enabled")
             return self._web_provider()
 
         elif target == "docs":
-            append_chatbot_log(f"  - DocsAgent: document search")
+            append_chatbot_log("  - DocsAgent: document search")
             return self._docs_provider()
 
         else:  # "respond" or fallback
-            append_chatbot_log(f"  - ResponseAgent: conversational")
+            append_chatbot_log("  - ResponseAgent: conversational")
             return self._respond_provider()

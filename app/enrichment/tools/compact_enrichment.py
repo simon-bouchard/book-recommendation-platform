@@ -1,14 +1,16 @@
 # app/compact_enrichment.py
-import json, sys
-from pathlib import Path
+import json
+import sys
 from collections import OrderedDict
-from sqlalchemy.orm import Session
+from pathlib import Path
+
 from app.database import SessionLocal
 from app.table_models import Book
 
 ROOT = Path(__file__).resolve().parents[3]
 SRC = ROOT / "data" / "enrichment_v1.jsonl"
 OUT = ROOT / "data" / "enrichment_v1.item_idx.jsonl"
+
 
 def load_last_per_work_id(p: Path):
     last = OrderedDict()
@@ -29,6 +31,7 @@ def load_last_per_work_id(p: Path):
             last[wid] = obj
     return last
 
+
 def main():
     # Load last record per work_id from source once
     last = load_last_per_work_id(SRC)
@@ -47,35 +50,52 @@ def main():
             idx = mapping.get(wid)
             if idx is None:
                 # preserve an explicit error row so it can be found later
-                out.write(json.dumps({
-                    "book_id": wid,
-                    "error": "Missing item_idx for work_id",
-                    "tags_version": rec.get("tags_version", "v1")
-                }) + "\n")
+                out.write(
+                    json.dumps(
+                        {
+                            "book_id": wid,
+                            "error": "Missing item_idx for work_id",
+                            "tags_version": rec.get("tags_version", "v1"),
+                        }
+                    )
+                    + "\n"
+                )
                 err += 1
                 continue
 
             # rewrite with int book_id
             if "error" in rec:
-                out.write(json.dumps({
-                    "book_id": int(idx),
-                    "error": rec["error"],
-                    "tags_version": rec.get("tags_version", "v1")
-                }) + "\n")
+                out.write(
+                    json.dumps(
+                        {
+                            "book_id": int(idx),
+                            "error": rec["error"],
+                            "tags_version": rec.get("tags_version", "v1"),
+                        }
+                    )
+                    + "\n"
+                )
             else:
-                out.write(json.dumps({
-                    "book_id": int(idx),
-                    "subjects": rec.get("subjects", []),
-                    "tone_ids": rec.get("tone_ids", []),
-                    "genre": rec.get("genre"),
-                    "vibe": rec.get("vibe", ""),
-                    "tags_version": rec.get("tags_version", "v1"),
-                    "scores": rec.get("scores", {})
-                }, ensure_ascii=False) + "\n")
+                out.write(
+                    json.dumps(
+                        {
+                            "book_id": int(idx),
+                            "subjects": rec.get("subjects", []),
+                            "tone_ids": rec.get("tone_ids", []),
+                            "genre": rec.get("genre"),
+                            "vibe": rec.get("vibe", ""),
+                            "tags_version": rec.get("tags_version", "v1"),
+                            "scores": rec.get("scores", {}),
+                        },
+                        ensure_ascii=False,
+                    )
+                    + "\n"
+                )
             ok += 1
 
     print({"rewritten": ok, "missing_item_idx": err, "output": str(OUT)})
     return 0 if err == 0 else 2
+
 
 if __name__ == "__main__":
     sys.exit(main())

@@ -17,6 +17,14 @@ project_root = Path(__file__).resolve().parents[4]
 if str(project_root) not in sys.path:
     sys.path.insert(0, str(project_root))
 
+from model_servers._shared.contracts import (
+    AlsRecsResponse,
+    BookMeta,
+    EmbedResponse,
+    PopularResponse,
+    ScoredItem,
+    SubjectRecsResponse,
+)
 from models.core.constants import PAD_IDX
 from models.domain.candidate_generation import (
     ALSBasedGenerator,
@@ -26,14 +34,6 @@ from models.domain.candidate_generation import (
 )
 from models.domain.recommendation import Candidate
 from models.domain.user import User
-from model_servers._shared.contracts import (
-    AlsRecsResponse,
-    BookMeta,
-    EmbedResponse,
-    PopularResponse,
-    ScoredItem,
-    SubjectRecsResponse,
-)
 
 _GEN_PATH = "models.domain.candidate_generation"
 

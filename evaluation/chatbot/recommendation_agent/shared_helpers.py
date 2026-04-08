@@ -5,13 +5,13 @@ Database utilities, query validation, and result formatting used across all test
 """
 
 import json
-from pathlib import Path
-from typing import Dict, List, Any, Tuple
 from datetime import datetime
+from pathlib import Path
+from typing import Any, Dict, List, Tuple
 
-from app.table_models import User, Interaction
 from sqlalchemy import func
 
+from app.table_models import Interaction, User
 
 # ============================================================================
 # DATABASE HELPERS

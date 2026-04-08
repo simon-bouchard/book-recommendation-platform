@@ -5,20 +5,19 @@ Provides clean interface to recommendation and similarity services.
 Maintains backward compatibility with old API response formats.
 """
 
-from fastapi import APIRouter, HTTPException, Query
 import logging
 import time
+
+from fastapi import APIRouter, HTTPException, Query
 from opentelemetry import trace
 
-from metrics import RECSYS_REQUESTS, RECSYS_LATENCY, SIMILARITY_REQUESTS, SIMILARITY_LATENCY
-
+from metrics import RECSYS_LATENCY, RECSYS_REQUESTS, SIMILARITY_LATENCY, SIMILARITY_REQUESTS
+from models.cache import cached_recommendations, cached_similarity
+from models.core.constants import PAD_IDX
+from models.domain.config import HybridConfig, RecommendationConfig
+from models.domain.user import User
 from models.services.recommendation_service import RecommendationService
 from models.services.similarity_service import SimilarityService
-from models.domain.user import User
-from models.domain.config import RecommendationConfig, HybridConfig
-from models.core.constants import PAD_IDX
-from models.cache import cached_recommendations, cached_similarity
-from models.client.registry import get_similarity_client
 
 logger = logging.getLogger(__name__)
 router = APIRouter()

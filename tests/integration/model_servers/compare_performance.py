@@ -23,7 +23,6 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Dict, List, Optional, Tuple
 
-
 # ---------------------------------------------------------------------------
 # Operation-type classification
 # ---------------------------------------------------------------------------
@@ -211,14 +210,18 @@ class ModelServerComparator:
             before_http = sum(t.before_http for t in tests) / len(tests)
             after_http = sum(t.after_http for t in tests) / len(tests)
 
-            compute_tests = [t for t in tests if t.before_compute is not None and t.after_compute is not None]
+            compute_tests = [
+                t for t in tests if t.before_compute is not None and t.after_compute is not None
+            ]
             before_compute = (
                 sum(t.before_compute for t in compute_tests) / len(compute_tests)
-                if compute_tests else None
+                if compute_tests
+                else None
             )
             after_compute = (
                 sum(t.after_compute for t in compute_tests) / len(compute_tests)
-                if compute_tests else None
+                if compute_tests
+                else None
             )
 
             groups.append(
@@ -259,7 +262,9 @@ class ModelServerComparator:
 
         print(f"\n{'=' * width}")
         if has_compute:
-            print("BY OPERATION TYPE  (median ms — HTTP | Compute, averaged across parametrized cases)")
+            print(
+                "BY OPERATION TYPE  (median ms — HTTP | Compute, averaged across parametrized cases)"
+            )
         else:
             print("BY OPERATION TYPE  (median ms, averaged across parametrized cases)")
         print("=" * width)
@@ -345,8 +350,14 @@ class ModelServerComparator:
                 )
                 if t.compute_diff_pct is not None:
                     cmp_sign = "+" if (t.compute_diff_pct or 0) >= 0 else ""
-                    bc_stdev = f"±{t.before_compute_stdev:.1f}" if t.before_compute_stdev is not None else ""
-                    ac_stdev = f"±{t.after_compute_stdev:.1f}" if t.after_compute_stdev is not None else ""
+                    bc_stdev = (
+                        f"±{t.before_compute_stdev:.1f}"
+                        if t.before_compute_stdev is not None
+                        else ""
+                    )
+                    ac_stdev = (
+                        f"±{t.after_compute_stdev:.1f}" if t.after_compute_stdev is not None else ""
+                    )
                     cmp_part = (
                         f"  cmp: {t.before_compute:>6.2f}ms{bc_stdev:<6} -> "
                         f"{t.after_compute:>6.2f}ms{ac_stdev:<6} "
@@ -430,7 +441,7 @@ def main() -> None:
     if args.auto:
         try:
             before_file, after_file = find_latest_baselines(baseline_dir)
-            print(f"Auto-detected baselines:")
+            print("Auto-detected baselines:")
             print(f"  Before : {before_file.name}")
             print(f"  After  : {after_file.name}\n")
         except ValueError as e:

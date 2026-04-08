@@ -1,9 +1,8 @@
-from starlette.middleware.trustedhost import TrustedHostMiddleware
+import redis.asyncio as redis
+from fastapi.middleware.cors import CORSMiddleware
 from fastapi_limiter import FastAPILimiter
 from fastapi_limiter.depends import RateLimiter
-from fastapi.middleware.cors import CORSMiddleware
-from fastapi import Depends
-import redis.asyncio as redis
+from starlette.middleware.trustedhost import TrustedHostMiddleware
 
 ALLOWED_ORIGINS = [
     "simonbouchard.space",

@@ -4,8 +4,8 @@ Text template functions for embedding construction.
 """
 
 from .text_templates import (
-    build_baseline_old_text,
     build_baseline_clean_text,
+    build_baseline_old_text,
     build_v1_full_text,
     build_v1_subjects_text,
     build_v2_full_text,

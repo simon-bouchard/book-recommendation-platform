@@ -7,11 +7,11 @@ Provides lightweight agent instances with all external dependencies
 network calls, API keys, or filesystem access.
 """
 
+from unittest.mock import MagicMock, patch
+
 import pytest
-from unittest.mock import MagicMock, patch, AsyncMock
 
 from app.agents.domain.entities import BookRecommendation
-
 
 # ==============================================================================
 # Agent fixtures
