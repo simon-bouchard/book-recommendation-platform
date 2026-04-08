@@ -8,9 +8,9 @@ export default defineConfig(({ mode }) => ({
   resolve: {
     alias: { '@': path.resolve(__dirname, './src') },
   },
-  base: mode === 'production' ? '/static/search-app/' : '/',
+  base: mode === 'production' ? '/static/dist/' : '/',
   build: {
-    outDir: '../static/search-app',
+    outDir: '../static/dist',
     emptyOutDir: true,
     rollupOptions: {
       input: {

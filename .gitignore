@@ -54,7 +54,7 @@ system/
 
 # Frontend
 frontend/node_modules/
-static/search-app/
+static/dist/
 
 #Junk
 __pycache__/

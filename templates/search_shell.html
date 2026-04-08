@@ -5,10 +5,10 @@
   <link rel="icon" href="/static/favicon.ico" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>Search — BookRec</title>
-  <link rel="stylesheet" href="/static/search-app/assets/styles.css" />
+  <link rel="stylesheet" href="/static/dist/assets/styles.css" />
 </head>
 <body>
   <div id="root" data-logged-in="{{ 'true' if request.cookies.get('access_token') else 'false' }}"></div>
-  <script type="module" src="/static/search-app/assets/search-app.js"></script>
+  <script type="module" src="/static/dist/assets/search-app.js"></script>
 </body>
 </html>
