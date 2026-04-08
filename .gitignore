@@ -15,6 +15,9 @@ data/backups/db/
 data/*.csv
 data/*.json
 data/*.jsonl
+data/ol_subjects/*.csv
+data/ol_subjects/*.json
+data/ol_subjects/*.jsonl
 logs/*
 enrich.out
 enrich.err
