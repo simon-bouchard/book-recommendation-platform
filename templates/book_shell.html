@@ -1,0 +1,17 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <link rel="icon" href="/static/favicon.ico" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Book — BookRec</title>
+  <link rel="stylesheet" href="/static/search-app/assets/styles.css" />
+</head>
+<body>
+  <div id="root"
+    data-item-idx="{{ item_idx }}"
+    data-logged-in="{{ 'true' if request.cookies.get('access_token') else 'false' }}">
+  </div>
+  <script type="module" src="/static/search-app/assets/book-app.js"></script>
+</body>
+</html>

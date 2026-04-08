@@ -1,0 +1,19 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <link rel="icon" href="/static/favicon.ico" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Log In — BookRec</title>
+  <link rel="stylesheet" href="/static/search-app/assets/styles.css" />
+</head>
+<body>
+  <div
+    id="root"
+    data-next="{{ next | default('') }}"
+    data-error="{{ error | default('') }}"
+    data-warning="{{ warning | default('') }}"
+  ></div>
+  <script type="module" src="/static/search-app/assets/login-app.js"></script>
+</body>
+</html>
