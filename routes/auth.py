@@ -2,7 +2,8 @@ import jwt
 from datetime import datetime, timedelta
 from fastapi import APIRouter, Depends, Form, Request, status, Cookie
 from fastapi.security import OAuth2PasswordBearer
-from fastapi.responses import HTMLResponse, RedirectResponse
+from fastapi.responses import HTMLResponse, RedirectResponse, JSONResponse
+from pydantic import BaseModel
 from fastapi.templating import Jinja2Templates
 from app.models import hash_password, verify_password
 import os
@@ -137,3 +138,72 @@ async def login(
     response = RedirectResponse(url="/profile", status_code=status.HTTP_303_SEE_OTHER)
     response.set_cookie(key="access_token", value=access_token, httponly=True, max_age=3600)
     return response
+
+
+class LoginBody(BaseModel):
+    username: str
+    password: str
+    next: str = "/profile"
+
+
+class SignupBody(BaseModel):
+    username: str
+    email: str
+    password: str
+    fav_subjects: list[str] = []
+
+
+@router.post("/auth/login/json")
+async def login_json(body: LoginBody, db: Session = Depends(get_db)):
+    db_user = db.query(User).filter(User.username == body.username).first()
+    if not db_user or not verify_password(body.password, db_user.password):
+        return JSONResponse(
+            {"error": "Invalid username or password."},
+            status_code=status.HTTP_401_UNAUTHORIZED,
+        )
+    access_token = await create_access_token({"sub": body.username})
+    resp = JSONResponse({"ok": True, "redirect": body.next or "/profile"})
+    resp.set_cookie(key="access_token", value=access_token, httponly=True, max_age=3600)
+    return resp
+
+
+@router.post("/auth/signup/json")
+async def signup_json(body: SignupBody, db: Session = Depends(get_db)):
+    if db.query(User).filter(User.username == body.username).first():
+        return JSONResponse(
+            {"error": "Username already taken. Please choose another."},
+            status_code=status.HTTP_400_BAD_REQUEST,
+        )
+
+    hashed_pw = hash_password(body.password)
+    new_user = User(
+        username=body.username,
+        email=body.email,
+        password=hashed_pw,
+        age=None,
+        age_group="unknown_age",
+        filled_age=False,
+        country="Unknown",
+    )
+    db.add(new_user)
+    db.commit()
+    db.refresh(new_user)
+
+    subject_list = [s.strip() for s in body.fav_subjects if s.strip()]
+    if not subject_list:
+        subject_list = ["[NO_SUBJECT]"]
+
+    for subject_name in subject_list:
+        subject = db.query(Subject).filter(Subject.subject == subject_name).first()
+        if not subject:
+            subject = Subject(subject=subject_name)
+            db.add(subject)
+            db.commit()
+            db.refresh(subject)
+        db.add(UserFavSubject(user_id=new_user.user_id, subject_idx=subject.subject_idx))
+    db.commit()
+
+    access_token = await create_access_token({"sub": body.username})
+    resp = JSONResponse({"ok": True, "redirect": "/profile"})
+    resp.set_cookie(key="access_token", value=access_token, httponly=True, max_age=3600)
+    return resp

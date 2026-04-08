@@ -45,7 +45,7 @@ def chat_page(request: Request, current_user=Depends(get_current_user)):
         return RedirectResponse(url="/login?next=/chat", status_code=status.HTTP_303_SEE_OTHER)
 
     return templates.TemplateResponse(
-        "chatbot.html", {"request": request, "page": "chat", "logged_in": bool(current_user)}
+        "chat_shell.html", {"request": request, "logged_in": bool(current_user)}
     )
 
 

@@ -31,7 +31,7 @@ from models.client.registry import (
     get_similarity_client,
 )
 from routes.api import router
-from routes.auth import router as auth_router
+from routes.auth import router as auth_router, get_current_user
 from routes.chat import router as chat_router
 from routes.models import router as models_router
 
@@ -223,5 +223,7 @@ app.include_router(models_router)
 
 
 @app.get("/", response_class=HTMLResponse)
-def root(request: Request):
-    return templates.TemplateResponse("index.html", {"request": request, "page": "home"})
+def root(request: Request, current_user=Depends(get_current_user)):
+    return templates.TemplateResponse(
+        "home_shell.html", {"request": request, "logged_in": bool(current_user)}
+    )

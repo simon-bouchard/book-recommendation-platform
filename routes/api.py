@@ -40,21 +40,19 @@ load_dotenv()
 
 
 @router.get("/login", response_class=HTMLResponse)
-def signup_page(request: Request):
-    message = request.session.pop("flash_success", None)
+def login_page(request: Request):
     error = request.session.pop("flash_error", None)
     warning = request.session.pop("flash_warning", None)
-
+    next_url = request.query_params.get("next", "")
     return templates.TemplateResponse(
-        "login.html",
-        {
-            "request": request,
-            "page": "login",
-            "message": message,
-            "error": error,
-            "warning": warning,
-        },
+        "login_shell.html",
+        {"request": request, "next": next_url, "error": error or "", "warning": warning or ""},
     )
+
+
+@router.get("/signup", response_class=HTMLResponse)
+def signup_page(request: Request):
+    return templates.TemplateResponse("signup_shell.html", {"request": request, "error": ""})
 
 
 @router.get("/profile")
@@ -90,11 +88,41 @@ def profile_page(
         ],
     }
 
-    message = request.session.pop("flash_success", None)
     return templates.TemplateResponse(
-        "profile.html",
-        {"request": request, "user": user_data, "page": "profile", "message": message},
+        "profile_shell.html", {"request": request}
     )
+
+
+@router.get("/profile/json")
+def profile_json(
+    request: Request,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    if not current_user:
+        raise HTTPException(status_code=401, detail="Not authenticated")
+
+    counts = (
+        db.query(
+            func.count().label("total"),
+            func.count(case((Interaction.rating.isnot(None), 1))).label("rated"),
+        )
+        .filter(Interaction.user_id == current_user.user_id)
+        .one()
+    )
+
+    return {
+        "id": current_user.user_id,
+        "username": current_user.username,
+        "email": current_user.email,
+        "num_books_read": counts.total,
+        "num_ratings": counts.rated,
+        "favorite_subjects": [
+            s.subject.subject
+            for s in current_user.favorite_subjects
+            if s.subject and s.subject.subject != "[NO_SUBJECT]"
+        ],
+    }
 
 
 @router.get("/profile/is_warm")
@@ -380,14 +408,67 @@ def book_recommendation(
             user_rating = {"rating": interaction.rating, "comment": interaction.comment}
 
     return templates.TemplateResponse(
-        "book.html",
-        {
-            "request": request,
-            "book": book_info,
-            "user_rating": user_rating,
-            "has_real_subjects": has_real_subjects,
-        },
+        "book_shell.html",
+        {"request": request, "item_idx": item_idx},
     )
+
+
+@router.get("/book/{item_idx}/json")
+def book_json(
+    item_idx: int,
+    request: Request,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    book = db.query(Book).filter(Book.item_idx == item_idx).first()
+    if not book:
+        raise HTTPException(status_code=404, detail="Book not found")
+
+    average = (
+        db.query(func.avg(Interaction.rating))
+        .filter(Interaction.item_idx == book.item_idx, Interaction.rating.isnot(None))
+        .scalar()
+    )
+    rating_count = (
+        db.query(Interaction)
+        .filter(Interaction.item_idx == book.item_idx, Interaction.rating.isnot(None))
+        .count()
+    )
+
+    subject_ids = [s.subject_idx for s in book.subjects]
+    subject_names = db.query(Subject.subject).filter(Subject.subject_idx.in_(subject_ids)).all()
+    subjects = [s.subject for s in subject_names]
+    has_real_subjects = any(s != "[NO_SUBJECT]" for s in subjects)
+    filtered_subjects = [s for s in subjects if s != "[NO_SUBJECT]"]
+
+    user_rating = None
+    if current_user:
+        interaction = (
+            db.query(Interaction)
+            .filter(Interaction.user_id == current_user.user_id, Interaction.item_idx == book.item_idx)
+            .first()
+        )
+        if interaction and (interaction.rating is not None or interaction.comment):
+            user_rating = {"rating": interaction.rating, "comment": interaction.comment}
+
+    return {
+        "book": {
+            "item_idx": book.item_idx,
+            "title": book.title,
+            "author": book.author.name if book.author else "Unknown",
+            "year": book.year,
+            "description": book.description,
+            "cover_id": book.cover_id,
+            "isbn": book.isbn,
+            "average_rating": round(average, 2) if average else None,
+            "rating_count": rating_count,
+            "subjects": filtered_subjects,
+            "num_pages": book.num_pages,
+        },
+        "user_rating": user_rating,
+        "has_real_subjects": has_real_subjects,
+        "logged_in": current_user is not None,
+    }
 
 
 @router.get("/book/{item_idx}/has_als")
@@ -464,57 +545,10 @@ def get_book_comments_paginated(
     }
 
 
-@router.get("/search")
-def search_books(
-    request: Request,
-    query: str = "",
-    subjects: Optional[str] = None,
-    page: int = Query(0, ge=0),
-    page_size: int = Query(60, ge=1, le=200),
-    mode: SearchMode = Query(SearchMode.MEILI),
-    sort: Optional[str] = Query("bayes_pop:desc", description="e.g. bayes_pop:desc, year:asc"),
-    highlight: bool = Query(False),
-    crop: Union[bool, int] = Query(False, description="False = no crop, int = crop length"),
-    min_score: Optional[float] = Query(None, ge=0, le=1),
-    db: Session = Depends(get_db),
-):
-    search_req = _build_search_request(
-        query=query,
-        subjects=subjects,
-        page=page,
-        page_size=page_size,
-        mode=mode,
-        sort=sort,
-        highlight=highlight,
-        crop=crop,
-        min_score=min_score,
-        db=db,
-    )
-
-    search_response = search_engine.search(search_req)
-
-    # For HTML template
-    subject_list = [s.strip() for s in (subjects or "").split(",") if s.strip()]
-    subject_suggestions = get_all_subject_counts(db)[:20]
-
-    total_pages = (search_response.total + page_size - 1) // page_size
-
+@router.get("/search", response_class=HTMLResponse)
+def search_books(request: Request):
     return templates.TemplateResponse(
-        "search.html",
-        {
-            "request": request,
-            "results": clean_float_values([r.dict() for r in search_response.results]),
-            "query": query,
-            "subjects": subject_list,
-            "subject_suggestions": subject_suggestions,
-            "page": "search",
-            "total_results": search_response.total,
-            "total_pages": total_pages,
-            "current_page": page,
-            "has_next": (page + 1) * page_size < search_response.total,
-            "has_prev": page > 0,
-            "page_size": page_size,
-        },
+        "search_shell.html", {"request": request, "page": "search"}
     )
 
 
