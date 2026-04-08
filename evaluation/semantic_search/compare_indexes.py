@@ -865,8 +865,10 @@ Examples:
         from sentence_transformers import SentenceTransformer
 
         model = SentenceTransformer(args.embedder)
+
         def embedder(texts, **kwargs):
             return model.encode(texts, convert_to_numpy=True, **kwargs)
+
         print(f"✅ Loaded {args.embedder}")
     except Exception as e:
         print(f"❌ Failed to load embedder: {e}")

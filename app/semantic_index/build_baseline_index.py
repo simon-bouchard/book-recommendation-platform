@@ -289,6 +289,7 @@ if __name__ == "__main__":
         from sentence_transformers import SentenceTransformer
 
         model = SentenceTransformer(args.embedder)
+
         def embedder(texts, **kwargs):
             return model.encode(texts, **kwargs)
 

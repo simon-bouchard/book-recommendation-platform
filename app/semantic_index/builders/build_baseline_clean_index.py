@@ -304,7 +304,7 @@ if __name__ == "__main__":
 
     # Create embedder function for single-process mode
     def embedder(texts, **kwargs):
-        return (model.encode(texts, **kwargs) if not args.multiprocess else None)
+        return model.encode(texts, **kwargs) if not args.multiprocess else None
 
     # Build index
     main(
