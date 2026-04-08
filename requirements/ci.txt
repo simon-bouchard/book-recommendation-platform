@@ -21,6 +21,9 @@ pydantic==2.11.7
 pydantic-core==2.33.2
 anyio==4.10.0
 
+# --- cache ---
+redis==6.4.0
+
 # --- data / ML ---
 numpy==1.26.4
 pandas==2.3.2
