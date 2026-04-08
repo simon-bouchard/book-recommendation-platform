@@ -103,7 +103,7 @@ export function SimilarBooks({ itemIdx, hasRealSubjects }: SimilarBooksProps) {
             <span className="text-xs text-muted-foreground shrink-0">Behavioral</span>
           </div>
         )}
-        <Button type="button" onClick={getRecommendations} disabled={loading} className="shrink-0 w-full max-w-xs mx-auto sm:w-auto sm:max-w-none sm:mx-0 sm:ml-auto">
+        <Button type="button" onClick={getRecommendations} disabled={loading} className="shrink-0 min-w-44 w-full max-w-xs mx-auto sm:w-auto sm:max-w-none sm:mx-0 sm:ml-auto">
           {loading ? 'Loading…' : 'Get Recommendations'}
         </Button>
       </div>
