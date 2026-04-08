@@ -62,7 +62,6 @@ TRAIN_SCRIPTS.extend(
 )
 
 _VERSIONS_TO_KEEP = 5
-_NOTIFY_ON_SUCCESS = os.getenv("NOTIFY_ON_SUCCESS", "true").lower() != "false"
 
 
 # ---------------------------------------------------------------------------
@@ -180,8 +179,6 @@ def main() -> None:
     print(f"Training run version ID : {version_id}")
     print(f"LOCAL PAD_IDX           : {LOCAL_PAD_IDX}")
 
-    notify("start", "Training pipeline started", body=f"Version: {version_id}")
-
     try:
         # --- Data export ----------------------------------------------------
 
@@ -255,16 +252,6 @@ def main() -> None:
             log_tail=_read_tail(local_log_dir),
         )
         raise
-
-    # --- Success notification -----------------------------------------------
-
-    if _NOTIFY_ON_SUCCESS:
-        recall_str = f"Recall@30={decision.staging_recall:.4f}" if decision.staging_recall else ""
-        notify(
-            "ok",
-            "Training pipeline succeeded",
-            body=f"Version: {manifest.version_id}  {recall_str}",
-        )
 
     print(f"Done. Version '{manifest.version_id}' is now active.")
     print(f"Logs saved to: {local_log_dir}")
