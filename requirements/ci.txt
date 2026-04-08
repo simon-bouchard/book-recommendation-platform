@@ -1,0 +1,39 @@
+# requirements/ci.txt
+#
+# Minimal dependencies for running unit tests and linting in CI.
+# Does NOT include heavy inference deps (GPU torch, FAISS-GPU, etc.)
+#
+# Keep in sync with what tests/unit/ actually imports.
+
+# --- linting / formatting ---
+ruff==0.12.1
+
+# --- test runner ---
+pytest==9.0.0
+pytest-asyncio==1.3.0
+respx==0.22.0
+
+# --- web framework (unit tests import FastAPI/Starlette for test clients) ---
+fastapi==0.116.1
+starlette==0.47.2
+httpx==0.28.1
+pydantic==2.11.7
+pydantic-core==2.33.2
+anyio==4.10.0
+
+# --- data / ML ---
+numpy==1.26.4
+pandas==2.3.2
+lightgbm==4.6.0
+faiss-cpu==1.7.4
+sqlalchemy==2.0.43
+
+# --- LLM / agent ---
+langchain-core==0.3.76
+
+# --- torch (CPU-only build, avoids multi-GB CUDA wheels) ---
+torch==2.8.0 --index-url https://download.pytorch.org/whl/cpu
+
+# --- OpenTelemetry (imported in app modules loaded by tests) ---
+opentelemetry-api
+opentelemetry-sdk
