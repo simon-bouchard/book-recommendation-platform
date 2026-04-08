@@ -31,6 +31,9 @@ lightgbm==4.6.0
 faiss-cpu==1.7.4
 sqlalchemy==2.0.43
 
+# --- embeddings ---
+sentence-transformers==5.1.0
+
 # --- LLM / agent ---
 langchain-core==0.3.76
 
