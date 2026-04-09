@@ -1,139 +1,248 @@
 # Book Recommendation System
 ![CI](https://github.com/simon-bouchard/book-recommendation-platform/actions/workflows/ci.yml/badge.svg)
 
-A production-grade recommendation engine that supports both **warm users** (with prior ratings) and **cold users** (no history).
-The system provides personalized recommendations and item similarity search with very low latency, making it suitable for real-time applications.
+A full-stack, production-grade book recommendation platform with personalized recommendations, semantic and full-text search, item similarity, and an AI-powered chatbot. Built to explore the end-to-end challenges of deploying ML systems: data cleaning, model training, serving infrastructure, observability, and automation.
 
 ---
 
-## Project Overview
+## Architecture
 
-At a high level, the system:
+The system is composed of several independent layers:
 
-- Serves **warm users** using collaborative filtering and metadata-driven reranking
-- Serves **cold users** using subject embeddings and popularity priors
-- Offers **book similarity search** based on both user behavior and content
-- Runs on a fully automated pipeline with daily retraining and hot-reload of new models
+- **Frontend** — React + TypeScript SPA (search, recommendations, ratings, chatbot)
+- **Backend** — FastAPI application handling auth, routing, caching, and business logic
+- **Model servers** — 5 independent microservices, each owning a specific set of ML artifacts and endpoints
+- **Support services** — MySQL (primary store), Redis (sessions, rate limiting, cache), Meilisearch (full-text search), Kafka (async enrichment queue)
+- **Batch layer** — Spark jobs for training data export and interaction archival
+- **Observability** — Prometheus metrics, Grafana dashboards, Jaeger distributed tracing via OpenTelemetry
+
+Each model server runs in its own Docker container with read-only artifact mounts. Hot-reload is implemented via a shared version pointer file: the training pipeline writes a new version, signals the servers, and each server reloads its artifacts with zero downtime.
 
 ---
 
-## Architecture Details
+## Model Servers
 
-### Warm Users
-  **ALS (Alternating Least Squares)** retrieves top candidate books based on collaborative behavior.
+| Server | Port | Responsibilities |
+|---|---|---|
+| Embedder | 8001 | Attention-pooled subject embeddings (PyTorch) |
+| Similarity | 8002 | Subject HNSW index, ALS HNSW index, hybrid similarity, Bayesian scores |
+| ALS | 8003 | ALS user/item factors, warm-user detection |
+| Metadata | 8004 | Book metadata lookup, Bayesian popularity scores, subject TF-IDF |
+| Semantic | 8005 | FAISS vector index for semantic search |
 
-### Cold Users
-- Pipeline:
-  1. **Attention-pooled subject embeddings** compute similarity between a user’s favorite subjects and books.
-  2. A **Bayesian popularity prior** balances exploration and robustness (adjustable via a slider).
+---
 
-This allows handling users with no ratings while ensuring recommendations remain meaningful.
+## Recommendation Engine
 
-### Item Similarity Options
-- **ALS (behavioral similarity)**: strong at recalling books from the same author or series, but limited for niche or sparse books.
-- **Subject similarity**: more noisy, but better at surfacing hidden gems and underrepresented books.
-- **Hybrid strategy**: combines both, with adjustable weights.
+The system supports two user states and three explicit modes:
 
-### Subject Embeddings
-- Learned with a **dual loss**:
-  - Regression loss (RMSE on ratings)
-  - Contrastive loss (subject co-occurrence patterns)
-- **Attention pooling** is applied to weight the most informative subjects for each book, improving similarity quality.
+**Warm users** (have prior ratings)
+- ALS (Alternating Least Squares) collaborative filtering retrieves candidate books based on behavioral patterns.
+- A LightGBM ranker reranks candidates using metadata features.
 
-### Automation & Deployment
-- **Data pipeline**: normalized SQL schema with users, books, subjects, and interactions.
-- **Training server**: runs daily retraining (ALS, LightGBM, aggregates).
-- **Inference server**: automatically reloads new models with zero downtime.
-- **FastAPI backend**: exposes endpoints and handles db query, authentication, model inference etc.
-- **Web frontend**: lightweight app for browsing, searching, rating, and receiving recommendations in real time.
+**Cold users** (no ratings)
+- Attention-pooled subject embeddings compute similarity between the user's preferred subjects and all books.
+- A Bayesian popularity prior blends embedding similarity with global popularity (adjustable weight).
+
+**Item similarity** offers three strategies:
+- *Behavioral (ALS)*: strong signal for same author/series, sparse for niche books.
+- *Subject*: noisier but better at surfacing hidden gems and underrepresented titles.
+- *Hybrid*: weighted combination of both, adjustable at query time.
+
+In `auto` mode the system detects whether the user has ALS factors and routes accordingly, falling back to subject-based or popularity-based recommendations when needed.
+
+---
+
+## Inference Pipeline
+
+### Recommendations
+
+```
+Request
+  └─ Fetch user profile from DB (subjects, if mode=auto or subject)
+       └─ Check warm status (ALS server, mode=auto only)
+            └─ Model server call → ranked candidates
+                 └─ asyncio.gather (parallel)
+                      ├─ DB query: filter already-read books
+                      └─ Metadata server: enrich candidates with title/author/year/cover
+                           └─ Filter, slice to k, return
+```
+
+The final step runs the DB filter and metadata enrichment concurrently since both only require the candidate ID list. This reduces the combined cost from ~18ms sequential to ~max(8ms, 10ms).
+
+### Similarity
+
+```
+Request → Similarity model server → Metadata server → Return
+```
+
+No DB round-trip — similarity is 2–3x faster than the recommendation path as a result.
+
+---
+
+## ML Training Pipeline
+
+Training is automated and runs daily via a systemd timer. The pipeline:
+
+1. **Run training scripts** — ALS factors, subject embeddings, similarity indices, metadata aggregates, Bayesian scores
+2. **Quality gate** — evaluates the new artifacts against baseline thresholds; blocks promotion on regression
+3. **Artifact promotion** — if the gate passes, the new version is written to a versioned directory and the active version pointer is updated
+4. **Worker reload** — signals all 5 model servers to reload from the new pointer; each reloads independently with no downtime
+5. **Notifications** — sends an email report on success or failure
+
+Old artifact versions are retained for rollback and automatically retired after a configurable number of versions.
+
+---
+
+## Chatbot & Agents
+
+The chatbot is built with LangGraph and routes requests across specialized agents:
+
+- **Router** — classifies the intent of each message
+- **Recommendation agent** — multi-stage pipeline: query understanding → candidate retrieval → ranking → response generation
+- **Docs agent** — answers questions about the platform itself
+- **Web agent** — handles general book/author questions via web search
+- **Response agent** — final formatting and streaming output
+
+Responses are streamed to the client via SSE. Conversation history is maintained per session with Redis-backed rate limiting.
+
+An offline evaluation framework runs scenarios against each agent using an LLM judge with pass/fail criteria. Evaluations are run manually due to API cost.
+
+---
+
+## Observability
+
+**Metrics** (Prometheus + Grafana)
+- Request counters and latency histograms per path (recommendations, similarity, search, chat)
+- Exposed at `/metrics`, scraped by Prometheus, visualized in Grafana
+
+**Distributed tracing** (OpenTelemetry → Jaeger)
+- Auto-instrumented for FastAPI, httpx (model server calls), and SQLAlchemy
+- Manual spans added at service and pipeline boundaries
+- Health and metrics endpoints excluded from trace noise
+- Trace ID propagated through all model server calls for end-to-end request visibility
+
+---
+
+## CI/CD
+
+GitHub Actions runs on every push and pull request to `master`:
+
+1. **Backend** — `ruff check` (lint), `ruff format --check`, `pytest tests/unit/`
+2. **Frontend** — ESLint, TypeScript type check, Vite build
+3. **Deploy** (master push only, after both pass) — SSH trigger runs `cd.sh` on the production server: `git pull` → `systemctl restart` → health check loop
 
 ---
 
 ## Research & Experiments
 
-In addition to the deployed system, extensive experiments were carried out to study trade-offs between accuracy, latency, and complexity:
+Several architectures were explored before settling on the current design:
 
 - Residual MLPs over dot-product predictions
 - Two-tower and three-tower architectures
-- Different clustering and regrgession methods on user embeddings
+- Clustering and regression methods on user embeddings
 - Gated-fusion mechanisms
 - Alternative attention pooling strategies (scalar, per-dimension, transformer-based self-attention)
 
-These studies informed the final production choices.
-
----
-
-## Tech Stack
-
-- **Python**: core modeling & backend
-- **FastAPI**: REST API backend
-- **SQL (MySQL/MariaDB)**: normalized data schema
-- **LightGBM**: reranking
-- **PyTorch**: subject embeddings + attention pooling
-- **Implicit**: ALS collaborative filtering
-- **FAISS**: similarity search
-- **nginx + uvicorn**: deployment
-- **Azure VM**: daily training jobs
-- **Automation**: CRON-based retraining and model hot-reload
+These experiments informed the tradeoffs between accuracy, latency, and serving complexity. The final stack favors simple serving (dot products and matrix lookups at inference time) with complexity pushed to training.
 
 ---
 
 ## Data & Processing
 
-The original Book-Crossing dataset is noisy and incomplete, with inconsistent ISBNs, duplicate editions, missing metadata, and no subject information.
-To build a usable recommendation system, the data was extensively **cleaned, normalized, and enriched** with metadata from Open Library.
-Key processing steps:
+The Book-Crossing dataset is noisy and incomplete — inconsistent ISBNs, duplicate editions, missing metadata, and no subject information. Significant preprocessing was required before the data was usable for modeling.
 
-### 1. ID Normalization & Book Merging
-- Original Book-Crossing ratings identify books by ISBN.
-- ISBNs were normalized and mapped to **Open Library work IDs**.
-- Different editions of the same book were consolidated under a single `work_id`, reducing duplication and ensuring consistent interaction counts.
-- Each book in the system is assigned a stable internal integer ID (`item_idx`) for modeling.
+**1. ID Normalization & Book Merging**
+ISBNs were normalized and mapped to Open Library work IDs. Different editions of the same book were merged under a single `work_id`, reducing duplication and ensuring consistent interaction counts. Each book is assigned a stable integer `item_idx` for modeling.
 
-### 2. Subject Enrichment & Reduction
-- Raw Book-Crossing provides no subject categories.
-- Subjects were pulled from **Open Library metadata** for each work.
-- Raw extraction yielded ~130,000 unique subject strings.
-- Through cleaning, deduplication, and frequency filtering, this set was reduced to ~1,000 meaningful subjects.
-- A subject vocabulary (`subject_idx → subject`) is maintained for indexing in models.
+**2. Subject Enrichment & Reduction**
+Subjects were pulled from Open Library metadata. Raw extraction yielded ~130,000 unique subject strings; after cleaning, deduplication, and frequency filtering, this was reduced to ~1,000 meaningful subjects. A subject vocabulary (`subject_idx → subject`) is maintained for indexing.
 
-### 3. User Data Cleaning
-- Ages: extreme or implausible values were removed or bucketed into **age groups**.
-- Locations: parsed into **country** and normalized (e.g., removing malformed entries).
-- Favorite subjects: for each user, the **top-k subjects** are derived from rated books and stored separately for use in cold-start embeddings.
+**3. User Data Cleaning**
+Ages: extreme or implausible values removed or bucketed. Locations: parsed into country and normalized. Favorite subjects: top-k subjects derived from each user's rated books and stored separately for cold-start embeddings.
 
-### 4. Rating Data Cleaning
-- Ratings outside the valid range were discarded.
-- Duplicate rows were dropped.
-- Users/books with too few interactions were filtered out to stabilize training.
+**4. Rating Data Cleaning**
+Out-of-range ratings discarded. Duplicates dropped. Users and books with too few interactions filtered out to stabilize training.
 
-### 5. Subject & Metadata Normalization
-- Subjects are stored as indexed lists (`subjects_idxs`) with padding/truncation to fixed length.
-- Generic categories like *“Fiction”* and *“General”* are excluded from `main_subject` to avoid trivial signals.
-- Authors, years, and page counts are cleaned into canonical forms (e.g., “Unknown Author” placeholder, year bucketing, missing pages imputed).
+**5. Subject & Metadata Normalization**
+Subjects stored as indexed lists with padding/truncation to fixed length. Generic categories (e.g., "Fiction", "General") excluded from `main_subject`. Authors, years, and page counts cleaned into canonical forms.
 
-### 6. Aggregate Features
-- **Book-level**: number of ratings, average rating, rating standard deviation.
-- **User-level**: number of ratings, average rating, rating standard deviation.
-- These aggregates are precomputed during export so they remain consistent across training/inference.
+**6. Aggregate Features**
+Book-level and user-level aggregates (rating count, mean, standard deviation) precomputed during export to ensure consistency across training and inference.
+
+Result: a normalized schema with clean IDs, consistent metadata, and a manageable subject vocabulary that feeds both collaborative and content-based models.
 
 ---
 
-Result: a normalized SQL schema with **clean IDs, consistent metadata, and a manageable subject vocabulary (~1,000 categories)** that feeds both collaborative and content-based models.
+## Tech Stack
+
+**ML / Data**
+- Implicit (ALS collaborative filtering)
+- PyTorch (attention-pooled subject embeddings)
+- LightGBM (reranking)
+- FAISS + HNSW (similarity indices)
+- Sentence-Transformers (semantic embeddings)
+- Pandas, NumPy, SciPy, Spark (batch processing)
+
+**Backend**
+- FastAPI, Uvicorn, Gunicorn
+- SQLAlchemy + aiomysql (async MySQL)
+- Redis (sessions, rate limiting, cache)
+- Meilisearch (full-text search)
+- Kafka (async enrichment queue)
+- LangChain, LangGraph, OpenAI SDK (chatbot agents)
+
+**Frontend**
+- React 19, TypeScript, Tailwind CSS 4, Vite
+- Radix UI (headless components)
+
+**Observability**
+- OpenTelemetry (tracing instrumentation)
+- Jaeger (trace storage and UI)
+- Prometheus (metrics)
+- Grafana (dashboards)
+
+**Infrastructure**
+- Docker, Docker Compose
+- Nginx (reverse proxy)
+- Systemd (service management)
+- GitHub Actions (CI/CD)
+
+**Code Quality**
+- Ruff (lint + format)
+- Pyright (type checking)
+- Pytest + pytest-asyncio
 
 ---
 
-## Usage
+## Local Setup
 
-### Local Development
+The model servers and supporting services are orchestrated with Docker Compose.
+
 ```bash
-# clone repo
-git clone https://github.com/simon-bouchard/Book_Recommendation_UI_with_FastAPI
-cd book-recsys
+git clone https://github.com/simon-bouchard/book-recommendation-platform
+cd book-recommendation-platform
 
-# setup env
-conda env create -f env.yml
+# Copy and fill in environment variables
+cp deploy/deploy.env.example deploy/deploy.env
+
+# Start model servers and support services
+docker compose -f docker/compose/docker-compose.yml up -d
+
+# Set up Python environment
+conda env create -f environment.yml
 conda activate bookrec-api
 
-# run server
-uvicorn app.main:app --reload
+# Run the backend
+uvicorn main:app --reload
+```
+
+The frontend is built separately:
+
+```bash
+cd frontend
+npm ci
+npm run build
+```
+
+Grafana is available at `/grafana`, Jaeger at port `16686`, Prometheus at port `9090`.
