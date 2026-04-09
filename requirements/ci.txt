@@ -36,6 +36,11 @@ sentence-transformers==5.1.0
 
 # --- LLM / agent ---
 langchain-core==0.3.76
+langchain==0.3.27
+langchain-community==0.3.29
+langchain-openai==0.3.33
+langgraph==0.6.7
+pydantic-settings==2.10.1
 
 # torch is installed separately in CI via --index-url to get the CPU-only wheel
 # See .github/workflows/ci.yml
