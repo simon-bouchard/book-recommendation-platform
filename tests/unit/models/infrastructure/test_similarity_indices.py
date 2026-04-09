@@ -68,8 +68,18 @@ def mock_index_load(subject_index, als_index):
 
     with (
         patch(f"{_REGISTRY_PATH}.SimilarityIndex.load", side_effect=_load) as mock,
-        patch.object(ModelPaths, "subject_similarity_index_dir", new_callable=PropertyMock, return_value=Path("similarity/subject")),
-        patch.object(ModelPaths, "als_similarity_index_dir", new_callable=PropertyMock, return_value=Path("similarity/als")),
+        patch.object(
+            ModelPaths,
+            "subject_similarity_index_dir",
+            new_callable=PropertyMock,
+            return_value=Path("similarity/subject"),
+        ),
+        patch.object(
+            ModelPaths,
+            "als_similarity_index_dir",
+            new_callable=PropertyMock,
+            return_value=Path("similarity/als"),
+        ),
     ):
         yield mock
 
