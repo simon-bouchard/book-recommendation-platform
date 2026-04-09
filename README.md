@@ -20,13 +20,7 @@ At a high level, the system:
 ## Architecture Details
 
 ### Warm Users
-- Pipeline:
-  1. **ALS (Alternating Least Squares)** retrieves top candidate books based on collaborative behavior.
-  2. Candidates are reranked with a **LightGBM model** that blends:
-     - Learned subject embeddings
-     - Metadata features (book stats, overlap counts, cosine similarities)
-
-This approach leverages the strength of ALS for same-author and series recall, while LightGBM provides refined ranking using content and metadata.
+  **ALS (Alternating Least Squares)** retrieves top candidate books based on collaborative behavior.
 
 ### Cold Users
 - Pipeline:
