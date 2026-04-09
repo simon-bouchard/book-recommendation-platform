@@ -1,5 +1,5 @@
 # Book Recommendation System
-![CI](https://github.com/simon-bouchard/book_recsys/actions/workflows/ci.yml/badge.svg)
+![CI](https://github.com/simon-bouchard/book-recommendation-platform/actions/workflows/ci.yml/badge.svg)
 
 A production-grade recommendation engine that supports both **warm users** (with prior ratings) and **cold users** (no history).
 The system provides personalized recommendations and item similarity search with very low latency, making it suitable for real-time applications.
