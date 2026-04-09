@@ -365,6 +365,11 @@ class TestAlsSim:
 
 
 class TestHybridSim:
+    @pytest.fixture(autouse=True)
+    def _mock_als_index(self, mock_als_index: MagicMock) -> None:
+        """Ensure get_als_similarity_index() is mocked for all hybrid_sim tests."""
+        mock_als_index.has_item.return_value = True
+
     def test_returns_ordered_results(
         self, client: TestClient, mock_hybrid_scorer: MagicMock
     ) -> None:
