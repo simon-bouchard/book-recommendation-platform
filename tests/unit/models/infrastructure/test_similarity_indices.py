@@ -8,7 +8,7 @@ SimilarityIndex.load is mocked — no real artifact files or FAISS index builds 
 
 import sys
 from pathlib import Path
-from unittest.mock import patch
+from unittest.mock import PropertyMock, patch
 
 import pytest
 
@@ -54,7 +54,8 @@ def als_index(als_factors_normalized, book_ids):
 @pytest.fixture
 def mock_index_load(subject_index, als_index):
     """
-    Patch SimilarityIndex.load to return pre-built test indices.
+    Patch SimilarityIndex.load and PATHS directory properties to return
+    pre-built test indices without touching the filesystem.
 
     Routes to subject_index or als_index based on whether "subject" appears
     in the path, mirroring the real path layout (similarity/subject vs similarity/als).
@@ -63,7 +64,13 @@ def mock_index_load(subject_index, als_index):
     def _load(path):
         return subject_index if "subject" in str(path) else als_index
 
-    with patch(f"{_REGISTRY_PATH}.SimilarityIndex.load", side_effect=_load) as mock:
+    from models.core.paths import ModelPaths
+
+    with (
+        patch(f"{_REGISTRY_PATH}.SimilarityIndex.load", side_effect=_load) as mock,
+        patch.object(ModelPaths, "subject_similarity_index_dir", new_callable=PropertyMock, return_value=Path("similarity/subject")),
+        patch.object(ModelPaths, "als_similarity_index_dir", new_callable=PropertyMock, return_value=Path("similarity/als")),
+    ):
         yield mock
 
 
