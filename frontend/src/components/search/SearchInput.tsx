@@ -42,6 +42,7 @@ export function SearchInput({ value, onChange, onSubmit, loading }: SearchInputP
   }, [])
 
   useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     fetchSuggestions(value)
   }, [value, fetchSuggestions])
 

@@ -30,6 +30,7 @@ export function SubjectPicker({ selected, onChange }: SubjectPickerProps) {
   }, [])
 
   useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     fetchSuggestions(query)
   }, [query, fetchSuggestions])
 
