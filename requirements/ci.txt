@@ -29,6 +29,7 @@ redis==6.4.0
 
 # --- auth ---
 bcrypt==4.3.0
+itsdangerous==2.2.0
 PyJWT==2.10.1
 python-dotenv==1.1.1
 
@@ -57,10 +58,20 @@ langchain-community==0.3.29
 langchain-openai==0.3.33
 langgraph==0.6.7
 ddgs==9.5.5
+wikipedia==1.4.0
+
+# --- metrics ---
+prometheus-client==0.24.1
+prometheus-fastapi-instrumentator==7.1.0
 
 # --- observability ---
-opentelemetry-api
-opentelemetry-sdk
+opentelemetry-api==1.40.0
+opentelemetry-sdk==1.40.0
+opentelemetry-exporter-otlp-proto-grpc==1.40.0
+opentelemetry-exporter-otlp-proto-http==1.40.0
+opentelemetry-instrumentation-fastapi==0.61b0
+opentelemetry-instrumentation-sqlalchemy==0.61b0
+opentelemetry-instrumentation-httpx==0.61b0
 
 # torch is installed separately in CI via --index-url to get the CPU-only wheel
 # See .github/workflows/ci.yml
