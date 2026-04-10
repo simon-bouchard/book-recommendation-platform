@@ -141,7 +141,7 @@ async def model_server_error_handler(request: Request, exc: ModelServerError) ->
 # ===========================================================================
 
 
-@app.get("/health/live", dependencies=[Depends(limiter_dep)])
+@app.get("/health/live")
 def health_live():
     """
     Liveness probe.
