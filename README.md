@@ -3,6 +3,8 @@
 
 A full-stack, production-grade book recommendation platform with personalized recommendations, semantic and full-text search, item similarity, and an AI-powered chatbot. Built to explore the end-to-end challenges of deploying ML systems: data cleaning, model training, serving infrastructure, observability, and automation.
 
+Live demo: [recsys.simonbouchard.space](https://recsys.simonbouchard.space)
+
 ---
 
 ## Architecture
@@ -15,6 +17,50 @@ The system is composed of several independent layers:
 - **Support services** — MySQL (primary store), Redis (sessions, rate limiting, cache), Meilisearch (full-text search)
 - **Enrichment pipeline** — Kafka + Spark were used for a one-time async enrichment job (LLM-driven metadata enrichment written back to MySQL); not running continuously in production
 - **Observability** — Prometheus metrics, Grafana dashboards, Jaeger distributed tracing via OpenTelemetry
+
+```mermaid
+graph TD
+    Browser([Browser]) --> Nginx
+
+    subgraph prod[Production Server]
+        Nginx --> Backend[FastAPI Backend]
+
+        subgraph stores[Data Stores]
+            MySQL[(MySQL)]
+            Redis[(Redis)]
+            Meilisearch[(Meilisearch)]
+        end
+
+        Backend --> MySQL
+        Backend --> Redis
+        Backend --> Meilisearch
+
+        subgraph ms[Model Servers]
+            direction LR
+            Emb[Embedder\n:8001]
+            Sim[Similarity\n:8002]
+            ALS[ALS\n:8003]
+            Meta[Metadata\n:8004]
+            Sem[Semantic\n:8005]
+        end
+
+        Backend --> ms
+
+        Artifacts[(Artifact\nStore)] --> ms
+
+        Training[Training Pipeline] -->|reads| MySQL
+        Training -->|promotes| Artifacts
+        Training -.->|reload signal| ms
+
+        subgraph obs[Observability]
+            Prom[Prometheus] --> Graf[Grafana]
+            Jaeger
+        end
+
+        Backend -->|metrics| Prom
+        Backend -->|traces| Jaeger
+    end
+```
 
 Each model server runs in its own Docker container with read-only artifact mounts. Hot-reload is implemented via a shared version pointer file: the training pipeline writes a new version, signals the servers, and each server reloads its artifacts with zero downtime.
 
@@ -50,26 +96,43 @@ The system supports two user states and three explicit modes:
 
 In `auto` mode the system detects whether the user has ALS factors and routes accordingly, falling back to subject-based or popularity-based recommendations when needed.
 
+### Subject Embeddings
+
+Each of the ~1,000 subjects in the vocabulary is represented by a learned embedding. These embeddings are trained with a **dual loss**:
+
+- **Regression loss** — the model predicts a user's rating for a book from their subject preferences; this anchors embeddings to actual user taste signals.
+- **Contrastive loss** — subjects that frequently co-occur on the same books are pulled together in embedding space; this captures semantic relationships between subjects without requiring explicit labels.
+
+Both books and users are represented using **per-dimension attention pooling** over their subject embeddings. Rather than assigning a single scalar weight per subject, the attention mechanism produces a weight vector of the same dimensionality as the embeddings. This allows the model to learn that certain dimensions of an embedding are more or less relevant depending on the subject — the output has the same shape as a single subject embedding and can be compared directly via dot product.
+
+For books, the subjects come from Open Library metadata. For users, subjects are selected directly by the user at signup; for the original Book-Crossing data, they were derived from each user's rating history.
+
 ---
 
 ## Inference Pipeline
+
+Both pipelines are wrapped with a Redis cache check at the API layer. On a cache hit the full pipeline is skipped entirely. On a miss the pipeline runs and the final response is written to the cache before returning.
 
 ### Recommendations
 
 ```mermaid
 flowchart TD
-    A[Request] --> B[Fetch user profile from DB]
-    B --> C{mode=auto?}
-    C -- yes --> D[Check warm status\nALS server]
-    C -- no --> E[Select pipeline\nfrom mode]
-    D --> E
-    E --> F[Model server\nALS or Subject similarity]
-    F --> G[Candidates]
-    G --> H[asyncio.gather]
-    H --> I[DB query\nfilter already-read books]
-    H --> J[Metadata server\nenrich with title / author / cover]
-    I --> K[Filter · slice to k · return]
-    J --> K
+    A[Request] --> B{Redis cache hit?}
+    B -- yes --> Z[Return cached response]
+    B -- no --> C[Fetch user profile from DB]
+    C --> D{mode=auto?}
+    D -- yes --> E[Check warm status\nALS server]
+    D -- no --> F[Select pipeline\nfrom mode]
+    E --> F
+    F --> G[Model server\nALS or Subject similarity]
+    G --> H[Candidates]
+    H --> I[asyncio.gather]
+    I --> J[DB query\nfilter already-read books]
+    I --> K[Metadata server\nenrich with title / author / cover]
+    J --> L[Filter · slice to k]
+    K --> L
+    L --> M[Write to Redis cache]
+    M --> N[Return]
 ```
 
 The filter and enrichment steps run concurrently via `asyncio.gather` — both only need the candidate ID list, which is available immediately after the model server responds. This reduces the combined cost from ~18ms sequential to ~max(8ms, 10ms).
@@ -78,9 +141,12 @@ The filter and enrichment steps run concurrently via `asyncio.gather` — both o
 
 ```mermaid
 flowchart LR
-    A[Request] --> B[Similarity model server]
-    B --> C[Metadata server]
-    C --> D[Return]
+    A[Request] --> B{Redis cache hit?}
+    B -- yes --> E[Return cached response]
+    B -- no --> C[Similarity model server]
+    C --> D[Metadata server]
+    D --> F[Write to Redis cache]
+    F --> G[Return]
 ```
 
 No DB round-trip — similarity is 2–3x faster than the recommendation path as a result.
@@ -91,12 +157,28 @@ No DB round-trip — similarity is 2–3x faster than the recommendation path as
 
 Training is automated and runs daily via a systemd timer directly on the production server. The pipeline:
 
-1. **Data export** — training data is extracted from the live MySQL database into flat files for model training
-2. **Training** — ALS factors, subject embeddings, similarity indices, metadata aggregates, Bayesian scores
-3. **Quality gate** — evaluates the new artifacts against baseline thresholds; blocks promotion on regression
-4. **Artifact promotion** — if the gate passes, the new version is written to a versioned directory and the active version pointer is updated
-5. **Worker reload** — signals all 5 model servers to reload from the new pointer; each reloads independently with no downtime
-6. **Notifications** — sends an email report on success or failure
+1. **Data export** — training data is extracted from the live MySQL database into flat files
+2. **DB backup** — current database is backed up before any training runs
+3. **Training** — ALS factors, subject embeddings, similarity indices, metadata aggregates, Bayesian scores
+4. **Quality gate** — evaluates the new artifacts against baseline thresholds; blocks promotion on regression
+5. **Artifact promotion** — if the gate passes, the new version is written to a versioned directory and the active version pointer is updated
+6. **Worker reload** — signals all 5 model servers to reload from the new pointer; each reloads independently with no downtime
+7. **Cache flush** — ALS-dependent Redis cache entries are invalidated so stale recommendations are not served from the old model
+8. **Meilisearch update** — Bayesian popularity scores are pushed to the Meilisearch index
+9. **Notifications** — sends an email report on failure
+
+```mermaid
+flowchart TD
+    A[MySQL\nlive database] -->|export| B[DB backup]
+    B --> C[Training\nALS · embeddings · indices · metadata]
+    C --> D{Quality gate}
+    D -- pass --> E[Promote artifacts\nwrite versioned dir + update pointer]
+    E --> F[Signal model servers\nreload from new pointer]
+    F --> G[Flush Redis cache\nALS-dependent entries]
+    G --> H[Update Meilisearch\nBayesian popularity scores]
+    D -- fail --> I[Notify\nfailure]
+    C -- crash --> I
+```
 
 Old artifact versions are retained for rollback and automatically retired after a configurable number of versions.
 
@@ -107,10 +189,32 @@ Old artifact versions are retained for rollback and automatically retired after 
 The chatbot is built with LangGraph and routes requests across specialized agents:
 
 - **Router** — classifies the intent of each message
-- **Recommendation agent** — multi-stage pipeline: query understanding → candidate retrieval → ranking → response generation
+- **Recommendation agent** — multi-stage pipeline: planning → retrieval → selection → response
 - **Docs agent** — answers questions about the platform itself
 - **Web agent** — handles general book/author questions via web search
 - **Response agent** — handles messages that require no tool use (direct answers, greetings, clarifications)
+
+```mermaid
+flowchart TD
+    U[User message] --> R[Router]
+
+    R --> RA[Recommendation agent]
+    R --> DA[Docs agent]
+    R --> WA[Web agent]
+    R --> RE[Response agent]
+
+    subgraph ra[Recommendation agent]
+        RA --> P[Planning\nselects which tools to call]
+        P --> T[Retrieval\nexecutes tool calls]
+        T --> S[Selection\napplies filters and picks candidates]
+        S --> RES[Response generation]
+    end
+
+    RES --> Stream[Streamed response]
+    DA --> Stream
+    WA --> Stream
+    RE --> Stream
+```
 
 Responses are streamed to the client via SSE. Conversation history is stored in Redis per session. Per-user rate limiting is also enforced via Redis, independently of history.
 
