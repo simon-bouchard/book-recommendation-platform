@@ -15,7 +15,7 @@ The system is composed of several independent layers:
 - **Backend** — FastAPI application handling auth, routing, caching, and business logic
 - **Model servers** — 5 independent microservices, each owning a specific set of ML artifacts and endpoints
 - **Support services** — MySQL (primary store), Redis (sessions, rate limiting, cache), Meilisearch (full-text search)
-- **Enrichment pipeline** — Kafka + Spark were used for a one-time async enrichment job (LLM-driven metadata enrichment written back to MySQL); not running continuously in production
+- **Enrichment pipeline** — a one-time LLM-driven pipeline that tagged ~170k books with curated subjects, tones, genre, and vibe strings. Results were streamed via Kafka and ingested by Spark into MySQL. These enriched tags are what power semantic search — each book is embedded from a structured string built from its enriched metadata rather than raw fields
 - **Observability** — Prometheus metrics, Grafana dashboards, Jaeger distributed tracing via OpenTelemetry
 
 ```mermaid
@@ -160,7 +160,7 @@ Training is automated and runs daily via a systemd timer directly on the product
 1. **Data export** — training data is extracted from the live MySQL database into flat files
 2. **DB backup** — current database is backed up before any training runs
 3. **Training** — ALS factors, subject embeddings, similarity indices, metadata aggregates, Bayesian scores
-4. **Quality gate** — evaluates the new artifacts against baseline thresholds; blocks promotion on regression
+4. **Quality gate** — evaluates recall@30 on the full training set and blocks promotion if it falls below a threshold
 5. **Artifact promotion** — if the gate passes, the new version is written to a versioned directory and the active version pointer is updated
 6. **Worker reload** — signals all 5 model servers to reload from the new pointer; each reloads independently with no downtime
 7. **Cache flush** — ALS-dependent Redis cache entries are invalidated so stale recommendations are not served from the old model
@@ -181,6 +181,8 @@ flowchart TD
 ```
 
 Old artifact versions are retained for rollback and automatically retired after a configurable number of versions.
+
+**A note on the quality gate:** the gate measures recall@30 on the full training set rather than a held-out split. This is a deliberate choice. A frozen random test set becomes unfair over time: as the data distribution shifts, the new model adapts to it and will appear to degrade on the frozen set even though it is actually better aligned with current users. A rolling test set of the most recent interactions avoids this but removes the most valuable training signal and produces an inconsistent baseline. Without sufficient traffic to rely on online metrics as the primary quality signal, training on the full dataset and evaluating on it is the least-bad option — the gate reliably catches catastrophic failures (corrupted data, broken scripts, hyperparameter disasters) which are the failure modes that actually occur in practice.
 
 ---
 
@@ -216,9 +218,22 @@ flowchart TD
     RE --> Stream
 ```
 
+The recommendation agent's retrieval step calls tools backed by the ML system directly — ALS-based recommendations, subject-based recommendations, and popularity-based results. Semantic search is also available as a retrieval tool, functioning as a more classic RAG-style lookup where the query is embedded and matched against the book vector index.
+
+Users can opt in via a UI toggle to share their profile with the agent (favorite subjects and reading history). When enabled, the agent uses this context to personalize both the candidate retrieval and the generated prose.
+
 Responses are streamed to the client via SSE. Conversation history is stored in Redis per session. Per-user rate limiting is also enforced via Redis, independently of history.
 
-An offline evaluation framework runs scenarios against each agent using an LLM judge with pass/fail criteria. Evaluations are run manually due to API cost.
+**Semantic search quality** was evaluated by comparing multiple embedding strategies — variants of the embedding string ranging from raw concatenated fields (title, author, description, Open Library subjects) to fully enriched strings (title, author, genre, LLM subjects, tones, vibe). An LLM judge with internet access evaluated the books retrieved by a set of representative queries across several use cases and examples per use case, assessing relevance without seeing the embeddings directly. Results clearly favored the enriched strategy, confirming that the LLM-curated metadata produced a stronger semantic signal than the raw fields.
+
+**Agent evaluation** covers each agent with a set of use cases and multiple examples per use case. Criteria are scored 0/1 per example, with multiple judges on some criteria:
+
+- **Planner** — evaluated by comparing structured JSON output directly against expected tool selections; no LLM judge needed since the output is deterministic
+- **Retrieval** — verifies that it follows the plan, calls tools with correct arguments (e.g. formats semantic search queries correctly), retrieves the right number of results, can recover from failing tools, and adapts strategy when initial results are poor
+- **Selection** — verifies correct output count, no duplicates, no more than two books from the same author, negative constraints filtered out, and results matching the query intent
+- **Response agent** — evaluated by LLM judges across multiple criteria: the opening paragraph must implicitly reference the retrieval tools used and any personalization context, book descriptions must be specific to the query, and the closing paragraph must tie back to the reasons the books were selected
+
+The recommendation agent is evaluated both per-stage and end-to-end, with the end-to-end evaluation applying all per-stage criteria together. The router, docs, web, and response agents follow the same evaluation structure — use cases with multiple scored examples — adapted to their respective responsibilities. Evaluations are run manually due to API cost.
 
 ---
 
