@@ -56,23 +56,31 @@ In `auto` mode the system detects whether the user has ALS factors and routes ac
 
 ### Recommendations
 
-```
-Request
-  └─ Fetch user profile from DB (subjects, if mode=auto or subject)
-       └─ Check warm status (ALS server, mode=auto only)
-            └─ Model server call → ranked candidates
-                 └─ asyncio.gather (parallel)
-                      ├─ DB query: filter already-read books
-                      └─ Metadata server: enrich candidates with title/author/year/cover
-                           └─ Filter, slice to k, return
+```mermaid
+flowchart TD
+    A[Request] --> B[Fetch user profile from DB]
+    B --> C{mode=auto?}
+    C -- yes --> D[Check warm status\nALS server]
+    C -- no --> E[Select pipeline\nfrom mode]
+    D --> E
+    E --> F[Model server\nALS or Subject similarity]
+    F --> G[Candidates]
+    G --> H[asyncio.gather]
+    H --> I[DB query\nfilter already-read books]
+    H --> J[Metadata server\nenrich with title / author / cover]
+    I --> K[Filter · slice to k · return]
+    J --> K
 ```
 
-The final step runs the DB filter and metadata enrichment concurrently since both only require the candidate ID list. This reduces the combined cost from ~18ms sequential to ~max(8ms, 10ms).
+The filter and enrichment steps run concurrently via `asyncio.gather` — both only need the candidate ID list, which is available immediately after the model server responds. This reduces the combined cost from ~18ms sequential to ~max(8ms, 10ms).
 
 ### Similarity
 
-```
-Request → Similarity model server → Metadata server → Return
+```mermaid
+flowchart LR
+    A[Request] --> B[Similarity model server]
+    B --> C[Metadata server]
+    C --> D[Return]
 ```
 
 No DB round-trip — similarity is 2–3x faster than the recommendation path as a result.
@@ -81,13 +89,14 @@ No DB round-trip — similarity is 2–3x faster than the recommendation path as
 
 ## ML Training Pipeline
 
-Training is automated and runs daily via a systemd timer. The pipeline:
+Training is automated and runs daily via a systemd timer directly on the production server. The pipeline:
 
-1. **Run training scripts** — ALS factors, subject embeddings, similarity indices, metadata aggregates, Bayesian scores
-2. **Quality gate** — evaluates the new artifacts against baseline thresholds; blocks promotion on regression
-3. **Artifact promotion** — if the gate passes, the new version is written to a versioned directory and the active version pointer is updated
-4. **Worker reload** — signals all 5 model servers to reload from the new pointer; each reloads independently with no downtime
-5. **Notifications** — sends an email report on success or failure
+1. **Data export** — training data is extracted from the live MySQL database into flat files for model training
+2. **Training** — ALS factors, subject embeddings, similarity indices, metadata aggregates, Bayesian scores
+3. **Quality gate** — evaluates the new artifacts against baseline thresholds; blocks promotion on regression
+4. **Artifact promotion** — if the gate passes, the new version is written to a versioned directory and the active version pointer is updated
+5. **Worker reload** — signals all 5 model servers to reload from the new pointer; each reloads independently with no downtime
+6. **Notifications** — sends an email report on success or failure
 
 Old artifact versions are retained for rollback and automatically retired after a configurable number of versions.
 
