@@ -15,7 +15,7 @@ The system is composed of several independent layers:
 - **Backend** — FastAPI application handling auth, routing, caching, and business logic
 - **Model servers** — 5 independent microservices, each owning a specific set of ML artifacts and endpoints
 - **Support services** — MySQL (primary store), Redis (sessions, rate limiting, cache), Meilisearch (full-text search)
-- **Enrichment pipeline** — a one-time LLM-driven pipeline that tagged ~170k books with curated subjects, tones, genre, and vibe strings. Results were streamed via Kafka and ingested by Spark into MySQL. These enriched tags are what power semantic search — each book is embedded from a structured string built from its enriched metadata rather than raw fields
+- **Enrichment pipeline** — a one-time LLM-driven pipeline that tagged ~170k books with curated subjects, tones, genre, and vibe strings via Kafka + Spark; these enriched tags power semantic search
 - **Observability** — Prometheus metrics, Grafana dashboards, Jaeger distributed tracing via OpenTelemetry
 
 ```mermaid
@@ -153,6 +153,36 @@ No DB round-trip — similarity is 2–3x faster than the recommendation path as
 
 ---
 
+## Performance
+
+Measured on the production server (6 vCPU, older EPYC architecture) with Redis cache disabled, representing worst-case latency. Zero failures were recorded across all scenarios. The server scores ~565 ops/sec single-threaded and ~3150 ops/sec across 6 threads on a sysbench CPU benchmark, roughly comparable to a low-end cloud instance.
+
+**Single-threaded latency (cache miss)**
+
+| Path | Mean | Median | P95 |
+|---|---|---|---|
+| Warm / ALS | 49ms | 42ms | 91ms |
+| Warm / Subject | 59ms | 53ms | 85ms |
+| Cold / With subjects | 62ms | 55ms | 109ms |
+| Cold / No subjects | 69ms | 60ms | 113ms |
+| Similarity / Subject | 33ms | 28ms | 75ms |
+| Similarity / ALS | 34ms | 27ms | 57ms |
+| Similarity / Hybrid | 37ms | 35ms | 60ms |
+
+**Sustained throughput — 10 concurrent workers, 30s**
+
+| Path | Mean | P95 | RPS | Failures |
+|---|---|---|---|---|
+| Warm / ALS | 204ms | 403ms | 48.9 | 0 |
+| Cold / With subjects | 256ms | 487ms | 38.8 | 0 |
+| Similarity / Subject | 115ms | 241ms | 87.1 | 0 |
+| Similarity / ALS | 119ms | 258ms | 83.9 | 0 |
+| Similarity / Hybrid | 197ms | 375ms | 50.7 | 0 |
+
+The concurrency overhead is expected given the deployment constraints. The production server runs the main app, all 5 model servers, and supporting services on 6 vCPUs — already oversubscribed at a single worker. FAISS threads per model server are capped at 6 to reduce single-threaded latency, which trades concurrency headroom for lower baseline latency. On a host that is oversubscribed regardless, this is the better tradeoff. Given the current traffic level, concurrent requests are rare in practice; the system was optimized for single-threaded latency specifically, with correct async and thread pool handling in place should concurrency increase.
+
+---
+
 ## ML Training Pipeline
 
 Training is automated and runs daily via a systemd timer directly on the production server. The pipeline:
@@ -234,6 +264,18 @@ Responses are streamed to the client via SSE. Conversation history is stored in 
 - **Response agent** — evaluated by LLM judges across multiple criteria: the opening paragraph must implicitly reference the retrieval tools used and any personalization context, book descriptions must be specific to the query, and the closing paragraph must tie back to the reasons the books were selected
 
 The recommendation agent is evaluated both per-stage and end-to-end, with the end-to-end evaluation applying all per-stage criteria together. The router, docs, web, and response agents follow the same evaluation structure — use cases with multiple scored examples — adapted to their respective responsibilities. Evaluations are run manually due to API cost.
+
+---
+
+## Book Enrichment Pipeline
+
+Semantic search quality depends entirely on what gets embedded. Raw book metadata from Book-Crossing and Open Library is too inconsistent to embed directly — descriptions are sparse or missing for a large portion of the catalog, and raw subject strings are noisy.
+
+A first enrichment pass (LLM subjects, tones, genre, vibe) improved retrieval significantly over the raw baseline, but introduced a new problem: the small model used (3–7B, due to budget constraints) hallucinated freely for obscure books with little available metadata, which make up roughly half the catalog. Asking it for less output uniformly would have discarded valid information for well-known books where the model had enough signal to work with — LLMs are not reliable at self-regulating output quantity before they start to confabulate.
+
+The solution was to compute an **information availability score** per book from description length and number of Open Library subjects, then bucket books into quality tiers. Each tier has different output quantity ranges — richer books get more subjects, tones, and a longer vibe; sparse books get fewer or none. The model only produces what the available metadata can support, keeping hallucination contained without discarding good output for better-documented books.
+
+This tiered approach improved retrieval quality over the first enrichment pass and substantially over the raw concatenated baseline.
 
 ---
 
