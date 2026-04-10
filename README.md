@@ -12,8 +12,8 @@ The system is composed of several independent layers:
 - **Frontend** — React + TypeScript SPA (search, recommendations, ratings, chatbot)
 - **Backend** — FastAPI application handling auth, routing, caching, and business logic
 - **Model servers** — 5 independent microservices, each owning a specific set of ML artifacts and endpoints
-- **Support services** — MySQL (primary store), Redis (sessions, rate limiting, cache), Meilisearch (full-text search), Kafka (async enrichment queue)
-- **Batch layer** — Spark jobs for training data export and interaction archival
+- **Support services** — MySQL (primary store), Redis (sessions, rate limiting, cache), Meilisearch (full-text search)
+- **Enrichment pipeline** — Kafka + Spark were used for a one-time async enrichment job (LLM-driven metadata enrichment written back to MySQL); not running continuously in production
 - **Observability** — Prometheus metrics, Grafana dashboards, Jaeger distributed tracing via OpenTelemetry
 
 Each model server runs in its own Docker container with read-only artifact mounts. Hot-reload is implemented via a shared version pointer file: the training pipeline writes a new version, signals the servers, and each server reloads its artifacts with zero downtime.
@@ -25,9 +25,9 @@ Each model server runs in its own Docker container with read-only artifact mount
 | Server | Port | Responsibilities |
 |---|---|---|
 | Embedder | 8001 | Attention-pooled subject embeddings (PyTorch) |
-| Similarity | 8002 | Subject HNSW index, ALS HNSW index, hybrid similarity, Bayesian scores |
+| Similarity | 8002 | Subject HNSW index, ALS HNSW index, hybrid similarity |
 | ALS | 8003 | ALS user/item factors, warm-user detection |
-| Metadata | 8004 | Book metadata lookup, Bayesian popularity scores, subject TF-IDF |
+| Metadata | 8004 | Book metadata lookup, Bayesian popularity scores |
 | Semantic | 8005 | FAISS vector index for semantic search |
 
 ---
@@ -38,7 +38,6 @@ The system supports two user states and three explicit modes:
 
 **Warm users** (have prior ratings)
 - ALS (Alternating Least Squares) collaborative filtering retrieves candidate books based on behavioral patterns.
-- A LightGBM ranker reranks candidates using metadata features.
 
 **Cold users** (no ratings)
 - Attention-pooled subject embeddings compute similarity between the user's preferred subjects and all books.
@@ -102,9 +101,9 @@ The chatbot is built with LangGraph and routes requests across specialized agent
 - **Recommendation agent** — multi-stage pipeline: query understanding → candidate retrieval → ranking → response generation
 - **Docs agent** — answers questions about the platform itself
 - **Web agent** — handles general book/author questions via web search
-- **Response agent** — final formatting and streaming output
+- **Response agent** — handles messages that require no tool use (direct answers, greetings, clarifications)
 
-Responses are streamed to the client via SSE. Conversation history is maintained per session with Redis-backed rate limiting.
+Responses are streamed to the client via SSE. Conversation history is stored in Redis per session. Per-user rate limiting is also enforced via Redis, independently of history.
 
 An offline evaluation framework runs scenarios against each agent using an LLM judge with pass/fail criteria. Evaluations are run manually due to API cost.
 
@@ -179,17 +178,16 @@ Result: a normalized schema with clean IDs, consistent metadata, and a manageabl
 **ML / Data**
 - Implicit (ALS collaborative filtering)
 - PyTorch (attention-pooled subject embeddings)
-- LightGBM (reranking)
 - FAISS + HNSW (similarity indices)
 - Sentence-Transformers (semantic embeddings)
-- Pandas, NumPy, SciPy, Spark (batch processing)
+- Pandas, NumPy, SciPy
 
 **Backend**
 - FastAPI, Uvicorn, Gunicorn
 - SQLAlchemy + aiomysql (async MySQL)
 - Redis (sessions, rate limiting, cache)
 - Meilisearch (full-text search)
-- Kafka (async enrichment queue)
+- Kafka + Spark (enrichment pipeline, one-time use)
 - LangChain, LangGraph, OpenAI SDK (chatbot agents)
 
 **Frontend**
