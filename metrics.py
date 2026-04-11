@@ -68,7 +68,7 @@ RECSYS_RESULT_COUNT = Histogram(
     "bookrec_recsys_result_count",
     "Number of recommendations returned after filtering, by mode",
     ["mode"],
-    buckets=[0, 10, 25, 50, 100, 150, 200, 300, 500],
+    buckets=[0, 10, 25, 50, 100, 125, 150, 175, 190, 195, 200, 250, 300, 500],
 )
 
 RECSYS_SCORE = Histogram(
@@ -88,7 +88,7 @@ SIMILARITY_RESULT_COUNT = Histogram(
     "bookrec_similarity_result_count",
     "Number of similar books returned after enrichment, by mode",
     ["mode"],
-    buckets=[0, 10, 25, 50, 100, 150, 200, 300, 500],
+    buckets=[0, 10, 25, 50, 100, 125, 150, 175, 190, 195, 200, 250, 300, 500],
 )
 
 SIMILARITY_SCORE = Histogram(

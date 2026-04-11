@@ -45,20 +45,66 @@ groups:
             mode={{ $labels.mode }}. This suggests the candidate pool is shrinking,
             possibly due to model degradation or aggressive already-read filtering.
 
-      # Median score dropping below 0.05 signals the model is returning near-zero
-      # scores — likely a collapsed ALS model or miscalibrated embeddings.
-      # Threshold is conservative; adjust after observing your baseline.
-      - alert: RecsysLowMedianScore
+      # Baselines (synthetic requests): subject ~0.8, behavioral ~0.29.
+      # Thresholds set at ~35-50% of baseline to stay conservative.
+
+      # subject mode: threshold 0.4 (50% of ~0.8 baseline)
+      - alert: RecsysLowMedianScoreSubject
         expr: >
           histogram_quantile(0.5,
             sum by (mode, le) (rate(bookrec_recsys_score_bucket[10m]))
-          ) < 0.05
+          ) < 0.4 and on(mode) (bookrec_recsys_requests_total{mode="subject"} > 0)
         for: 10m
         labels:
           severity: warning
         annotations:
-          summary: "Recommendation median score collapsed (mode={{ $labels.mode }})"
+          summary: "Recommendation median score collapsed for subject mode"
           description: >
-            Median recommendation score has been below 0.05 for 10 minutes for
-            mode={{ $labels.mode }}. This may indicate a model artifact issue after
-            a failed or partial retrain.
+            Median recommendation score (subject mode) has been below 0.4 for 10 minutes.
+            Baseline is ~0.8. This may indicate a subject embedding or FAISS index issue.
+
+      # behavioral (ALS) mode: threshold 0.1 (33% of ~0.29 baseline)
+      - alert: RecsysLowMedianScoreBehavioral
+        expr: >
+          histogram_quantile(0.5,
+            sum by (mode, le) (rate(bookrec_recsys_score_bucket[10m]))
+          ) < 0.1 and on(mode) (bookrec_recsys_requests_total{mode="behavioral"} > 0)
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Recommendation median score collapsed for behavioral (ALS) mode"
+          description: >
+            Median recommendation score (behavioral mode) has been below 0.1 for 10 minutes.
+            Baseline is ~0.29. This may indicate corrupted or missing ALS factors.
+
+      # Similarity baselines: subject ~0.8, als ~0.32, hybrid ~0.32 (conservative proxy).
+      # subject mode: threshold 0.4
+      - alert: SimilarityLowMedianScoreSubject
+        expr: >
+          histogram_quantile(0.5,
+            sum by (mode, le) (rate(bookrec_similarity_score_bucket[10m]))
+          ) < 0.4 and on(mode) (bookrec_similarity_requests_total{mode="subject"} > 0)
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Similarity median score collapsed for subject mode"
+          description: >
+            Median similarity score (subject mode) has been below 0.4 for 10 minutes.
+            Baseline is ~0.8.
+
+      # als and hybrid modes: threshold 0.1
+      - alert: SimilarityLowMedianScoreAlsHybrid
+        expr: >
+          histogram_quantile(0.5,
+            sum by (mode, le) (rate(bookrec_similarity_score_bucket[10m]))
+          ) < 0.1 and on(mode) (bookrec_similarity_requests_total{mode=~"als|hybrid"} > 0)
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Similarity median score collapsed for {{ $labels.mode }} mode"
+          description: >
+            Median similarity score ({{ $labels.mode }} mode) has been below 0.1 for 10 minutes.
+            Baseline is ~0.32.
