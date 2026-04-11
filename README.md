@@ -284,6 +284,11 @@ This tiered approach improved retrieval quality over the first enrichment pass a
 **Metrics** (Prometheus + Grafana)
 - Request counters and latency histograms per path (recommendations, similarity, search, chat)
 - Exposed at `/metrics`, scraped by Prometheus, visualized in Grafana
+- **Drift monitoring** — proxy quality metrics tracked per mode on every request, with zero added latency (Prometheus histogram updates are lock-free atomic increments):
+  - *Score distribution* — histogram of recommendation and similarity scores; median tracked over time to detect model output collapse
+  - *Result count distribution* — histogram of result counts after read-book filtering; p10 drop signals a shrinking candidate pool
+  - *Empty result rate* — counter incremented when a request returns zero results
+  - Alert rules fire when any metric crosses a per-mode threshold calibrated to observed baselines (subject ~0.8, ALS ~0.3)
 
 **Distributed tracing** (OpenTelemetry → Jaeger)
 - Auto-instrumented for FastAPI, httpx (model server calls), and SQLAlchemy
