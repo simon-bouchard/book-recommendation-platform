@@ -289,6 +289,7 @@ This tiered approach improved retrieval quality over the first enrichment pass a
   - *Result count distribution* — histogram of result counts after read-book filtering; p10 drop signals a shrinking candidate pool
   - *Empty result rate* — counter incremented when a request returns zero results
   - Alert rules fire when any metric crosses a per-mode threshold calibrated to observed baselines (subject ~0.8, ALS ~0.3)
+- **Click-through rate** — book clicks and impressions tracked per recommendation surface (`recommendations`, `similar`, `chatbot`) and mode; CTR visualized in Grafana to evaluate model usefulness from actual user behaviour
 
 **Distributed tracing** (OpenTelemetry → Jaeger)
 - Auto-instrumented for FastAPI, httpx (model server calls), and SQLAlchemy
