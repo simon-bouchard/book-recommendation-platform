@@ -295,6 +295,7 @@ This tiered approach improved retrieval quality over the first enrichment pass a
 - Manual spans added at service and pipeline boundaries
 - Health and metrics endpoints excluded from trace noise
 - Trace ID propagated through all model server calls for end-to-end request visibility
+- Chatbot pipeline fully instrumented with manual spans: router classification, agent execution, four recsys pipeline stages (planning → retrieval → selection → curation), and per-tool spans for every LangGraph tool call; context propagated across the streaming response boundary to keep all spans correctly parented
 
 ---
 
