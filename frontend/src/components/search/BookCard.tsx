@@ -19,10 +19,7 @@ export function BookCard({ book, source, mode }: BookCardProps) {
   return (
     <a
       href={`/book/${book.item_idx}`}
-      onClick={() => {
-  console.log('[track] click', book.item_idx, source, mode)
-  if (source && mode) trackClick(book.item_idx, source, mode)
-}}
+      onClick={() => { if (source && mode) trackClick(book.item_idx, source, mode) }}
       className="group flex flex-col rounded-lg border border-border bg-card p-3 pb-5 shadow-sm transition-all duration-300 hover:-translate-y-1 hover:shadow-lg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
     >
       <div className="relative mb-3 w-full aspect-[2/3] shrink-0">
