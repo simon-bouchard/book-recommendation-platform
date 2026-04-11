@@ -23,7 +23,7 @@ from app.agents.runtime import (
 from app.agents.schemas import ChatIn
 from app.agents.settings import settings
 from app.database import get_db
-from metrics import CHAT_LATENCY, CHAT_REQUESTS
+from metrics import BOOK_IMPRESSION_TOTAL, CHAT_LATENCY, CHAT_REQUESTS
 from models.data.queries import get_user_num_ratings
 from routes.auth import get_current_user
 
@@ -194,6 +194,10 @@ async def chat_agent_stream(
                         )
                         CHAT_REQUESTS.labels(target=target).inc()
                         CHAT_LATENCY.labels(target=target).observe(time.time() - start_time)
+                        if book_ids:
+                            BOOK_IMPRESSION_TOTAL.labels(
+                                source="chatbot", mode="chatbot"
+                            ).inc(len(book_ids))
 
                 except Exception as e:
                     conductor_span.record_exception(e)

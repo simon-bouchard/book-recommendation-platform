@@ -35,6 +35,7 @@ from routes.auth import get_current_user
 from routes.auth import router as auth_router
 from routes.chat import router as chat_router
 from routes.models import router as models_router
+from routes.track import router as track_router
 
 load_dotenv()
 
@@ -217,6 +218,7 @@ app.include_router(router)
 app.include_router(chat_router)
 app.include_router(auth_router)
 app.include_router(models_router)
+app.include_router(track_router)
 
 
 # ===========================================================================

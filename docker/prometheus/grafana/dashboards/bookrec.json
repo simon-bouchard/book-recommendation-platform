@@ -1039,6 +1039,52 @@
           "legendFormat": "similarity {{ mode }}"
         }
       ]
+    },
+    {
+      "id": 22,
+      "title": "Click-Through Rate by Source & Mode",
+      "type": "timeseries",
+      "gridPos": {
+        "x": 0,
+        "y": 68,
+        "w": 24,
+        "h": 8
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "PBFA97CFB590B2093"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percentunit",
+          "custom": {
+            "lineWidth": 2,
+            "fillOpacity": 10
+          },
+          "min": 0,
+          "max": 1
+        }
+      },
+      "options": {
+        "legend": {
+          "displayMode": "table",
+          "placement": "bottom",
+          "calcs": [
+            "lastNotNull",
+            "mean"
+          ]
+        }
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "PBFA97CFB590B2093"
+          },
+          "expr": "sum by (source, mode) (rate(bookrec_book_click_total[5m])) / sum by (source, mode) (rate(bookrec_book_impression_total[5m]))",
+          "legendFormat": "{{ source }} / {{ mode }}"
+        }
+      ]
     }
   ]
 }

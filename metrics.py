@@ -111,6 +111,18 @@ CHAT_LATENCY = Histogram(
     buckets=[0.5, 1.0, 2.5, 5.0, 10.0, 20.0, 30.0],
 )
 
+BOOK_IMPRESSION_TOTAL = Counter(
+    "bookrec_book_impression_total",
+    "Number of books shown to users per recommendation surface and mode",
+    ["source", "mode"],
+)
+
+BOOK_CLICK_TOTAL = Counter(
+    "bookrec_book_click_total",
+    "Number of recommended books clicked per recommendation surface and mode",
+    ["source", "mode"],
+)
+
 
 # ---------------------------------------------------------------------------
 # Instrumentation setup

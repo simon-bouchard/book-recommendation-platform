@@ -12,6 +12,7 @@ from fastapi import APIRouter, HTTPException, Query
 from opentelemetry import trace
 
 from metrics import (
+    BOOK_IMPRESSION_TOTAL,
     RECSYS_EMPTY,
     RECSYS_LATENCY,
     RECSYS_REQUESTS,
@@ -164,6 +165,8 @@ async def recommend_for_user(
         else:
             for r in result:
                 RECSYS_SCORE.labels(mode=mode).observe(r["score"])
+        if result:
+            BOOK_IMPRESSION_TOTAL.labels(source="recommendations", mode=mode).inc(len(result))
         return result
     except HTTPException:
         raise
@@ -237,6 +240,8 @@ async def get_similar_books(
         else:
             for r in results:
                 SIMILARITY_SCORE.labels(mode=mode).observe(r["score"])
+        if results:
+            BOOK_IMPRESSION_TOTAL.labels(source="similar", mode=mode).inc(len(results))
         return results
     except HTTPException:
         raise
