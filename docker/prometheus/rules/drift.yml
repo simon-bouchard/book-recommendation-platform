@@ -1,0 +1,64 @@
+groups:
+  - name: bookrec_drift
+    rules:
+      # Fire when any mode is consistently returning zero recommendations.
+      # A brief blip (cache miss + cold path) is normal; 5 minutes sustained is not.
+      - alert: RecsysEmptyResults
+        expr: rate(bookrec_recsys_empty_results_total[5m]) > 0
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Recommendation endpoint returning empty results (mode={{ $labels.mode }})"
+          description: >
+            bookrec_recsys_empty_results_total has been non-zero for 5 minutes for
+            mode={{ $labels.mode }}. The candidate pool may have collapsed or the
+            model server may be unavailable.
+
+      # Same for similarity.
+      - alert: SimilarityEmptyResults
+        expr: rate(bookrec_similarity_empty_results_total[5m]) > 0
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Similarity endpoint returning empty results (mode={{ $labels.mode }})"
+          description: >
+            bookrec_similarity_empty_results_total has been non-zero for 5 minutes for
+            mode={{ $labels.mode }}. The FAISS index may be unavailable or returning
+            no neighbours.
+
+      # p10 of result count dropping below 10 means the bottom 10% of requests
+      # are nearly empty — filtering is too aggressive or candidates are sparse.
+      - alert: RecsysLowResultCount
+        expr: >
+          histogram_quantile(0.10,
+            sum by (mode, le) (rate(bookrec_recsys_result_count_bucket[10m]))
+          ) < 10
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Recommendation result count p10 below 10 (mode={{ $labels.mode }})"
+          description: >
+            The 10th percentile of recommendation result counts is below 10 for
+            mode={{ $labels.mode }}. This suggests the candidate pool is shrinking,
+            possibly due to model degradation or aggressive already-read filtering.
+
+      # Median score dropping below 0.05 signals the model is returning near-zero
+      # scores — likely a collapsed ALS model or miscalibrated embeddings.
+      # Threshold is conservative; adjust after observing your baseline.
+      - alert: RecsysLowMedianScore
+        expr: >
+          histogram_quantile(0.5,
+            sum by (mode, le) (rate(bookrec_recsys_score_bucket[10m]))
+          ) < 0.05
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Recommendation median score collapsed (mode={{ $labels.mode }})"
+          description: >
+            Median recommendation score has been below 0.05 for 10 minutes for
+            mode={{ $labels.mode }}. This may indicate a model artifact issue after
+            a failed or partial retrain.

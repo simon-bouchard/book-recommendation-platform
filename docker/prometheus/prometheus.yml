@@ -2,6 +2,9 @@ global:
   scrape_interval: 15s
   evaluation_interval: 15s
 
+rule_files:
+  - rules/drift.yml
+
 scrape_configs:
   - job_name: bookrec
     static_configs:

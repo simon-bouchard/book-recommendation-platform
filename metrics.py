@@ -64,6 +64,46 @@ SIMILARITY_LATENCY = Histogram(
     buckets=[0.05, 0.1, 0.25, 0.5, 1.0, 2.5, 5.0],
 )
 
+RECSYS_RESULT_COUNT = Histogram(
+    "bookrec_recsys_result_count",
+    "Number of recommendations returned after filtering, by mode",
+    ["mode"],
+    buckets=[0, 10, 25, 50, 100, 150, 200, 300, 500],
+)
+
+RECSYS_SCORE = Histogram(
+    "bookrec_recsys_score",
+    "Distribution of recommendation scores, by mode",
+    ["mode"],
+    buckets=[0.0, 0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 1.0, 2.0, 5.0, 10.0],
+)
+
+RECSYS_EMPTY = Counter(
+    "bookrec_recsys_empty_results_total",
+    "Number of recommendation requests that returned zero results, by mode",
+    ["mode"],
+)
+
+SIMILARITY_RESULT_COUNT = Histogram(
+    "bookrec_similarity_result_count",
+    "Number of similar books returned after enrichment, by mode",
+    ["mode"],
+    buckets=[0, 10, 25, 50, 100, 150, 200, 300, 500],
+)
+
+SIMILARITY_SCORE = Histogram(
+    "bookrec_similarity_score",
+    "Distribution of similarity scores, by mode",
+    ["mode"],
+    buckets=[0.0, 0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 1.0, 2.0, 5.0, 10.0],
+)
+
+SIMILARITY_EMPTY = Counter(
+    "bookrec_similarity_empty_results_total",
+    "Number of similarity requests that returned zero results, by mode",
+    ["mode"],
+)
+
 CHAT_LATENCY = Histogram(
     "bookrec_chat_latency_seconds",
     "End-to-end chatbot response latency in seconds",

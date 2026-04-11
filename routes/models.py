@@ -11,7 +11,18 @@ import time
 from fastapi import APIRouter, HTTPException, Query
 from opentelemetry import trace
 
-from metrics import RECSYS_LATENCY, RECSYS_REQUESTS, SIMILARITY_LATENCY, SIMILARITY_REQUESTS
+from metrics import (
+    RECSYS_EMPTY,
+    RECSYS_LATENCY,
+    RECSYS_REQUESTS,
+    RECSYS_RESULT_COUNT,
+    RECSYS_SCORE,
+    SIMILARITY_EMPTY,
+    SIMILARITY_LATENCY,
+    SIMILARITY_REQUESTS,
+    SIMILARITY_RESULT_COUNT,
+    SIMILARITY_SCORE,
+)
 from models.cache import cached_recommendations, cached_similarity
 from models.core.constants import PAD_IDX
 from models.domain.config import HybridConfig, RecommendationConfig
@@ -147,6 +158,12 @@ async def recommend_for_user(
         result = await _compute_recommendations(user, _id, top_n, mode, w)
         RECSYS_REQUESTS.labels(mode=mode).inc()
         RECSYS_LATENCY.labels(mode=mode).observe(time.time() - start_time)
+        RECSYS_RESULT_COUNT.labels(mode=mode).observe(len(result))
+        if not result:
+            RECSYS_EMPTY.labels(mode=mode).inc()
+        else:
+            for r in result:
+                RECSYS_SCORE.labels(mode=mode).observe(r["score"])
         return result
     except HTTPException:
         raise
@@ -214,6 +231,12 @@ async def get_similar_books(
             )
         SIMILARITY_REQUESTS.labels(mode=mode).inc()
         SIMILARITY_LATENCY.labels(mode=mode).observe(time.time() - start_time)
+        SIMILARITY_RESULT_COUNT.labels(mode=mode).observe(len(results))
+        if not results:
+            SIMILARITY_EMPTY.labels(mode=mode).inc()
+        else:
+            for r in results:
+                SIMILARITY_SCORE.labels(mode=mode).observe(r["score"])
         return results
     except HTTPException:
         raise
