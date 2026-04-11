@@ -117,6 +117,8 @@ export function SimilarBooks({ itemIdx, hasRealSubjects }: SimilarBooksProps) {
         <BookGrid
           results={results.map(toSearchResult)}
           loading={loading}
+          source="similar"
+          mode={mode}
         />
       )}
     </section>

@@ -166,6 +166,19 @@ export async function fetchProfileRecommendations(
   return res.json() as Promise<SimilarBook[]>
 }
 
+export async function trackClick(itemIdx: number, source: string, mode: string): Promise<void> {
+  try {
+    await fetch('/track/click', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      credentials: 'same-origin',
+      body: JSON.stringify({ item_idx: itemIdx, source, mode }),
+    })
+  } catch {
+    // fire-and-forget — never surface tracking errors to the user
+  }
+}
+
 export async function subjectSuggestions(q?: string): Promise<Subject[]> {
   const url = q
     ? `/subjects/suggestions?q=${encodeURIComponent(q)}`

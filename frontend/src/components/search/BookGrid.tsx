@@ -5,11 +5,13 @@ import { Skeleton } from '@/components/ui/skeleton'
 interface BookGridProps {
   results: SearchResult[];
   loading: boolean;
+  source?: string;
+  mode?: string;
 }
 
 const SKELETON_COUNT = 12
 
-export function BookGrid({ results, loading }: BookGridProps) {
+export function BookGrid({ results, loading, source, mode }: BookGridProps) {
   if (loading) {
     return (
       <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-5">
@@ -35,7 +37,7 @@ export function BookGrid({ results, loading }: BookGridProps) {
   return (
     <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-5">
       {results.map((book) => (
-        <BookCard key={book.item_idx} book={book} />
+        <BookCard key={book.item_idx} book={book} source={source} mode={mode} />
       ))}
     </div>
   )

@@ -128,7 +128,12 @@ export function ProfileRecommendations({ userId, numInteractions }: ProfileRecom
       {error && <p className="text-sm text-destructive mb-4">{error}</p>}
 
       {fetched && (
-        <BookGrid results={results.map(toSearchResult)} loading={loading} />
+        <BookGrid
+          results={results.map(toSearchResult)}
+          loading={loading}
+          source="recommendations"
+          mode={mode}
+        />
       )}
     </section>
   )

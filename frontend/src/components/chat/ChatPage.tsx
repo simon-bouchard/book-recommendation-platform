@@ -1,5 +1,6 @@
 import { useState, useRef, useEffect } from 'react'
 import { parseSseStream } from '@/lib/sse'
+import { trackClick } from '@/lib/api'
 import type { ChatMessage, ChatBook, ChatChunk } from '@/types'
 import { MessageBubble } from './MessageBubble'
 import { ChatInput } from './ChatInput'
@@ -213,8 +214,19 @@ export function ChatPage({ loggedIn }: ChatPageProps) {
       setHoverState({ book, top, left })
     }
 
+    const handleClick = (e: MouseEvent) => {
+      const link = (e.target as Element).closest?.('a.inline-book-ref[data-book-id]') as HTMLAnchorElement | null
+      if (!link) return
+      const bookId = parseInt(link.dataset.bookId ?? '', 10)
+      if (!isNaN(bookId)) void trackClick(bookId, 'chatbot', 'chatbot')
+    }
+
     document.addEventListener('mouseover', handleOver)
-    return () => document.removeEventListener('mouseover', handleOver)
+    document.addEventListener('click', handleClick)
+    return () => {
+      document.removeEventListener('mouseover', handleOver)
+      document.removeEventListener('click', handleClick)
+    }
   }, [])
 
   const inputProps = {

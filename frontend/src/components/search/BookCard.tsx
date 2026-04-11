@@ -2,12 +2,15 @@ import { useState } from 'react'
 import type { SearchResult } from '@/types'
 import { coverUrl, placeholderDataURI } from '@/lib/utils'
 import { Skeleton } from '@/components/ui/skeleton'
+import { trackClick } from '@/lib/api'
 
 interface BookCardProps {
   book: SearchResult;
+  source?: string;
+  mode?: string;
 }
 
-export function BookCard({ book }: BookCardProps) {
+export function BookCard({ book, source, mode }: BookCardProps) {
   const [imgSrc, setImgSrc] = useState(
     book.cover_id ? coverUrl(book.cover_id, 'M') : placeholderDataURI(book.title),
   )
@@ -16,6 +19,7 @@ export function BookCard({ book }: BookCardProps) {
   return (
     <a
       href={`/book/${book.item_idx}`}
+      onClick={() => { if (source && mode) void trackClick(book.item_idx, source, mode) }}
       className="group flex flex-col rounded-lg border border-border bg-card p-3 pb-5 shadow-sm transition-all duration-300 hover:-translate-y-1 hover:shadow-lg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
     >
       <div className="relative mb-3 w-full aspect-[2/3] shrink-0">
