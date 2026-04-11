@@ -306,7 +306,7 @@ GitHub Actions runs on every push and pull request to `master`:
 
 1. **Backend** — `ruff check` (lint), `ruff format --check`, `pytest tests/unit/`
 2. **Frontend** — ESLint, TypeScript type check, Vite build
-3. **Deploy** (master push only, after both pass) — SSH trigger runs `cd.sh` on the production server: `git pull` → `systemctl restart` → health check loop
+3. **Deploy** (master push only, after both pass) — SSH trigger runs `cd.sh` on the production server: `git pull` → `npm ci && npm run build` (frontend) → `systemctl restart` → health check loop
 
 ---
 
