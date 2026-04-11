@@ -9,6 +9,11 @@ from __future__ import annotations
 import time
 from typing import Any, AsyncGenerator, List, Optional
 
+from opentelemetry import trace
+from opentelemetry.trace import Status, StatusCode
+
+tracer = trace.get_tracer(__name__)
+
 from app.agents.context_builder import make_branch_input, make_router_input
 from app.agents.infrastructure.agent_adapter import AgentAdapter
 from app.agents.infrastructure.agent_factory import AgentFactory
@@ -93,12 +98,15 @@ class Conductor:
                 append_chatbot_log(f"Routing: FORCED to {target}")
             else:
                 append_chatbot_log("Routing: Classifying...")
-                router_input: TurnInput = make_router_input(
-                    history, user_text, k_user=router_k_user
-                )
-                route_plan = await self.router.classify(router_input)
-                target = route_plan.target
-                reason = route_plan.reason
+                with tracer.start_as_current_span("chat.router") as router_span:
+                    router_input: TurnInput = make_router_input(
+                        history, user_text, k_user=router_k_user
+                    )
+                    route_plan = await self.router.classify(router_input)
+                    target = route_plan.target
+                    reason = route_plan.reason
+                    router_span.set_attribute("chat.route.target", str(target))
+                    router_span.set_attribute("chat.route.reason", reason[:200])
                 append_chatbot_log(f"Routing: target={target}, reason={reason[:100]}")
 
             # Yield routing status
@@ -130,15 +138,20 @@ class Conductor:
             # 4) Convert to domain request
             request = self.adapter.turn_input_to_request(branch_input)
 
-            # 5) Check if agent supports streaming
+            # 5) Execute agent under a span so all sub-spans are correctly parented
             append_chatbot_log("Checking agent streaming support...")
 
             if hasattr(agent, "execute_stream"):
-                # Agent supports streaming - pass through chunks
                 append_chatbot_log("Agent supports streaming, delegating...")
-                async for chunk in agent.execute_stream(request):
-                    yield chunk
-
+                with tracer.start_as_current_span("chat.agent") as agent_span:
+                    agent_span.set_attribute("chat.agent.target", str(target))
+                    async for chunk in agent.execute_stream(request):
+                        if chunk.type == "complete" and chunk.data:
+                            agent_span.set_attribute(
+                                "chat.agent.success",
+                                bool(chunk.data.get("success", False)),
+                            )
+                        yield chunk
             else:
                 raise NotImplementedError(
                     f"{agent.__class__.__name__} does not implement execute_stream. "

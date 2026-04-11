@@ -202,9 +202,7 @@ class InternalTools:
             except Exception as e:
                 return [{"error": f"Semantic search failed: {e}"}]
 
-        book_semantic_search.metadata = {
-            "status_message": "Searching for books matching '{query}'..."
-        }
+        book_semantic_search.metadata = {"status_message": "Searching for matching books..."}
         return book_semantic_search
 
     def _create_als_recs_tool(self) -> Callable:

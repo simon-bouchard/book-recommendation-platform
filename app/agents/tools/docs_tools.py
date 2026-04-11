@@ -137,7 +137,7 @@ class DocsTools:
                 return f"[Help Error] Could not read document: {e}"
 
         # Store status message in metadata with {doc_name} placeholder
-        help_read.metadata = {"status_message": "Reading {doc_name}..."}
+        help_read.metadata = {"status_message": "Reading documentation..."}
         return help_read
 
     def render_manifest_for_prompt(

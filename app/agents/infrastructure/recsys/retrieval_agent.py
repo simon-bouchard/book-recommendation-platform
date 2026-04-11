@@ -29,6 +29,7 @@ from app.agents.logging import append_chatbot_log
 from app.agents.prompts.loader import read_prompt
 from app.agents.tools.registry import InternalToolGates, ToolRegistry
 from app.agents.utils.retrieval_logging_callback import RetrievalLoggingCallback
+from app.agents.utils.tracing_callback import ToolTracingCallback
 
 _BOOK_RETRIEVAL_TOOLS = frozenset(
     {
@@ -233,13 +234,15 @@ class RetrievalAgent(BaseLangGraphAgent):
         )
 
         logging_callback = RetrievalLoggingCallback()
+        tracing_callback = ToolTracingCallback()
 
         # Execute graph asynchronously (non-blocking)
         try:
             start_time = time.time()
 
             result = await self.graph.ainvoke(
-                {"messages": messages}, config={"callbacks": [logging_callback]}
+                {"messages": messages},
+                config={"callbacks": [logging_callback, tracing_callback]},
             )
 
             state = self._extract_execution_state(result, retrieval_input.query, start_time)

@@ -8,6 +8,11 @@ import asyncio
 import time
 from typing import Any, AsyncGenerator, List, Optional
 
+from opentelemetry import trace
+from opentelemetry.trace import Status, StatusCode
+
+tracer = trace.get_tracer(__name__)
+
 from app.agents.domain.entities import (
     AgentCapability,
     AgentConfiguration,
@@ -161,23 +166,28 @@ class RecommendationAgent(BaseAgent):
             available_retrieval_tools=available_tools,
         )
 
-        try:
-            append_chatbot_log("\n=== STAGE 1: PLANNING ===")
-            planning_start = time.time()
+        with tracer.start_as_current_span("chat.recsys.planning") as plan_span:
+            try:
+                append_chatbot_log("\n=== STAGE 1: PLANNING ===")
+                planning_start = time.time()
 
-            strategy = await self.planner_agent.execute(planner_input)
+                strategy = await self.planner_agent.execute(planner_input)
 
-            append_chatbot_log(
-                f"Planning: {int((time.time() - planning_start) * 1000)}ms | "
-                f"Recommended: {strategy.recommended_tools} | "
-                f"Fallback: {strategy.fallback_tools}"
-            )
+                plan_span.set_attribute("recsys.planning.recommended_tools", str(strategy.recommended_tools))
+                plan_span.set_attribute("recsys.planning.fallback_tools", str(strategy.fallback_tools))
+                append_chatbot_log(
+                    f"Planning: {int((time.time() - planning_start) * 1000)}ms | "
+                    f"Recommended: {strategy.recommended_tools} | "
+                    f"Fallback: {strategy.fallback_tools}"
+                )
 
-        except Exception as e:
-            append_chatbot_log(
-                f"[PLANNING FAILED] {type(e).__name__}: {e} — using hardcoded fallback strategy"
-            )
-            strategy = self._build_fallback_strategy()
+            except Exception as e:
+                plan_span.record_exception(e)
+                plan_span.set_attribute("recsys.planning.used_fallback", True)
+                append_chatbot_log(
+                    f"[PLANNING FAILED] {type(e).__name__}: {e} — using hardcoded fallback strategy"
+                )
+                strategy = self._build_fallback_strategy()
 
         # ============================================================
         # STAGE 2: RETRIEVAL
@@ -190,45 +200,53 @@ class RecommendationAgent(BaseAgent):
             profile_data=strategy.profile_data,
         )
 
-        try:
-            append_chatbot_log("\n=== STAGE 2: RETRIEVAL ===")
-            retrieval_start = time.time()
-
-            retrieval_output = await self.retrieval_agent.execute(retrieval_input)
-            candidates = self.result_processor._build_recommendations_from_objects(
-                retrieval_output.candidates
-            )
-            execution_context = retrieval_output.execution_context
-
-            append_chatbot_log(
-                f"Retrieval: {int((time.time() - retrieval_start) * 1000)}ms | "
-                f"{len(candidates)} candidates | "
-                f"Tools: {execution_context.tools_used}"
-            )
-
-        except Exception as e:
-            append_chatbot_log(
-                f"[RETRIEVAL FAILED] {type(e).__name__}: {e} — attempting direct tool fallback"
-            )
+        with tracer.start_as_current_span("chat.recsys.retrieval") as ret_span:
             try:
-                retrieval_output = await self._retrieve_fallback_candidates()
+                append_chatbot_log("\n=== STAGE 2: RETRIEVAL ===")
+                retrieval_start = time.time()
+
+                retrieval_output = await self.retrieval_agent.execute(retrieval_input)
                 candidates = self.result_processor._build_recommendations_from_objects(
                     retrieval_output.candidates
                 )
                 execution_context = retrieval_output.execution_context
 
+                ret_span.set_attribute("recsys.retrieval.candidate_count", len(candidates))
+                ret_span.set_attribute("recsys.retrieval.tools_used", str(execution_context.tools_used))
                 append_chatbot_log(
-                    f"Retrieval fallback: {len(candidates)} candidates via "
-                    f"{execution_context.tools_used}"
+                    f"Retrieval: {int((time.time() - retrieval_start) * 1000)}ms | "
+                    f"{len(candidates)} candidates | "
+                    f"Tools: {execution_context.tools_used}"
                 )
 
-            except Exception as fallback_err:
-                append_chatbot_log(f"[RETRIEVAL FALLBACK FAILED] {fallback_err}")
-                yield self._error_complete_chunk(
-                    "I'm having trouble finding book recommendations right now. Please try again.",
-                    start_time,
+            except Exception as e:
+                ret_span.record_exception(e)
+                append_chatbot_log(
+                    f"[RETRIEVAL FAILED] {type(e).__name__}: {e} — attempting direct tool fallback"
                 )
-                return
+                try:
+                    retrieval_output = await self._retrieve_fallback_candidates()
+                    candidates = self.result_processor._build_recommendations_from_objects(
+                        retrieval_output.candidates
+                    )
+                    execution_context = retrieval_output.execution_context
+
+                    ret_span.set_attribute("recsys.retrieval.candidate_count", len(candidates))
+                    ret_span.set_attribute("recsys.retrieval.used_fallback", True)
+                    ret_span.set_attribute("recsys.retrieval.tools_used", str(execution_context.tools_used))
+                    append_chatbot_log(
+                        f"Retrieval fallback: {len(candidates)} candidates via "
+                        f"{execution_context.tools_used}"
+                    )
+
+                except Exception as fallback_err:
+                    ret_span.set_attribute("recsys.retrieval.total_failure", True)
+                    append_chatbot_log(f"[RETRIEVAL FALLBACK FAILED] {fallback_err}")
+                    yield self._error_complete_chunk(
+                        "I'm having trouble finding book recommendations right now. Please try again.",
+                        start_time,
+                    )
+                    return
 
         if not candidates:
             append_chatbot_log("[NO CANDIDATES] Returning empty results response")
@@ -244,28 +262,33 @@ class RecommendationAgent(BaseAgent):
         selection_start = time.time()
         selected_candidates: Optional[List[BookRecommendation]] = None
 
-        try:
-            result = await self.selection_agent.execute(
-                request=request,
-                candidates=candidates,
-                execution_context=execution_context,
-            )
-            if result:
-                selected_candidates = result
+        with tracer.start_as_current_span("chat.recsys.selection") as sel_span:
+            try:
+                result = await self.selection_agent.execute(
+                    request=request,
+                    candidates=candidates,
+                    execution_context=execution_context,
+                )
+                if result:
+                    selected_candidates = result
 
-        except Exception as e:
-            append_chatbot_log(
-                f"[SELECTION FAILED] {type(e).__name__}: {e} — falling back to top-10 candidates"
-            )
+            except Exception as e:
+                sel_span.record_exception(e)
+                sel_span.set_attribute("recsys.selection.used_fallback", True)
+                append_chatbot_log(
+                    f"[SELECTION FAILED] {type(e).__name__}: {e} — falling back to top-10 candidates"
+                )
 
-        if not selected_candidates:
-            append_chatbot_log("Selection fallback: forwarding top-10 raw candidates to curation")
-            selected_candidates = candidates[:10]
-        else:
-            append_chatbot_log(
-                f"Selection: {int((time.time() - selection_start) * 1000)}ms | "
-                f"{len(selected_candidates)} books selected"
-            )
+            if not selected_candidates:
+                append_chatbot_log("Selection fallback: forwarding top-10 raw candidates to curation")
+                selected_candidates = candidates[:10]
+                sel_span.set_attribute("recsys.selection.used_fallback", True)
+            else:
+                append_chatbot_log(
+                    f"Selection: {int((time.time() - selection_start) * 1000)}ms | "
+                    f"{len(selected_candidates)} books selected"
+                )
+            sel_span.set_attribute("recsys.selection.selected_count", len(selected_candidates))
 
         # ============================================================
         # STAGE 4: CURATION
@@ -275,38 +298,44 @@ class RecommendationAgent(BaseAgent):
         curation_tokens_sent = 0
         curation_complete_sent = False
 
-        try:
-            async for chunk in self.curation_agent.execute_stream(
-                request=request,
-                candidates=selected_candidates,
-                execution_context=execution_context,
-            ):
-                if chunk.type == "token":
-                    curation_tokens_sent += 1
+        with tracer.start_as_current_span("chat.recsys.curation") as cur_span:
+            try:
+                async for chunk in self.curation_agent.execute_stream(
+                    request=request,
+                    candidates=selected_candidates,
+                    execution_context=execution_context,
+                ):
+                    if chunk.type == "token":
+                        curation_tokens_sent += 1
 
-                elif chunk.type == "complete":
-                    # Annotate with upstream metadata before forwarding.
-                    chunk.data["tools_used"] = execution_context.tools_used
-                    chunk.data["selection_count"] = len(selected_candidates)
-                    curation_complete_sent = True
+                    elif chunk.type == "complete":
+                        # Annotate with upstream metadata before forwarding.
+                        chunk.data["tools_used"] = execution_context.tools_used
+                        chunk.data["selection_count"] = len(selected_candidates)
+                        curation_complete_sent = True
 
-                yield chunk
+                    yield chunk
 
-        except Exception as e:
-            append_chatbot_log(
-                f"[CURATION FAILED] {type(e).__name__}: {e} — yielding fallback prose"
-            )
+                cur_span.set_attribute("recsys.curation.tokens_sent", curation_tokens_sent)
+                cur_span.set_attribute("recsys.curation.succeeded", True)
 
-            # Only send fallback text if no tokens reached the client yet.
-            if not curation_tokens_sent:
-                fallback_text = self._build_curation_fallback_text(selected_candidates)
-                yield StreamChunk(type="token", content=fallback_text)
-
-            # Always close the stream with a complete chunk.
-            if not curation_complete_sent:
-                yield self._curation_fallback_complete_chunk(
-                    selected_candidates, execution_context, start_time
+            except Exception as e:
+                cur_span.record_exception(e)
+                cur_span.set_attribute("recsys.curation.succeeded", False)
+                append_chatbot_log(
+                    f"[CURATION FAILED] {type(e).__name__}: {e} — yielding fallback prose"
                 )
+
+                # Only send fallback text if no tokens reached the client yet.
+                if not curation_tokens_sent:
+                    fallback_text = self._build_curation_fallback_text(selected_candidates)
+                    yield StreamChunk(type="token", content=fallback_text)
+
+                # Always close the stream with a complete chunk.
+                if not curation_complete_sent:
+                    yield self._curation_fallback_complete_chunk(
+                        selected_candidates, execution_context, start_time
+                    )
 
     # ================================================================
     # FALLBACK HELPERS
