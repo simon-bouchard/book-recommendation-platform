@@ -161,13 +161,13 @@ Measured on the production server (6 vCPU, older EPYC architecture) with Redis c
 
 | Path | Mean | Median | P95 |
 |---|---|---|---|
-| Warm / ALS | 49ms | 42ms | 91ms |
-| Warm / Subject | 59ms | 53ms | 85ms |
-| Cold / With subjects | 62ms | 55ms | 109ms |
-| Cold / No subjects | 69ms | 60ms | 113ms |
-| Similarity / Subject | 33ms | 28ms | 75ms |
-| Similarity / ALS | 34ms | 27ms | 57ms |
-| Similarity / Hybrid | 37ms | 35ms | 60ms |
+| Warm / ALS | 44.9ms | 39.9ms | 87.4ms |
+| Warm / Subject | 49.1ms | 41.3ms | 95.7ms |
+| Cold / With subjects | 56.5ms | 44.6ms | 108.8ms |
+| Cold / No subjects | 29.0ms | 26.2ms | 62.0ms |
+| Similarity / Subject | 20.7ms | 19.8ms | 26.5ms |
+| Similarity / ALS | 24.0ms | 20.7ms | 33.3ms |
+| Similarity / Hybrid | 30.6ms | 26.7ms | 52.4ms |
 
 **Sustained throughput — 10 concurrent workers, 30s**
 
