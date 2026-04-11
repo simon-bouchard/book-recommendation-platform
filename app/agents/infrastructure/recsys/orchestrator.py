@@ -9,9 +9,6 @@ import time
 from typing import Any, AsyncGenerator, List, Optional
 
 from opentelemetry import trace
-from opentelemetry.trace import Status, StatusCode
-
-tracer = trace.get_tracer(__name__)
 
 from app.agents.domain.entities import (
     AgentCapability,
@@ -36,6 +33,8 @@ from .curation_agent import CurationAgent
 from .planner_agent import PlannerAgent
 from .retrieval_agent import RetrievalAgent
 from .selection_agent import SelectionAgent
+
+tracer = trace.get_tracer(__name__)
 
 
 class RecommendationAgent(BaseAgent):
@@ -173,8 +172,14 @@ class RecommendationAgent(BaseAgent):
 
                 strategy = await self.planner_agent.execute(planner_input)
 
-                plan_span.set_attribute("recsys.planning.recommended_tools", str(strategy.recommended_tools))
-                plan_span.set_attribute("recsys.planning.fallback_tools", str(strategy.fallback_tools))
+                plan_span.set_attribute(
+                    "recsys.planning.recommended_tools",
+                    str(strategy.recommended_tools),
+                )
+                plan_span.set_attribute(
+                    "recsys.planning.fallback_tools",
+                    str(strategy.fallback_tools),
+                )
                 append_chatbot_log(
                     f"Planning: {int((time.time() - planning_start) * 1000)}ms | "
                     f"Recommended: {strategy.recommended_tools} | "
@@ -212,7 +217,10 @@ class RecommendationAgent(BaseAgent):
                 execution_context = retrieval_output.execution_context
 
                 ret_span.set_attribute("recsys.retrieval.candidate_count", len(candidates))
-                ret_span.set_attribute("recsys.retrieval.tools_used", str(execution_context.tools_used))
+                ret_span.set_attribute(
+                    "recsys.retrieval.tools_used",
+                    str(execution_context.tools_used),
+                )
                 append_chatbot_log(
                     f"Retrieval: {int((time.time() - retrieval_start) * 1000)}ms | "
                     f"{len(candidates)} candidates | "
@@ -233,7 +241,10 @@ class RecommendationAgent(BaseAgent):
 
                     ret_span.set_attribute("recsys.retrieval.candidate_count", len(candidates))
                     ret_span.set_attribute("recsys.retrieval.used_fallback", True)
-                    ret_span.set_attribute("recsys.retrieval.tools_used", str(execution_context.tools_used))
+                    ret_span.set_attribute(
+                        "recsys.retrieval.tools_used",
+                        str(execution_context.tools_used),
+                    )
                     append_chatbot_log(
                         f"Retrieval fallback: {len(candidates)} candidates via "
                         f"{execution_context.tools_used}"
@@ -243,7 +254,8 @@ class RecommendationAgent(BaseAgent):
                     ret_span.set_attribute("recsys.retrieval.total_failure", True)
                     append_chatbot_log(f"[RETRIEVAL FALLBACK FAILED] {fallback_err}")
                     yield self._error_complete_chunk(
-                        "I'm having trouble finding book recommendations right now. Please try again.",
+                        "I'm having trouble finding book recommendations"
+                        " right now. Please try again.",
                         start_time,
                     )
                     return
@@ -276,11 +288,14 @@ class RecommendationAgent(BaseAgent):
                 sel_span.record_exception(e)
                 sel_span.set_attribute("recsys.selection.used_fallback", True)
                 append_chatbot_log(
-                    f"[SELECTION FAILED] {type(e).__name__}: {e} — falling back to top-10 candidates"
+                    f"[SELECTION FAILED] {type(e).__name__}: {e}"
+                    " — falling back to top-10 candidates"
                 )
 
             if not selected_candidates:
-                append_chatbot_log("Selection fallback: forwarding top-10 raw candidates to curation")
+                append_chatbot_log(
+                    "Selection fallback: forwarding top-10 raw candidates to curation"
+                )
                 selected_candidates = candidates[:10]
                 sel_span.set_attribute("recsys.selection.used_fallback", True)
             else:

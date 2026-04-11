@@ -10,9 +10,6 @@ import time
 from typing import Any, AsyncGenerator, List, Optional
 
 from opentelemetry import trace
-from opentelemetry.trace import Status, StatusCode
-
-tracer = trace.get_tracer(__name__)
 
 from app.agents.context_builder import make_branch_input, make_router_input
 from app.agents.infrastructure.agent_adapter import AgentAdapter
@@ -20,6 +17,8 @@ from app.agents.infrastructure.agent_factory import AgentFactory
 from app.agents.logging import append_chatbot_log
 from app.agents.orchestrator.router import RouterLLM
 from app.agents.schemas import StreamChunk, Target, TurnInput
+
+tracer = trace.get_tracer(__name__)
 
 
 class Conductor:

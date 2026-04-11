@@ -11,8 +11,6 @@ from opentelemetry import trace
 from opentelemetry.trace import Status, StatusCode
 from sqlalchemy.orm import Session
 
-tracer = trace.get_tracer(__name__)
-
 from app.agents.logging import chatbot_logger, get_logger
 from app.agents.orchestrator.conductor import Conductor
 from app.agents.runtime import (
@@ -29,6 +27,7 @@ from metrics import CHAT_LATENCY, CHAT_REQUESTS
 from models.data.queries import get_user_num_ratings
 from routes.auth import get_current_user
 
+tracer = trace.get_tracer(__name__)
 logger = get_logger(__name__)
 router = APIRouter()
 templates = Jinja2Templates(directory="templates")
