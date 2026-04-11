@@ -218,7 +218,7 @@ export function ChatPage({ loggedIn }: ChatPageProps) {
       const link = (e.target as Element).closest?.('a.inline-book-ref[data-book-id]') as HTMLAnchorElement | null
       if (!link) return
       const bookId = parseInt(link.dataset.bookId ?? '', 10)
-      if (!isNaN(bookId)) void trackClick(bookId, 'chatbot', 'chatbot')
+      if (!isNaN(bookId)) trackClick(bookId, 'chatbot', 'chatbot')
     }
 
     document.addEventListener('mouseover', handleOver)

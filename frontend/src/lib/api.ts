@@ -166,17 +166,14 @@ export async function fetchProfileRecommendations(
   return res.json() as Promise<SimilarBook[]>
 }
 
-export async function trackClick(itemIdx: number, source: string, mode: string): Promise<void> {
-  try {
-    await fetch('/track/click', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      credentials: 'same-origin',
-      body: JSON.stringify({ item_idx: itemIdx, source, mode }),
-    })
-  } catch {
-    // fire-and-forget — never surface tracking errors to the user
-  }
+export function trackClick(itemIdx: number, source: string, mode: string): void {
+  // sendBeacon guarantees delivery even when the page navigates away immediately after,
+  // which is the common case when clicking a book card or inline link.
+  const payload = new Blob(
+    [JSON.stringify({ item_idx: itemIdx, source, mode })],
+    { type: 'application/json' },
+  )
+  navigator.sendBeacon('/track/click', payload)
 }
 
 export async function subjectSuggestions(q?: string): Promise<Subject[]> {
