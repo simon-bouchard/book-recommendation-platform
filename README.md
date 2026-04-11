@@ -310,6 +310,20 @@ GitHub Actions runs on every push and pull request to `master`:
 
 ---
 
+## Testing
+
+Tests are organized into three layers.
+
+**Unit tests** (`tests/unit/`, run in CI) cover the recommendation domain in isolation — pipeline orchestration, fallback activation, ranker implementations, filter logic, candidate generation — as well as infrastructure wrappers (ALS model, subject embedder, FAISS index adapters, hybrid scorer), all 5 model server HTTP handlers, the HTTP client layer, artifact registry and path resolution, the training quality gate, and the recommendation and similarity API endpoints. All I/O and ML dependencies are mocked; tests have no external requirements.
+
+The quality gate tests are worth calling out: they exercise first-deployment approval, the hard recall floor (including exact-boundary rejection), the regression check against the active version, env var overrides for both thresholds, missing or malformed metrics files, and legacy manifests with no recall entry — covering the failure modes that would block a promotion or silently pass a bad model.
+
+**Integration tests** (`tests/integration/`) require the live system — model servers running, artifacts loaded. Model server tests verify response contracts (warm/cold user routing, score sort order, k-bound enforcement) and include latency benchmarks per endpoint across representative k values. Chatbot integration tests cover multi-turn state management, context builder correctness, error boundaries (tool failures, partial results), parameter handling edge cases, and concurrency.
+
+**Agent evaluations** (`evaluation/chatbot/`) are a separate LLM-judged suite described in the Chatbot section above. Results are tracked with a comparison dashboard that diffs the latest run against the previous one.
+
+---
+
 ## Research & Experiments
 
 Several architectures were explored before settling on the current design:
