@@ -7,6 +7,18 @@ Live demo: [recsys.simonbouchard.space](https://recsys.simonbouchard.space)
 
 ---
 
+## UI
+
+| Profile | Recommendations |
+|---|---|
+| <img src="docs/images/profile_top.png" width="420"/> | <img src="docs/images/profile_recs.png" width="420"/> |
+
+| Book detail | Similar books |
+|---|---|
+| <img src="docs/images/book_top.png" width="420"/> | <img src="docs/images/book_sim.png" width="420"/> |
+
+---
+
 ## Architecture
 
 The system is composed of several independent layers:
@@ -218,6 +230,8 @@ Old artifact versions are retained for rollback and automatically retired after 
 
 ## Chatbot & Agents
 
+![Chatbot](docs/images/chatbot.png)
+
 The chatbot is built with LangGraph and routes requests across specialized agents:
 
 - **Router** — classifies the intent of each message
@@ -290,6 +304,8 @@ This tiered approach improved retrieval quality over the first enrichment pass a
   - *Empty result rate* — counter incremented when a request returns zero results
   - Alert rules fire when any metric crosses a per-mode threshold calibrated to observed baselines (subject ~0.8, ALS ~0.3)
 - **Click-through rate** — book clicks and impressions tracked per recommendation surface (`recommendations`, `similar`, `chatbot`) and mode; CTR visualized in Grafana to evaluate model usefulness from actual user behaviour
+
+![Jaeger trace](docs/images/jaeger_rec.png)
 
 **Distributed tracing** (OpenTelemetry → Jaeger)
 - Auto-instrumented for FastAPI, httpx (model server calls), and SQLAlchemy

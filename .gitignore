@@ -1,7 +1,6 @@
 # Env and Secrets
 .env
 deploy/deploy.env
-images
 .claude
 
 # Data paths
@@ -53,6 +52,9 @@ tree.txt
 shallow_tree.txt
 code_instructions_prompt.txt
 .envrc
+images
+!docs/images/
+!docs/images/**
 
 system/
 
