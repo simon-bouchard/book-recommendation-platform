@@ -12,7 +12,11 @@ REPO_ROOT="/home/simon/bookrec"
 cd "$REPO_ROOT"
 git pull origin master
 
-# Rebuild frontend
+# Rebuild frontend — load nvm so the correct Node version is available
+export NVM_DIR="$HOME/.nvm"
+# shellcheck source=/dev/null
+[[ -s "$NVM_DIR/nvm.sh" ]] && source "$NVM_DIR/nvm.sh"
+
 cd "$REPO_ROOT/frontend"
 npm ci
 npm run build
