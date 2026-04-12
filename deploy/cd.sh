@@ -13,9 +13,9 @@ cd "$REPO_ROOT"
 git pull origin master
 
 # Rebuild frontend — load nvm so the correct Node version is available
-export NVM_DIR="$HOME/.nvm"
+export NVM_DIR="/home/simon/.nvm"
 # shellcheck source=/dev/null
-[[ -s "$NVM_DIR/nvm.sh" ]] && source "$NVM_DIR/nvm.sh"
+[[ -s "$NVM_DIR/nvm.sh" ]] && source "$NVM_DIR/nvm.sh" && nvm use 20
 
 cd "$REPO_ROOT/frontend"
 npm ci
