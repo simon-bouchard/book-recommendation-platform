@@ -58,7 +58,7 @@ python -m app.semantic_index.embedding.worker \
     --batch-size 128
 ```
 
-### Full Initial Load (~170k items)
+### Full Initial Load (~250k items)
 ```bash
 python -m app.semantic_index.embedding.worker \
     --mode full \
@@ -155,7 +155,7 @@ embeddings, item_indices, metadata = writer.consolidate_batches()
 
 - **Batch size 128**: Good balance for 6 vCPU server
 - **Expected throughput**: ~1000-2000 items/hour (depends on CPU)
-- **Full load (170k)**: ~85-170 hours sequential, can parallelize with multiple workers
+- **Full load (250k)**: ~85-170 hours sequential, can parallelize with multiple workers
 - **Memory usage**: ~2-3GB per worker
 - **Incremental runs**: <1 minute if <100 new items
 

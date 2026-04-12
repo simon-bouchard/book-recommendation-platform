@@ -3,7 +3,7 @@
 
 A full-stack, production-grade book recommendation platform with personalized recommendations, semantic and full-text search, item similarity, and an AI-powered chatbot. Built to explore the end-to-end challenges of deploying ML systems: data cleaning, model training, serving infrastructure, observability, and automation.
 
-Live demo: [recsys.simonbouchard.space](https://recsys.simonbouchard.space)
+Live demo: [recsys.simonbouchard.space](https://recsys.simonbouchard.space) — the chatbot and similar books are available without an account. Sign up to unlock personalized recommendations and chatbot personalization.
 
 ---
 
@@ -27,7 +27,7 @@ The system is composed of several independent layers:
 - **Backend** — FastAPI application handling auth, routing, caching, and business logic
 - **Model servers** — 5 independent microservices, each owning a specific set of ML artifacts and endpoints
 - **Support services** — MySQL (primary store), Redis (sessions, rate limiting, cache), Meilisearch (full-text search)
-- **Enrichment pipeline** — a one-time LLM-driven pipeline that tagged ~170k books with curated subjects, tones, genre, and vibe strings via Kafka + Spark; these enriched tags power semantic search
+- **Enrichment pipeline** — a one-time LLM-driven pipeline that tagged ~250k books with curated subjects, tones, genre, and vibe strings via Kafka + Spark; these enriched tags power semantic search
 - **Observability** — Prometheus metrics, Grafana dashboards, Jaeger distributed tracing via OpenTelemetry
 
 ```mermaid
@@ -421,6 +421,8 @@ Result: a normalized schema with clean IDs, consistent metadata, and a manageabl
 ---
 
 ## Local Setup
+
+> **Note:** Local setup is non-trivial. It requires configuring env files (API keys and service credentials), running the full training pipeline to generate model artifacts, and building both the Meilisearch and semantic search indexes before the system is functional.
 
 The model servers and supporting services are orchestrated with Docker Compose.
 
