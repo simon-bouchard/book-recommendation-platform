@@ -342,15 +342,25 @@ The quality gate tests are worth calling out: they exercise first-deployment app
 
 ## Research & Experiments
 
-Several architectures were explored before settling on the current design:
+Several architectures were explored before settling on the current design.
 
-- Residual MLPs over dot-product predictions
-- Two-tower and three-tower architectures
-- Clustering and regression methods on user embeddings
-- Gated-fusion mechanisms
-- Alternative attention pooling strategies (scalar, per-dimension, transformer-based self-attention)
+**Retrieval & reranking**
+- **GBT rerankers** on top of collaborative filtering — available user metadata was too thin to add signal (age 50% missing, country 97% from one region, favorite subjects the only useful feature), so GBT did not improve recall while meaningfully increasing latency. Dropped.
+- **Residual MLPs and two-tower architectures** — both worked but added significant latency without improving recall over the simpler dot-product approach. Dropped for the same reason.
 
-These experiments informed the tradeoffs between accuracy, latency, and serving complexity. The final stack favors simple serving (dot products and matrix lookups at inference time) with complexity pushed to training.
+**Cold-start embeddings**
+- **Clustering and regression over user metadata** — with metadata this sparse, results were poor: regression embeddings collapsed toward the average embedding, and clustering assigned most users to the most popular cluster. Subject-preference embeddings derived directly from favorite subjects generalized much better.
+
+**Attention pooling**
+- **Scalar vs. per-dimension vs. transformer self-attention** — per-dimension attention outperformed scalar with virtually no added latency. Transformer self-attention required significantly more parameters and tuning (heads, layers) to meaningfully outperform per-dimension, at higher serving cost. Per-dimension was the clear choice.
+
+The final stack pushes complexity into training and keeps inference simple: dot products and matrix lookups at serving time.
+
+**Lessons learned**
+
+*Validation leakage* — aggregates (user/book mean, count, std) were initially computed on the full dataset before splitting, which bled val information into training features and produced inflated metrics. Many apparent wins were artifacts. Several weeks of experiments were built on a false signal before the issue was caught. The fix was splitting first, computing aggregates on the train split only, and broadcasting those train-split aggregates to val and test — since those aggregates wouldn't be known at inference time anyway, reusing train-split values is the correct approach.
+
+*Metric mismatch* — subject embeddings were initially optimized purely for rating RMSE. Embeddings that looked fine on regression didn't produce clean neighborhoods for FAISS retrieval. Switching to the dual loss (regression + contrastive over batch co-occurrence) and evaluating end-to-end with Recall@K rather than component RMSE produced much cleaner embedding geometry and better ranking quality.
 
 ---
 
