@@ -14,7 +14,7 @@ class ChatSettings(BaseSettings):
     chat_require_login: bool = False
     redis_url: str = "redis://localhost:6379/0"
     chat_ttl_sec: int = 172800
-    chat_hist_turns: int = 3       # turns visible to agents at runtime
+    chat_hist_turns: int = 3  # turns visible to agents at runtime
     chat_hist_max_turns: int = 50  # max turns stored in Redis
     chat_limits_per_min_user: int = 5
     chat_limits_per_day_user: int = 40

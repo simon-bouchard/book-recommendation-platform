@@ -53,7 +53,9 @@ def judge_response(
     if history:
         history_text = "Conversation History:\n"
         for turn in history:
-            history_text += f"User: {turn.get(HIST_USER_KEY, '')}\nAssistant: {turn.get(HIST_ASST_KEY, '')}\n"
+            history_text += (
+                f"User: {turn.get(HIST_USER_KEY, '')}\nAssistant: {turn.get(HIST_ASST_KEY, '')}\n"
+            )
 
     judge_prompt = f"""{history_text}
 User Query: {query}
