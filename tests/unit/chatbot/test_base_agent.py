@@ -104,8 +104,9 @@ def _make_tool_message(call_id: str, content: str):
 
 class TestConvertHistory:
     """
-    _convert_history converts stored history dicts into LangChain message
-    objects, keeping only the last 3 turns.
+    _convert_history converts stored history dicts into LangChain message objects.
+    Truncation is the caller's responsibility (done by get_branch_view upstream);
+    _convert_history converts every turn it receives.
     """
 
     def test_empty_history_returns_empty_list(self, agent):
@@ -125,25 +126,19 @@ class TestConvertHistory:
         result = agent._convert_history([{"u": "q", "a": "the answer"}])
         assert result[1].content == "the answer"
 
-    def test_truncates_to_last_three_turns(self, agent):
+    def test_converts_all_turns(self, agent):
         history = [{"u": f"msg {i}", "a": f"resp {i}"} for i in range(6)]
         result = agent._convert_history(history)
-        # 3 turns × 2 messages = 6 messages max
-        assert len(result) == 6
+        # all 6 turns × 2 messages each
+        assert len(result) == 12
 
-    def test_last_turn_content_present(self, agent):
+    def test_all_turn_content_present(self, agent):
         history = [{"u": f"msg {i}", "a": f"resp {i}"} for i in range(5)]
         result = agent._convert_history(history)
         all_content = " ".join(m.content for m in result)
-        assert "msg 4" in all_content
-        assert "resp 4" in all_content
-
-    def test_old_turns_excluded(self, agent):
-        history = [{"u": f"msg {i}", "a": f"resp {i}"} for i in range(5)]
-        result = agent._convert_history(history)
-        all_content = " ".join(m.content for m in result)
-        assert "msg 0" not in all_content
-        assert "msg 1" not in all_content
+        for i in range(5):
+            assert f"msg {i}" in all_content
+            assert f"resp {i}" in all_content
 
     def test_turn_missing_assistant_key_handled(self, agent):
         """Turns with only 'u' and no 'a' must not raise."""

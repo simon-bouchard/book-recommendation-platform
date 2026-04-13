@@ -8,6 +8,8 @@ interface ChatInputProps {
   onUseProfileChange: (v: boolean) => void
   usageText: string | null
   onSend: (text: string) => void
+  hasMessages?: boolean
+  onClear?: () => void
 }
 
 const MAX_HEIGHT = 150
@@ -19,6 +21,8 @@ export function ChatInput({
   onUseProfileChange,
   usageText,
   onSend,
+  hasMessages,
+  onClear,
 }: ChatInputProps) {
   const textareaRef = useRef<HTMLTextAreaElement>(null)
 
@@ -71,19 +75,29 @@ export function ChatInput({
         </Button>
       </div>
       <div className="flex items-center justify-between">
-        {loggedIn ? (
-          <label className="flex items-center gap-2 text-xs text-muted-foreground cursor-pointer select-none">
-            <input
-              type="checkbox"
-              checked={useProfile}
-              onChange={(e) => onUseProfileChange(e.target.checked)}
-              className="rounded"
-            />
-            Use my profile
-          </label>
-        ) : (
-          <span />
-        )}
+        <div className="flex items-center gap-4">
+          {loggedIn ? (
+            <label className="flex items-center gap-2 text-xs text-muted-foreground cursor-pointer select-none">
+              <input
+                type="checkbox"
+                checked={useProfile}
+                onChange={(e) => onUseProfileChange(e.target.checked)}
+                className="rounded"
+              />
+              Use my profile
+            </label>
+          ) : null}
+          {hasMessages && onClear && (
+            <button
+              type="button"
+              onClick={onClear}
+              disabled={disabled}
+              className="text-xs text-muted-foreground hover:text-destructive cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+            >
+              Clear conversation
+            </button>
+          )}
+        </div>
         {usageText && (
           <p className="text-xs text-muted-foreground">{usageText}</p>
         )}

@@ -1,6 +1,6 @@
 import { useState, useRef, useEffect } from 'react'
 import { parseSseStream } from '@/lib/sse'
-import { trackClick } from '@/lib/api'
+import { clearChatHistory, fetchChatHistory, trackClick } from '@/lib/api'
 import type { ChatMessage, ChatBook, ChatChunk } from '@/types'
 import { MessageBubble } from './MessageBubble'
 import { ChatInput } from './ChatInput'
@@ -45,6 +45,18 @@ export function ChatPage({ loggedIn }: ChatPageProps) {
   useEffect(() => {
     scrollToBottom()
   }, [messages])
+
+  // Restore history on mount
+  useEffect(() => {
+    fetchChatHistory().then((turns) => {
+      if (turns.length === 0) return
+      const hydrated: ChatMessage[] = turns.flatMap((t) => [
+        { id: genId(), role: 'user', text: t.u, status: null, isStreaming: false, isDone: true },
+        { id: genId(), role: 'bot',  text: t.a, status: null, isStreaming: false, isDone: true },
+      ])
+      setMessages(hydrated)
+    })
+  }, [])
 
   // Persist use-profile toggle
   function handleUseProfileChange(v: boolean) {
@@ -229,6 +241,11 @@ export function ChatPage({ loggedIn }: ChatPageProps) {
     }
   }, [])
 
+  async function handleClearConversation() {
+    await clearChatHistory()
+    setMessages([])
+  }
+
   const inputProps = {
     disabled: disabled || rateLimit.kind === 'stopped',
     loggedIn,
@@ -236,6 +253,8 @@ export function ChatPage({ loggedIn }: ChatPageProps) {
     onUseProfileChange: handleUseProfileChange,
     usageText,
     onSend: sendMessage,
+    hasMessages: messages.length > 0,
+    onClear: handleClearConversation,
   }
 
   const rateLimitBanner = rateLimit.kind !== 'ok' ? (

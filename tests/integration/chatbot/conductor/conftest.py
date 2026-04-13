@@ -11,7 +11,12 @@ import pytest
 
 from app.agents.schemas import AgentResult, StreamChunk
 
-# Import shared recsys user fixtures
+from tests.integration.chatbot.recsys_fixtures import (  # noqa: F401
+    test_user_cold,
+    test_user_new,
+    test_user_warm,
+    test_user_with_profile,
+)
 
 # ---------------------------------------------------------------------------
 # Async generator mock

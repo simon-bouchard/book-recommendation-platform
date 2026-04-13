@@ -166,6 +166,17 @@ export async function fetchProfileRecommendations(
   return res.json() as Promise<SimilarBook[]>
 }
 
+export async function fetchChatHistory(): Promise<Array<{ u: string; a: string }>> {
+  const res = await fetch('/chat/history', { credentials: 'same-origin' })
+  if (!res.ok) return []
+  const data = await res.json() as { turns: Array<{ u: string; a: string }> }
+  return data.turns ?? []
+}
+
+export async function clearChatHistory(): Promise<void> {
+  await fetch('/chat/history', { method: 'DELETE', credentials: 'same-origin' })
+}
+
 export function trackClick(itemIdx: number, source: string, mode: string): void {
   // sendBeacon guarantees delivery even when the page navigates away immediately after,
   // which is the common case when clicking a book card or inline link.

@@ -20,7 +20,7 @@ from app.agents.runtime import (
     rate_limit_check,
     save_history,
 )
-from app.agents.schemas import ChatIn
+from app.agents.schemas import HIST_ASST_KEY, HIST_USER_KEY, ChatIn
 from app.agents.settings import settings
 from app.database import get_db
 from metrics import BOOK_IMPRESSION_TOTAL, CHAT_LATENCY, CHAT_REQUESTS
@@ -54,6 +54,33 @@ def chat_page(request: Request, current_user=Depends(get_current_user)):
     return templates.TemplateResponse(
         "chat_shell.html", {"request": request, "logged_in": bool(current_user)}
     )
+
+
+@router.get("/chat/history")
+async def chat_history(
+    request: Request,
+    response: Response,
+    current_user=Depends(get_current_user),
+):
+    """Return the stored conversation history for the current session."""
+    conv_id = ensure_conv_cookie(request, response)
+    uid = getattr(current_user, "user_id", None) if current_user else None
+    hist = load_history(conv_id, user_id=uid)
+    turns = [{"u": t.get(HIST_USER_KEY, ""), "a": t.get(HIST_ASST_KEY, "")} for t in hist]
+    return {"turns": turns}
+
+
+@router.delete("/chat/history")
+async def clear_chat_history(
+    request: Request,
+    response: Response,
+    current_user=Depends(get_current_user),
+):
+    """Clear the stored conversation history for the current session."""
+    conv_id = ensure_conv_cookie(request, response)
+    uid = getattr(current_user, "user_id", None) if current_user else None
+    save_history(conv_id, [], user_id=uid)
+    return {"ok": True}
 
 
 @router.post("/chat/stream")
@@ -172,7 +199,7 @@ async def chat_agent_stream(
                         reply_text = normalize_visible_reply(reply_text)
 
                         # Update history
-                        hist.append({"u": text, "a": reply_text})
+                        hist.append({HIST_USER_KEY: text, HIST_ASST_KEY: reply_text})
                         save_history(conv_id, hist, user_id=uid)
 
                         # Log completion

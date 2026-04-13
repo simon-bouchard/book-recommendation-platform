@@ -17,6 +17,7 @@ sys.path.insert(0, str(ROOT))
 from app.agents.domain.entities import AgentRequest, ExecutionContext
 from app.agents.infrastructure.response_agent import ResponseAgent
 from app.agents.logging import capture_agent_console_and_httpx
+from app.agents.schemas import HIST_ASST_KEY, HIST_USER_KEY
 from app.agents.settings import get_llm
 
 # Import shared streaming helper
@@ -51,8 +52,8 @@ def judge_response(
     history_text = ""
     if history:
         history_text = "Conversation History:\n"
-        for turn in history[-3:]:
-            history_text += f"User: {turn.get('u', '')}\nAssistant: {turn.get('a', '')}\n"
+        for turn in history:
+            history_text += f"User: {turn.get(HIST_USER_KEY, '')}\nAssistant: {turn.get(HIST_ASST_KEY, '')}\n"
 
     judge_prompt = f"""{history_text}
 User Query: {query}
