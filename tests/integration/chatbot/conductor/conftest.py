@@ -10,7 +10,6 @@ from unittest.mock import AsyncMock, Mock
 import pytest
 
 from app.agents.schemas import AgentResult, StreamChunk
-
 from tests.integration.chatbot.recsys_fixtures import (  # noqa: F401
     test_user_cold,
     test_user_new,
