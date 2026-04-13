@@ -213,6 +213,6 @@ def save_history(conv_id: str, hist: List[dict], user_id: Optional[int] = None) 
         key = f"chat:conv:{conv_id}"
 
     try:
-        r.setex(key, settings.chat_ttl_sec, json.dumps(hist[-settings.chat_hist_turns :]))
+        r.setex(key, settings.chat_ttl_sec, json.dumps(hist[-settings.chat_hist_max_turns :]))
     except Exception:
         pass

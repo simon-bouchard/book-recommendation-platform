@@ -27,7 +27,7 @@ from app.agents.domain.entities import (
 from app.agents.domain.interfaces import BaseAgent
 from app.agents.domain.services import StandardResultProcessor
 from app.agents.logging import append_chatbot_log
-from app.agents.schemas import StreamChunk
+from app.agents.schemas import HIST_ASST_KEY, HIST_USER_KEY, StreamChunk
 from app.agents.settings import get_llm
 from app.agents.tools.registry import ToolRegistry
 
@@ -183,11 +183,11 @@ class BaseLangGraphAgent(BaseAgent):
            List of messages (last 3 turns)
         """
         messages = []
-        for turn in history[-3:]:
-            if "u" in turn:
-                messages.append(HumanMessage(content=turn["u"]))
-            if "a" in turn:
-                messages.append(AIMessage(content=turn["a"]))
+        for turn in history:
+            if HIST_USER_KEY in turn:
+                messages.append(HumanMessage(content=turn[HIST_USER_KEY]))
+            if HIST_ASST_KEY in turn:
+                messages.append(AIMessage(content=turn[HIST_ASST_KEY]))
         return messages
 
     # ============================================================================

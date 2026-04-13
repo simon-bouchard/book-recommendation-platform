@@ -8,6 +8,10 @@ from pydantic import AliasChoices, BaseModel, Field
 SchemaVersion = Literal["v1"]
 Target = Literal["web", "docs", "recsys", "respond"]
 
+# History turn dict keys — use these everywhere instead of bare "u"/"a" strings
+HIST_USER_KEY = "u"
+HIST_ASST_KEY = "a"
+
 
 def _version_field():
     # Accept both "schema" and "version" on input, serialize as "schema"

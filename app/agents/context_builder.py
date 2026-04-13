@@ -3,7 +3,7 @@ from typing import Dict, List, Optional
 
 from sqlalchemy.orm import Session
 
-from app.agents.schemas import TurnInput
+from app.agents.schemas import HIST_ASST_KEY, HIST_USER_KEY, TurnInput
 from app.agents.user_context import fetch_user_context, format_user_context
 
 
@@ -30,8 +30,8 @@ def build_composed_input(
     if history:
         ctx_lines: List[str] = []
         for turn in history[-hist_turns:]:
-            u = turn.get("u")
-            a = turn.get("a")
+            u = turn.get(HIST_USER_KEY)
+            a = turn.get(HIST_ASST_KEY)
             if u:
                 ctx_lines.append(f"User: {u}")
             if a:
@@ -62,7 +62,7 @@ def get_router_view(
     # Collect last k_user non-empty user messages, newest→oldest
     collected: List[str] = []
     for turn in reversed(history):
-        u = (turn.get("u") or "").strip()
+        u = (turn.get(HIST_USER_KEY) or "").strip()
         if u:
             collected.append(u)
             if len(collected) >= k_user:
