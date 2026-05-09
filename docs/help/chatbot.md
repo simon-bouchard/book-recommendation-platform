@@ -1,25 +1,31 @@
 # Chatbot
 
-The site includes a **chatbot demo** that acts as a virtual librarian.
+The site includes a **virtual librarian chatbot** that can answer questions, search the web, look up help documentation, and recommend books from the internal catalogue.
 
 ## Access
-- You don't have to be **logged in** to use the chatbot, but you get stricter quotas if you don't.  
-- This prevents anonymous misuse and ensures fair usage.  
-- Conversations are still stored only temporarily (Redis + cookie).  
+- You **do not need to be logged in** to use the chatbot.
+- Anonymous users have stricter rate limits (3 requests/min, 10/day) compared to logged-in users (5 requests/min, 40/day).
+- Logging in also unlocks **personalized recommendations** through the chatbot (ALS-based and subject-based), since those require your rating history.
+- Conversations are stored temporarily in Redis (tied to your browser cookie) and expire after 2 days.
 
-## Modes
-- **Web mode (current demo):**  
-  - Uses minimal external tools (DuckDuckGo, Wikipedia).  
-  - Handles small talk and simple book-related questions.  
-  - Can fetch user profile (selected subjects and past interactions) if logged in to provide better context for recommendations.
-  - Can access internal docs to give info about the website, help user onboarding and help with technical problems or specific questions.
+## How It Works
 
-- **Internal mode (planned, not yet available):**  
-  - Will connect directly to the internal recommendation pipeline (ALS, subject embeddings, LightGBM rerankers, Bayesian cold-start).  
-  - Designed to provide book suggestions with clear provenance labels (e.g., *ALS*, *Subject*, *GBM*).  
-  - Not enabled in the current version.  
+The chatbot uses a multi-agent system. Each message is automatically routed to the most appropriate agent:
+
+- **Recommendation agent:** Handles requests for book suggestions. Runs a four-stage pipeline — strategy planning, candidate retrieval, selection, and a personalized written response. Uses ALS collaborative filtering (for logged-in users with 10+ ratings), semantic search, subject-based retrieval, and Bayesian popularity as fallback. Recommends books as clickable cards inline in the chat.
+- **Web agent:** Handles questions about current events, author biographies, or anything that benefits from live information. Searches the web and synthesizes results with source citations.
+- **Docs agent:** Handles questions about the website itself — features, how recommendations work, troubleshooting, etc. Searches internal help documentation to answer.
+- **Response agent:** Handles general small talk and conversational messages that don't fit any of the above.
+
+The routing happens automatically — you don't need to choose a mode.
+
+## Profile Access
+
+When you are logged in, the chatbot can optionally access your profile (favorite subjects and recent interactions) to improve recommendation quality. This is controlled by the **"Use my profile"** toggle in the chat interface.
 
 ## Conversation Memory
-- A short rolling history (default: 3 turns) is stored in Redis, scoped to your browser session via a cookie.  
-- Memory expires after ~2 days.  
-- If Redis is unavailable or cookies are blocked, the chatbot still works but will not remember earlier messages.  
+- A short rolling history (default: 3 turns) is sent to the agent at each request.
+- Up to 50 turns are stored in Redis, scoped to your browser session via a cookie.
+- Memory expires after 2 days.
+- If Redis is unavailable or cookies are blocked, the chatbot still works but will not remember earlier messages.
+- You can clear your conversation history at any time using the **"Clear history"** button.

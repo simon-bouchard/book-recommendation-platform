@@ -4,13 +4,12 @@
   - Search by subject/title.  
   - Book pages with FAISS-based similarity (subject, ALS, hybrid).  
   - Profile with subject-based and ALS recommendations.  
-  - Chatbot available only in Web mode.  
+  - Chatbot with multi-agent routing: web search, internal docs, book recommendations, and conversational responses.  
   - This project is maintained as a **portfolio demonstration**.  
     It showcases end-to-end recommendation system design and daily retraining, but is not intended as a commercial service.
 
 
 - **Planned:**  
-  - Internal chatbot mode powered by ALS/Subject/LightGBM/Bayesian pipeline.  
   - Richer metadata through external sources and LLM-assisted cleaning.  
   - Additional improvements to recommendation accuracy and coverage.  
 

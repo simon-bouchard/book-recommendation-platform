@@ -7,4 +7,4 @@
 - **Subject-attention embeddings:** Content embeddings weighted by subject importance.  
 - **Hybrid similarity:** Slider-controlled mix of subject and behavioral similarity.  
 - **Cold-start:** State before you’ve rated 10 books; recommendations fall back to subjects + popularity.  
-- **Provenance:** Clear labeling of the source of a recommendation (URLs in Web mode; ALS/Subject/GBM in Internal mode).  
+- **Provenance:** Clear labeling of the source of a recommendation — web citations for web searches, doc references for help questions, and source labels (ALS, Subject, Semantic) for internal book recommendations.  

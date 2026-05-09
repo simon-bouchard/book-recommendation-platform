@@ -17,7 +17,7 @@
   "versioning": {
     "file": "versioning.md",
     "title": "Versioning & Status",
-    "description": "Current features vs planned; portfolio demonstration with daily retraining; not a commercial service.",
+    "description": "Current features including multi-agent chatbot; planned improvements; portfolio demonstration with daily retraining; not a commercial service.",
     "keywords": [
       "current features",
       "planned features",
@@ -25,7 +25,8 @@
       "portfolio",
       "status",
       "future",
-      "demo"
+      "demo",
+      "chatbot"
     ]
   },
   "search": {
@@ -113,40 +114,47 @@
   "limits": {
     "file": "limits.md",
     "title": "Known Limits",
-    "description": "ALS needs ≥10 ratings; cold-start fallback; metadata gaps; daily training required; internal chatbot not yet.",
+    "description": "ALS needs ≥10 ratings; cold-start fallback; metadata gaps; daily training required; chatbot rate limits for anonymous users.",
     "keywords": [
       "cold start",
       "metadata gaps",
       "daily training requirement",
       "als threshold",
-      "internal chatbot"
+      "rate limits",
+      "anonymous"
     ]
   },
   "chatbot": {
     "file": "chatbot.md",
     "title": "Chatbot",
-    "description": "Login required; Web mode demo with 'Final Answer' line; internal mode planned; memory via Redis + cookie.",
+    "description": "Multi-agent chatbot: recommendation, web search, docs, and response agents; no login required; stricter rate limits for anonymous; Redis memory; clear history button.",
     "keywords": [
-      "login required",
-      "web mode",
-      "final answer",
-      "internal mode planned",
+      "chatbot",
+      "book recommendations",
+      "web search",
+      "help docs",
+      "multi-agent",
+      "rate limits",
       "redis memory",
       "cookie",
-      "conversation turns"
+      "conversation turns",
+      "clear history",
+      "use profile",
+      "personalized"
     ]
   },
   "privacy": {
     "file": "privacy.md",
     "title": "Data & Privacy",
-    "description": "Login only for chatbot; chat memory in Redis + cookie; SSL; secure accounts; no third-party cookies.",
+    "description": "No login needed for chatbot; login needed for personalized recs; chat memory in Redis + cookie; SSL; secure accounts; no third-party cookies.",
     "keywords": [
       "chat data retention",
       "ssl",
       "password security",
       "cookies",
       "no third party cookies",
-      "storage"
+      "storage",
+      "login"
     ]
   },
   "glossary": {
