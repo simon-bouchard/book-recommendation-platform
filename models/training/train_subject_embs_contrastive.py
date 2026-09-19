@@ -61,10 +61,62 @@ def parse_args():
     )
     return parser.parse_args()
 
-
+# AI Generated code to speed up training by reducing cpu comparisions in original code
 @torch.no_grad()
 def _jaccard_pos_mask_from_indices(
     book_subjects: torch.Tensor, thresh_overlap: int, pad_idx: int
+) -> torch.Tensor:
+    """
+    Build positive mask based on subject overlap.
+
+    GPU-vectorized replacement for the original Python set implementation.
+    A pair is positive when the two books share at least `thresh_overlap`
+    unique non-padding subjects.
+    """
+    B, L = book_subjects.shape
+    device = book_subjects.device
+
+    # Remove duplicate subjects within each book.
+    # Sort first so adjacent duplicates can be identified efficiently.
+    subjects = torch.sort(book_subjects, dim=1).values
+
+    valid = subjects != pad_idx
+
+    # Mark only the first occurrence of each subject in a row as valid.
+    if L > 1:
+        valid[:, 1:] &= subjects[:, 1:] != subjects[:, :-1]
+
+    # Result matrix.
+    M = torch.zeros((B, B), dtype=torch.bool, device=device)
+
+    # Process one book at a time, but perform comparisons against the
+    # entire batch on the GPU. This avoids the O(B²) Python loop.
+    for i in range(B):
+        si = subjects[i][valid[i]]
+
+        if si.numel() < thresh_overlap:
+            continue
+
+        # [B, L, len(si)]
+        matches = (
+            subjects[:, :, None] == si[None, None, :]
+        ) & valid[:, :, None]
+
+        # Number of unique shared subjects between book i and every book.
+        overlap = matches.any(dim=1).sum(dim=1)
+
+        M[i] = overlap >= thresh_overlap
+
+    # Original implementation never marks a book as positive with itself.
+    M.fill_diagonal_(False)
+
+    return M
+
+@torch.no_grad()
+def _jaccard_pos_mask_from_indices_old(
+    book_subjects: torch.Tensor,
+    thresh_overlap: int,
+    pad_idx: int,
 ) -> torch.Tensor:
     """Build positive mask based on subject overlap."""
     B, L = book_subjects.shape
@@ -82,7 +134,6 @@ def _jaccard_pos_mask_from_indices(
                 M[i, j] = True
                 M[j, i] = True
     return M
-
 
 def multi_positive_infonce(
     item_emb: torch.Tensor,
