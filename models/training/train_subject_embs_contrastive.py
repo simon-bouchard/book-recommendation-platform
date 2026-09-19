@@ -30,10 +30,10 @@ OUT_DIR = PATHS.staging_dir / "attention"
 device = "cuda" if torch.cuda.is_available() else "cpu"
 
 OUT_NAME_BY_KIND = {
-    "scalar": "subject_attention_components.pth",
-    "perdim": "subject_attention_components_perdim.pth",
-    "selfattn": "subject_attention_components_selfattn.pth",
-    "selfattn_perdim": "subject_attention_components_selfattn_perdim.pth",
+    "scalar": "subject_attention_scalar.pth",
+    "perdim": "subject_attention_perdim.pth",
+    "selfattn": "subject_attention_selfattn.pth",
+    "selfattn_perdim": "subject_attention_selfattn_perdim.pth",
 }
 
 
@@ -341,7 +341,7 @@ def main():
     )
 
     # Save
-    out_name = OUT_NAME_BY_KIND.get(kind, f"subject_attention_components_{kind}.pth")
+    out_name = OUT_NAME_BY_KIND.get(kind, f"subject_attention_{kind}.pth")
     out_path = OUT_DIR / out_name
     save_components(pooler, str(out_path), kind)
     print(f"Saved to {out_path}")

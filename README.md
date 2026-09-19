@@ -432,22 +432,85 @@ Result: a normalized schema with clean IDs, consistent metadata, and a manageabl
 
 ## Local Setup
 
-> **Note:** Local setup is non-trivial. It requires configuring env files (API keys and service credentials), running the full training pipeline to generate model artifacts, and building both the Meilisearch and semantic search indexes before the system is functional.
+> **Note:** Local setup is non-trivial. It requires configuring env files, loading and training on the dataset below, building the model artifacts and search indexes, and starting supporting services before the system is functional.
+>
+> **Known gap:** MySQL and Redis aren't currently in the Docker Compose stack (this deployment runs them natively on the host), and the model-server/Meilisearch compose files point at an absolute host path (`/etc/bookrec.env`) rather than a repo-relative env file. Until that's reconciled, you'll need to stand up MySQL and Redis yourself and adjust those env file paths for your machine.
 
-The model servers and supporting services are orchestrated with Docker Compose.
+### 1. Data
+
+The dataset (~250k books, ~73k users, ~1M interactions, derived from the Book-Crossing dataset and enriched with Open Library + LLM-generated tags) is published separately, since it's too large for the git repo:
+
+**[Book Recommendation Platform Data](https://www.kaggle.com/datasets/simonbouchardk/book-recommendation-platform-data)** (Kaggle)
+
+Download it and place the 7 CSVs in `data/`:
+- `books.csv`, `authors.csv`, `users.csv`, `interactions.csv` — core catalog and rating data
+- `books_to_subjects.csv`, `users_to_subjects.csv` — Open Library subject associations
+- `book_enrichment_v2.csv` — LLM-generated genre/tone/subject/vibe tags (see [Book Enrichment](#book-enrichment) below)
+
+### 2. Environment and dependencies
 
 ```bash
 git clone https://github.com/simon-bouchard/book-recommendation-platform
 cd book-recommendation-platform
 
-# Copy and fill in environment variables
-cp deploy/deploy.env.example deploy/deploy.env
-
-# Start model servers and support services
-docker compose -f docker/compose/docker-compose.yml up -d
+# Copy and fill in environment variables (see .env.example for what's required
+# to run the core app — chatbot/LLM, enrichment pipeline, and observability
+# subsystems have their own separate env vars, not covered there)
+cp .env.example .env
 
 # Set up Python environment (requires uv: https://docs.astral.sh/uv/)
 uv sync
+```
+
+### 3. Database
+
+Requires a running MySQL instance and `DATABASE_URL` set in `.env`. Create the database itself first (schema creation below only creates tables, not the database):
+
+```bash
+mysql -u root -p -e "CREATE DATABASE bookrec_db"
+
+python data/create_tables.py
+python data/import_csvs.py               # books, authors, users, interactions, subjects
+python data/import_enrichment_csvs.py    # genre/tone/subject/vibe tags from book_enrichment_v2.csv
+```
+
+`data/import_enrichment_csvs.py` seeds the tone/genre ontology rows it needs itself, so `data/seed_ontologies.py` doesn't need to be run separately.
+
+### 4. Model artifacts
+
+Run in this order from the repo root:
+
+```bash
+# One-time bootstrap: train subject embeddings from scratch
+python models/training/train_subject_embs_contrastive.py --pad-idx 0
+
+# Export DB to training-ready pickles, then build the rest of the artifacts
+python -m models.training.export_training_data
+python models/training/precompute_embs.py --pad-idx 0
+python models/training/precompute_bayesian.py --pad-idx 0
+python models/training/build_metadata_lookup.py --pad-idx 0
+python models/training/train_als.py --pad-idx 0
+python models/training/build_similarity_indices.py --pad-idx 0
+```
+
+After the first run, subsequent retrains can skip the subject-embedding step and reuse `ops/training/automated_training.py`, which chains the rest of these scripts, evaluates the quality gate, and promotes the result to a versioned artifact directory.
+
+### 5. Search indexes
+
+```bash
+# Semantic search (uses book_enrichment_v2.csv data, already imported in step 3)
+python app/semantic_index/builders/build_enriched_index.py --tags-version v2 --full \
+  --output models/artifacts/semantic_indexes/enriched_v2
+
+# Meilisearch full-text index (requires Meilisearch running, see step 6)
+python ops/meilisearch/index_books_meili.py
+```
+
+### 6. Start services
+
+```bash
+# Start model servers and support services
+docker compose -f docker/compose/docker-compose.yml up -d
 
 # Run the backend
 uv run uvicorn main:app --reload
@@ -462,3 +525,7 @@ npm run build
 ```
 
 Grafana is available at `/grafana`, Jaeger at port `16686`, Prometheus at port `9090`.
+
+### Book Enrichment
+
+`book_enrichment_v2.csv` is the output of a one-time LLM enrichment pass over the book catalog (via Kafka + Spark, see `ops/enrichment/` and `spark_apps/`): a small (3-7B parameter) LLM tagged each book with a genre, tones, free-form subjects, and a short "vibe" description. Output quantity is gated by an information-availability tier — books with sparse source metadata (no description, few or no Open Library subjects) get fewer or no tags, to avoid hallucinating detail that isn't supported by the source data. 239,866 of ~251,612 books received v2 enrichment; of those, every book has a `genre`, while `tones`, `llm_subjects`, and `vibe` are populated in proportion to how much source metadata was available. Genre and tone values are constrained to the ontologies in `ontology/genres_v1.csv` and `ontology/tones_v1.csv`/`tones_v2.csv`; `llm_subjects` and `vibe` are open-vocabulary.
