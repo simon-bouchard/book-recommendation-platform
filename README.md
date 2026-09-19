@@ -446,12 +446,11 @@ cp deploy/deploy.env.example deploy/deploy.env
 # Start model servers and support services
 docker compose -f docker/compose/docker-compose.yml up -d
 
-# Set up Python environment
-conda env create -f environment.yml
-conda activate bookrec-api
+# Set up Python environment (requires uv: https://docs.astral.sh/uv/)
+uv sync
 
 # Run the backend
-uvicorn main:app --reload
+uv run uvicorn main:app --reload
 ```
 
 The frontend is built separately:

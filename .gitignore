@@ -68,4 +68,7 @@ __pycache__/
 .pytest_cache/
 .ruff_cache/
 
+# Python env (uv)
+.venv/
+
 

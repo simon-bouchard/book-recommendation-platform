@@ -201,7 +201,7 @@ integration-tests:
     - name: Set up Python
       uses: actions/setup-python@v4
     - name: Install dependencies
-      run: pip install -r requirements.txt
+      run: pip install -r requirements/ci.txt
     - name: Run integration tests
       env:
         DATABASE_URL: ${{ secrets.DATABASE_URL }}
