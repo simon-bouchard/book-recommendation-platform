@@ -9,6 +9,7 @@
 #   - .env exists and has a valid DATABASE_URL (see .env.example)
 #   - the 7 CSVs from the Kaggle dataset are in data/
 #   - a MySQL instance is running and reachable at DATABASE_URL
+#   - `uv sync --extra train` (or `--extra train-gpu`) has been run
 #
 # Run from the repo root: ops/bootstrap_local.sh
 
@@ -28,6 +29,11 @@ echo "=== Checking preconditions ==="
 
 if [ ! -f .env ]; then
     echo "Error: .env not found. Copy .env.example to .env and fill it in first." >&2
+    exit 1
+fi
+
+if ! uv run python -c "import torch, faiss, implicit, sentence_transformers" >/dev/null 2>&1; then
+    echo "Error: training dependencies not installed. Run 'uv sync --extra train' (or '--extra train-gpu') first." >&2
     exit 1
 fi
 

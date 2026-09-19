@@ -459,7 +459,10 @@ cd book-recommendation-platform
 cp .env.example .env
 
 # Set up Python environment (requires uv: https://docs.astral.sh/uv/)
-uv sync
+# `uv sync` alone only installs what's needed to run the app itself.
+# The model-artifact training pipeline (step 4) needs the extra `train`
+# (CPU) or `train-gpu` (CUDA) dependency group on top of that:
+uv sync --extra train
 ```
 
 Steps 3-5 below (database through search indexes) can be run in one shot with `ops/bootstrap_local.sh`, once `.env` is filled in and the CSVs are in `data/`. The steps are shown individually here for clarity and easier debugging.
