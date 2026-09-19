@@ -3,7 +3,7 @@ export function Footer() {
     <footer className="mt-auto border-t border-border bg-background">
       <div className="mx-auto flex h-14 max-w-5xl items-center justify-between px-6">
         <a
-          href="https://simonbouchard.space"
+          href="https://simon-bouchard.com"
           target="_blank"
           rel="noopener"
           className="text-xs text-muted-foreground hover:text-primary transition-colors"

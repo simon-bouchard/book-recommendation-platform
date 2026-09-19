@@ -5,9 +5,9 @@ from fastapi_limiter.depends import RateLimiter
 from starlette.middleware.trustedhost import TrustedHostMiddleware
 
 ALLOWED_ORIGINS = [
-    "simonbouchard.space",
-    "www.simonbouchard.space",
-    "recsys.simonbouchard.space",
+    "simon-bouchard.com",
+    "www.simon-bouchard.com",
+    "recsys.simon-bouchard.com",
     "89.117.146.162",
     # Development origins
     # "http://localhost:8000",
@@ -33,10 +33,10 @@ def apply_security(app):
     app.add_middleware(
         TrustedHostMiddleware,
         allowed_hosts=[
-            "simonbouchard.space",
-            "www.simonbouchard.space",
+            "simon-bouchard.com",
+            "www.simon-bouchard.com",
             "localhost",
-            "recsys.simonbouchard.space",
+            "recsys.simon-bouchard.com",
         ],
     )
 

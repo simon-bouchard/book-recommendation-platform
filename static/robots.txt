@@ -36,5 +36,5 @@ Disallow: /*?
 Crawl-delay: 2
 
 # (Optional) Update to your actual domain if you publish a sitemap
-Sitemap: https://recsys.simonbouchard.space/sitemap.xml
+Sitemap: https://recsys.simon-bouchard.com/sitemap.xml
 
