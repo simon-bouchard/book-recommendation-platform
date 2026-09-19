@@ -490,9 +490,9 @@ python models/training/train_subject_embs_contrastive.py --pad-idx 0
 python -m models.training.export_training_data
 python models/training/precompute_embs.py --pad-idx 0
 python models/training/precompute_bayesian.py --pad-idx 0
-python models/training/build_metadata_lookup.py --pad-idx 0
+python models/training/build_metadata_lookup.py
 python models/training/train_als.py --pad-idx 0
-python models/training/build_similarity_indices.py --pad-idx 0
+python models/training/build_similarity_indices.py
 ```
 
 After the first run, subsequent retrains can skip the subject-embedding step and reuse `ops/training/automated_training.py`, which chains the rest of these scripts, evaluates the quality gate, and promotes the result to a versioned artifact directory.

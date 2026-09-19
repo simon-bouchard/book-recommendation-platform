@@ -74,11 +74,11 @@ python models/training/precompute_embs.py --pad-idx "${PAD_IDX:-0}"
 echo "-> precompute_bayesian.py"
 python models/training/precompute_bayesian.py --pad-idx "${PAD_IDX:-0}"
 echo "-> build_metadata_lookup.py"
-python models/training/build_metadata_lookup.py --pad-idx "${PAD_IDX:-0}"
+python models/training/build_metadata_lookup.py
 echo "-> train_als.py"
 python models/training/train_als.py --pad-idx "${PAD_IDX:-0}"
 echo "-> build_similarity_indices.py"
-python models/training/build_similarity_indices.py --pad-idx "${PAD_IDX:-0}"
+python models/training/build_similarity_indices.py
 
 echo "=== 3. Search indexes ==="
 echo "-> semantic index"
