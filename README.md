@@ -3,7 +3,7 @@
 
 A full-stack book recommendation platform built on ~250k books from the Book-Crossing dataset. Features ALS collaborative filtering, custom attention-pooled subject embeddings trained with a dual regression and contrastive loss, and semantic search over LLM-enriched metadata. ML models are served across 5 independent microservices with zero-downtime hot-reload on every training cycle. Also includes a multi-agent LangGraph chatbot, a daily retraining pipeline with a quality gate, and full observability with Prometheus, Grafana, and Jaeger.
 
-Live demo: [recsys.simonbouchard.space](https://recsys.simonbouchard.space) — the chatbot and similar books are available without an account. Sign up to unlock personalized recommendations and chatbot personalization.
+Live demo: [recsys.simon-bouchard.com](https://recsys.simon-bouchard.com) — the chatbot and similar books are available without an account. Sign up to unlock personalized recommendations and chatbot personalization.
 
 ---
 
