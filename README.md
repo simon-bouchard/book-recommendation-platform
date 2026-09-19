@@ -462,6 +462,8 @@ cp .env.example .env
 uv sync
 ```
 
+Steps 3-5 below (database through search indexes) can be run in one shot with `ops/bootstrap_local.sh`, once `.env` is filled in and the CSVs are in `data/`. The steps are shown individually here for clarity and easier debugging.
+
 ### 3. Database
 
 Requires a running MySQL instance and `DATABASE_URL` set in `.env`. Create the database itself first (schema creation below only creates tables, not the database):
