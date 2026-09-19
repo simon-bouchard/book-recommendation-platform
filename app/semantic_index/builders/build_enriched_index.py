@@ -33,31 +33,33 @@ from app.table_models import (
     BookTone,
     BookVibe,
     LLMSubject,
+    Tone,
     Vibe,
 )
 
 
 def load_ontology_mappings(tags_version: str) -> Tuple[Dict[int, str], Dict[str, str]]:
     """
-    Load ontology CSVs and create ID->name mappings.
+    Load tone_id -> slug from the DB and genre slug -> display name from CSV.
 
-    Returns:
-        (tone_id_to_slug, genre_slug_to_display) tuple
+    Tones are loaded from the `tones` table rather than the ontology CSV: v2
+    tone_ids are seeded with a +100 offset (see data/seed_ontologies.py) to
+    avoid colliding with v1 IDs in the same table, but the raw CSV's tone_id
+    column is un-offset. Reading the CSV directly here previously caused two
+    bugs — v2 tone_ids (100+) never resolved (fell back to "unknown-N"), and
+    v1-native tone_ids that happened to share a raw number with an unrelated
+    v2 slug resolved to the wrong name entirely. The `tones` table has the
+    actual IDs as stored, so it's the only correct source here.
+
+    Tone IDs are loaded globally, not scoped to `tags_version`: a book's
+    enrichment tags_version records which pipeline pass tagged it, but the
+    individual tone_ids it references can come from either the v1 or v2
+    ontology (both coexist in the `tones` table).
     """
     import csv
 
-    # Load tones: tone_id,slug,display_name,bucket
-    tone_file = ROOT / "ontology" / f"tones_{tags_version}.csv"
-    if not tone_file.exists():
-        raise FileNotFoundError(f"Tone ontology not found: {tone_file}")
-
-    tone_map = {}
-    with open(tone_file, encoding="utf-8") as f:
-        reader = csv.DictReader(f)
-        for row in reader:
-            tone_id = int(row["tone_id"])
-            tone_slug = row["slug"]
-            tone_map[tone_id] = tone_slug
+    with SessionLocal() as db:
+        tone_map = {t.tone_id: t.slug for t in db.query(Tone)}
 
     # Load genres: genre_idx,slug,display
     genre_file = ROOT / "ontology" / "genres_v1.csv"
