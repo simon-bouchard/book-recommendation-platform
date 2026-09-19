@@ -65,10 +65,10 @@ python data/import_csvs.py
 python data/import_enrichment_csvs.py
 
 echo "=== 2. Model artifacts ==="
+echo "-> export_training_data (subject-embedding step below reads from these pickles)"
+python -m models.training.export_training_data
 echo "-> train_subject_embs_contrastive.py (one-time subject embedding bootstrap)"
 python models/training/train_subject_embs_contrastive.py --pad-idx "${PAD_IDX:-0}"
-echo "-> export_training_data"
-python -m models.training.export_training_data
 echo "-> precompute_embs.py"
 python models/training/precompute_embs.py --pad-idx "${PAD_IDX:-0}"
 echo "-> precompute_bayesian.py"

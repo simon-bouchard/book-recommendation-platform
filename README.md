@@ -483,11 +483,13 @@ python data/import_enrichment_csvs.py    # genre/tone/subject/vibe tags from boo
 Run in this order from the repo root:
 
 ```bash
+# Export DB to training-ready pickles first — the subject-embedding step below reads from these
+python -m models.training.export_training_data
+
 # One-time bootstrap: train subject embeddings from scratch
 python models/training/train_subject_embs_contrastive.py --pad-idx 0
 
-# Export DB to training-ready pickles, then build the rest of the artifacts
-python -m models.training.export_training_data
+# Build the rest of the artifacts
 python models/training/precompute_embs.py --pad-idx 0
 python models/training/precompute_bayesian.py --pad-idx 0
 python models/training/build_metadata_lookup.py
