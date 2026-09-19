@@ -42,6 +42,56 @@ dependencies = [
     "wikipedia==1.4.0",
 ]
 
+[project.optional-dependencies]
+# Local training / model-artifact-building deps (not needed to run the app
+# itself). Pick one: `uv sync --extra train` (CPU) or `uv sync --extra
+# train-gpu` (CUDA) — the two are mutually exclusive so you don't have to
+# pull the CUDA wheels if you're training on CPU.
+train = [
+    "numpy==1.26.4",
+    "scipy",
+    "lightgbm==4.6.0",
+    "faiss-cpu==1.9.0",
+    "implicit==0.7.2",
+    "tqdm==4.67.1",
+    "sentence-transformers==5.1.0",
+    "torch==2.8.0",
+]
+train-gpu = [
+    "numpy==1.26.4",
+    "scipy",
+    "lightgbm==4.6.0",
+    "faiss-cpu==1.9.0",
+    "implicit==0.7.2",
+    "tqdm==4.67.1",
+    "sentence-transformers==5.1.0",
+    "torch==2.8.0",
+]
+
+[tool.uv]
+conflicts = [
+    [
+        { extra = "train" },
+        { extra = "train-gpu" },
+    ],
+]
+
+[tool.uv.sources]
+torch = [
+    { index = "pytorch-cpu", extra = "train" },
+    { index = "pytorch-cu128", extra = "train-gpu" },
+]
+
+[[tool.uv.index]]
+name = "pytorch-cpu"
+url = "https://download.pytorch.org/whl/cpu"
+explicit = true
+
+[[tool.uv.index]]
+name = "pytorch-cu128"
+url = "https://download.pytorch.org/whl/cu128"
+explicit = true
+
 [tool.ruff]
 line-length = 100
 
