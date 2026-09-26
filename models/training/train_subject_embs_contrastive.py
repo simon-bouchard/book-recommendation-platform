@@ -61,6 +61,7 @@ def parse_args():
     )
     return parser.parse_args()
 
+
 # AI Generated code to speed up training by reducing cpu comparisions in original code
 @torch.no_grad()
 def _jaccard_pos_mask_from_indices(
@@ -98,9 +99,7 @@ def _jaccard_pos_mask_from_indices(
             continue
 
         # [B, L, len(si)]
-        matches = (
-            subjects[:, :, None] == si[None, None, :]
-        ) & valid[:, :, None]
+        matches = (subjects[:, :, None] == si[None, None, :]) & valid[:, :, None]
 
         # Number of unique shared subjects between book i and every book.
         overlap = matches.any(dim=1).sum(dim=1)
@@ -111,6 +110,7 @@ def _jaccard_pos_mask_from_indices(
     M.fill_diagonal_(False)
 
     return M
+
 
 @torch.no_grad()
 def _jaccard_pos_mask_from_indices_old(
@@ -134,6 +134,7 @@ def _jaccard_pos_mask_from_indices_old(
                 M[i, j] = True
                 M[j, i] = True
     return M
+
 
 def multi_positive_infonce(
     item_emb: torch.Tensor,
