@@ -324,6 +324,15 @@ GitHub Actions runs on every push and pull request to `master`:
 2. **Frontend** — ESLint, TypeScript type check, Vite build
 3. **Deploy** (master push only, after both pass) — SSH trigger runs `cd.sh` on the production server: `git pull` → `npm ci && npm run build` (frontend) → `systemctl restart` → health check loop
 
+To catch lint/format issues before they hit CI, install the pre-commit hook once after cloning:
+
+```bash
+pip install pre-commit
+pre-commit install
+```
+
+This runs `ruff check --fix` and `ruff format` on staged files at commit time.
+
 ---
 
 ## Testing
