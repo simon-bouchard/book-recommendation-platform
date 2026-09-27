@@ -6,6 +6,7 @@ requires-python = ">=3.10,<3.11"
 dependencies = [
     "aiomysql==0.3.2",
     "bcrypt==4.3.0",
+    "cryptography==50.0.1",
     "ddgs==9.5.5",
     "fastapi==0.116.1",
     "fastapi-limiter==0.1.6",
