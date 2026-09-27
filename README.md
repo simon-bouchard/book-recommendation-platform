@@ -443,7 +443,7 @@ Result: a normalized schema with clean IDs, consistent metadata, and a manageabl
 
 > **Note:** Local setup is non-trivial. It requires configuring env files, loading and training on the dataset below, building the model artifacts and search indexes, and starting supporting services before the system is functional.
 >
-> **Known gap:** MySQL and Redis aren't currently in the Docker Compose stack (this deployment runs them natively on the host), and the model-server/Meilisearch compose files point at an absolute host path (`/etc/bookrec.env`) rather than a repo-relative env file. Until that's reconciled, you'll need to stand up MySQL and Redis yourself and adjust those env file paths for your machine.
+> **Known gap:** MySQL and Redis aren't currently in the Docker Compose stack (this deployment runs them natively on the host), and the model-server/Meilisearch compose files point at an absolute host path (`/etc/bookrec.env`) rather than a repo-relative env file. Until that's reconciled, you'll need to stand up MySQL and Redis yourself, create that file, and set `ARTIFACTS_DIR` in it to the absolute path of your `models/artifacts` directory. Steps 1-5 below (data through search indexes) don't depend on any of this; step 6 (start services) does, and has otherwise been verified working end to end once that file exists.
 
 ### 1. Data
 
@@ -548,7 +548,9 @@ npm ci
 npm run build
 ```
 
-Grafana is available at `/grafana`, Jaeger at port `16686`, Prometheus at port `9090`.
+Grafana is available at `/grafana`, Prometheus at port `9090`.
+
+Jaeger isn't part of this compose stack — it's a diagnostic tool meant to be started on demand, not run continuously (see `docker/jaeger/docker-compose.yml`'s own comments). To use it: `docker compose -f docker/jaeger/docker-compose.yml up -d`, set `OTEL_SDK_DISABLED=false` in `.env`, and restart the backend. The UI is then available at port `16686`.
 
 ### Book Enrichment
 
