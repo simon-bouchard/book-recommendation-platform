@@ -225,38 +225,62 @@ def main():
             if book_genres:
                 db.execute(
                     mysql_insert(BookGenre)
-                    .values([
-                        {"item_idx": o.item_idx, "genre_slug": o.genre_slug,
-                         "genre_ontology_version": o.genre_ontology_version, "tags_version": o.tags_version}
-                        for o in book_genres
-                    ])
+                    .values(
+                        [
+                            {
+                                "item_idx": o.item_idx,
+                                "genre_slug": o.genre_slug,
+                                "genre_ontology_version": o.genre_ontology_version,
+                                "tags_version": o.tags_version,
+                            }
+                            for o in book_genres
+                        ]
+                    )
                     .prefix_with("IGNORE")
                 )
             if book_tones:
                 db.execute(
                     mysql_insert(BookTone)
-                    .values([
-                        {"item_idx": o.item_idx, "tone_id": o.tone_id, "tags_version": o.tags_version}
-                        for o in book_tones
-                    ])
+                    .values(
+                        [
+                            {
+                                "item_idx": o.item_idx,
+                                "tone_id": o.tone_id,
+                                "tags_version": o.tags_version,
+                            }
+                            for o in book_tones
+                        ]
+                    )
                     .prefix_with("IGNORE")
                 )
             if book_llm_subjects:
                 db.execute(
                     mysql_insert(BookLLMSubject)
-                    .values([
-                        {"item_idx": o.item_idx, "llm_subject_idx": o.llm_subject_idx, "tags_version": o.tags_version}
-                        for o in book_llm_subjects
-                    ])
+                    .values(
+                        [
+                            {
+                                "item_idx": o.item_idx,
+                                "llm_subject_idx": o.llm_subject_idx,
+                                "tags_version": o.tags_version,
+                            }
+                            for o in book_llm_subjects
+                        ]
+                    )
                     .prefix_with("IGNORE")
                 )
             if book_vibes:
                 db.execute(
                     mysql_insert(BookVibe)
-                    .values([
-                        {"item_idx": o.item_idx, "vibe_id": o.vibe_id, "tags_version": o.tags_version}
-                        for o in book_vibes
-                    ])
+                    .values(
+                        [
+                            {
+                                "item_idx": o.item_idx,
+                                "vibe_id": o.vibe_id,
+                                "tags_version": o.tags_version,
+                            }
+                            for o in book_vibes
+                        ]
+                    )
                     .prefix_with("IGNORE")
                 )
             db.commit()  # commit per chunk; INSERT IGNORE makes reruns safe
