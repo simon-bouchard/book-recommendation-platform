@@ -30,7 +30,7 @@ def main():
     # Warm users only
     interaction_counts = interactions["user_id"].value_counts()
     warm_users = interaction_counts[interaction_counts >= 10].index
-    warm_df = interactions[interactions["user_id"].isin(warm_users)]
+    warm_df = interactions[interactions["user_id"].isin(warm_users)].copy()
 
     print(f"👥 Warm users: {len(warm_users)}")
     print(f"📊 Warm interactions: {len(warm_df)}")

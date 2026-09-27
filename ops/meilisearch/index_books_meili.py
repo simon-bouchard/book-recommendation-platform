@@ -206,7 +206,13 @@ def main():
 
         print(f"Pushing {len(docs):,} documents to Meilisearch...")
         for i in tqdm(range(0, len(docs), BATCH_SIZE), desc="Indexing"):
-            index.add_documents(docs[i : i + BATCH_SIZE])
+            # Explicit primary_key: without it, Meilisearch auto-detects the
+            # first field name matching its "ends with _id" heuristic, which
+            # picks cover_id (present on some books, absent/shared on many
+            # others) over the actually-unique item_idx (doesn't match the
+            # heuristic since it ends in "idx", not "id") — silently
+            # collapsing documents that share a cover_id.
+            index.add_documents(docs[i : i + BATCH_SIZE], primary_key="item_idx")
 
         print("Done! v2 enrichments added - original subject_ids fully preserved")
     finally:

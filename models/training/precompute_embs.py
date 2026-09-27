@@ -95,8 +95,8 @@ def main():
         json.dump(book_ids, f)
 
     print("Saved:")
-    print(f"   - {REPO_ROOT}/models/artifacts/embeddings/book_subject_embeddings.npy")
-    print(f"   - {REPO_ROOT}/models/artifacts/embeddings/book_subject_ids.json")
+    print(f"   - {PATHS.staging_dir}/embeddings/book_subject_embeddings.npy")
+    print(f"   - {PATHS.staging_dir}/embeddings/book_subject_ids.json")
 
 
 if __name__ == "__main__":
