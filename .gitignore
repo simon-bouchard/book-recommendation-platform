@@ -60,6 +60,10 @@ images
 
 system/
 
+# Local tracking doc — has unresolved items (mysql/redis containerization etc.),
+# not meant to live on master permanently
+/docs/local_setup_todo.md
+
 # Frontend
 frontend/node_modules/
 static/dist/

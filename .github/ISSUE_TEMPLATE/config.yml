@@ -1,0 +1,5 @@
+blank_issues_enabled: true
+contact_links:
+  - name: Security vulnerability
+    url: https://github.com/simon-bouchard/book-recommendation-platform/security/advisories/new
+    about: Please report security vulnerabilities privately, not as a public issue.
