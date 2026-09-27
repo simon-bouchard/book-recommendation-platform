@@ -161,14 +161,11 @@ class Tone(Base):
 class Genre(Base):
     __tablename__ = "genres"
 
-    slug = Column(String(100), nullable=False)
+    slug = Column(String(100), primary_key=True, nullable=False)
     name = Column(String(200), nullable=True)
-    ontology_version = Column(String(32), nullable=False, default="v1")
+    ontology_version = Column(String(32), primary_key=True, nullable=False, default="v1")
 
     __table_args__ = ({"extend_existing": True},)
-
-    # Composite primary key
-    __mapper_args__ = {"primary_key": [slug, ontology_version]}
 
     books = relationship("BookGenre", back_populates="genre", lazy="dynamic")
 
@@ -231,11 +228,12 @@ class BookGenre(Base):
     item_idx = Column(
         Integer,
         ForeignKey("books.item_idx", onupdate="CASCADE", ondelete="CASCADE"),
+        primary_key=True,
         nullable=False,
     )
     genre_slug = Column(String(100), nullable=False)
     genre_ontology_version = Column(String(32), nullable=False, default="v1")
-    tags_version = Column(String(32), nullable=False, default="v1", index=True)
+    tags_version = Column(String(32), primary_key=True, nullable=False, default="v1", index=True)
 
     __table_args__ = (
         ForeignKeyConstraint(
@@ -247,9 +245,6 @@ class BookGenre(Base):
         {"extend_existing": True},
     )
 
-    # Composite primary key
-    __mapper_args__ = {"primary_key": [item_idx, tags_version]}
-
     book = relationship("Book", back_populates="genre")
     genre = relationship("Genre", back_populates="books")
 
@@ -260,6 +255,7 @@ class BookVibe(Base):
     item_idx = Column(
         Integer,
         ForeignKey("books.item_idx", onupdate="CASCADE", ondelete="CASCADE"),
+        primary_key=True,
         nullable=False,
     )
     vibe_id = Column(
@@ -268,12 +264,9 @@ class BookVibe(Base):
         nullable=False,
         index=True,
     )
-    tags_version = Column(String(32), nullable=False, default="v1", index=True)
+    tags_version = Column(String(32), primary_key=True, nullable=False, default="v1", index=True)
 
     __table_args__ = ({"extend_existing": True},)
-
-    # Composite primary key
-    __mapper_args__ = {"primary_key": [item_idx, tags_version]}
 
     book = relationship("Book", back_populates="vibe")
     vibe = relationship("Vibe", back_populates="books")
@@ -318,13 +311,13 @@ class EnrichmentError(Base):
     # Composite PK: one error per book per version
     item_idx = Column(
         Integer,
-        ForeignKey("books.item_idx", onupdate="CASCADE", ondelete="CASCADE"),  # ✅ Add FK
+        ForeignKey("books.item_idx", onupdate="CASCADE", ondelete="CASCADE"),
+        primary_key=True,
         nullable=False,
     )
-    tags_version = Column(String(32), nullable=False)
+    tags_version = Column(String(32), primary_key=True, nullable=False)
 
     __table_args__ = ({"extend_existing": True},)
-    __mapper_args__ = {"primary_key": [item_idx, tags_version]}
 
     # Temporal tracking
     first_seen_at = Column(DateTime, nullable=False, default=datetime.utcnow)

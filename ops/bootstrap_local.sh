@@ -50,7 +50,7 @@ if [ "$missing" -eq 1 ]; then
 fi
 
 echo "Creating database (if it doesn't already exist)..."
-python -c "
+uv run python -c "
 import os
 from urllib.parse import urlsplit
 from dotenv import load_dotenv
@@ -66,29 +66,29 @@ print(f'Database \"{db_name}\" ready.')
 "
 
 echo "=== 1. Database ==="
-python data/create_tables.py
-python data/import_csvs.py
-python data/import_enrichment_csvs.py
+uv run python data/create_tables.py
+uv run python data/import_csvs.py
+uv run python data/import_enrichment_csvs.py
 
 echo "=== 2. Model artifacts ==="
 echo "-> export_training_data (subject-embedding step below reads from these pickles)"
-python -m models.training.export_training_data
+uv run python -m models.training.export_training_data
 echo "-> train_subject_embs_contrastive.py (one-time subject embedding bootstrap)"
-python models/training/train_subject_embs_contrastive.py --pad-idx "${PAD_IDX:-0}"
+uv run python models/training/train_subject_embs_contrastive.py --pad-idx "${PAD_IDX:-0}"
 echo "-> precompute_embs.py"
-python models/training/precompute_embs.py --pad-idx "${PAD_IDX:-0}"
+uv run python models/training/precompute_embs.py --pad-idx "${PAD_IDX:-0}"
 echo "-> precompute_bayesian.py"
-python models/training/precompute_bayesian.py --pad-idx "${PAD_IDX:-0}"
+uv run python models/training/precompute_bayesian.py --pad-idx "${PAD_IDX:-0}"
 echo "-> build_metadata_lookup.py"
-python models/training/build_metadata_lookup.py
+uv run python models/training/build_metadata_lookup.py
 echo "-> train_als.py"
-python models/training/train_als.py --pad-idx "${PAD_IDX:-0}"
+uv run python models/training/train_als.py --pad-idx "${PAD_IDX:-0}"
 echo "-> build_similarity_indices.py"
-python models/training/build_similarity_indices.py
+uv run python models/training/build_similarity_indices.py
 
 echo "=== 3. Search indexes ==="
 echo "-> semantic index"
-python app/semantic_index/builders/build_enriched_index.py --tags-version v2 --full \
+uv run python app/semantic_index/builders/build_enriched_index.py --tags-version v2 --full \
     --output models/artifacts/semantic_indexes/enriched_v2
 
 echo
