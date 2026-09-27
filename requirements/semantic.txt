@@ -3,7 +3,15 @@
 # Semantic search model server dependencies.
 # faiss-cpu: SemanticSearcher loads and queries a FAISS index at runtime.
 # sentence-transformers: encodes free-text queries into float32 vectors.
+#
+# torch is pinned explicitly and pulled from the CPU-only wheel index: left
+# unpinned, sentence-transformers resolves its own (unrelated, much newer)
+# torch version with the full CUDA toolkit bundled in, ~2GB of it unused
+# since this container has no GPU access.
+
+--extra-index-url https://download.pytorch.org/whl/cpu
 
 -r base.txt
 faiss-cpu==1.9.0
+torch==2.8.0
 sentence-transformers==5.1.0

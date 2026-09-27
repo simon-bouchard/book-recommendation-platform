@@ -3,6 +3,12 @@
 # Embedder model server dependencies.
 # Torch is the only addition over base — SubjectEmbedder runs torch.no_grad()
 # inference at request time. No faiss, no pandas.
+#
+# CPU-only build: this container has no GPU access, and the default PyPI
+# wheel bundles the full CUDA toolkit (~2GB of unused nvidia-*-cu12
+# packages).
+
+--extra-index-url https://download.pytorch.org/whl/cpu
 
 -r base.txt
 torch==2.8.0
