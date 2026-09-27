@@ -21,6 +21,7 @@ from pathlib import Path
 from typing import Optional
 
 from sqlalchemy import text
+from sqlalchemy.dialects.mysql import insert as mysql_insert
 from tqdm import tqdm
 
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
@@ -154,18 +155,26 @@ def main():
                     new_vibes.add(vibe)
 
             if new_subjects:
-                objs = [LLMSubject(subject=s) for s in new_subjects]
-                db.add_all(objs)
+                db.execute(
+                    mysql_insert(LLMSubject)
+                    .values([{"subject": s} for s in new_subjects])
+                    .prefix_with("IGNORE")
+                )
                 db.flush()
-                for o in objs:
-                    subject_cache[o.subject] = o.llm_subject_idx
+                for idx, subj in db.query(LLMSubject.llm_subject_idx, LLMSubject.subject).filter(
+                    LLMSubject.subject.in_(new_subjects)
+                ):
+                    subject_cache[subj] = idx
 
             if new_vibes:
-                objs = [Vibe(text=v) for v in new_vibes]
-                db.add_all(objs)
+                db.execute(
+                    mysql_insert(Vibe)
+                    .values([{"text": v} for v in new_vibes])
+                    .prefix_with("IGNORE")
+                )
                 db.flush()
-                for o in objs:
-                    vibe_cache[o.text] = o.vibe_id
+                for vid, txt in db.query(Vibe.vibe_id, Vibe.text).filter(Vibe.text.in_(new_vibes)):
+                    vibe_cache[txt] = vid
 
             book_genres, book_tones, book_llm_subjects, book_vibes = [], [], [], []
             for item in parsed_chunk:
@@ -213,13 +222,44 @@ def main():
                             )
                         )
 
-            db.add_all(book_genres)
-            db.add_all(book_tones)
-            db.add_all(book_llm_subjects)
-            db.add_all(book_vibes)
-            db.flush()
-
-        db.commit()
+            if book_genres:
+                db.execute(
+                    mysql_insert(BookGenre)
+                    .values([
+                        {"item_idx": o.item_idx, "genre_slug": o.genre_slug,
+                         "genre_ontology_version": o.genre_ontology_version, "tags_version": o.tags_version}
+                        for o in book_genres
+                    ])
+                    .prefix_with("IGNORE")
+                )
+            if book_tones:
+                db.execute(
+                    mysql_insert(BookTone)
+                    .values([
+                        {"item_idx": o.item_idx, "tone_id": o.tone_id, "tags_version": o.tags_version}
+                        for o in book_tones
+                    ])
+                    .prefix_with("IGNORE")
+                )
+            if book_llm_subjects:
+                db.execute(
+                    mysql_insert(BookLLMSubject)
+                    .values([
+                        {"item_idx": o.item_idx, "llm_subject_idx": o.llm_subject_idx, "tags_version": o.tags_version}
+                        for o in book_llm_subjects
+                    ])
+                    .prefix_with("IGNORE")
+                )
+            if book_vibes:
+                db.execute(
+                    mysql_insert(BookVibe)
+                    .values([
+                        {"item_idx": o.item_idx, "vibe_id": o.vibe_id, "tags_version": o.tags_version}
+                        for o in book_vibes
+                    ])
+                    .prefix_with("IGNORE")
+                )
+            db.commit()  # commit per chunk; INSERT IGNORE makes reruns safe
         print(
             "✅ Enrichment import complete. "
             f"Skipped {skipped_no_book} rows with unknown work_id, "
