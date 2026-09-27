@@ -474,6 +474,14 @@ cp .env.example .env
 uv sync --extra train
 ```
 
+> **GPU note:** `train-gpu` pins a `cu128` PyTorch build, which requires CUDA
+> compute capability sm_70 (Volta) or newer. Older cards, including Pascal
+> (GTX 10-series, e.g. GTX 1060) at sm_61, are not supported and will crash
+> with `CUDA error: no kernel image is available for execution on the device`
+> the moment training tries to run on the GPU. Use the `train` (CPU) extra
+> instead on unsupported hardware, or force CPU regardless of what's
+> installed with `CUDA_VISIBLE_DEVICES=""`.
+
 Steps 3-5 below (database through search indexes) can be run in one shot with `ops/bootstrap_local.sh`, once `.env` is filled in and the CSVs are in `data/`. The steps are shown individually here for clarity and easier debugging.
 
 ### 3. Database
