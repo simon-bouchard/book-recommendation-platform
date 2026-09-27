@@ -291,6 +291,8 @@ The solution was to compute an **information availability score** per book from 
 
 This tiered approach improved retrieval quality over the first enrichment pass and substantially over the raw concatenated baseline.
 
+The output (`book_enrichment_v2.csv`, published alongside the rest of the dataset — see [Local Setup](#local-setup)) covers 239,866 of ~251,612 books. Every covered book has a `genre`; `tones`, `llm_subjects`, and `vibe` are populated in proportion to how much source metadata was available. Genre and tone values are constrained to the ontologies in `ontology/genres_v1.csv` and `ontology/tones_v1.csv`/`tones_v2.csv`; `llm_subjects` and `vibe` are open-vocabulary.
+
 ---
 
 ## Observability
@@ -454,7 +456,7 @@ The dataset (~250k books, ~73k users, ~1M interactions, derived from the Book-Cr
 Download it and place the 7 CSVs in `data/`:
 - `books.csv`, `authors.csv`, `users.csv`, `interactions.csv` — core catalog and rating data
 - `books_to_subjects.csv`, `users_to_subjects.csv` — Open Library subject associations
-- `book_enrichment_v2.csv` — LLM-generated genre/tone/subject/vibe tags (see [Book Enrichment](#book-enrichment) below)
+- `book_enrichment_v2.csv` — LLM-generated genre/tone/subject/vibe tags (see [Book Enrichment Pipeline](#book-enrichment-pipeline) above)
 
 ### 2. Environment and dependencies
 
@@ -551,7 +553,3 @@ npm run build
 Grafana is available at `/grafana`, Prometheus at port `9090`.
 
 Jaeger isn't part of this compose stack — it's a diagnostic tool meant to be started on demand, not run continuously (see `docker/jaeger/docker-compose.yml`'s own comments). To use it: `docker compose -f docker/jaeger/docker-compose.yml up -d`, set `OTEL_SDK_DISABLED=false` in `.env`, and restart the backend. The UI is then available at port `16686`.
-
-### Book Enrichment
-
-`book_enrichment_v2.csv` is the output of a one-time LLM enrichment pass over the book catalog (via Kafka + Spark, see `ops/enrichment/` and `spark_apps/`): a small (3-7B parameter) LLM tagged each book with a genre, tones, free-form subjects, and a short "vibe" description. Output quantity is gated by an information-availability tier — books with sparse source metadata (no description, few or no Open Library subjects) get fewer or no tags, to avoid hallucinating detail that isn't supported by the source data. 239,866 of ~251,612 books received v2 enrichment; of those, every book has a `genre`, while `tones`, `llm_subjects`, and `vibe` are populated in proportion to how much source metadata was available. Genre and tone values are constrained to the ontologies in `ontology/genres_v1.csv` and `ontology/tones_v1.csv`/`tones_v2.csv`; `llm_subjects` and `vibe` are open-vocabulary.
