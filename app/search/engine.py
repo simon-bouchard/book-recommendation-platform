@@ -1,6 +1,8 @@
 # app/search/engine.py
 from typing import Dict, List
 
+from fastapi import HTTPException
+
 from .adapters.base import SearchAdapter
 from .adapters.meili import MeiliSearchAdapter
 from .models import SearchMode, SearchRequest, SearchResponse
@@ -30,8 +32,12 @@ class SearchEngine:
             raise ValueError(f"Unsupported search mode: {request.mode}")
 
         if not adapter.is_available():
-            # Optional: fallback to another mode
-            return self._fallback_search(request)
+            # No other adapter is currently registered to fall back to
+            # (see _initialize_adapters) — surface a clean 503 instead of
+            # silently returning empty/wrong results.
+            raise HTTPException(
+                status_code=503, detail=f"Search backend '{request.mode}' is unavailable"
+            )
 
         # Delegate ALL search logic to the adapter
         results, total, raw_response = adapter.search(request)
