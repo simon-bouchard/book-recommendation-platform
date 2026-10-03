@@ -506,17 +506,21 @@ Run in this order from the repo root:
 
 ```bash
 # Export DB to training-ready pickles first — the subject-embedding step below reads from these
-python -m models.training.export_training_data
+uv run python -m models.training.export_training_data
 
 # One-time bootstrap: train subject embeddings from scratch
-python models/training/train_subject_embs_contrastive.py --pad-idx 0
+uv run python models/training/train_subject_embs_contrastive.py --pad-idx 0
 
 # Build the rest of the artifacts
-python models/training/precompute_embs.py --pad-idx 0
-python models/training/precompute_bayesian.py --pad-idx 0
-python models/training/build_metadata_lookup.py
-python models/training/train_als.py --pad-idx 0
-python models/training/build_similarity_indices.py
+uv run python models/training/precompute_embs.py --pad-idx 0
+uv run python models/training/precompute_bayesian.py --pad-idx 0
+uv run python models/training/build_metadata_lookup.py
+uv run python models/training/train_als.py --pad-idx 0
+uv run python models/training/build_similarity_indices.py
+
+# Promote the staged artifacts to a versioned directory and make it active.
+# The model servers refuse to start without an active version.
+uv run python -m models.core.artifact_registry promote
 ```
 
 After the first run, subsequent retrains can skip the subject-embedding step and reuse `ops/training/automated_training.py`, which chains the rest of these scripts, evaluates the quality gate, and promotes the result to a versioned artifact directory.
@@ -535,8 +539,9 @@ python ops/meilisearch/index_books_meili.py
 ### 6. Start services
 
 ```bash
-# Start model servers and support services
-docker compose -f docker/compose/docker-compose.yml up -d
+# Start model servers and support services. --env-file is required: compose
+# otherwise reads .env from docker/compose/, not the repo root.
+docker compose --env-file .env -f docker/compose/docker-compose.yml up -d
 
 # Run the backend
 uv run uvicorn main:app --reload

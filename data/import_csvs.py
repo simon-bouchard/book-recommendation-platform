@@ -199,6 +199,7 @@ def main():
     except Exception as e:
         db.rollback()
         print(f"❌ Import failed: {e}")
+        raise
 
     finally:
         db.close()

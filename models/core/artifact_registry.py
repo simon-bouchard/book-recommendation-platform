@@ -525,6 +525,17 @@ def _cli_list() -> None:
         print(f"{manifest.version_id}{marker}  created={manifest.created_at}{recall_str}")
 
 
+def _cli_promote(version_id: Optional[str]) -> None:
+    """Promote staging to a new version and activate it."""
+    try:
+        manifest = promote_staging(version_id or generate_version_id())
+    except (RuntimeError, FileExistsError) as exc:
+        print(f"Promotion failed: {exc}")
+        sys.exit(1)
+
+    print(f"Promoted staging to version '{manifest.version_id}' and set it active.")
+
+
 def _cli_rollback(version_id: str) -> None:
     """Roll back to the given version ID and signal containers to reload."""
     from ops.training.reload_signal import signal_workers_reload
@@ -580,6 +591,9 @@ def _build_cli_parser() -> argparse.ArgumentParser:
     sub.add_parser("status", help="Show active version details.")
     sub.add_parser("list", help="List all registered versions.")
 
+    promote_p = sub.add_parser("promote", help="Promote staging to a new active version.")
+    promote_p.add_argument("version_id", nargs="?", metavar="VERSION_ID")
+
     rollback_p = sub.add_parser("rollback", help="Roll back to a previous version.")
     rollback_p.add_argument("--to", required=True, metavar="VERSION_ID", dest="version_id")
 
@@ -600,6 +614,8 @@ if __name__ == "__main__":
         _cli_status()
     elif args.command == "list":
         _cli_list()
+    elif args.command == "promote":
+        _cli_promote(args.version_id)
     elif args.command == "rollback":
         _cli_rollback(args.version_id)
     elif args.command == "retire":
