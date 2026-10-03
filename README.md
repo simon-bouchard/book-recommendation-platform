@@ -506,17 +506,17 @@ Run in this order from the repo root:
 
 ```bash
 # Export DB to training-ready pickles first — the subject-embedding step below reads from these
-uv run python -m models.training.export_training_data
+uv run --extra train python -m models.training.export_training_data
 
 # One-time bootstrap: train subject embeddings from scratch
-uv run python models/training/train_subject_embs_contrastive.py --pad-idx 0
+uv run --extra train python models/training/train_subject_embs_contrastive.py --pad-idx 0
 
 # Build the rest of the artifacts
-uv run python models/training/precompute_embs.py --pad-idx 0
-uv run python models/training/precompute_bayesian.py --pad-idx 0
-uv run python models/training/build_metadata_lookup.py
-uv run python models/training/train_als.py --pad-idx 0
-uv run python models/training/build_similarity_indices.py
+uv run --extra train python models/training/precompute_embs.py --pad-idx 0
+uv run --extra train python models/training/precompute_bayesian.py --pad-idx 0
+uv run --extra train python models/training/build_metadata_lookup.py
+uv run --extra train python models/training/train_als.py --pad-idx 0
+uv run --extra train python models/training/build_similarity_indices.py
 
 # Promote the staged artifacts to a versioned directory and make it active.
 # The model servers refuse to start without an active version.

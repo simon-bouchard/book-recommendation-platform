@@ -78,19 +78,19 @@ uv run python data/import_enrichment_csvs.py
 
 echo "=== 2. Model artifacts ==="
 echo "-> export_training_data (subject-embedding step below reads from these pickles)"
-uv run python -m models.training.export_training_data
+uv run --extra train python -m models.training.export_training_data
 echo "-> train_subject_embs_contrastive.py (one-time subject embedding bootstrap)"
-uv run python models/training/train_subject_embs_contrastive.py --pad-idx "${PAD_IDX:-0}"
+uv run --extra train python models/training/train_subject_embs_contrastive.py --pad-idx "${PAD_IDX:-0}"
 echo "-> precompute_embs.py"
-uv run python models/training/precompute_embs.py --pad-idx "${PAD_IDX:-0}"
+uv run --extra train python models/training/precompute_embs.py --pad-idx "${PAD_IDX:-0}"
 echo "-> precompute_bayesian.py"
-uv run python models/training/precompute_bayesian.py --pad-idx "${PAD_IDX:-0}"
+uv run --extra train python models/training/precompute_bayesian.py --pad-idx "${PAD_IDX:-0}"
 echo "-> build_metadata_lookup.py"
-uv run python models/training/build_metadata_lookup.py
+uv run --extra train python models/training/build_metadata_lookup.py
 echo "-> train_als.py"
-uv run python models/training/train_als.py --pad-idx "${PAD_IDX:-0}"
+uv run --extra train python models/training/train_als.py --pad-idx "${PAD_IDX:-0}"
 echo "-> build_similarity_indices.py"
-uv run python models/training/build_similarity_indices.py
+uv run --extra train python models/training/build_similarity_indices.py
 echo "-> promote staging to active version"
 uv run python -m models.core.artifact_registry promote
 
