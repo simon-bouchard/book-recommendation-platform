@@ -493,9 +493,9 @@ Requires a running MySQL instance and `DATABASE_URL` set in `.env`. Create the d
 ```bash
 mysql -u root -p -e "CREATE DATABASE bookrec_db"
 
-python data/create_tables.py
-python data/import_csvs.py               # books, authors, users, interactions, subjects
-python data/import_enrichment_csvs.py    # genre/tone/subject/vibe tags from book_enrichment_v2.csv
+uv run --extra train python data/create_tables.py
+uv run --extra train python data/import_csvs.py               # books, authors, users, interactions, subjects
+uv run --extra train python data/import_enrichment_csvs.py    # genre/tone/subject/vibe tags from book_enrichment_v2.csv
 ```
 
 `data/import_enrichment_csvs.py` seeds the tone/genre ontology rows it needs itself, so `data/seed_ontologies.py` doesn't need to be run separately.
@@ -520,7 +520,7 @@ uv run --extra train python models/training/build_similarity_indices.py
 
 # Promote the staged artifacts to a versioned directory and make it active.
 # The model servers refuse to start without an active version.
-uv run python -m models.core.artifact_registry promote
+uv run --extra train python -m models.core.artifact_registry promote
 ```
 
 After the first run, subsequent retrains can skip the subject-embedding step and reuse `ops/training/automated_training.py`, which chains the rest of these scripts, evaluates the quality gate, and promotes the result to a versioned artifact directory.
@@ -529,11 +529,11 @@ After the first run, subsequent retrains can skip the subject-embedding step and
 
 ```bash
 # Semantic search (uses book_enrichment_v2.csv data, already imported in step 3)
-python app/semantic_index/builders/build_enriched_index.py --tags-version v2 --full \
+uv run --extra train python app/semantic_index/builders/build_enriched_index.py --tags-version v2 --full \
   --output models/artifacts/semantic_indexes/enriched_v2
 
 # Meilisearch full-text index (requires Meilisearch running, see step 6)
-python ops/meilisearch/index_books_meili.py
+uv run --extra train python ops/meilisearch/index_books_meili.py
 ```
 
 ### 6. Start services

@@ -32,14 +32,14 @@ if [ ! -f .env ]; then
     exit 1
 fi
 
-if ! uv run python -c "import torch, faiss, implicit, sentence_transformers" >/dev/null 2>&1; then
+if ! uv run --extra train python -c "import torch, faiss, implicit, sentence_transformers" >/dev/null 2>&1; then
     echo "Error: training dependencies not installed. Run 'uv sync --extra train' (or '--extra train-gpu') first." >&2
     exit 1
 fi
 
-if ! uv run python -c "import sys, numpy; sys.exit(0 if numpy.__version__ == '1.26.4' else 1)" >/dev/null 2>&1; then
+if ! uv run --extra train python -c "import sys, numpy; sys.exit(0 if numpy.__version__ == '1.26.4' else 1)" >/dev/null 2>&1; then
     echo "Error: numpy is not 1.26.4. Training pickles written under numpy 2.x cannot be loaded by the model servers (pinned to 1.26.4)." >&2
-    echo "Run 'uv sync --extra train' again and check 'uv run python -c \"import numpy; print(numpy.__version__)\"'." >&2
+    echo "Run 'uv sync --extra train' again and check 'uv run --extra train python -c \"import numpy; print(numpy.__version__)\"'." >&2
     exit 1
 fi
 
@@ -56,7 +56,7 @@ if [ "$missing" -eq 1 ]; then
 fi
 
 echo "Creating database (if it doesn't already exist)..."
-uv run python -c "
+uv run --extra train python -c "
 import os
 from urllib.parse import urlsplit
 from dotenv import load_dotenv
@@ -72,9 +72,9 @@ print(f'Database \"{db_name}\" ready.')
 "
 
 echo "=== 1. Database ==="
-uv run python data/create_tables.py
-uv run python data/import_csvs.py
-uv run python data/import_enrichment_csvs.py
+uv run --extra train python data/create_tables.py
+uv run --extra train python data/import_csvs.py
+uv run --extra train python data/import_enrichment_csvs.py
 
 echo "=== 2. Model artifacts ==="
 echo "-> export_training_data (subject-embedding step below reads from these pickles)"
@@ -92,11 +92,11 @@ uv run --extra train python models/training/train_als.py --pad-idx "${PAD_IDX:-0
 echo "-> build_similarity_indices.py"
 uv run --extra train python models/training/build_similarity_indices.py
 echo "-> promote staging to active version"
-uv run python -m models.core.artifact_registry promote
+uv run --extra train python -m models.core.artifact_registry promote
 
 echo "=== 3. Search indexes ==="
 echo "-> semantic index"
-uv run python app/semantic_index/builders/build_enriched_index.py --tags-version v2 --full \
+uv run --extra train python app/semantic_index/builders/build_enriched_index.py --tags-version v2 --full \
     --output models/artifacts/semantic_indexes/enriched_v2
 
 echo
