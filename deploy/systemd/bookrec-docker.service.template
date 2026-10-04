@@ -9,8 +9,8 @@ Group={{USER}}
 
 WorkingDirectory={{REPO_ROOT}}/docker/compose
 
-ExecStart=/usr/bin/docker compose up --wait
-ExecStop=/usr/bin/docker compose down
+ExecStart=/usr/bin/docker compose --env-file {{REPO_ROOT}}/.env up --wait
+ExecStop=/usr/bin/docker compose --env-file {{REPO_ROOT}}/.env down
 
 Type=oneshot
 RemainAfterExit=yes
