@@ -480,7 +480,7 @@ Result: a normalized schema with clean IDs, consistent metadata, and a manageabl
 
 > **Note:** Local setup is non-trivial. It requires configuring env files, loading and training on the dataset below, building the model artifacts and search indexes, and starting supporting services before the system is functional.
 >
-> **Known gap:** MySQL and Redis aren't currently in the Docker Compose stack (this deployment runs them natively on the host), and the model-server/Meilisearch compose files point at an absolute host path (`/etc/bookrec.env`) rather than a repo-relative env file. Until that's reconciled, you'll need to stand up MySQL and Redis yourself, create that file, and set `ARTIFACTS_DIR` in it to the absolute path of your `models/artifacts` directory. Steps 1-5 below (data through search indexes) don't depend on any of this; step 6 (start services) does, and has otherwise been verified working end to end once that file exists.
+> **Known gap:** the model-server/Meilisearch compose files point at an absolute host path (`/etc/bookrec.env`) rather than a repo-relative env file. Until that's reconciled, create that file yourself and set `ARTIFACTS_DIR` in it to the absolute path of your `models/artifacts` directory. Steps 1-5 below don't depend on this; step 6 (start services) does.
 
 ### 1. Data
 
@@ -523,7 +523,13 @@ Steps 3-5 below (database through search indexes) can be run in one shot with `o
 
 ### 3. Database
 
-Requires a running MySQL instance and `DATABASE_URL` set in `.env`. Create the database itself first (schema creation below only creates tables, not the database):
+Requires MySQL and Redis, with `DATABASE_URL` and `REDIS_URL` set in `.env`. The quickest option is the local Compose services, which start both (set `MYSQL_ROOT_PASSWORD` in `.env` first):
+
+```bash
+docker compose --env-file .env -f docker/local-db/docker-compose.yml up -d
+```
+
+Or use native MySQL and Redis, and change the ports in `.env` to 3306 and 6379. The database itself has to exist before the schema script runs (`ops/bootstrap_local.sh` creates it for you):
 
 ```bash
 mysql -u root -p -e "CREATE DATABASE bookrec_db"

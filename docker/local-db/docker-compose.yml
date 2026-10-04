@@ -1,0 +1,45 @@
+# docker/local-db/docker-compose.yml
+#
+# Local MySQL and Redis for development. Published on 3307 and 6380 so they
+# don't clash with native installs on the default ports. Not used by the
+# production server, which runs MySQL and Redis natively.
+#
+# Usage (from the repo root, with MYSQL_ROOT_PASSWORD set in .env):
+#   docker compose --env-file .env -f docker/local-db/docker-compose.yml up -d
+
+name: bookrec-local-db
+
+services:
+  mysql:
+    image: mysql:8.0
+    container_name: bookrec-mysql
+    ports:
+      - "3307:3306"
+    environment:
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD:?set MYSQL_ROOT_PASSWORD in .env}
+    volumes:
+      - mysql_data:/var/lib/mysql
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "127.0.0.1", "-uroot", "-p${MYSQL_ROOT_PASSWORD}"]
+      interval: 5s
+      timeout: 5s
+      retries: 30
+    restart: unless-stopped
+
+  redis:
+    image: redis:7
+    container_name: bookrec-redis
+    ports:
+      - "6380:6379"
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 5s
+      retries: 30
+    restart: unless-stopped
+
+volumes:
+  mysql_data:
+  redis_data:
