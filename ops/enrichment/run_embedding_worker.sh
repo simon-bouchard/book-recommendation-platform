@@ -1,4 +1,6 @@
 #!/bin/bash
+# Runs the incremental semantic embedding worker (tags v2), appending to logs/embedding_worker.log.
+# Production host only: hardcodes /home/simon/bookrec and the bookrec-api conda env.
 
 # Set working directory
 cd /home/simon/bookrec

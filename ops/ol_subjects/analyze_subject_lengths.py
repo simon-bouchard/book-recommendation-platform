@@ -1,4 +1,9 @@
 # ops/ol_subjects/analyze_subject_lengths.py
+"""
+Reports the longest subjects and the subject length distribution in
+ol_subjects_cleaned_v5_combined.jsonl. Read-only analysis.
+"""
+
 import json
 from collections import Counter
 from pathlib import Path

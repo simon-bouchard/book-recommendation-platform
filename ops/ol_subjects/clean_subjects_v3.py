@@ -1,4 +1,10 @@
 # ops/ol_subjects/clean_subjects_v3.py
+"""
+Step 4 of the OL subject cleaning pipeline: cleaned_v2 -> cleaned_v3.
+
+Removes fictitious-character, review and award subjects.
+"""
+
 import json
 from pathlib import Path
 

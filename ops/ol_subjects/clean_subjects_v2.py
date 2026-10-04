@@ -1,4 +1,12 @@
 # ops/ol_subjects/clean_subjects_v2.py
+"""
+Step 3 of the OL subject cleaning pipeline: cleaned_v1 -> cleaned_v2.
+
+Drops translation subjects, strips "works by ..." suffixes, and splits
+"X in art", "X in literature", "X study guide" and "X juvenile literature"
+into the topic plus the generic subject.
+"""
+
 import json
 import re
 from pathlib import Path

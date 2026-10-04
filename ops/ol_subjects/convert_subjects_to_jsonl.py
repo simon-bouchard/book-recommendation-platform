@@ -1,4 +1,11 @@
 # ops/ol_subjects/convert_subjects_to_jsonl.py
+"""
+Step 1 of the OL subject cleaning pipeline (see ops/README.md).
+
+Converts data/ol_subjects/books_with_genres.pkl into ol_subjects.jsonl, one
+{"work_id", "subjects"} record per book. Missing or non-list subjects become [].
+"""
+
 import json
 from pathlib import Path
 

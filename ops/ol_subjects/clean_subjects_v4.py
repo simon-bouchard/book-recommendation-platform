@@ -1,4 +1,11 @@
 # ops/ol_subjects/clean_subjects_v4.py
+"""
+Step 5 of the OL subject cleaning pipeline: cleaned_v3 -> cleaned_v4.
+
+Normalizes subjects with SUBJECT_MAPPING: drops meaningless ones (e.g. "general",
+"bestsellers") and maps variants and translations to a canonical subject.
+"""
+
 import json
 from pathlib import Path
 

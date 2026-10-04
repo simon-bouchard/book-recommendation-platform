@@ -1,4 +1,11 @@
 # ops/ol_subjects/clean_subjects_v1.py
+"""
+Step 2 of the OL subject cleaning pipeline: ol_subjects.jsonl -> ol_subjects_cleaned_v1.jsonl.
+
+Splits compound subjects on " -- " and commas, strips unwanted characters,
+lowercases, collapses whitespace and deduplicates.
+"""
+
 import json
 import re
 from pathlib import Path

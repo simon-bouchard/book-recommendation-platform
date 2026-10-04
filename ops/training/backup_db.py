@@ -1,4 +1,11 @@
 #!/usr/bin/env python3
+"""
+Dumps the MySQL database (mysqldump, gzipped) to data/backups/db/ and keeps the 7 newest dumps.
+
+Credentials come from MYSQL_USER/MYSQL_PASSWORD/MYSQL_HOST/MYSQL_DB, falling back to
+DATABASE_URL. Called by automated_training.py before training.
+"""
+
 import datetime
 import os
 import shlex
