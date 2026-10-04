@@ -151,23 +151,3 @@ def disable_route_caching():
         sys.modules.pop("routes.models", None)
         yield
         sys.modules.pop("routes.models", None)
-
-
-def pytest_configure(config):
-    """Register custom markers."""
-    config.addinivalue_line(
-        "markers", "requires_test_data: mark test as requiring configured test data"
-    )
-
-
-def pytest_collection_modifyitems(config, items):
-    """Skip tests that require test data if not configured."""
-    test_data_file = Path(__file__).parent / "test_data_config.json"
-
-    if not test_data_file.exists():
-        skip_marker = pytest.mark.skip(
-            reason="Test data not configured. Run setup_test_data.py first."
-        )
-        for item in items:
-            if "requires_test_data" in item.keywords:
-                item.add_marker(skip_marker)

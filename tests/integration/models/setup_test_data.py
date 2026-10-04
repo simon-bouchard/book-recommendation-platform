@@ -169,8 +169,8 @@ def generate_test_config():
 
         print("\nNext steps:")
         print("  1. Review test_data_config.json")
-        print("  2. Copy IDs to test_models_performance.py")
-        print("  3. Run: pytest tests/integration/models/test_models_performance.py -v")
+        print("  2. Sync the IDs into tests/integration/model_servers/_utils.py if they changed")
+        print("  3. Run: uv run pytest tests/integration/models/test_models_performance.py -v -s")
 
         return config
 

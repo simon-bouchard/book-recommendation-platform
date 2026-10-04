@@ -20,7 +20,16 @@ pytestmark = pytest.mark.asyncio(loop_scope="module")
 WARMUP_RUNS = 10
 MEASUREMENT_RUNS = 50
 
-_CONFIG = json.loads((Path(__file__).parent / "test_data_config.json").read_text())
+_CONFIG_FILE = Path(__file__).parent / "test_data_config.json"
+
+if not _CONFIG_FILE.exists():
+    pytest.skip(
+        f"{_CONFIG_FILE.name} not found. Generate it with: "
+        "uv run python tests/integration/models/setup_test_data.py",
+        allow_module_level=True,
+    )
+
+_CONFIG = json.loads(_CONFIG_FILE.read_text())
 
 WARM_USER_IDS = _CONFIG["warm_user_ids"]
 COLD_WITH_SUBJECTS_USER_IDS = _CONFIG["cold_with_subjects_user_ids"]
