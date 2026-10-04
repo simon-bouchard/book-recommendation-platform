@@ -20,6 +20,7 @@ def main():
     db = SessionLocal()
     try:
         # === 1. Clear all tables ===
+        db.execute(text("SET FOREIGN_KEY_CHECKS=0"))
         for table in [
             "interactions",
             "user_fav_subjects",
@@ -29,8 +30,8 @@ def main():
             "authors",
             "users",
         ]:
-            db.execute(text(f"DELETE FROM {table}"))
-        db.commit()
+            db.execute(text(f"TRUNCATE TABLE {table}"))
+        db.execute(text("SET FOREIGN_KEY_CHECKS=1"))
 
         # === 2. Import Users ===
         user_df = pd.read_csv("data/users.csv")
