@@ -18,52 +18,51 @@ The suite tests all performance-critical code paths:
 
 ## Quick Start
 
-### 1. Setup Test Data
+### Prerequisites
 
-Generate test data configuration:
+The full local stack from the root README's Local Setup: database populated, artifacts promoted, and model servers running (`EMBEDDER_URL`, `SIMILARITY_URL`, `ALS_URL`, `METADATA_URL`, defaulting to `localhost:8001-8004`). The session waits up to 60s for each server's `/health` before failing. The app runs in-process, so no backend server is needed. The `train` extra isn't needed.
 
-```bash
-python tests/integration/models/setup_test_data.py
-```
-
-This creates `test_data_config.json` with properly categorized user and book IDs.
-
-### 2. Configure Test IDs
-
-Copy the generated IDs into `test_models_performance.py`:
-
-```python
-WARM_USER_IDS = [123, 456, 789, ...]
-COLD_WITH_SUBJECTS_USER_IDS = [111, 222, 333, ...]
-COLD_WITHOUT_SUBJECTS_USER_IDS = [444, 555, 666, ...]
-TEST_BOOK_IDS = [1000, 2000, 3000, ...]
-```
-
-### 3. Run Baseline Tests (Before Refactor)
+### 1. Generate Test Data
 
 ```bash
-pytest tests/integration/models/test_models_performance.py -v -s
+uv run python tests/integration/models/setup_test_data.py
 ```
 
-Results are saved to `performance_baselines/baseline_YYYYMMDD_HHMMSS.json`
+This queries the database and the active ALS artifacts and writes `test_data_config.json`, which the test module reads at import time:
 
-### 4. Perform Your Refactoring
+| Key | Selection (up to 10 each) | Path exercised |
+|-----|---------------------------|----------------|
+| `warm_user_ids` | >= 10 ratings, most-rated first | ALS |
+| `cold_with_subjects_user_ids` | 1-9 ratings, has favorite subjects | Subject similarity + Bayesian blend |
+| `cold_without_subjects_user_ids` | 1-9 ratings, no favorite subjects | Bayesian popularity fallback |
+| `test_book_ids.popular` | >= 50 ratings | ALS / hybrid similarity |
+| `test_book_ids.has_als` | Popular books present in the ALS model | ALS similarity |
+| `test_book_ids.niche` | 5-15 ratings | Subject similarity |
+| `test_book_ids.all` | Union of the three book groups | Used by the similarity tests |
 
-Make your changes to the models module.
+The file is gitignored and specific to your database. Regenerate it after reimporting data or retraining ALS, and check an existing one with `--verify`. If it's missing, the suite is skipped with a message pointing here.
 
-### 5. Run Tests Again (After Refactor)
+`tests/integration/model_servers/_utils.py` hardcodes the same IDs so results from both layers are comparable. Update it if you regenerate the config.
+
+### 2. Run a Baseline (on `master`)
 
 ```bash
-pytest tests/integration/models/test_models_performance.py -v -s
+uv run pytest tests/integration/models/test_models_performance.py -v -s
 ```
 
-### 6. Compare Results
+Results are saved to `performance_baselines/baseline_YYYYMMDD_HHMMSS.json`.
+
+### 3. Run Again on Your Branch
+
+Same command, after making your changes.
+
+### 4. Compare Results
 
 ```bash
-python tests/integration/models/compare_performance.py --auto --html
+uv run python tests/integration/models/compare_performance.py --auto
 ```
 
-This generates a detailed comparison report and HTML visualization.
+`--auto` compares the two most recent baselines. Pass two filenames instead to compare specific runs. `--detailed` shows a per-test breakdown, and `--fail-on-regression` exits non-zero if any group regresses.
 
 ## Test Categories
 
@@ -149,20 +148,15 @@ This generates a detailed comparison report and HTML visualization.
 
 ## Configuration
 
-### Environment Variables
-
-```bash
-ADMIN_SECRET=your_secret_here  # For model reload endpoint
-TESTING=1  # Enable test mode
-```
+`conftest.py` sets `TESTING`, `SECURE_MODE=false` and a `TEST_RUN_ID` for tracing. It also turns off the route caching decorators so the numbers show real pipeline latency, not cache hits.
 
 ### Test Parameters
 
 Edit `test_models_performance.py`:
 
 ```python
-WARMUP_RUNS = 2  # Discarded measurements
-MEASUREMENT_RUNS = 10  # Actual measurements
+WARMUP_RUNS = 10  # Discarded measurements
+MEASUREMENT_RUNS = 50  # Actual measurements
 ```
 
 ## Understanding Results
@@ -222,42 +216,6 @@ Each test measures:
 5. **Parameter variations** (w, alpha, top_n, top_k)
    - Ensures no unexpected scaling issues
 
-## Integration with CI/CD
-
-### GitHub Actions Example
-
-```yaml
-name: Performance Tests
-
-on:
-  pull_request:
-    branches: [main]
-
-jobs:
-  performance:
-    runs-on: ubuntu-latest
-
-    steps:
-      - uses: actions/checkout@v2
-
-      - name: Run baseline tests
-        run: pytest tests/integration/models/test_models_performance.py -v
-
-      - name: Compare with main branch
-        run: |
-          python tests/integration/models/compare_performance.py \
-            baseline_main.json \
-            baseline_pr.json \
-            --fail-on-regression \
-            --html
-
-      - name: Upload results
-        uses: actions/upload-artifact@v2
-        with:
-          name: performance-report
-          path: tests/integration/models/performance_baselines/
-```
-
 ## Best Practices
 
 1. Run tests on stable environment (avoid during high load)
@@ -270,11 +228,11 @@ jobs:
 
 ## Troubleshooting
 
-### Tests Skip Due to Missing Data
+### Suite Skipped: test_data_config.json Not Found
 
-Run setup script to regenerate test data:
+Generate it (see Quick Start step 1):
 ```bash
-python tests/integration/models/setup_test_data.py --verify
+uv run python tests/integration/models/setup_test_data.py
 ```
 
 ### High Latency Variance
@@ -305,10 +263,9 @@ tests/integration/models/
 ├── test_models_performance.py
 ├── setup_test_data.py
 ├── compare_performance.py
+├── analyze_baseline.py
 ├── conftest.py
 ├── test_data_config.json (generated, gitignored)
 └── performance_baselines/
-    ├── baseline_20241216_140000.json
-    ├── baseline_20241216_150000.json
-    └── comparison_20241216_151500.html
+    └── baseline_YYYYMMDD_HHMMSS.json
 ```

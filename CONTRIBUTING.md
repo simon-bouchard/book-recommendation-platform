@@ -23,7 +23,12 @@ pytest tests/unit/
 
 If your change touches chatbot/agent prompts or routing behavior, run the relevant suite in `evaluation/chatbot/` and compare the score against the previous run (see `evaluation/chatbot/README.md`) — these are scored, not pass/fail, and are run manually due to API cost.
 
-If your change touches ML inference/serving code (model servers, live pipelines), run the relevant suite in `tests/integration/model_servers/` or `tests/integration/models/`. These require a live system (model servers running, artifacts loaded) and are not required for standalone scripts (training/data-prep scripts, one-off utilities).
+If your change touches ML inference/serving code, benchmark it before and after and include the comparison in the PR:
+
+- **Anything on the inference path** (recommendation/similarity routes, `models/` services, pipelines, clients, caching): run the API-level suite in `tests/integration/models/`.
+- **Model servers directly** (`model_servers/`, their artifacts or contracts): also run `tests/integration/model_servers/`.
+
+Run the suite on `master` first to get a baseline, then on your branch, and compare the two runs with the suite's `compare_performance.py --auto`. Both suites need a live system (model servers running, artifacts loaded, database populated) and the test user/book IDs described in [Benchmarks](README.md#benchmarks). Standalone scripts (training/data-prep scripts, one-off utilities) don't need this.
 
 ## Opening a PR
 

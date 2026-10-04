@@ -347,6 +347,41 @@ The quality gate tests are worth calling out: they exercise first-deployment app
 
 **Integration tests** (`tests/integration/`) require the live system — model servers running, artifacts loaded. Model server tests verify response contracts (warm/cold user routing, score sort order, k-bound enforcement) and include latency benchmarks per endpoint across representative k values. Chatbot integration tests cover multi-turn state management, context builder correctness, error boundaries (tool failures, partial results), parameter handling edge cases, and concurrency.
 
+### Benchmarks
+
+Two latency suites measure inference at different layers. Any change to the inference path must be benchmarked before and after (see [CONTRIBUTING](CONTRIBUTING.md)).
+
+| Suite | Measures | Run when the change touches |
+|-------|----------|-----------------------------|
+| `tests/integration/models/` | The backend's recommendation and similarity endpoints, called in-process (route caching disabled) | Anything on the inference path |
+| `tests/integration/model_servers/` | Each model server's HTTP endpoints, end to end plus server-side compute time | Model servers directly |
+
+Both need the full local stack from [Local Setup](#local-setup) (database populated, artifacts promoted, model servers running). They don't need the `train` extra. Each run writes a timestamped JSON file to the suite's `performance_baselines/` directory.
+
+```bash
+uv run pytest tests/integration/models/test_models_performance.py -v -s
+uv run pytest tests/integration/model_servers/ -v -s
+
+# Compare the two most recent runs of a suite
+uv run python tests/integration/models/compare_performance.py --auto
+uv run python tests/integration/model_servers/compare_performance.py --auto
+```
+
+**Test users and books.** The benchmarks run against real users and books from the database, chosen so that every recommendation path is used:
+
+| Group | Selection | Path exercised |
+|-------|-----------|----------------|
+| Warm users | >= 10 ratings (top 10 by count) | ALS |
+| Cold users with subjects | 1-9 ratings, have favorite subjects | Subject similarity + Bayesian blend |
+| Cold users without subjects | 1-9 ratings, no favorite subjects | Bayesian popularity fallback |
+| Popular books | >= 50 ratings (the ones in the ALS model form the `has_als` group) | ALS / hybrid similarity |
+| Niche books | 5-15 ratings | Subject similarity |
+
+The two suites store these IDs differently:
+
+- `tests/integration/models/` reads them from `test_data_config.json`. This file is gitignored, so generate it once per database (and again after reimporting data or retraining ALS) with `uv run python tests/integration/models/setup_test_data.py`. Add `--verify` to check an existing file. Without the file, the suite is skipped with a message pointing to the setup script.
+- `tests/integration/model_servers/` hardcodes the same IDs in `_utils.py`, so the two layers can be compared directly. If you regenerate the config, update `_utils.py` to match. `TEST_SUBJECT_INDICES` there must also exist in the trained subject vocabulary.
+
 **Agent evaluations** (`evaluation/chatbot/`) are a separate LLM-judged suite described in the Chatbot section above. Results are tracked with a comparison dashboard that diffs the latest run against the previous one.
 
 ---
@@ -471,7 +506,7 @@ cp .env.example .env
 
 # Set up Python environment (requires uv: https://docs.astral.sh/uv/)
 # `uv sync` alone only installs what's needed to run the app itself.
-# The model-artifact training pipeline (step 4) needs the extra `train`
+# Building model artifacts and semantic indexes (steps 4-5) needs the extra `train`
 # (CPU) or `train-gpu` (CUDA) dependency group on top of that:
 uv sync --extra train
 ```
@@ -493,9 +528,9 @@ Requires a running MySQL instance and `DATABASE_URL` set in `.env`. Create the d
 ```bash
 mysql -u root -p -e "CREATE DATABASE bookrec_db"
 
-uv run --extra train python data/create_tables.py
-uv run --extra train python data/import_csvs.py               # books, authors, users, interactions, subjects
-uv run --extra train python data/import_enrichment_csvs.py    # genre/tone/subject/vibe tags from book_enrichment_v2.csv
+uv run python data/create_tables.py
+uv run python data/import_csvs.py               # books, authors, users, interactions, subjects
+uv run python data/import_enrichment_csvs.py    # genre/tone/subject/vibe tags from book_enrichment_v2.csv
 ```
 
 `data/import_enrichment_csvs.py` seeds the tone/genre ontology rows it needs itself, so `data/seed_ontologies.py` doesn't need to be run separately.
@@ -537,7 +572,7 @@ uv run --extra train python app/semantic_index/builders/build_enriched_index.py 
 uv run --extra train python -m app.semantic_index.builders.build_subject_index
 
 # Meilisearch full-text index (requires Meilisearch running, see step 6)
-uv run --extra train python ops/meilisearch/index_books_meili.py
+uv run python ops/meilisearch/index_books_meili.py
 ```
 
 ### 6. Start services
