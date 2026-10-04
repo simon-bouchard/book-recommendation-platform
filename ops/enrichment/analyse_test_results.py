@@ -3,7 +3,7 @@
 Analyze enrichment results directly from SQL and generate HTML report.
 
 Usage:
-    python ops/enrichment/analyze_enrichment_results.py --version v2 --limit 100
+    python ops/enrichment/analyse_test_results.py --version v2 --limit 100
 
 Generates:
     - enrichment_report_v2_TIMESTAMP.html

@@ -3,7 +3,7 @@
 Analyze enrichment errors directly from SQL.
 
 Usage:
-    python ops/enrichment/analyze_enrichment_errors.py --version v2
+    python ops/enrichment/analyse_test_errors.py --version v2
 """
 
 import argparse

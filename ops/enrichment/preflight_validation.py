@@ -1,12 +1,12 @@
 #!/usr/bin/env python3
-# ops/preflight_enrichment.py
+# ops/enrichment/preflight_validation.py
 """
 Pre-flight validation for Phase 2 enrichment pipeline.
 Run this before starting any V2 enrichment to catch environment issues early.
 
 Usage:
-    python ops/preflight_enrichment.py
-    python ops/preflight_enrichment.py --quick  # Skip slow checks
+    python ops/enrichment/preflight_validation.py
+    python ops/enrichment/preflight_validation.py --quick  # Skip slow checks
 """
 
 import os

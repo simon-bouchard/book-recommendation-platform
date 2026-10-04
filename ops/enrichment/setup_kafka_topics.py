@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
-# ops/setup_kafka_topics.py
+# ops/enrichment/setup_kafka_topics.py
 """
 Create Kafka topics for enrichment pipeline with proper configuration.
-Run this after starting Kafka: python ops/setup_kafka_topics.py
+Run this after starting Kafka: python ops/enrichment/setup_kafka_topics.py
 """
 
 import os

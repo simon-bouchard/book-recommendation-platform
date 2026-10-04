@@ -146,4 +146,4 @@ Dry run complete. Run with --execute to perform actual migration.
 
 - See `models/core/README.md` for path definitions
 - See `models/data/README.md` for loading functions
-- See `naming_references.md` for complete artifact naming guide
+- See `docs/models/naming_references.md` for complete artifact naming guide

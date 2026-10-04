@@ -1,4 +1,6 @@
 #!/bin/bash
+# Resets enrichment test data: stops Spark consumers, recreates the enrich.results/errors
+# Kafka topics and clears Spark checkpoints. Destructive; for test runs only.
 set -e
 
 echo "🧹 Clearing Kafka Test Data"
@@ -23,7 +25,7 @@ sleep 5
 # Recreate
 echo ""
 echo "3. Recreating topics..."
-python ops/setup_kafka_topics.py
+python ops/enrichment/setup_kafka_topics.py
 
 # Delete Spark checkpoints (so it doesn't resume from old offsets)
 echo ""

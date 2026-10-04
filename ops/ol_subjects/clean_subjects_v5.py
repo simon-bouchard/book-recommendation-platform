@@ -5,8 +5,7 @@ Load the v4 cleaned subjects file (JSONL of {"work_id":..., "subjects":[...]})
 Remove any record whose work_id is NOT present in the books table of your database,
 and write the remaining records to a v5 JSONL file.
 
-Place this file at the repository root (same layout that clean_subjects_v4.py expects),
-then run:
+Run from the repository root:
 
     python ops/ol_subjects/clean_subjects_v5.py
 
