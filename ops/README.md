@@ -9,7 +9,7 @@ docstring or header has the details and options. Run Python scripts from the rep
 | Script | Purpose |
 |--------|---------|
 | `bootstrap_local.sh` | One-shot local setup: database, model artifacts and search indexes (README steps 3-5). Requires `uv sync --extra train`. |
-| `test_training_locally.sh` | Older quick run of the training steps. Mostly superseded by `bootstrap_local.sh` and `training/automated_training.py`. |
+| `test_training_locally.sh` | Smoke test: runs export, embedding precompute, Bayesian scores and ALS training to check that training works locally. Skips subject embedding training and promotion. |
 | `purge_large_blobs_from_history.sh` | One-off: rewrites git history to remove large data blobs. Needs a force-push; read its header first. |
 
 ## training/
