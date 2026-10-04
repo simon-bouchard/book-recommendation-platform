@@ -57,10 +57,10 @@ def _load_artifacts() -> None:
 
     _searcher = SemanticSearcher(dir_path=index_dir, embedder=_embed)
 
-    try:
+    if os.path.exists(os.path.join(subject_index_dir, "subjects.faiss")):
         _subject_searcher = SubjectSearcher(dir_path=subject_index_dir, embedder=_embed)
         logger.info("Subject search index loaded from %s", subject_index_dir)
-    except FileNotFoundError:
+    else:
         logger.warning(
             "Subject index not found at %s — /subject_search will return 503. "
             "Run build_subject_index.py to create it.",

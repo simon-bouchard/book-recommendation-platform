@@ -98,6 +98,8 @@ echo "=== 3. Search indexes ==="
 echo "-> semantic index"
 uv run --extra train python app/semantic_index/builders/build_enriched_index.py --tags-version v2 --full \
     --output models/artifacts/semantic_indexes/enriched_v2
+echo "-> subject name index (used by the chatbot's subject search)"
+uv run --extra train python -m app.semantic_index.builders.build_subject_index
 
 echo
 echo "=== Done ==="

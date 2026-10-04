@@ -532,6 +532,10 @@ After the first run, subsequent retrains can skip the subject-embedding step and
 uv run --extra train python app/semantic_index/builders/build_enriched_index.py --tags-version v2 --full \
   --output models/artifacts/semantic_indexes/enriched_v2
 
+# Subject name index for the chatbot's subject search (embeds the same subject_idx
+# vocabulary the subject embeddings use)
+uv run --extra train python -m app.semantic_index.builders.build_subject_index
+
 # Meilisearch full-text index (requires Meilisearch running, see step 6)
 uv run --extra train python ops/meilisearch/index_books_meili.py
 ```
