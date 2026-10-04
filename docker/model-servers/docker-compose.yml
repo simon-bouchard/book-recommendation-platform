@@ -17,7 +17,7 @@
 # Artifacts volume
 # ----------------
 # Artifacts are bind-mounted read-only from the host at /app/models/artifacts.
-# Set ARTIFACTS_DIR in /etc/bookrec.env to the absolute path of your
+# Set ARTIFACTS_DIR in .env to the absolute path of your
 # models/artifacts directory. MODEL_VERSION_POINTER points to the
 # active_version file inside that mount.
 #
@@ -41,7 +41,7 @@ services:
     container_name: model-server-embedder
     network_mode: host
     env_file:
-      - /etc/bookrec.env
+      - ${BOOKREC_ENV_FILE:?set BOOKREC_ENV_FILE in .env}
     environment:
       SERVER: embedder
       PORT: "8001"
@@ -67,7 +67,7 @@ services:
     container_name: model-server-similarity
     network_mode: host
     env_file:
-      - /etc/bookrec.env
+      - ${BOOKREC_ENV_FILE:?set BOOKREC_ENV_FILE in .env}
     environment:
       SERVER: similarity
       PORT: "8002"
@@ -93,7 +93,7 @@ services:
     container_name: model-server-als
     network_mode: host
     env_file:
-      - /etc/bookrec.env
+      - ${BOOKREC_ENV_FILE:?set BOOKREC_ENV_FILE in .env}
     environment:
       SERVER: als
       PORT: "8003"
@@ -119,7 +119,7 @@ services:
     container_name: model-server-metadata
     network_mode: host
     env_file:
-      - /etc/bookrec.env
+      - ${BOOKREC_ENV_FILE:?set BOOKREC_ENV_FILE in .env}
     environment:
       SERVER: metadata
       PORT: "8004"
@@ -145,7 +145,7 @@ services:
     container_name: model-server-semantic
     network_mode: host
     env_file:
-      - /etc/bookrec.env
+      - ${BOOKREC_ENV_FILE:?set BOOKREC_ENV_FILE in .env}
     environment:
       SERVER: semantic
       PORT: "8005"

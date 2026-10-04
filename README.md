@@ -480,7 +480,7 @@ Result: a normalized schema with clean IDs, consistent metadata, and a manageabl
 
 > **Note:** Local setup is non-trivial. It requires configuring env files, loading and training on the dataset below, building the model artifacts and search indexes, and starting supporting services before the system is functional.
 >
-> **Known gap:** the model-server/Meilisearch compose files point at an absolute host path (`/etc/bookrec.env`) rather than a repo-relative env file. Until that's reconciled, create that file yourself and set `ARTIFACTS_DIR` in it to the absolute path of your `models/artifacts` directory. Steps 1-5 below don't depend on this; step 6 (start services) does.
+> **Note:** the Compose files read container variables from the file named by `BOOKREC_ENV_FILE` in `.env` (the default in `.env.example` is `../../.env`, the repo's own `.env`). Compose commands must pass `--env-file .env` so that variable is read. Steps 1-5 below don't depend on this; step 6 (start services) does.
 
 ### 1. Data
 

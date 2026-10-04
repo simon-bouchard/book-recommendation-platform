@@ -8,7 +8,7 @@ services:
       - ../..:/app:rw
 
     env_file:
-      - /etc/bookrec.env
+      - ${BOOKREC_ENV_FILE:?set BOOKREC_ENV_FILE in .env}
 
     network_mode: "host"
     working_dir: /app
