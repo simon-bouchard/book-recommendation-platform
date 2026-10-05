@@ -584,9 +584,10 @@ uv run python ops/meilisearch/index_books_meili.py
 ### 6. Start services
 
 ```bash
-# Start model servers and support services. --env-file is required: compose
-# otherwise reads .env from docker/compose/, not the repo root.
-docker compose --env-file .env -f docker/compose/docker-compose.yml up -d
+# Start model servers, Meilisearch, Prometheus, and local MySQL and Redis.
+# --env-file is required so Compose reads .env from the repo root. If you run
+# MySQL and Redis natively, use docker/compose/docker-compose.yml instead.
+docker compose --env-file .env -f docker/local/docker-compose.yml up -d --wait
 
 # Run the backend
 uv run uvicorn main:app --reload

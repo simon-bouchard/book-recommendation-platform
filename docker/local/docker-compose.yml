@@ -1,0 +1,14 @@
+# docker/local/docker-compose.yml
+#
+# Everything needed to run the stack locally in one command: the production
+# services (model servers, Meilisearch, Prometheus) plus local MySQL and Redis.
+# The backend still runs on the host (uv run uvicorn main:app).
+#
+# Usage (from the repo root):
+#   docker compose --env-file .env -f docker/local/docker-compose.yml up -d --wait
+
+name: bookrec-local
+
+include:
+  - ../compose/docker-compose.yml
+  - ../local-db/docker-compose.yml
