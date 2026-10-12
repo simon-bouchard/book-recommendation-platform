@@ -20,7 +20,7 @@ dependencies = [
     "langchain-openai==0.3.33",
     "langgraph==0.6.7",
     "meilisearch==0.38.0",
-    "numpy==1.26.4",
+    "numpy==2.2.6",
     "opentelemetry-api==1.40.0",
     "opentelemetry-exporter-otlp-proto-http==1.40.0",
     "opentelemetry-instrumentation-fastapi==0.61b0",
@@ -50,7 +50,7 @@ dependencies = [
 # train-gpu` (CUDA) — the two are mutually exclusive so you don't have to
 # pull the CUDA wheels if you're training on CPU.
 train = [
-    "numpy==1.26.4",
+    "numpy==2.2.6",
     "scipy",
     "faiss-cpu==1.9.0",
     "implicit==0.7.2",
@@ -59,7 +59,7 @@ train = [
     "torch==2.8.0",
 ]
 train-gpu = [
-    "numpy==1.26.4",
+    "numpy==2.2.6",
     "scipy",
     "faiss-cpu==1.9.0",
     "implicit==0.7.2",

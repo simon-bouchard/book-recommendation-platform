@@ -34,7 +34,7 @@ PyJWT==2.10.1
 python-dotenv==1.1.1
 
 # --- data / ML ---
-numpy==1.26.4
+numpy==2.2.6
 pandas==2.3.2
 scipy
 faiss-cpu==1.7.4
